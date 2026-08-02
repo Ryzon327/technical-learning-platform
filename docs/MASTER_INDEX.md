@@ -1,450 +1,189 @@
-# MASTER_INDEX
+---
 
-**Technical Learning Platform**
-**Company Company Operating System Index**
-**Version:** 1.0
+# Company Terminology
+
+To maintain consistency across documentation, software, AI agents, and future contributors, the following terms have fixed meanings within this company.
+
+These definitions are authoritative and should be used consistently throughout the project.
 
 ---
 
-# Purpose
+## Company Operating Systems
 
-This document is the navigation system for the Technical Learning Platform.
+The term **Company Operating Systems** refers to the organizational operating manuals that define how the company functions.
 
-It defines:
+They are **not** computer operating systems such as Windows, Linux, or macOS.
 
-* How the company is organized.
-* Where documentation lives.
-* Which Company Operating System owns each responsibility.
-* Which documents are authoritative.
-* Which AI agents use which manuals.
-* The required reading order for humans and AI.
+The Company Operating Systems are:
 
-This document should be the first document read by every new contributor.
+- Product Operating System
+- Engineering Operating System
+- Learning Operating System
+- Platform Operating System
+- Founder Operating System
 
----
+Together, these documents define:
 
-# Company Mission
+- Responsibilities
+- Ownership
+- Standards
+- Interfaces
+- Daily practices
+- Decision authority
+- Long-term governance
 
-Build competent, confident, and employable technical professionals through immersive, practical, and accessible technical education.
-
-The company values:
-
-* Respecting the student's time.
-* Teaching practical skills.
-* Encouraging lifelong learning.
-* Reducing founder workload through automation.
-* Building maintainable systems.
-* Creating long-term value over short-term novelty.
+Every major business decision and implementation should trace back to one of these Operating Systems.
 
 ---
 
-# Company Constitution
+## Platform Engines
 
-The constitutional authority for the company is:
+A **Platform Engine** is a modular software subsystem responsible for one clearly defined capability.
 
-`PLATFORM_BLUEPRINT.md`
+Each Engine owns exactly one area of responsibility.
 
-The Blueprint defines:
+Examples include:
 
-* Vision
-* Principles
-* Boundaries
-* Product philosophy
-* Learning philosophy
-* Architecture
-* Non-negotiable rules
+- Platform Kernel
+- Authentication Engine
+- Learning Engine
+- Curriculum Engine
+- Knowledge & Notes Engine
+- Lab Engine
+- Evidence Engine
+- Certificate Engine
+- Search Engine
+- Analytics Engine
+- Operations Engine
+- Notification Engine
+- AI Orchestration Engine
 
-No Company Operating System may contradict the Blueprint.
+Engines communicate through documented interfaces.
 
----
-
-# Company Company Company Operating Systems
-
-The company is organized into five Company Company Operating Systems.
-
-Each Company Operating System owns one major area of responsibility.
-
-## Product Company Operating System
-
-**Mission**
-
-Define what the company builds.
-
-**Owns**
-
-* Product Vision
-* Product Boundaries
-* Roadmap
-* Feature Registry
-* Future Register
-* Decision Ledger
-* Product priorities
-
-**Does Not Own**
-
-* Implementation
-* Infrastructure
-* Student operations
-* Engineering standards
-
-**Primary Audience**
-
-* Founder
-* Product Owner
-* Claude
-* Future Product Managers
+No Engine directly depends on another Engine's internal implementation.
 
 ---
 
-## Engineering Company Operating System
+## Features
 
-**Mission**
+A Feature is a specific capability delivered by one Platform Engine.
 
-Define how the software is built.
+Each Feature has:
 
-**Owns**
+- One owner
+- One Engine
+- One lifecycle
+- One source of truth
 
-* Development workflow
-* Coding standards
-* Repository standards
-* Testing
-* Releases
-* GitHub workflow
-* AI implementation process
-
-**Does Not Own**
-
-* Product decisions
-* Business priorities
-* Learning philosophy
-
-**Primary Audience**
-
-* Claude
-* Platform Engineer
-* Developers
+Features are documented in the Feature Registry.
 
 ---
 
-## Learning Company Operating System
+## Milestones
 
-**Mission**
+A Milestone is the smallest complete unit of work that delivers meaningful value.
 
-Define how students learn.
+Every Milestone should:
 
-**Owns**
+- Be independently testable
+- Be independently deployable when practical
+- Produce measurable progress
 
-* Learning philosophy
-* Course framework
-* Mission framework
-* Competencies
-* Evidence
-* AI Mentor behavior
-* Study Success Center
-* Notes
-* Certificates
-
-**Does Not Own**
-
-* Infrastructure
-* Engineering
-* Founder operations
-
-**Primary Audience**
-
-* Founder
-* Curriculum Designers
-* AI Mentor
+Implementation proceeds one Milestone at a time.
 
 ---
 
-## Platform Company Operating System
+## Tasks
 
-**Mission**
+Tasks are individual implementation steps required to complete a Milestone.
 
-Define how the platform operates.
+Tasks should be:
 
-**Owns**
+- Small
+- Clear
+- Actionable
+- Easy to review
 
-* Platform architecture
-* Authentication
-* Engines
-* Infrastructure
-* Monitoring
-* Recovery
-* Scalability
-* Deployment
-
-**Does Not Own**
-
-* Product priorities
-* Course design
-* Business strategy
-
-**Primary Audience**
-
-* Platform Engineer
-* Claude
-* Developers
+Tasks are implementation details, not planning artifacts.
 
 ---
 
-## Founder Company Operating System
+## Competency
 
-**Mission**
+Competency is demonstrated capability.
 
-Help the founder run the business efficiently.
+Competency is never assumed based solely on:
 
-**Owns**
+- Time spent
+- Videos watched
+- Lessons completed
 
-* Founder Dashboard
-* Daily Brief
-* Operations
-* Project Management
-* AI Cost Tracking
-* Course Operations
-* Platform Health
-* Business Metrics
-* Approvals
-
-**Does Not Own**
-
-* Product architecture
-* Software implementation
-* Learning design
-
-**Primary Audience**
-
-* Founder
+Students demonstrate competency through practical work and validated evidence.
 
 ---
 
-# Core Project Documents
+## Evidence
 
-The following documents are required for every implementation session.
+Evidence is proof that a student has demonstrated competency.
 
-## PLATFORM_BLUEPRINT.md
+Examples include:
 
-Defines the company's constitutional rules.
+- Completed labs
+- Practical assessments
+- Technical explanations
+- Challenge exercises
+- Capstone projects
 
-Priority: Highest
-
----
-
-## MASTER_BUILD_PROMPT.md
-
-Defines how Claude behaves.
-
-Priority: Highest
+Evidence supports meaningful certification.
 
 ---
 
-## CURRENT_BUILD_STATUS.md
+## AI Agents
 
-Defines where implementation currently stands.
+AI Agents are specialized assistants responsible for one domain of expertise.
 
-Updated every milestone.
+Examples include:
 
----
+- Platform Engineer
+- Learning Advisor
+- Product Advisor
+- Security Advisor
+- Business Advisor
+- Finance Advisor
 
-## DECISION_LEDGER.md
-
-Explains why major decisions were made.
-
-Never delete historical decisions.
-
----
-
-## FEATURE_REGISTRY.md
-
-Master inventory of all approved features.
-
-Every feature belongs to exactly one owning engine.
+AI Agents assist the founder but do not redefine company direction.
 
 ---
 
-## ROADMAP.md
+## Founder
 
-Defines implementation order.
+The Founder is the final decision-maker for:
 
----
+- Vision
+- Product direction
+- Strategic priorities
+- Business operations
 
-## NOT_NOW.md
-
-Approved future ideas that are intentionally deferred.
-
-Claude must never implement items from this document unless explicitly instructed.
-
----
-
-# Standard Reading Order
-
-## New Founder
-
-1. MASTER_INDEX.md
-2. PLATFORM_BLUEPRINT.md
-3. Product OS
-4. Founder OS
+The Founder delegates implementation—not ownership.
 
 ---
 
-## Claude
+## Repository Freeze
 
-1. MASTER_INDEX.md
-2. PLATFORM_BLUEPRINT.md
-3. MASTER_BUILD_PROMPT.md
-4. CURRENT_BUILD_STATUS.md
-5. DECISION_LEDGER.md
-6. FEATURE_REGISTRY.md
-7. Relevant Company Operating System
-8. Relevant source code
+The repository structure is considered stable.
 
----
+Future work should:
 
-## New Developer
+- Add new content
+- Extend existing systems
+- Improve implementation
 
-1. MASTER_INDEX.md
-2. PLATFORM_BLUEPRINT.md
-3. Engineering OS
-4. Platform OS
-5. CURRENT_BUILD_STATUS.md
+Future work should not:
 
----
+- Reorganize the repository
+- Rename major architectural components
+- Introduce new top-level structures
 
-## Curriculum Designer
+without explicit founder approval.
 
-1. MASTER_INDEX.md
-2. PLATFORM_BLUEPRINT.md
-3. Learning OS
-4. Product OS
-
----
-
-# Standard Vocabulary
-
-To keep documentation consistent, these terms have fixed meanings.
-
-**Engine**
-
-A modular software capability with one clear responsibility.
-
-**Learning Path**
-
-An ordered sequence of courses.
-
-**Course**
-
-A collection of modules focused on one subject.
-
-**Module**
-
-A collection of related missions.
-
-**Mission**
-
-A practical learning objective.
-
-**Lab**
-
-An interactive environment used to complete a mission.
-
-**Competency**
-
-A demonstrated capability validated by the platform.
-
-**Evidence**
-
-Recorded proof of demonstrated competency.
-
-**Founder**
-
-The product owner and final decision-maker.
-
-**Platform Engineer**
-
-The AI responsible for technical operations and implementation guidance.
-
----
-
-# Repository Overview
-
-```text
-technical-learning-platform/
-
-apps/
-packages/
-services/
-content/
-labs/
-media/
-supabase/
-infrastructure/
-scripts/
-tests/
-prompts/
-docs/
-
-Root project documents
-```
-
-Every file and folder must have a clear owner.
-
----
-
-# Documentation Principles
-
-Documentation should be:
-
-* Clear.
-* Accurate.
-* Versioned.
-* Modular.
-* Non-duplicative.
-* Easy to navigate.
-* Beginner friendly.
-* AI friendly.
-
-Each topic has one authoritative home.
-
----
-
-# Change Management
-
-Changes should follow this order:
-
-1. Founder approval.
-2. Update Blueprint if constitutional.
-3. Update the appropriate Company Operating System.
-4. Update Decision Ledger if needed.
-5. Update Feature Registry if needed.
-6. Update Build Status.
-7. Implement changes.
-8. Commit to GitHub.
-
----
-
-# Long-Term Vision
-
-This documentation structure is designed to support:
-
-* The LMS.
-* Additional technical learning paths.
-* Recruitment.
-* Staffing.
-* Employer services.
-* Future AI agents.
-* Future employees.
-* Future business units.
-
-The goal is to create an organization that scales without losing clarity or requiring repeated architectural discussions.
-
----
-
-# Document Status
-
-This document is considered foundational.
-
-Future changes should refine navigation rather than redefine the company structure.
-
-When in doubt, start here.
-
+This protects long-term maintainability and minimizes unnecessary architectural drift.
