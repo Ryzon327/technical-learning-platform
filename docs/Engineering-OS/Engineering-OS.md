@@ -1,4 +1,4 @@
-# Engineering Operating System
+# Engineering Company Operating System
 
 **Technical Learning Platform**
 **Version:** 1.0
@@ -15,7 +15,7 @@ Engineering exists to transform approved product decisions into high-quality sof
 
 # 2. Purpose
 
-The Engineering Operating System defines:
+The Engineering Company Operating System defines:
 
 * How software is designed.
 * How software is built.
@@ -101,7 +101,7 @@ Implements infrastructure and platform services.
 
 Provides operational tooling and automation.
 
-Engineering does not override decisions owned by another Operating System.
+Engineering does not override decisions owned by another Company Operating System.
 
 ---
 
@@ -298,7 +298,7 @@ Changes should improve engineering quality while remaining consistent with:
 
 * MASTER_INDEX.md
 * PLATFORM_BLUEPRINT.md
-* Product Operating System
+* Product Company Operating System
 
 Engineering evolves continuously, but always within the constitutional boundaries of the company.
 

@@ -1,4 +1,4 @@
-# Product Operating System
+# Product Company Operating System
 
 **Technical Learning Platform**
 **Version:** 1.0
@@ -7,7 +7,7 @@
 
 # Mission
 
-The Product Operating System defines **what** the company builds.
+The Product Company Operating System defines **what** the company builds.
 
 It ensures every feature, course, lab, AI capability, and business initiative aligns with the company's mission, constitution, and long-term vision.
 
@@ -311,7 +311,7 @@ Claude and future contributors implement the approved vision but do not redefine
 
 # Revision Policy
 
-This Operating System is a living document.
+This Company Operating System is a living document.
 
 It should evolve carefully as the company grows while remaining consistent with the Platform Blueprint.
 

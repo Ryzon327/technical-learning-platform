@@ -1,7 +1,7 @@
 # MASTER_INDEX
 
 **Technical Learning Platform**
-**Company Operating System Index**
+**Company Company Operating System Index**
 **Version:** 1.0
 
 ---
@@ -14,7 +14,7 @@ It defines:
 
 * How the company is organized.
 * Where documentation lives.
-* Which Operating System owns each responsibility.
+* Which Company Operating System owns each responsibility.
 * Which documents are authoritative.
 * Which AI agents use which manuals.
 * The required reading order for humans and AI.
@@ -54,17 +54,17 @@ The Blueprint defines:
 * Architecture
 * Non-negotiable rules
 
-No Operating System may contradict the Blueprint.
+No Company Operating System may contradict the Blueprint.
 
 ---
 
-# Company Operating Systems
+# Company Company Company Operating Systems
 
-The company is organized into five Operating Systems.
+The company is organized into five Company Company Operating Systems.
 
-Each Operating System owns one major area of responsibility.
+Each Company Operating System owns one major area of responsibility.
 
-## Product Operating System
+## Product Company Operating System
 
 **Mission**
 
@@ -96,7 +96,7 @@ Define what the company builds.
 
 ---
 
-## Engineering Operating System
+## Engineering Company Operating System
 
 **Mission**
 
@@ -126,7 +126,7 @@ Define how the software is built.
 
 ---
 
-## Learning Operating System
+## Learning Company Operating System
 
 **Mission**
 
@@ -158,7 +158,7 @@ Define how students learn.
 
 ---
 
-## Platform Operating System
+## Platform Company Operating System
 
 **Mission**
 
@@ -189,7 +189,7 @@ Define how the platform operates.
 
 ---
 
-## Founder Operating System
+## Founder Company Operating System
 
 **Mission**
 
@@ -296,7 +296,7 @@ Claude must never implement items from this document unless explicitly instructe
 4. CURRENT_BUILD_STATUS.md
 5. DECISION_LEDGER.md
 6. FEATURE_REGISTRY.md
-7. Relevant Operating System
+7. Relevant Company Operating System
 8. Relevant source code
 
 ---
@@ -414,7 +414,7 @@ Changes should follow this order:
 
 1. Founder approval.
 2. Update Blueprint if constitutional.
-3. Update the appropriate Operating System.
+3. Update the appropriate Company Operating System.
 4. Update Decision Ledger if needed.
 5. Update Feature Registry if needed.
 6. Update Build Status.

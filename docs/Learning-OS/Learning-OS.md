@@ -1,4 +1,4 @@
-# Learning Operating System
+# Learning Company Operating System
 
 **Technical Learning Platform**
 **Version:** 1.0
@@ -9,13 +9,13 @@
 
 Develop competent, confident, and employable technical professionals through practical, structured, encouraging, and accessible learning experiences.
 
-The Learning Operating System defines how students learn, practice, demonstrate competency, and build professional confidence.
+The Learning Company Operating System defines how students learn, practice, demonstrate competency, and build professional confidence.
 
 ---
 
 # 2. Purpose
 
-The Learning Operating System is the authoritative guide for:
+The Learning Company Operating System is the authoritative guide for:
 
 * Learning philosophy.
 * Course structure.
@@ -362,13 +362,13 @@ Learning does **not** determine:
 
 # 21. Revision Policy
 
-The Learning Operating System is a living manual.
+The Learning Company Operating System is a living manual.
 
 It evolves to improve educational quality while remaining consistent with:
 
 * MASTER_INDEX.md
 * PLATFORM_BLUEPRINT.md
-* Product Operating System
+* Product Company Operating System
 
 Educational improvements should always strengthen student learning without increasing unnecessary complexity or reducing respect for the student's time.
 

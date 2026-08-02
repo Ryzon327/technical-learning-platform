@@ -1,4 +1,4 @@
-# Founder Operating System
+# Founder Company Operating System
 
 **Technical Learning Platform**
 **Version:** 1.0
@@ -9,13 +9,13 @@
 
 Enable the founder to lead, improve, and grow the company while minimizing operational burden through automation, clear visibility, and disciplined decision-making.
 
-The Founder Operating System defines how the business is operated—not how the software is built.
+The Founder Company Operating System defines how the business is operated—not how the software is built.
 
 ---
 
 # 2. Purpose
 
-The Founder Operating System is the authoritative guide for:
+The Founder Company Operating System is the authoritative guide for:
 
 * Daily operations.
 * Executive decision-making.
@@ -168,7 +168,7 @@ Recommendations should be evidence-based rather than opinion-based.
 
 # 11. AI Executive Team
 
-The Founder Operating System coordinates AI assistants, including:
+The Founder Company Operating System coordinates AI assistants, including:
 
 * Platform Engineer.
 * Student Success Analyst.
@@ -278,19 +278,19 @@ Founder Operations does **not** redefine:
 * Platform architecture.
 * Learning philosophy.
 
-Those areas are governed by their respective Operating Systems.
+Those areas are governed by their respective Company Company Operating Systems.
 
 ---
 
 # 18. Revision Policy
 
-The Founder Operating System is a living operational manual.
+The Founder Company Operating System is a living operational manual.
 
 It should evolve as the business grows while remaining consistent with:
 
 * MASTER_INDEX.md
 * PLATFORM_BLUEPRINT.md
-* Product Operating System
+* Product Company Operating System
 
 Changes should improve clarity, automation, and decision quality without increasing unnecessary operational complexity.
 
@@ -298,7 +298,7 @@ Changes should improve clarity, automation, and decision quality without increas
 
 # 19. Long-Term Vision
 
-The Founder Operating System should eventually allow the founder to oversee:
+The Founder Company Operating System should eventually allow the founder to oversee:
 
 * Multiple learning paths.
 * Multiple AI agents.
@@ -314,7 +314,7 @@ The founder should manage growth through systems rather than personal interventi
 
 # 20. Definition of Success
 
-The Founder Operating System succeeds when the founder can confidently say:
+The Founder Company Operating System succeeds when the founder can confidently say:
 
 > "I spend my time building the future of the company instead of managing the past."
 

@@ -1,4 +1,4 @@
-# Platform Operating System
+# Platform Company Operating System
 
 **Technical Learning Platform**
 **Version:** 1.0
@@ -9,13 +9,13 @@
 
 Provide a secure, scalable, modular, and maintainable technical platform that delivers immersive learning experiences while minimizing operational complexity.
 
-The Platform Operating System defines how the software is structured, how services communicate, how infrastructure evolves, and how the platform scales.
+The Platform Company Operating System defines how the software is structured, how services communicate, how infrastructure evolves, and how the platform scales.
 
 ---
 
 # 2. Purpose
 
-The Platform Operating System is the authoritative guide for:
+The Platform Company Operating System is the authoritative guide for:
 
 * Platform architecture.
 * Engine ownership.
@@ -296,7 +296,7 @@ Platform development follows this rhythm:
 
 # 16. Success Metrics
 
-The Platform Operating System succeeds when:
+The Platform Company Operating System succeeds when:
 
 * The platform remains modular.
 * New providers can be added easily.
@@ -329,11 +329,11 @@ Platform does **not** determine:
 
 # 18. Revision Policy
 
-The Platform Operating System evolves with the platform while remaining consistent with:
+The Platform Company Operating System evolves with the platform while remaining consistent with:
 
 * MASTER_INDEX.md
 * PLATFORM_BLUEPRINT.md
-* Engineering Operating System
+* Engineering Company Operating System
 
 Architectural changes should improve scalability, maintainability, and reliability without introducing unnecessary complexity.
 
@@ -341,7 +341,7 @@ Architectural changes should improve scalability, maintainability, and reliabili
 
 # 19. Long-Term Vision
 
-The Platform Operating System is designed to support:
+The Platform Company Operating System is designed to support:
 
 * Additional technical learning paths.
 * AI-powered automation.
