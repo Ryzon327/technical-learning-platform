@@ -1,365 +1,225 @@
 # Current Build Status
 
 **Project:** Technical Learning Platform
-**Status version:** 1.0
-**Current phase:** MVP Implementation
-**Current milestone:** Local Development Foundation
-**Owning area:** Platform Core
-**Milestone status:** Ready to begin
-**Last completed milestone:** Master Build Prompt
-**Active blockers:** None
 
 ---
 
-# 1. Current Objective
+# Purpose
 
-Establish a working local software-development foundation for the Technical Learning Platform.
+This document is the operational handoff for the project.
 
-This milestone creates the application shells, workspace configuration, shared development standards, automated checks, and founder-friendly setup documentation.
+Every new AI session should read this document to understand:
 
-This milestone must not implement student-facing product features.
+- Where the project currently stands.
+- What is currently being built.
+- What has recently been completed.
+- What should happen next.
 
----
-
-# 2. Authoritative Documents Completed
-
-The following project documents are approved and stored in GitHub:
-
-* `PLATFORM_BLUEPRINT.md`
-* `MASTER_BUILD_PROMPT.md`
-* `CURRENT_BUILD_STATUS.md`
-* `DECISION_LEDGER.md`
-* `FEATURE_REGISTRY.md`
-* `ROADMAP.md`
-* `NOT_NOW.md`
-* `SECURITY.md`
-* `CONTRIBUTING.md`
-
-The Platform Blueprint and Master Build Prompt are authoritative.
-
-Claude must read them before planning or implementing work.
+This document reflects the current implementation state of the project.
 
 ---
 
-# 3. Completed Work
+# Project Status
 
-## Product and architecture
+**Status:** 🟢 Active Development
 
-* Product vision approved.
-* Product Constitution approved.
-* Product boundaries approved.
-* Learning philosophy approved.
-* Student experience approved.
-* Founder experience approved.
-* Lab Engine concept approved.
-* AI architecture approved.
-* Security architecture approved.
-* Accessibility requirements approved.
-* Infrastructure progression approved.
-* MVP scope approved.
-* Future functionality separated from MVP scope.
+**Current Phase:**
+Phase 2 — Product Construction
 
-## Repository foundation
-
-* Local Git repository created.
-* GitHub repository created.
-* GitHub remote configured.
-* Initial project documentation committed.
-* Platform Blueprint committed.
-* Claude Master Build Prompt committed.
-* Empty repository directories preserved where required.
-* Sensitive files excluded through `.gitignore`.
-* `.env.example` created using placeholders only.
+**Current Objective:**
+Complete the Feature Registry and transition into MVP implementation.
 
 ---
 
-# 4. Current Milestone
+# Active Milestone
 
-## Local Development Foundation
+**Milestone Name:**
+Feature Registry Foundation
 
-The purpose is to create a stable local development environment without implementing platform functionality.
-
-### Approved scope
-
-* Inspect the current repository structure.
-* Create the root Node.js workspace configuration.
-* Select and configure one package manager.
-* Configure a monorepo workspace.
-* Create the React and TypeScript student web application shell.
-* Create the React and TypeScript founder-admin application shell.
-* Create shared TypeScript configuration.
-* Create the initial Design System package.
-* Create Shared Types and Shared Utilities packages.
-* Add formatting.
-* Add linting.
-* Add strict TypeScript validation.
-* Add a basic test framework.
-* Add automated foundation checks.
-* Create an accessible application shell.
-* Create local development scripts.
-* Create founder-friendly setup documentation.
-* Confirm both application shells run locally.
-* Update project documentation.
-
-### Explicitly out of scope
-
-Do not implement:
-
-* Authentication.
-* User registration.
-* Student goals.
-* Supabase integration.
-* Database tables.
-* Row-Level Security.
-* Course functionality.
-* Learning paths.
-* Notes.
-* AI integration.
-* AI Mentor.
-* Lab functionality.
-* Proxmox integration.
-* Containerlab.
-* Evidence records.
-* Certificates.
-* Search.
-* Payments.
-* Recruitment.
-* Career simulation.
-* Future learning pathways.
-* Production hosting.
+**Status:**
+🔄 In Progress
 
 ---
 
-# 5. Milestone Acceptance Criteria
+# Current Priorities
 
-The Local Development Foundation is complete only when:
+Priority order is fixed unless explicitly changed by the Founder.
 
-* The repository installs successfully using one documented command.
-* The student web application runs locally.
-* The founder-admin application runs locally.
-* Both applications display a basic accessible shell.
-* Shared packages can be imported by both applications.
-* Strict TypeScript checks pass.
-* Linting passes.
-* Formatting checks pass.
-* Basic tests pass.
-* No product functionality has been added.
-* No secrets are present.
-* Local setup instructions are complete.
-* Common startup and shutdown commands are documented.
-* Common beginner errors have recovery guidance.
-* `CURRENT_BUILD_STATUS.md` is updated.
-* `FEATURE_REGISTRY.md` is updated.
-* `CHANGELOG.md` is updated.
-* Claude provides a milestone completion report.
-* Claude provides exact Git commands.
-* Claude stops before beginning Authentication.
+1. FEATURE_REGISTRY_SPEC.md
+2. FEATURE_TEMPLATE.md
+3. FEATURE_CATALOG.md
+4. Populate Engine Feature Catalogs
+5. ROADMAP.md
+6. RELEASE_PLAN.md
+7. MILESTONE_CATALOG.md
+8. MILESTONE_TEMPLATE.md
+9. Begin MVP implementation
 
 ---
 
-# 6. Required Founder Experience
+# Recently Completed
 
-The founder must be able to:
+## Repository
 
-1. Download or clone the repository.
-2. Open Terminal.
-3. Navigate to the project.
-4. Install dependencies using one command.
-5. Start both application shells using one documented command.
-6. Open both applications in a browser.
-7. Stop the environment safely.
-8. Understand basic error messages.
-9. Save completed work to GitHub using documented commands.
+- GitHub repository initialized.
+- Repository structure finalized.
+- Repository architecture frozen.
 
-Instructions must not assume professional software-development experience.
+## Governance
 
----
+- Platform Blueprint completed.
+- Master Index completed.
+- Company Terminology established.
+- Master Build Prompt completed.
+- Decision Ledger completed.
+- Current Build Status established.
 
-# 7. Expected Repository Changes
+## Company Operating Systems
 
-Claude should inspect the repository before confirming exact files.
+Completed:
 
-Expected additions may include:
+- Product Operating System
+- Engineering Operating System
+- Learning Operating System
+- Platform Operating System
+- Founder Operating System
 
-```text
-package.json
-pnpm-workspace.yaml
-tsconfig.base.json
-eslint configuration
-formatting configuration
-test configuration
-apps/web/package.json
-apps/web source files
-apps/founder-admin/package.json
-apps/founder-admin source files
-packages/design-system/package.json
-packages/shared-types/package.json
-packages/shared-utils/package.json
-docs/founder-guides/HOW_TO_RUN_LOCALLY.md
-docs/founder-guides/HOW_TO_STOP_LOCALLY.md
-docs/founder-guides/COMMON_SETUP_ERRORS.md
-```
+## Documentation Architecture
 
-This list is an expectation, not permission to create unnecessary files.
+Completed:
 
-Claude must reuse any existing compatible files.
+- Architecture documentation structure
+- Feature Registry structure
+- Roadmap structure
+- Project documentation structure
 
----
+## Engine Architecture
 
-# 8. Package Manager Decision
+Current Engine ownership:
 
-The implementation engineer must select one package manager for the repository.
-
-Preferred choice:
-
-* `pnpm`
-
-Reasons:
-
-* Strong monorepo support.
-* Efficient disk usage.
-* Clear workspace configuration.
-* Suitable for multiple applications and shared packages.
-
-Claude must confirm that the choice is appropriate before implementation.
-
-Do not configure multiple competing package managers.
-
-Do not commit conflicting lock files.
+- Platform Kernel
+- Authentication Engine
+- Learning Engine
+- Curriculum Engine
+- Knowledge & Notes Engine
+- Lab Engine
+- Evidence Engine
+- Certificate Engine
+- Search Engine
+- Analytics Engine
+- Operations Engine
+- Notification Engine
+- AI Orchestration Engine
 
 ---
 
-# 9. Application Shell Requirements
+# Repository State
 
-## Student web application
+Repository Structure:
 
-The initial shell may contain:
+✅ Frozen
 
-* Application name.
-* Accessible header.
-* Main-content region.
-* Placeholder navigation.
-* Clear “Local Development Foundation” status.
-* No functional learning features.
+Documentation Architecture:
 
-## Founder-admin application
+✅ Frozen
 
-The initial shell may contain:
+Engine Architecture:
 
-* Founder Operations title.
-* Accessible header.
-* Main-content region.
-* Placeholder platform-health area.
-* Clear “Local Development Foundation” status.
-* No actual analytics or operational controls.
+✅ Frozen
 
-The shells exist only to prove the workspace and shared packages function correctly.
+Company Operating Systems:
 
----
+✅ Complete
 
-# 10. Accessibility Requirements
+Planning:
 
-Both application shells must include:
+✅ Complete
 
-* Semantic HTML.
-* A visible page title.
-* Logical heading order.
-* Keyboard-accessible navigation.
-* Visible keyboard focus.
-* Skip-to-content link.
-* Adequate contrast.
-* No color-only meaning.
-* Responsive text and layout.
-* Reduced-motion consideration.
-* Automated accessibility checks where practical.
+Implementation:
 
-Accessibility is part of the foundation, not a later visual enhancement.
+🔄 Beginning
 
 ---
 
-# 11. Security Requirements
+# Current Blockers
 
-During this milestone:
+None.
 
-* Do not add secrets.
-* Do not connect production services.
-* Do not connect Proxmox.
-* Do not connect Supabase.
-* Do not expose administrative services.
-* Do not create real student accounts.
-* Do not store personal data.
-* Keep `.env.example` limited to placeholders.
-* Verify `.env` remains ignored.
-* Avoid dependencies with known critical vulnerabilities when alternatives exist.
+The project is ready to begin defining implementation-level features.
 
 ---
 
-# 12. Testing Expectations
+# Success Criteria
 
-At minimum, the foundation should include:
+Current work is complete when:
 
-* Strict TypeScript checking.
-* Linting.
-* Formatting validation.
-* Basic unit or component tests.
-* Production build validation.
-* Basic accessibility validation.
-
-Claude must not claim a check passed unless it actually ran.
-
-If a check cannot run, Claude must state why.
+- Feature Registry Specification completed.
+- Feature Template completed.
+- Feature Catalog completed.
+- Engine Feature Catalogs initialized.
+- MVP Feature Set identified.
+- Roadmap completed.
+- Milestones defined.
 
 ---
 
-# 13. Documentation Requirements
+# Next Immediate Action
 
-The current milestone should create or update:
+Complete:
 
-* `README.md`
-* `CURRENT_BUILD_STATUS.md`
-* `FEATURE_REGISTRY.md`
-* `CHANGELOG.md`
-* `docs/founder-guides/HOW_TO_RUN_LOCALLY.md`
-* `docs/founder-guides/HOW_TO_SAVE_TO_GITHUB.md`
-* `docs/founder-guides/WHAT_TO_DO_IF_SOMETHING_BREAKS.md`
+FEATURE_REGISTRY_SPEC.md
 
-Additional documentation should be created only when necessary.
+No implementation work should begin until the Feature Registry Specification has been approved.
 
 ---
 
-# 14. Current Stop Condition
+# Build Rules
 
-Claude must stop when:
+Every implementation session should follow this workflow.
 
-> Both application shells run locally, shared packages work, automated foundation checks pass, founder setup documentation is complete, and no product features have been implemented.
-
-The next milestone after approval will be:
-
-> Design System Foundation
-
-Claude must not begin that milestone automatically.
-
----
-
-# 15. Founder’s Next Action
-
-The founder should provide Claude access to the repository and give it the following instruction:
-
-> Read `MASTER_BUILD_PROMPT.md` and all required authoritative project files. Complete only the Local Development Foundation milestone currently defined in `CURRENT_BUILD_STATUS.md`. Inspect and reuse existing work. Do not implement product features. Provide the required milestone plan, completion report, and exact GitHub-saving commands. Stop when the milestone acceptance criteria are satisfied.
+1. Read MASTER_INDEX.md.
+2. Read PLATFORM_BLUEPRINT.md.
+3. Read CURRENT_BUILD_STATUS.md.
+4. Read only the documentation required for the current milestone.
+5. Build one milestone.
+6. Test that milestone.
+7. Update documentation.
+8. Prepare Git commit.
+9. Stop.
 
 ---
 
-# 16. Status Summary
+# Architectural Rules
 
-```text
-Planning: Complete
-Architecture: Complete
-Blueprint: Complete
-Master Build Prompt: Complete
-GitHub foundation: Complete
-Local Development Foundation: Ready to begin
-Product features: Not started
-Lab infrastructure: Not started
-Private beta: Not started
-```
+The following are considered permanent unless explicitly changed by the Founder.
 
+- Repository structure is frozen.
+- Engine architecture is frozen.
+- Company Operating Systems are authoritative.
+- Documentation should extend existing structures rather than creating new ones.
+- One concept has one owner.
+- One Engine owns one feature.
+- One milestone should be completed at a time.
+
+---
+
+# Claude Startup Instructions
+
+Every new Claude session should begin here.
+
+Do not redesign the architecture.
+
+Do not reorganize the repository.
+
+Do not introduce new top-level systems without Founder approval.
+
+Continue implementation according to:
+
+- MASTER_INDEX.md
+- PLATFORM_BLUEPRINT.md
+- Company Operating Systems
+- Current Milestone
+
+Focus on implementation rather than planning.
+
+The objective is to continuously deliver working software.
