@@ -409,7 +409,7 @@ These are outside the initial MVP implementation.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
