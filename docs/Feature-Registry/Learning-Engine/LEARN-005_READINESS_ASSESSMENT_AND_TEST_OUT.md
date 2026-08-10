@@ -198,7 +198,7 @@ Not part of the MVP unless separately approved.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

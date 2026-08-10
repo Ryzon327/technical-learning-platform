@@ -200,7 +200,7 @@ Not part of the initial MVP unless needed by core experience.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

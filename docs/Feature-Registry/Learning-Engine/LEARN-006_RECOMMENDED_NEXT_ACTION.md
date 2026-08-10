@@ -192,7 +192,7 @@ Not part of initial deterministic logic.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
