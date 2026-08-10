@@ -190,7 +190,7 @@ Not part of the initial MVP unless later approved.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

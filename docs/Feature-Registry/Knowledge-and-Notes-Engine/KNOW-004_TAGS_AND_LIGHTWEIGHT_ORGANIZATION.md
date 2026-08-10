@@ -183,7 +183,7 @@ Not part of the MVP unless later justified.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
