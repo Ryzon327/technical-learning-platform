@@ -312,7 +312,7 @@ Not part of the initial MVP.
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

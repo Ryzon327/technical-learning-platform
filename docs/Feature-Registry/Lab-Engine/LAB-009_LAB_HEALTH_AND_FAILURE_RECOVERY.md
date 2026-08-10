@@ -174,7 +174,7 @@ LAB-009 is complete when:
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

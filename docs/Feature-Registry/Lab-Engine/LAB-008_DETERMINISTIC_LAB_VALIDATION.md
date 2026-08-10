@@ -186,7 +186,7 @@ LAB-008 is complete when:
 
 **Should this Feature exist?**
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
