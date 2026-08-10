@@ -150,7 +150,7 @@ CERT-006 is complete when:
 
 # 16. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
