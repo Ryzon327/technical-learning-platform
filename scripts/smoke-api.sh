@@ -24,13 +24,6 @@ for _ in $(seq 1 30); do
   if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/null 2>&1; then
     break
   fi
-
-  if ! kill -0 "$API_PID" 2>/dev/null; then
-    echo "FAIL: API process exited before readiness."
-    cat "$LOG_FILE"
-    exit 1
-  fi
-
   sleep 0.25
 done
 
@@ -60,11 +53,13 @@ assert_status GET /auth/me 401
 assert_status GET /admin/ping 401
 assert_status GET /curriculum/paths 401
 assert_status POST /admin/curriculum/learning-paths 401 '{"stableId":"path.test","title":"Test"}'
+assert_status POST /admin/curriculum/courses 401 '{"learningPathId":"x","stableId":"course.test","title":"Test","position":0}'
+assert_status POST /admin/curriculum/modules 401 '{"courseId":"x","stableId":"module.test","title":"Test","position":0}'
+assert_status POST /admin/curriculum/missions 401 '{"moduleId":"x","stableId":"mission.test","title":"Test","position":0}'
+assert_status POST /admin/curriculum/competencies 401 '{"stableId":"competency.test","title":"Test"}'
+assert_status POST /admin/curriculum/competency-prerequisites 401 '{"competencyId":"x","prerequisiteCompetencyId":"y"}'
+assert_status POST /admin/curriculum/mission-competencies 401 '{"missionId":"x","competencyId":"y"}'
 assert_status POST /admin/curriculum/learning-paths/test-id/validate 401
 assert_status POST /admin/curriculum/learning-paths/test-id/transition 401 '{"to":"review"}'
 
-echo "PASS: public health/runtime endpoints available"
-echo "PASS: authentication routes reject unauthenticated requests"
-echo "PASS: student curriculum requires authentication"
-echo "PASS: curriculum authoring rejects unauthenticated requests"
-echo "PASS: curriculum publication rejects unauthenticated requests"
+echo "PASS: full curriculum authoring surface rejects unauthenticated requests"

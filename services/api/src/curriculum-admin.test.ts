@@ -21,4 +21,8 @@ describe("curriculum publication transitions", () => {
   it("allows retired curriculum to return to draft", () => {
     expect(isValidPublicationTransition("retired", "draft")).toBe(true);
   });
+
+  it("treats same-state transitions as idempotent", () => {
+    expect(isValidPublicationTransition("review", "review")).toBe(true);
+  });
 });

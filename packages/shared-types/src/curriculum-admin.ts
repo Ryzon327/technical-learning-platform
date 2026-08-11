@@ -30,3 +30,36 @@ export interface PublicationTransitionRequest {
   from: CurriculumPublicationState;
   to: CurriculumPublicationState;
 }
+
+export interface CreateCourseInput {
+  learningPathId: string;
+  stableId: string;
+  title: string;
+  description?: string;
+  position: number;
+  estimatedMinutes?: number;
+}
+
+export interface CreateModuleInput {
+  courseId: string;
+  stableId: string;
+  title: string;
+  description?: string;
+  position: number;
+  estimatedMinutes?: number;
+}
+
+export interface CreateMissionInput {
+  moduleId: string;
+  stableId: string;
+  title: string;
+  description?: string;
+  position: number;
+  estimatedMinutes?: number;
+}
+
+export interface CreateCompetencyInput {
+  stableId: string;
+  title: string;
+  description?: string;
+}
