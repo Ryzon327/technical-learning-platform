@@ -9,6 +9,7 @@ import type {
 } from "@tlp/shared-types";
 import { AppError } from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
+import { buildLearningPathQualityReport } from "./curriculum-quality";
 
 interface AuthoringContext {
   actorUserId: string;
@@ -649,6 +650,22 @@ export async function transitionLearningPathState(
         retryable: false,
         details: {
           issues: validation.issues
+        }
+      });
+    }
+
+    const quality = await buildLearningPathQualityReport(
+      learningPathId
+    );
+
+    if (!quality.valid) {
+      throw new AppError({
+        code: "CONFLICT",
+        message: "Curriculum cannot be published until quality checks pass",
+        retryable: false,
+        details: {
+          issues: quality.issues,
+          checklist: quality.checklist
         }
       });
     }

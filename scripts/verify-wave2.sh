@@ -5,14 +5,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 required=(
-  "packages/shared-types/src/curriculum.ts"
-  "packages/shared-types/src/curriculum-admin.ts"
-  "services/api/src/curriculum.ts"
-  "services/api/src/curriculum-admin.ts"
-  "services/api/src/http-body.ts"
-  "supabase/migrations/20260811000300_curriculum_foundation.sql"
-  "supabase/migrations/20260811000400_curriculum_authoring_publication.sql"
-  "supabase/migrations/20260811000500_curriculum_tree_publication.sql"
+  "packages/shared-types/src/curriculum-quality.ts"
+  "services/api/src/curriculum-quality.ts"
+  "supabase/migrations/20260811000600_curriculum_quality_assets.sql"
 )
 
 for path in "${required[@]}"; do
@@ -22,19 +17,22 @@ for path in "${required[@]}"; do
   fi
 done
 
-for symbol in createDraftCourse createDraftModule createDraftMission createDraftCompetency; do
-  if ! grep -Fq "$symbol" services/api/src/server.ts; then
-    echo "FAIL: curriculum authoring route missing: $symbol"
-    exit 1
-  fi
-done
-
-if ! grep -Fq 'curriculum_publish_learning_path_tree'   supabase/migrations/20260811000500_curriculum_tree_publication.sql; then
-  echo "FAIL: full-tree publication helper is missing."
+if ! grep -Fq 'buildLearningPathQualityReport' services/api/src/curriculum-admin.ts; then
+  echo "FAIL: publication quality gate is not wired."
   exit 1
 fi
 
-echo "Wave 2 full curriculum authoring structure verified."
+if ! grep -Fq 'curriculum_assets' supabase/migrations/20260811000600_curriculum_quality_assets.sql; then
+  echo "FAIL: curriculum asset registry is missing."
+  exit 1
+fi
+
+if ! grep -Fq 'curriculum_version_lineage' supabase/migrations/20260811000600_curriculum_quality_assets.sql; then
+  echo "FAIL: curriculum version lineage is missing."
+  exit 1
+fi
+
+echo "Wave 2 curriculum quality structure verified."
 
 npm run typecheck
 npm run test
@@ -42,4 +40,4 @@ npm run build
 bash scripts/security-scan.sh
 bash scripts/smoke-api.sh
 
-echo "Wave 2 Batch 3 verification passed."
+echo "Wave 2 Batch 4 verification passed."
