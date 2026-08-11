@@ -129,7 +129,7 @@ ANLY-001 is complete when:
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

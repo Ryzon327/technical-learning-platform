@@ -70,7 +70,7 @@ Complete when privacy policy mappings, aggregation thresholds, retention control
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

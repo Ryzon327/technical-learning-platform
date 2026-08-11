@@ -68,7 +68,7 @@ Complete when metric registry schema, versioning rules, lineage, dashboard linka
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

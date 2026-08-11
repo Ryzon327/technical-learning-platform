@@ -128,7 +128,7 @@ ANLY-002 is complete when:
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

@@ -72,7 +72,7 @@ Complete when usage, cost, reliability, privacy, reconciliation, and Founder das
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

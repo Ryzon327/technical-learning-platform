@@ -71,7 +71,7 @@ Complete when reliability metrics, failure taxonomy, source mappings, aggregatio
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

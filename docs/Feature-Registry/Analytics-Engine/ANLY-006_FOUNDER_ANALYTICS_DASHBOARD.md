@@ -73,7 +73,7 @@ Complete when initial dashboard information architecture, metric cards, drill-do
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
