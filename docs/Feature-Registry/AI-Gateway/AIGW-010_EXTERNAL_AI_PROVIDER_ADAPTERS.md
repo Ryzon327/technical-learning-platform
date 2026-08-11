@@ -166,7 +166,7 @@ AIGW-010 is complete when:
 
 # 17. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

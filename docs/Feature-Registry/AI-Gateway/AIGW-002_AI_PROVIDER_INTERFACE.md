@@ -64,7 +64,7 @@ Examples:
 
 ## Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

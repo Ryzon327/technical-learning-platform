@@ -177,7 +177,7 @@ AIGW-004 is complete when:
 
 # 17. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

@@ -63,7 +63,7 @@ If the preferred provider fails, the Gateway evaluates only approved fallbacks w
 
 ## Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

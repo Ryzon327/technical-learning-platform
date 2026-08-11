@@ -73,7 +73,7 @@ Invalid requests fail before reaching a provider.
 
 ## Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

@@ -187,7 +187,7 @@ AIGW-005 is complete when:
 
 # 18. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
