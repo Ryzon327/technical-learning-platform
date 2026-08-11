@@ -17,9 +17,16 @@ if [ "$node_major" -lt 22 ]; then
   exit 1
 fi
 
-npm install
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
+
+npm run health
 npm run verify
 
 echo
 echo "Bootstrap complete."
 echo "Start the web shell with: npm run dev"
+echo "Start the API with: npm run dev:api"

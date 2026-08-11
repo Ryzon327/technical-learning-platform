@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -11,7 +14,8 @@
     "@tlp/shared-types": "0.1.0"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }

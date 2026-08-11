@@ -9,13 +9,15 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @tlp/web",
+    "dev:api": "npm run dev --workspace @tlp/api",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "verify": "bash scripts/verify-wave0.sh",
     "health": "bash scripts/local-health-check.sh",
-    "security:scan": "bash scripts/security-scan.sh"
+    "security:scan": "bash scripts/security-scan.sh",
+    "smoke:api": "bash scripts/smoke-api.sh"
   },
   "engines": {
     "node": ">=22"

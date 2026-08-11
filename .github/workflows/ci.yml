@@ -29,5 +29,5 @@ jobs:
       - name: Local health baseline
         run: npm run health
 
-      - name: Verify typecheck, tests, and security baseline
+      - name: Verify foundation
         run: npm run verify
