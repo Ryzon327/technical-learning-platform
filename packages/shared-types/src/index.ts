@@ -1,0 +1,16 @@
+export type AppEnvironment = "development" | "test" | "production";
+
+export type HealthState =
+  | "healthy"
+  | "degraded"
+  | "unavailable"
+  | "recovering"
+  | "maintenance"
+  | "unknown";
+
+export interface AppHealth {
+  service: string;
+  state: HealthState;
+  checkedAt: string;
+  version: string;
+}
