@@ -201,7 +201,7 @@ tests/
 
 # 17. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

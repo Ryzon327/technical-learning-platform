@@ -178,7 +178,7 @@ SEARCH-003 is complete when:
 
 # 18. Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
