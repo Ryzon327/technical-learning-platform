@@ -5,6 +5,7 @@ export interface RuntimeConfig {
   appName: string;
   apiPort: number;
   supabaseUrl?: string;
+  supabaseAnonKey?: string;
   supabaseServiceRoleKey?: string;
   aiDefaultProvider: string;
 }
@@ -46,6 +47,7 @@ export function loadRuntimeConfig(
     appName: env.APP_NAME?.trim() || "Technical Learning Platform",
     apiPort: readInteger(env.API_PORT, 3001),
     supabaseUrl: env.SUPABASE_URL?.trim() || undefined,
+    supabaseAnonKey: env.SUPABASE_ANON_KEY?.trim() || undefined,
     supabaseServiceRoleKey:
       env.SUPABASE_SERVICE_ROLE_KEY?.trim() || undefined,
     aiDefaultProvider: env.AI_DEFAULT_PROVIDER?.trim() || "mock"
@@ -57,6 +59,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     const missing: string[] = [];
 
     if (!config.supabaseUrl) missing.push("SUPABASE_URL");
+    if (!config.supabaseAnonKey) missing.push("SUPABASE_ANON_KEY");
     if (!config.supabaseServiceRoleKey) {
       missing.push("SUPABASE_SERVICE_ROLE_KEY");
     }

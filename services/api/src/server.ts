@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { AppError } from "@tlp/shared-types";
+import { resolveTrustedRequestIdentity } from "./auth-context";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
 import { getApiHealthDetails } from "./health";
 import { sendJson } from "./http-utils";
@@ -15,10 +16,31 @@ function getCorrelationHeader(request: IncomingMessage): string | undefined {
   return value;
 }
 
-function handleRequest(
+function statusCodeForError(error: AppError): number {
+  switch (error.code) {
+    case "VALIDATION_ERROR":
+      return 400;
+    case "UNAUTHORIZED":
+      return 401;
+    case "FORBIDDEN":
+      return 403;
+    case "NOT_FOUND":
+      return 404;
+    case "CONFLICT":
+      return 409;
+    case "RATE_LIMITED":
+      return 429;
+    case "DEPENDENCY_UNAVAILABLE":
+      return 503;
+    default:
+      return 500;
+  }
+}
+
+async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse
-): void {
+): Promise<void> {
   const context = createRequestContext(getCorrelationHeader(request));
   const pathname = new URL(
     request.url ?? "/",
@@ -54,26 +76,38 @@ function handleRequest(
       return;
     }
 
-    sendJson(
-      response,
-      404,
-      {
-        error: {
-          code: "NOT_FOUND",
-          message: "Route not found",
-          retryable: false,
-          correlationId: context.correlationId
+    if (request.method === "GET" && pathname === "/auth/me") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(
+        response,
+        200,
+        {
+          identity: trusted.identity,
+          profile: trusted.profile
+        },
+        {
+          "x-correlation-id": context.correlationId,
+          "x-request-id": context.requestId
         }
-      },
-      {
-        "x-correlation-id": context.correlationId,
-        "x-request-id": context.requestId
-      }
-    );
+      );
+      return;
+    }
+
+    throw new AppError({
+      code: "NOT_FOUND",
+      message: "Route not found",
+      retryable: false,
+      correlationId: context.correlationId
+    });
   } catch (error) {
     const normalized =
       error instanceof AppError
-        ? error
+        ? new AppError({
+            ...error.toJSON(),
+            correlationId:
+              error.correlationId ?? context.correlationId
+          })
         : new AppError({
             code: "INTERNAL_ERROR",
             message: "Unexpected server error",
@@ -81,20 +115,23 @@ function handleRequest(
             correlationId: context.correlationId
           });
 
-    log("error", "Request failed", {
+    const statusCode = statusCodeForError(normalized);
+
+    log(statusCode >= 500 ? "error" : "warn", "Request failed", {
       correlationId: context.correlationId,
       event: "http.request.failed",
       metadata: {
         requestId: context.requestId,
         method: request.method,
         pathname,
+        statusCode,
         error: normalized.toJSON()
       }
     });
 
     sendJson(
       response,
-      500,
+      statusCode,
       { error: normalized.toJSON() },
       {
         "x-correlation-id": context.correlationId,
@@ -116,7 +153,9 @@ function handleRequest(
   }
 }
 
-const server = createServer(handleRequest);
+const server = createServer((request, response) => {
+  void handleRequest(request, response);
+});
 
 server.listen(config.apiPort, "127.0.0.1", () => {
   log("info", "API server started", {

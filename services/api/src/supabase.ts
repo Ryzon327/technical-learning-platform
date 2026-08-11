@@ -20,3 +20,29 @@ export function createServerSupabaseClient(): SupabaseClient {
     }
   });
 }
+
+export function createUserScopedSupabaseClient(
+  accessToken: string
+): SupabaseClient {
+  const config = loadRuntimeConfig();
+
+  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+    throw new AppError({
+      code: "CONFIGURATION_ERROR",
+      message: "User-scoped Supabase configuration is not available",
+      retryable: false
+    });
+  }
+
+  return createClient(config.supabaseUrl, config.supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    },
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  });
+}

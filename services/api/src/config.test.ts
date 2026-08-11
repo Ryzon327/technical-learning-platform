@@ -23,6 +23,7 @@ describe("runtime configuration", () => {
     const config = loadRuntimeConfig({
       APP_ENV: "production",
       SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_ANON_KEY: "test-anon",
       SUPABASE_SERVICE_ROLE_KEY: "test-key"
     });
 

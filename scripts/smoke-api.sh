@@ -8,6 +8,7 @@ PORT="${API_PORT:-3001}"
 LOG_FILE="/tmp/tlp-api-smoke.log"
 HEALTH_FILE="/tmp/tlp-api-health.json"
 READY_FILE="/tmp/tlp-api-ready.json"
+AUTH_FILE="/tmp/tlp-api-auth.json"
 
 cleanup() {
   if [ -n "${API_PID:-}" ] && kill -0 "$API_PID" 2>/dev/null; then
@@ -42,17 +43,34 @@ if ! curl -fsS "http://127.0.0.1:${PORT}/ready" >"$READY_FILE"; then
   exit 1
 fi
 
-if ! curl -fsS   -H "x-correlation-id: smoke-correlation"   "http://127.0.0.1:${PORT}/health" >"$HEALTH_FILE"; then
+if ! curl -fsS \
+  -H "x-correlation-id: smoke-correlation" \
+  "http://127.0.0.1:${PORT}/health" >"$HEALTH_FILE"; then
   echo "FAIL: /health request failed."
   cat "$LOG_FILE"
   exit 1
 fi
 
-node - "$READY_FILE" "$HEALTH_FILE" <<'NODE'
+AUTH_STATUS="$(
+  curl -sS \
+    -o "$AUTH_FILE" \
+    -w "%{http_code}" \
+    "http://127.0.0.1:${PORT}/auth/me"
+)"
+
+if [ "$AUTH_STATUS" != "401" ]; then
+  echo "FAIL: protected /auth/me should return 401 without a token; got $AUTH_STATUS."
+  cat "$AUTH_FILE"
+  cat "$LOG_FILE"
+  exit 1
+fi
+
+node - "$READY_FILE" "$HEALTH_FILE" "$AUTH_FILE" <<'NODE'
 const fs = require("fs");
-const [readyPath, healthPath] = process.argv.slice(2);
+const [readyPath, healthPath, authPath] = process.argv.slice(2);
 const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
 const health = JSON.parse(fs.readFileSync(healthPath, "utf8"));
+const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
 
 if (ready.ready !== true) {
   throw new Error("Readiness payload did not report ready=true");
@@ -61,8 +79,13 @@ if (ready.ready !== true) {
 if (health.state !== "healthy" || health.service !== "api") {
   throw new Error("Health payload did not report healthy API state");
 }
+
+if (auth?.error?.code !== "UNAUTHORIZED") {
+  throw new Error("Protected endpoint did not return normalized UNAUTHORIZED");
+}
 NODE
 
 echo "PASS: /ready"
 echo "PASS: /health"
+echo "PASS: /auth/me rejects unauthenticated requests"
 echo "PASS: API runtime started and responded successfully"

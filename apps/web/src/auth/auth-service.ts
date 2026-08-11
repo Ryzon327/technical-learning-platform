@@ -34,7 +34,7 @@ function validateEmail(email: string): string {
   return normalized;
 }
 
-function validatePassword(password: string): void {
+function validateNewPassword(password: string): void {
   if (password.length < 8) {
     throw new AuthUiError("Password must be at least 8 characters.");
   }
@@ -56,7 +56,7 @@ export async function registerStudent(
   input: RegisterInput
 ): Promise<AuthOperationResult> {
   const email = validateEmail(input.email);
-  validatePassword(input.password);
+  validateNewPassword(input.password);
 
   const supabase = getBrowserSupabaseClient();
 
@@ -116,5 +116,60 @@ export async function signOutCurrentSession(): Promise<void> {
 
   if (error) {
     throw new AuthUiError("Unable to sign out. Please try again.");
+  }
+}
+
+export async function resendSignupConfirmation(
+  emailInput: string
+): Promise<void> {
+  const email = validateEmail(emailInput);
+  const supabase = getBrowserSupabaseClient();
+
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: `${window.location.origin}/`
+    }
+  });
+
+  if (error) {
+    throw new AuthUiError(
+      "Unable to resend the verification email. Please try again later."
+    );
+  }
+}
+
+export async function requestPasswordReset(
+  emailInput: string
+): Promise<void> {
+  const email = validateEmail(emailInput);
+  const supabase = getBrowserSupabaseClient();
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/?mode=recovery`
+  });
+
+  if (error) {
+    throw new AuthUiError(
+      "Unable to request a password reset. Please try again later."
+    );
+  }
+}
+
+export async function updateRecoveredPassword(
+  password: string
+): Promise<void> {
+  validateNewPassword(password);
+  const supabase = getBrowserSupabaseClient();
+
+  const { error } = await supabase.auth.updateUser({
+    password
+  });
+
+  if (error) {
+    throw new AuthUiError(
+      "Unable to update the password. Request a new recovery link and try again."
+    );
   }
 }

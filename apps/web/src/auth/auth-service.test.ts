@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { AuthUiError, registerStudent, signInStudent } from "./auth-service";
+import {
+  AuthUiError,
+  registerStudent,
+  requestPasswordReset,
+  signInStudent,
+  updateRecoveredPassword
+} from "./auth-service";
 
 describe("auth service input validation", () => {
   it("rejects an invalid registration email before contacting Supabase", async () => {
@@ -24,5 +30,17 @@ describe("auth service input validation", () => {
     await expect(
       signInStudent("student@example.test", "")
     ).rejects.toThrow("Enter your password.");
+  });
+
+  it("rejects invalid password-recovery email input", async () => {
+    await expect(
+      requestPasswordReset("bad-email")
+    ).rejects.toThrow("Enter a valid email address.");
+  });
+
+  it("rejects a short recovered password before contacting Supabase", async () => {
+    await expect(
+      updateRecoveredPassword("short")
+    ).rejects.toThrow("Password must be at least 8 characters.");
   });
 });
