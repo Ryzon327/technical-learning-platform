@@ -106,7 +106,7 @@ Complete when runbook schema, versioning, incident/remediation links, review con
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

@@ -127,7 +127,7 @@ Complete when availability model, dependency mappings, fallback behaviors, acces
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

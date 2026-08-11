@@ -131,7 +131,7 @@ Complete when dependency registry, health aggregation, impact mapping, correlati
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

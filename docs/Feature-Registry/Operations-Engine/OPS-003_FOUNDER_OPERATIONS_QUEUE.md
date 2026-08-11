@@ -100,7 +100,7 @@ Complete when queue model, prioritization, correlation, resolution workflow, acc
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

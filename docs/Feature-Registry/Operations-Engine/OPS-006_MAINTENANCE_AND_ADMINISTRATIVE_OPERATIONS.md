@@ -114,7 +114,7 @@ Complete when administrative action registry, authorization, audit, maintenance 
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

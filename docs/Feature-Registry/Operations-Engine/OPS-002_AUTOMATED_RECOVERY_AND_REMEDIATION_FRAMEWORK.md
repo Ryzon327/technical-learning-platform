@@ -98,7 +98,7 @@ Complete when remediation registry, execution state, retry controls, verificatio
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

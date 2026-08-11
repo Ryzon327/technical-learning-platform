@@ -115,7 +115,7 @@ Complete when incident schema, health/severity model, correlation, persistence, 
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
