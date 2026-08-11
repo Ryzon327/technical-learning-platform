@@ -183,3 +183,26 @@ Future conversations should prioritize implementation over architectural redesig
 Large architectural changes require explicit Founder approval.
 
 Ideas outside the MVP should be documented in NOT_NOW.md rather than expanding the current implementation scope.
+
+<!-- BEGIN MVP IMPLEMENTATION TRANSITION -->
+# Phase Transition — Architecture to Implementation
+
+**Architecture / Feature Specification:** COMPLETE  
+**Architecture Reconciliation:** COMPLETE  
+**MVP Architecture Freeze:** COMPLETE  
+**Implementation:** ACTIVE
+
+## Current Phase
+
+**MVP Implementation — Build Wave 0**
+
+Repository and Engineering Foundation.
+
+## Immediate Successor
+
+**Build Wave 1 — Platform Kernel and Authentication**
+
+Implementation sequencing is governed by:
+
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md`
+<!-- END MVP IMPLEMENTATION TRANSITION -->

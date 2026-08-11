@@ -223,3 +223,30 @@ Continue implementation according to:
 Focus on implementation rather than planning.
 
 The objective is to continuously deliver working software.
+
+<!-- BEGIN MVP IMPLEMENTATION TRANSITION -->
+# MVP Implementation Transition — 2026-08-11
+
+## Current State
+
+- Core Feature Registry architecture: **COMPLETE**
+- Architecture reconciliation: **COMPLETE**
+- Unused AI Orchestration placeholder: **RETIRED**
+- MVP architecture: **FROZEN FOR IMPLEMENTATION**
+- Current implementation stage: **Build Wave 0 — Repository and Engineering Foundation**
+- Next implementation stage: **Build Wave 1 — Platform Kernel and Authentication**
+
+## Active Engine Set
+
+Platform Kernel, Authentication, Learning, Curriculum, Knowledge and Notes, Lab, Evidence, Certificate, Search, AI Gateway, Analytics, Operations, and Notification.
+
+## Governing Implementation Artifact
+
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md`
+
+## Freeze Record
+
+`docs/Project/ARCHITECTURE_FREEZE_RECORD.md`
+
+The project should now prioritize implementation over speculative Feature Registry expansion.
+<!-- END MVP IMPLEMENTATION TRANSITION -->

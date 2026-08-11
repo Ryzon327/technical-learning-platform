@@ -214,3 +214,34 @@ The next step is to populate each Platform Engine's Feature file with the approv
 
 Implementation does not begin until the initial MVP Feature inventory has been defined.
 
+
+<!-- BEGIN MVP IMPLEMENTATION TRANSITION -->
+# MVP Feature Registry Freeze
+
+**Freeze Date:** 2026-08-11  
+**State:** Core engine specification complete; implementation authorized.
+
+## Active Engines
+
+- Platform Kernel
+- Authentication Engine
+- Learning Engine
+- Curriculum Engine
+- Knowledge and Notes Engine
+- Lab Engine
+- Evidence Engine
+- Certificate Engine
+- Search Engine
+- AI Gateway
+- Analytics Engine
+- Operations Engine
+- Notification Engine
+
+## Registry Rule
+
+The Feature Registry is now a governed requirements source.
+
+New MVP features should be added only when implementation identifies a genuine missing requirement or the Founder explicitly approves scope change.
+
+The empty AI Orchestration Engine placeholder was retired and is not an active Engine.
+<!-- END MVP IMPLEMENTATION TRANSITION -->

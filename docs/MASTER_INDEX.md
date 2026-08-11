@@ -187,3 +187,38 @@ Future work should not:
 without explicit founder approval.
 
 This protects long-term maintainability and minimizes unnecessary architectural drift.
+
+<!-- BEGIN MVP IMPLEMENTATION TRANSITION -->
+# MVP Implementation Transition
+
+## Architecture Freeze
+
+- `docs/Project/ARCHITECTURE_FREEZE_RECORD.md`
+- `docs/Project/FEATURE_REGISTRY_RECONCILIATION.md`
+- `docs/Project/MVP_ARCHITECTURE_FREEZE_CHECKLIST.md`
+
+## Implementation Planning
+
+- `docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md`
+- `docs/Roadmap/ROADMAP.md`
+- `docs/Roadmap/MILESTONE_CATALOG.md`
+- `docs/Roadmap/RELEASE_PLAN.md`
+
+## Active Feature Registry Engines
+
+- Platform Kernel
+- Authentication Engine
+- Learning Engine
+- Curriculum Engine
+- Knowledge and Notes Engine
+- Lab Engine
+- Evidence Engine
+- Certificate Engine
+- Search Engine
+- AI Gateway
+- Analytics Engine
+- Operations Engine
+- Notification Engine
+
+The retired empty AI Orchestration Engine is not part of the active MVP architecture.
+<!-- END MVP IMPLEMENTATION TRANSITION -->
