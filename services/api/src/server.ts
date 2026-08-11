@@ -23,6 +23,10 @@ import {
   listPublishedLearningPaths
 } from "./curriculum";
 import { getApiHealthDetails } from "./health";
+import {
+  getLearningPathProgress,
+  recordMissionProgressAction
+} from "./learning-progress";
 import { readJsonBody } from "./http-body";
 import { sendJson } from "./http-utils";
 import { log } from "./logger";
@@ -115,6 +119,50 @@ async function handleRequest(
       const trusted = await resolveTrustedRequestIdentity(request);
       const stableId = decodeURIComponent(pathname.slice("/curriculum/paths/".length));
       sendJson(response, 200, await getPublishedLearningPathTree(trusted.accessToken, stableId));
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/progress") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const pathStableId = url.searchParams.get("path") ?? "";
+
+      sendJson(
+        response,
+        200,
+        await getLearningPathProgress(
+          trusted.accessToken,
+          pathStableId
+        )
+      );
+      return;
+    }
+
+    const missionProgressMatch = pathname.match(
+      /^\/learning\/missions\/([^/]+)\/(start|complete)$/
+    );
+
+    if (request.method === "POST" && missionProgressMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const missionStableId = decodeURIComponent(
+        missionProgressMatch[1] ?? ""
+      );
+      const action = missionProgressMatch[2];
+
+      if (action !== "start" && action !== "complete") {
+        throw new AppError({
+          code: "VALIDATION_ERROR",
+          message: "Unsupported mission progress action",
+          retryable: false
+        });
+      }
+
+      sendJson(response, 200, {
+        progress: await recordMissionProgressAction(
+          trusted.accessToken,
+          missionStableId,
+          action
+        )
+      });
       return;
     }
 

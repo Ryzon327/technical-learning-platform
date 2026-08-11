@@ -52,6 +52,10 @@ assert_status() {
 assert_status GET /auth/me 401
 assert_status GET /admin/ping 401
 assert_status GET /curriculum/paths 401
+assert_status GET '/learning/progress?path=path.test' 401
+assert_status POST /learning/missions/mission.test/start 401
+assert_status POST /learning/missions/mission.test/complete 401
+
 assert_status POST /admin/curriculum/learning-paths 401 '{"stableId":"path.test","title":"Test"}'
 assert_status POST /admin/curriculum/courses 401 '{"learningPathId":"x","stableId":"course.test","title":"Test","position":0}'
 assert_status POST /admin/curriculum/modules 401 '{"courseId":"x","stableId":"module.test","title":"Test","position":0}'
@@ -62,4 +66,7 @@ assert_status POST /admin/curriculum/mission-competencies 401 '{"missionId":"x",
 assert_status POST /admin/curriculum/learning-paths/test-id/validate 401
 assert_status POST /admin/curriculum/learning-paths/test-id/transition 401 '{"to":"review"}'
 
-echo "PASS: full curriculum authoring surface rejects unauthenticated requests"
+echo "PASS: authentication routes reject unauthenticated requests"
+echo "PASS: curriculum authoring surface rejects unauthenticated requests"
+echo "PASS: learning progress reads reject unauthenticated requests"
+echo "PASS: learning progress writes reject unauthenticated requests"
