@@ -15,4 +15,7 @@ export interface AppHealth {
   version: string;
 }
 
+export * from "./audit";
+export * from "./auth";
 export * from "./errors";
+export * from "./version";

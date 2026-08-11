@@ -4,11 +4,42 @@ Database changes for the Technical Learning Platform must be introduced through 
 
 Do not make undocumented production schema changes.
 
-## Build Wave 0 baseline
+## Current migrations
 
-`20260811000100_platform_foundation.sql` establishes only platform schema-version metadata and enables Row Level Security.
+- `20260811000100_platform_foundation.sql`
+  - platform schema-version metadata;
+  - RLS baseline.
 
-It deliberately does **not** create student, curriculum, learning, evidence, or certificate data models yet. Those schemas belong to their approved implementation waves.
+- `20260811000200_authentication_foundation.sql`
+  - application `user_profiles`;
+  - student/founder-admin role constraint;
+  - self-read profile RLS;
+  - restricted self-update;
+  - automatic student profile creation from `auth.users`.
+
+## Authentication boundary
+
+Supabase Auth owns:
+
+- passwords;
+- authentication identities;
+- authentication sessions;
+- provider identity state.
+
+`public.user_profiles` owns only application profile and role metadata.
+
+The browser uses only:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+The service-role key is **server-only**.
+
+## Founder/admin role
+
+The initial migration never allows normal signup to assign `founder_admin`.
+
+Founder/admin elevation must be performed through an explicitly authorized administrative path in a later Wave 1 batch.
 
 ## Rules
 
