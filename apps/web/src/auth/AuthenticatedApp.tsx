@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { AuthUiError } from "./auth-service";
 import { useAuth } from "./AuthProvider";
+import { FounderMfaGate } from "./FounderMfaGate";
 
-export function AuthenticatedApp() {
+function Workspace() {
   const { user, profile, authState, signOut } = useAuth();
   const [error, setError] = useState("");
 
@@ -59,4 +60,18 @@ export function AuthenticatedApp() {
       </section>
     </main>
   );
+}
+
+export function AuthenticatedApp() {
+  const { authState } = useAuth();
+
+  if (authState.identity?.role === "founder_admin") {
+    return (
+      <FounderMfaGate>
+        <Workspace />
+      </FounderMfaGate>
+    );
+  }
+
+  return <Workspace />;
 }

@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { AppError } from "@tlp/shared-types";
 import { resolveTrustedRequestIdentity } from "./auth-context";
+import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
 import { getApiHealthDetails } from "./health";
 import { sendJson } from "./http-utils";
@@ -85,6 +86,27 @@ async function handleRequest(
         {
           identity: trusted.identity,
           profile: trusted.profile
+        },
+        {
+          "x-correlation-id": context.correlationId,
+          "x-request-id": context.requestId
+        }
+      );
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/admin/ping") {
+      const trusted = requireFounderAdmin(
+        await resolveTrustedRequestIdentity(request)
+      );
+
+      sendJson(
+        response,
+        200,
+        {
+          authorized: true,
+          role: trusted.identity.role,
+          mfaVerified: trusted.identity.mfaVerified
         },
         {
           "x-correlation-id": context.correlationId,

@@ -1,5 +1,9 @@
 import type { IncomingMessage } from "node:http";
-import type { IdentityContext, PlatformRole, PublicProfile } from "@tlp/shared-types";
+import type {
+  IdentityContext,
+  PlatformRole,
+  PublicProfile
+} from "@tlp/shared-types";
 import { AppError } from "@tlp/shared-types";
 import { createUserScopedSupabaseClient } from "./supabase";
 
@@ -74,6 +78,19 @@ export async function resolveTrustedRequestIdentity(
     });
   }
 
+  const {
+    data: aalData,
+    error: aalError
+  } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(accessToken);
+
+  if (aalError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Unable to verify authentication assurance level",
+      retryable: true
+    });
+  }
+
   const publicProfile: PublicProfile = {
     userId: profile.user_id,
     displayName: profile.display_name ?? undefined,
@@ -90,7 +107,7 @@ export async function resolveTrustedRequestIdentity(
       email: user.email,
       role: profile.role,
       emailVerified: Boolean(user.email_confirmed_at),
-      mfaVerified: false
+      mfaVerified: aalData.currentLevel === "aal2"
     }
   };
 }

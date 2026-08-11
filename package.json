@@ -17,7 +17,8 @@
     "verify": "bash scripts/verify-wave1.sh",
     "health": "bash scripts/local-health-check.sh",
     "security:scan": "bash scripts/security-scan.sh",
-    "smoke:api": "bash scripts/smoke-api.sh"
+    "smoke:api": "bash scripts/smoke-api.sh",
+    "admin:provision-founder": "npm run provision-founder --workspace @tlp/api"
   },
   "engines": {
     "node": ">=22"

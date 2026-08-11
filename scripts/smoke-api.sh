@@ -9,6 +9,7 @@ LOG_FILE="/tmp/tlp-api-smoke.log"
 HEALTH_FILE="/tmp/tlp-api-health.json"
 READY_FILE="/tmp/tlp-api-ready.json"
 AUTH_FILE="/tmp/tlp-api-auth.json"
+ADMIN_FILE="/tmp/tlp-api-admin.json"
 
 cleanup() {
   if [ -n "${API_PID:-}" ] && kill -0 "$API_PID" 2>/dev/null; then
@@ -65,12 +66,27 @@ if [ "$AUTH_STATUS" != "401" ]; then
   exit 1
 fi
 
-node - "$READY_FILE" "$HEALTH_FILE" "$AUTH_FILE" <<'NODE'
+ADMIN_STATUS="$(
+  curl -sS \
+    -o "$ADMIN_FILE" \
+    -w "%{http_code}" \
+    "http://127.0.0.1:${PORT}/admin/ping"
+)"
+
+if [ "$ADMIN_STATUS" != "401" ]; then
+  echo "FAIL: protected /admin/ping should return 401 without a token; got $ADMIN_STATUS."
+  cat "$ADMIN_FILE"
+  cat "$LOG_FILE"
+  exit 1
+fi
+
+node - "$READY_FILE" "$HEALTH_FILE" "$AUTH_FILE" "$ADMIN_FILE" <<'NODE'
 const fs = require("fs");
-const [readyPath, healthPath, authPath] = process.argv.slice(2);
+const [readyPath, healthPath, authPath, adminPath] = process.argv.slice(2);
 const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
 const health = JSON.parse(fs.readFileSync(healthPath, "utf8"));
 const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
+const admin = JSON.parse(fs.readFileSync(adminPath, "utf8"));
 
 if (ready.ready !== true) {
   throw new Error("Readiness payload did not report ready=true");
@@ -83,9 +99,14 @@ if (health.state !== "healthy" || health.service !== "api") {
 if (auth?.error?.code !== "UNAUTHORIZED") {
   throw new Error("Protected endpoint did not return normalized UNAUTHORIZED");
 }
+
+if (admin?.error?.code !== "UNAUTHORIZED") {
+  throw new Error("Admin endpoint did not return normalized UNAUTHORIZED");
+}
 NODE
 
 echo "PASS: /ready"
 echo "PASS: /health"
 echo "PASS: /auth/me rejects unauthenticated requests"
+echo "PASS: /admin/ping rejects unauthenticated requests"
 echo "PASS: API runtime started and responded successfully"

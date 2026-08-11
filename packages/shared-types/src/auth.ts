@@ -20,3 +20,10 @@ export interface AuthSessionState {
   authenticated: boolean;
   identity?: IdentityContext;
 }
+
+export interface MfaStatus {
+  currentLevel: "aal1" | "aal2" | null;
+  nextLevel: "aal1" | "aal2" | null;
+  verifiedTotpFactorIds: string[];
+  requiresMfa: boolean;
+}
