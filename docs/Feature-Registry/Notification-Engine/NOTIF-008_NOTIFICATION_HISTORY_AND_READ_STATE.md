@@ -103,7 +103,7 @@ Complete when history query, read-state mutation, authorization, retention polic
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

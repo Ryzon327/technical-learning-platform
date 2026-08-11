@@ -114,7 +114,7 @@ Complete when request/message schema, message taxonomy, validation, privacy fiel
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

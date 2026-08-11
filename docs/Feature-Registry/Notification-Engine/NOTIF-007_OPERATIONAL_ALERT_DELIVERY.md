@@ -126,7 +126,7 @@ Complete when Operations integration, incident correlation, delivery policy, saf
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

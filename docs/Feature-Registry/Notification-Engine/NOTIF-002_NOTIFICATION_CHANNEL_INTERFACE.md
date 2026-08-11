@@ -116,7 +116,7 @@ Complete when channel interface, capability model, normalized errors, health mod
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

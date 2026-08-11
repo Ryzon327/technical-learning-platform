@@ -122,7 +122,7 @@ Complete when idempotency, attempt tracking, retry policy, failure classificatio
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

@@ -108,7 +108,7 @@ Complete when preference model, priority policy, quiet-hours behavior, mandatory
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 

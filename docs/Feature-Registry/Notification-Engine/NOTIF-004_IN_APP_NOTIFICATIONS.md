@@ -108,7 +108,7 @@ Complete when persistence, retrieval, authorization, read state, action links, a
 
 # Founder Approval
 
-- [ ] Approved
+- [x] Approved
 - [ ] Deferred
 - [ ] Rejected
 
