@@ -12,6 +12,10 @@ required=(
   "services/api/src/version.ts"
   "services/api/src/supabase.ts"
   "apps/web/src/lib/supabase.ts"
+  "apps/web/src/auth/auth-service.ts"
+  "apps/web/src/auth/AuthProvider.tsx"
+  "apps/web/src/auth/AuthScreen.tsx"
+  "apps/web/src/auth/AuthenticatedApp.tsx"
   "supabase/migrations/20260811000200_authentication_foundation.sql"
 )
 
@@ -22,7 +26,7 @@ for path in "${required[@]}"; do
   fi
 done
 
-echo "Wave 1 Batch 1 structure verified."
+echo "Wave 1 authentication structure verified."
 
 npm run typecheck
 npm run test
@@ -30,4 +34,4 @@ npm run build
 bash scripts/security-scan.sh
 bash scripts/smoke-api.sh
 
-echo "Wave 1 Batch 1 verification passed."
+echo "Wave 1 Batch 2 verification passed."

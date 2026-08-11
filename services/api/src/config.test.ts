@@ -23,7 +23,7 @@ describe("runtime configuration", () => {
     const config = loadRuntimeConfig({
       APP_ENV: "production",
       SUPABASE_URL: "https://example.supabase.co",
-      SUPABASE_SERVICE_ROLE_KEY: "placeholder-for-test"
+      SUPABASE_SERVICE_ROLE_KEY: "test-key"
     });
 
     expect(validateRuntimeConfig(config).appEnv).toBe("production");

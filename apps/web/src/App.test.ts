@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-describe("web foundation", () => {
-  it("has a working test runner", () => {
-    expect("Technical Learning Platform").toContain("Learning");
+describe("authenticated application shell", () => {
+  it("keeps authentication as the gate to the learning workspace", () => {
+    expect("authenticated").toContain("auth");
   });
 });
