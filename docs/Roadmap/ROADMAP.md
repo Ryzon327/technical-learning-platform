@@ -33,3 +33,19 @@ Current:
 
 Authentication should not expand further unless implementation reveals a genuine approved requirement or defect.
 <!-- END WAVE 1 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 2 IMPLEMENTATION CLOSURE -->
+# Implementation Progress — Wave 2 Closed
+
+Completed:
+
+- Wave 0 — Engineering Foundation
+- Wave 1 — Platform Kernel and Authentication
+- Wave 2 — Curriculum Engine
+
+Current:
+
+- Advance to the next approved wave defined in `MVP_IMPLEMENTATION_SEQUENCE.md`.
+
+Do not expand Curriculum scope by default after closure.
+<!-- END WAVE 2 IMPLEMENTATION CLOSURE -->

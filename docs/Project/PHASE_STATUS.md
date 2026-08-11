@@ -218,3 +218,13 @@ Implementation sequencing is governed by:
 
 Authentication Engine implementation is closed for the MVP baseline after successful completion verification.
 <!-- END WAVE 1 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 2 IMPLEMENTATION CLOSURE -->
+# Wave 2 Closure
+
+**Wave 2 — Curriculum Engine:** COMPLETE
+
+Curriculum implementation is closed for the MVP baseline unless reopened by a verified defect or unmet approved requirement.
+
+Continue with the next approved implementation wave in the MVP implementation sequence.
+<!-- END WAVE 2 IMPLEMENTATION CLOSURE -->
