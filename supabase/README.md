@@ -11,35 +11,36 @@ Do not make undocumented production schema changes.
   - RLS baseline.
 
 - `20260811000200_authentication_foundation.sql`
-  - application `user_profiles`;
+  - application user profiles;
   - student/founder-admin role constraint;
-  - self-read profile RLS;
-  - restricted self-update;
-  - automatic student profile creation from `auth.users`.
+  - profile RLS;
+  - automatic profile creation.
+
+- `20260811000300_curriculum_foundation.sql`
+  - learning paths;
+  - courses;
+  - modules;
+  - missions;
+  - competencies;
+  - competency prerequisites;
+  - mission competency links;
+  - stable IDs and versions;
+  - publication states;
+  - student-facing published-only RLS.
+
+## Curriculum boundary
+
+Student-facing curriculum reads are RLS-limited to `published`.
+
+Draft/review/retired authoring access is reserved for a later Founder/admin curriculum-authoring batch.
 
 ## Authentication boundary
 
-Supabase Auth owns:
+Supabase Auth owns credentials and sessions.
 
-- passwords;
-- authentication identities;
-- authentication sessions;
-- provider identity state.
+The browser uses only public Supabase configuration.
 
-`public.user_profiles` owns only application profile and role metadata.
-
-The browser uses only:
-
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-The service-role key is **server-only**.
-
-## Founder/admin role
-
-The initial migration never allows normal signup to assign `founder_admin`.
-
-Founder/admin elevation must be performed through an explicitly authorized administrative path in a later Wave 1 batch.
+Privileged service-role credentials remain server-only.
 
 ## Rules
 

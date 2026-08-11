@@ -17,5 +17,6 @@ export interface AppHealth {
 
 export * from "./audit";
 export * from "./auth";
+export * from "./curriculum";
 export * from "./errors";
 export * from "./version";

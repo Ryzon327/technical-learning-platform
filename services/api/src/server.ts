@@ -3,6 +3,10 @@ import { AppError } from "@tlp/shared-types";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
+import {
+  getPublishedLearningPathTree,
+  listPublishedLearningPaths
+} from "./curriculum";
 import { getApiHealthDetails } from "./health";
 import { sendJson } from "./http-utils";
 import { log } from "./logger";
@@ -43,10 +47,11 @@ async function handleRequest(
   response: ServerResponse
 ): Promise<void> {
   const context = createRequestContext(getCorrelationHeader(request));
-  const pathname = new URL(
+  const url = new URL(
     request.url ?? "/",
     `http://${request.headers.host ?? "localhost"}`
-  ).pathname;
+  );
+  const pathname = url.pathname;
 
   response.setHeader("x-correlation-id", context.correlationId);
   response.setHeader("x-request-id", context.requestId);
@@ -92,6 +97,42 @@ async function handleRequest(
           "x-request-id": context.requestId
         }
       );
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/curriculum/paths") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const learningPaths = await listPublishedLearningPaths(
+        trusted.accessToken
+      );
+
+      sendJson(response, 200, { learningPaths });
+      return;
+    }
+
+    if (
+      request.method === "GET" &&
+      pathname.startsWith("/curriculum/paths/")
+    ) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const stableId = decodeURIComponent(
+        pathname.slice("/curriculum/paths/".length)
+      );
+
+      if (!stableId) {
+        throw new AppError({
+          code: "VALIDATION_ERROR",
+          message: "Learning path stable ID is required",
+          retryable: false
+        });
+      }
+
+      const tree = await getPublishedLearningPathTree(
+        trusted.accessToken,
+        stableId
+      );
+
+      sendJson(response, 200, tree);
       return;
     }
 
