@@ -14,3 +14,5 @@ export interface AppHealth {
   checkedAt: string;
   version: string;
 }
+
+export * from "./errors";
