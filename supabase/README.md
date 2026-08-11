@@ -11,10 +11,7 @@ Do not make undocumented production schema changes.
   - RLS baseline.
 
 - `20260811000200_authentication_foundation.sql`
-  - application user profiles;
-  - student/founder-admin role constraint;
-  - profile RLS;
-  - automatic profile creation.
+  - user profiles and authentication role metadata.
 
 - `20260811000300_curriculum_foundation.sql`
   - learning paths;
@@ -22,29 +19,33 @@ Do not make undocumented production schema changes.
   - modules;
   - missions;
   - competencies;
-  - competency prerequisites;
-  - mission competency links;
-  - stable IDs and versions;
+  - prerequisites and competency links;
   - publication states;
-  - student-facing published-only RLS.
+  - published-only student RLS.
 
-## Curriculum boundary
+- `20260811000400_curriculum_authoring_publication.sql`
+  - curriculum publication history;
+  - deterministic publication-state transition helper.
 
-Student-facing curriculum reads are RLS-limited to `published`.
+## Curriculum authoring boundary
 
-Draft/review/retired authoring access is reserved for a later Founder/admin curriculum-authoring batch.
+Student-facing reads remain RLS-limited to published content.
 
-## Authentication boundary
+Founder/admin write operations are performed through protected server routes using trusted Founder/admin authorization.
 
-Supabase Auth owns credentials and sessions.
+Privileged credentials remain server-only.
 
-The browser uses only public Supabase configuration.
+## Publication workflow
 
-Privileged service-role credentials remain server-only.
+Draft content does not become student-readable until:
+
+1. it moves to review;
+2. validation passes;
+3. a Founder/admin explicitly transitions it to published.
 
 ## Rules
 
 - Every schema change must be committed as a migration.
-- RLS is required for student-facing data unless a documented architecture decision says otherwise.
+- RLS is required for student-facing data.
 - Service-role credentials are server-only.
 - Production migrations must be reviewed before application.

@@ -1,13 +1,23 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { AppError } from "@tlp/shared-types";
+import {
+  AppError,
+  type CurriculumPublicationState
+} from "@tlp/shared-types";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
+import {
+  createDraftLearningPath,
+  transitionLearningPathState,
+  updateDraftLearningPath,
+  validateLearningPathForPublication
+} from "./curriculum-admin";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
 } from "./curriculum";
 import { getApiHealthDetails } from "./health";
+import { readJsonBody } from "./http-body";
 import { sendJson } from "./http-utils";
 import { log } from "./logger";
 import { createRequestContext } from "./request-context";
@@ -16,7 +26,6 @@ const config = validateRuntimeConfig(loadRuntimeConfig());
 
 function getCorrelationHeader(request: IncomingMessage): string | undefined {
   const value = request.headers["x-correlation-id"];
-
   if (Array.isArray(value)) return value[0];
   return value;
 }
@@ -42,6 +51,23 @@ function statusCodeForError(error: AppError): number {
   }
 }
 
+function asPublicationState(value: unknown): CurriculumPublicationState {
+  if (
+    value === "draft" ||
+    value === "review" ||
+    value === "published" ||
+    value === "retired"
+  ) {
+    return value;
+  }
+
+  throw new AppError({
+    code: "VALIDATION_ERROR",
+    message: "Invalid publication state",
+    retryable: false
+  });
+}
+
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse
@@ -58,55 +84,35 @@ async function handleRequest(
 
   try {
     if (request.method === "GET" && pathname === "/health") {
-      sendJson(response, 200, getApiHealthDetails(), {
-        "x-correlation-id": context.correlationId,
-        "x-request-id": context.requestId
-      });
+      sendJson(response, 200, getApiHealthDetails());
       return;
     }
 
     if (request.method === "GET" && pathname === "/ready") {
-      sendJson(
-        response,
-        200,
-        {
-          ready: true,
-          service: "api",
-          checkedAt: new Date().toISOString()
-        },
-        {
-          "x-correlation-id": context.correlationId,
-          "x-request-id": context.requestId
-        }
-      );
+      sendJson(response, 200, {
+        ready: true,
+        service: "api",
+        checkedAt: new Date().toISOString()
+      });
       return;
     }
 
     if (request.method === "GET" && pathname === "/auth/me") {
       const trusted = await resolveTrustedRequestIdentity(request);
-
-      sendJson(
-        response,
-        200,
-        {
-          identity: trusted.identity,
-          profile: trusted.profile
-        },
-        {
-          "x-correlation-id": context.correlationId,
-          "x-request-id": context.requestId
-        }
-      );
+      sendJson(response, 200, {
+        identity: trusted.identity,
+        profile: trusted.profile
+      });
       return;
     }
 
     if (request.method === "GET" && pathname === "/curriculum/paths") {
       const trusted = await resolveTrustedRequestIdentity(request);
-      const learningPaths = await listPublishedLearningPaths(
-        trusted.accessToken
-      );
-
-      sendJson(response, 200, { learningPaths });
+      sendJson(response, 200, {
+        learningPaths: await listPublishedLearningPaths(
+          trusted.accessToken
+        )
+      });
       return;
     }
 
@@ -127,12 +133,128 @@ async function handleRequest(
         });
       }
 
-      const tree = await getPublishedLearningPathTree(
-        trusted.accessToken,
-        stableId
+      sendJson(
+        response,
+        200,
+        await getPublishedLearningPathTree(
+          trusted.accessToken,
+          stableId
+        )
+      );
+      return;
+    }
+
+    if (
+      request.method === "POST" &&
+      pathname === "/admin/curriculum/learning-paths"
+    ) {
+      const trusted = requireFounderAdmin(
+        await resolveTrustedRequestIdentity(request)
+      );
+      const body = await readJsonBody(request);
+
+      const learningPath = await createDraftLearningPath(
+        { actorUserId: trusted.identity.userId },
+        {
+          stableId: String(body.stableId ?? ""),
+          title: String(body.title ?? ""),
+          description:
+            body.description === undefined
+              ? undefined
+              : String(body.description),
+          estimatedMinutes:
+            body.estimatedMinutes === undefined
+              ? undefined
+              : Number(body.estimatedMinutes)
+        }
       );
 
-      sendJson(response, 200, tree);
+      sendJson(response, 201, { learningPath });
+      return;
+    }
+
+    const learningPathEditMatch = pathname.match(
+      /^\/admin\/curriculum\/learning-paths\/([^/]+)$/
+    );
+
+    if (
+      request.method === "PATCH" &&
+      learningPathEditMatch
+    ) {
+      const trusted = requireFounderAdmin(
+        await resolveTrustedRequestIdentity(request)
+      );
+      const body = await readJsonBody(request);
+      const id = decodeURIComponent(learningPathEditMatch[1] ?? "");
+
+      const learningPath = await updateDraftLearningPath(
+        { actorUserId: trusted.identity.userId },
+        id,
+        {
+          title:
+            body.title === undefined ? undefined : String(body.title),
+          description:
+            body.description === undefined
+              ? undefined
+              : body.description === null
+                ? null
+                : String(body.description),
+          estimatedMinutes:
+            body.estimatedMinutes === undefined
+              ? undefined
+              : body.estimatedMinutes === null
+                ? null
+                : Number(body.estimatedMinutes)
+        }
+      );
+
+      sendJson(response, 200, { learningPath });
+      return;
+    }
+
+    const validationMatch = pathname.match(
+      /^\/admin\/curriculum\/learning-paths\/([^/]+)\/validate$/
+    );
+
+    if (
+      request.method === "POST" &&
+      validationMatch
+    ) {
+      requireFounderAdmin(
+        await resolveTrustedRequestIdentity(request)
+      );
+      const id = decodeURIComponent(validationMatch[1] ?? "");
+
+      sendJson(
+        response,
+        200,
+        await validateLearningPathForPublication(id)
+      );
+      return;
+    }
+
+    const transitionMatch = pathname.match(
+      /^\/admin\/curriculum\/learning-paths\/([^/]+)\/transition$/
+    );
+
+    if (
+      request.method === "POST" &&
+      transitionMatch
+    ) {
+      const trusted = requireFounderAdmin(
+        await resolveTrustedRequestIdentity(request)
+      );
+      const id = decodeURIComponent(transitionMatch[1] ?? "");
+      const body = await readJsonBody(request);
+
+      const learningPath = await transitionLearningPathState(
+        { actorUserId: trusted.identity.userId },
+        id,
+        asPublicationState(body.to),
+        body.reason === undefined ? undefined : String(body.reason)
+      );
+
+      sendJson(response, 200, { learningPath });
       return;
     }
 
@@ -141,19 +263,11 @@ async function handleRequest(
         await resolveTrustedRequestIdentity(request)
       );
 
-      sendJson(
-        response,
-        200,
-        {
-          authorized: true,
-          role: trusted.identity.role,
-          mfaVerified: trusted.identity.mfaVerified
-        },
-        {
-          "x-correlation-id": context.correlationId,
-          "x-request-id": context.requestId
-        }
-      );
+      sendJson(response, 200, {
+        authorized: true,
+        role: trusted.identity.role,
+        mfaVerified: trusted.identity.mfaVerified
+      });
       return;
     }
 
@@ -192,15 +306,9 @@ async function handleRequest(
       }
     });
 
-    sendJson(
-      response,
-      statusCode,
-      { error: normalized.toJSON() },
-      {
-        "x-correlation-id": context.correlationId,
-        "x-request-id": context.requestId
-      }
-    );
+    sendJson(response, statusCode, {
+      error: normalized.toJSON()
+    });
   } finally {
     log("info", "Request completed", {
       correlationId: context.correlationId,

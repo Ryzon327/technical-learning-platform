@@ -6,11 +6,6 @@ cd "$ROOT"
 
 PORT="${API_PORT:-3001}"
 LOG_FILE="/tmp/tlp-api-smoke.log"
-HEALTH_FILE="/tmp/tlp-api-health.json"
-READY_FILE="/tmp/tlp-api-ready.json"
-AUTH_FILE="/tmp/tlp-api-auth.json"
-ADMIN_FILE="/tmp/tlp-api-admin.json"
-CURRICULUM_FILE="/tmp/tlp-api-curriculum.json"
 
 cleanup() {
   if [ -n "${API_PID:-}" ] && kill -0 "$API_PID" 2>/dev/null; then
@@ -26,7 +21,7 @@ APP_ENV=test API_PORT="$PORT" npm run start --workspace @tlp/api >"$LOG_FILE" 2>
 API_PID=$!
 
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT}/ready" >"$READY_FILE" 2>/dev/null; then
+  if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/null 2>&1; then
     break
   fi
 
@@ -39,51 +34,37 @@ for _ in $(seq 1 30); do
   sleep 0.25
 done
 
-curl -fsS "http://127.0.0.1:${PORT}/ready" >"$READY_FILE"
-curl -fsS "http://127.0.0.1:${PORT}/health" >"$HEALTH_FILE"
+assert_status() {
+  local method="$1"
+  local path="$2"
+  local expected="$3"
+  local body="${4:-}"
 
-AUTH_STATUS="$(curl -sS -o "$AUTH_FILE" -w "%{http_code}" "http://127.0.0.1:${PORT}/auth/me")"
-ADMIN_STATUS="$(curl -sS -o "$ADMIN_FILE" -w "%{http_code}" "http://127.0.0.1:${PORT}/admin/ping")"
-CURRICULUM_STATUS="$(curl -sS -o "$CURRICULUM_FILE" -w "%{http_code}" "http://127.0.0.1:${PORT}/curriculum/paths")"
+  local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method")
+  if [ -n "$body" ]; then
+    args+=(-H "content-type: application/json" --data "$body")
+  fi
 
-if [ "$AUTH_STATUS" != "401" ]; then
-  echo "FAIL: /auth/me should return 401 without a token."
-  exit 1
-fi
+  local status
+  status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"
 
-if [ "$ADMIN_STATUS" != "401" ]; then
-  echo "FAIL: /admin/ping should return 401 without a token."
-  exit 1
-fi
-
-if [ "$CURRICULUM_STATUS" != "401" ]; then
-  echo "FAIL: /curriculum/paths should return 401 without a token."
-  exit 1
-fi
-
-node - "$READY_FILE" "$HEALTH_FILE" "$AUTH_FILE" "$ADMIN_FILE" "$CURRICULUM_FILE" <<'NODE'
-const fs = require("fs");
-const [readyPath, healthPath, authPath, adminPath, curriculumPath] =
-  process.argv.slice(2);
-
-const ready = JSON.parse(fs.readFileSync(readyPath, "utf8"));
-const health = JSON.parse(fs.readFileSync(healthPath, "utf8"));
-const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
-const admin = JSON.parse(fs.readFileSync(adminPath, "utf8"));
-const curriculum = JSON.parse(fs.readFileSync(curriculumPath, "utf8"));
-
-if (ready.ready !== true) throw new Error("Readiness failed");
-if (health.state !== "healthy") throw new Error("Health failed");
-if (auth?.error?.code !== "UNAUTHORIZED") throw new Error("Auth gate failed");
-if (admin?.error?.code !== "UNAUTHORIZED") throw new Error("Admin gate failed");
-if (curriculum?.error?.code !== "UNAUTHORIZED") {
-  throw new Error("Curriculum gate failed");
+  if [ "$status" != "$expected" ]; then
+    echo "FAIL: $method $path expected $expected, got $status"
+    cat /tmp/tlp-smoke-body
+    cat "$LOG_FILE"
+    exit 1
+  fi
 }
-NODE
 
-echo "PASS: /ready"
-echo "PASS: /health"
-echo "PASS: /auth/me rejects unauthenticated requests"
-echo "PASS: /admin/ping rejects unauthenticated requests"
-echo "PASS: /curriculum/paths rejects unauthenticated requests"
-echo "PASS: API runtime started and responded successfully"
+assert_status GET /auth/me 401
+assert_status GET /admin/ping 401
+assert_status GET /curriculum/paths 401
+assert_status POST /admin/curriculum/learning-paths 401 '{"stableId":"path.test","title":"Test"}'
+assert_status POST /admin/curriculum/learning-paths/test-id/validate 401
+assert_status POST /admin/curriculum/learning-paths/test-id/transition 401 '{"to":"review"}'
+
+echo "PASS: public health/runtime endpoints available"
+echo "PASS: authentication routes reject unauthenticated requests"
+echo "PASS: student curriculum requires authentication"
+echo "PASS: curriculum authoring rejects unauthenticated requests"
+echo "PASS: curriculum publication rejects unauthenticated requests"

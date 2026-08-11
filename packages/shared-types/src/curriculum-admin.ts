@@ -1,0 +1,32 @@
+import type {
+  CurriculumPublicationState,
+  CurriculumNodeType
+} from "./curriculum";
+
+export interface CurriculumValidationIssue {
+  code:
+    | "MISSING_TITLE"
+    | "INVALID_POSITION"
+    | "EMPTY_LEARNING_PATH"
+    | "EMPTY_COURSE"
+    | "EMPTY_MODULE"
+    | "MISSING_COMPETENCY"
+    | "UNPUBLISHED_CHILD"
+    | "INVALID_STATE_TRANSITION";
+  message: string;
+  nodeType: CurriculumNodeType;
+  nodeId?: string;
+  stableId?: string;
+}
+
+export interface CurriculumValidationResult {
+  valid: boolean;
+  issues: CurriculumValidationIssue[];
+}
+
+export interface PublicationTransitionRequest {
+  nodeType: CurriculumNodeType;
+  nodeId: string;
+  from: CurriculumPublicationState;
+  to: CurriculumPublicationState;
+}
