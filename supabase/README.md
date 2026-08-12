@@ -24,3 +24,7 @@ Time away, missed days, streak loss, or engagement frequency do not lower compet
 Recommended-next-action logic is deterministic and derived from current progress, resume state, and competency review state.
 
 AI does not choose authoritative progression.
+
+## Wave 4 assessment foundation
+
+Migration `20260812000100_assessment_foundation.sql` adds versioned assessment definitions, server-authoritative question/answer-key storage, and approved competency mappings. Authenticated students may discover published assessment metadata; sanitized question delivery and attempt persistence arrive in later Wave 4 batches.

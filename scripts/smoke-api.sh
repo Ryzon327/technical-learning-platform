@@ -52,4 +52,6 @@ assert_status GET /learning/review 401
 assert_status POST /learning/missions/mission.test/start 401
 assert_status POST /learning/missions/mission.test/complete 401
 
-echo "PASS: all Wave 3 learning routes reject unauthenticated requests"
+assert_status GET /assessments 401
+
+echo "PASS: Wave 3 learning and Wave 4 assessment routes reject unauthenticated requests"

@@ -3,6 +3,7 @@ import {
   AppError,
   type CurriculumPublicationState
 } from "@tlp/shared-types";
+import { listPublishedAssessments } from "./assessments";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
@@ -114,6 +115,14 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/auth/me") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { identity: trusted.identity, profile: trusted.profile });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/assessments") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        assessments: await listPublishedAssessments(trusted.accessToken)
+      });
       return;
     }
 
