@@ -57,6 +57,7 @@ import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-expor
 import { mockLabProvider } from "./mock-lab-provider";
 import { endLabSession, getLabSession, listLabSessions, requestLabSession, startLabSession } from "./lab-sessions";
 import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateLabSession } from "./lab-runtime";
+import { attestLabIsolation, cleanupLabSessionResources, expireLabSession, listLabOperations, recoverLabSession } from "./lab-operations";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -186,6 +187,41 @@ async function handleRequest(
     if (request.method === "GET" && labSessionValidationsMatch) {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { validations: await listLabValidationRuns(trusted.accessToken, decodeURIComponent(labSessionValidationsMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionIsolationMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/isolation$/);
+    if (request.method === "GET" && labSessionIsolationMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { isolation: await attestLabIsolation(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionIsolationMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionExpireMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/expire$/);
+    if (request.method === "POST" && labSessionExpireMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { operation: await expireLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionExpireMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionCleanupMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/cleanup$/);
+    if (request.method === "POST" && labSessionCleanupMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { operation: await cleanupLabSessionResources(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionCleanupMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionRecoverMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/recover$/);
+    if (request.method === "POST" && labSessionRecoverMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { operation: await recoverLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionRecoverMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionOperationsMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/operations$/);
+    if (request.method === "GET" && labSessionOperationsMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { operations: await listLabOperations(trusted.accessToken, decodeURIComponent(labSessionOperationsMatch[1] ?? "")) });
       return;
     }
 

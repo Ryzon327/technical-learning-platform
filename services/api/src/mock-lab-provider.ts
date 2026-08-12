@@ -9,6 +9,19 @@ export class MockLabProvider implements LabProvider {
   constructor(private failureMode: MockLabFailureMode = "none", private maximumSessions = 25) {}
   setFailureMode(mode: MockLabFailureMode): void { this.failureMode = mode; }
   async getCapabilities(): Promise<LabProviderCapabilities> { return { providerId: this.providerId, capabilities: ["linux", "windows", "containers", "virtual-machines", "isolated-network", "console-access", "ssh", "rdp", "snapshots"], accessMethods: ["ssh", "rdp", "browser_console", "terminal"] }; }
+  async getIsolationStatus(providerSessionId: string): Promise<{
+    studentHasProviderAdminAccess: false;
+    managementPlaneExposed: false;
+    networkIsolationEnforced: true;
+    resourceOwnershipScoped: true;
+  }> {
+    const session = this.sessions.get(providerSessionId);
+    if (!session) {
+      throw new AppError({ code: "NOT_FOUND", message: "Mock provider session not found", retryable: false });
+    }
+    return { studentHasProviderAdminAccess: false, managementPlaneExposed: false, networkIsolationEnforced: true, resourceOwnershipScoped: true };
+  }
+
   async getCapacity(): Promise<LabProviderCapacity> { const active = [...this.sessions.values()].filter((s) => s.state !== "destroyed").length; return { providerId: this.providerId, available: this.failureMode !== "capacity_unavailable" && active < this.maximumSessions, activeSessions: active, maximumSessions: this.maximumSessions }; }
   async provision(request: LabProvisionRequest): Promise<LabProviderSession> {
     const capacity = await this.getCapacity();
