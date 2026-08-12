@@ -206,7 +206,7 @@ export async function processDueLabOperations(): Promise<number> {
   const { data, error } = await server
     .from("lab_operations")
     .select("id,lab_session_id,user_id,kind,attempt_count")
-    .eq("state", "failed")
+    .in("state", ["pending", "failed"])
     .lte("next_attempt_at", now)
     .order("next_attempt_at", { ascending: true })
     .limit(25);
