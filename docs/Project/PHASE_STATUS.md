@@ -272,3 +272,28 @@ Canonical Evidence Records remain intentionally deferred to Wave 7.
 
 Next: Wave 5 — Knowledge and Notes.
 <!-- END WAVE 4 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 5 IMPLEMENTATION CLOSURE -->
+# Wave 5 Closure
+
+**Wave 5 — Knowledge and Notes:** COMPLETE
+
+Implemented:
+
+- private student notes;
+- technical content blocks;
+- stable learning-context references;
+- tags and lightweight organization;
+- private deterministic retrieval;
+- bookmarks;
+- Markdown/JSON export;
+- RLS-backed ownership;
+- no normal-operation Founder/admin note-content access;
+- no premature AI dependency.
+
+Platform-wide search integration remains intentionally deferred to Wave 9.
+
+AI-assisted notes remain intentionally deferred until the AI Gateway exists.
+
+Next: Wave 6 — Lab Engine MVP.
+<!-- END WAVE 5 IMPLEMENTATION CLOSURE -->

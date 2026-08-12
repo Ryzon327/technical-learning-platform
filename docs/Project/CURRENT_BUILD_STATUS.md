@@ -310,3 +310,20 @@ Next implementation work:
 
 **Wave 5 — Knowledge and Notes**
 <!-- END WAVE 4 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 5 IMPLEMENTATION CLOSURE -->
+# Wave 5 Implementation Closure — 2026-08-12
+
+- Build Wave 0 — Engineering Foundation: **COMPLETE**
+- Build Wave 1 — Platform Kernel and Authentication: **COMPLETE**
+- Build Wave 2 — Curriculum Engine: **COMPLETE**
+- Build Wave 3 — Learning Engine / Core Learning Experience: **COMPLETE**
+- Build Wave 4 — Assessments and Test-Out: **COMPLETE**
+- Build Wave 5 — Knowledge and Notes: **COMPLETE**
+
+Wave 5 now provides private student notes, technical content blocks, stable learning-context links, tags, deterministic private retrieval, bookmarks, export, and privacy hardening without requiring AI.
+
+Next implementation work:
+
+**Wave 6 — Lab Engine MVP**
+<!-- END WAVE 5 IMPLEMENTATION CLOSURE -->
