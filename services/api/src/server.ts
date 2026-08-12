@@ -3,6 +3,12 @@ import {
   AppError,
   type CurriculumPublicationState
 } from "@tlp/shared-types";
+import {
+  getAssessmentAttempt,
+  saveAssessmentAnswer,
+  startAssessmentAttempt,
+  submitAssessmentAttempt
+} from "./assessment-attempts";
 import { listPublishedAssessments } from "./assessments";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
@@ -115,6 +121,78 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/auth/me") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { identity: trusted.identity, profile: trusted.profile });
+      return;
+    }
+
+    const assessmentStartMatch = pathname.match(
+      /^\/assessments\/([^/]+)\/attempts$/
+    );
+
+    if (request.method === "POST" && assessmentStartMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const stableId = decodeURIComponent(assessmentStartMatch[1] ?? "");
+
+      sendJson(response, 201, {
+        attempt: await startAssessmentAttempt(
+          { userId: trusted.identity.userId },
+          stableId
+        )
+      });
+      return;
+    }
+
+    const attemptMatch = pathname.match(
+      /^\/assessment-attempts\/([^/]+)$/
+    );
+
+    if (request.method === "GET" && attemptMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(response, 200, {
+        attempt: await getAssessmentAttempt(
+          { userId: trusted.identity.userId },
+          decodeURIComponent(attemptMatch[1] ?? "")
+        )
+      });
+      return;
+    }
+
+    const answerMatch = pathname.match(
+      /^\/assessment-attempts\/([^/]+)\/answers$/
+    );
+
+    if (request.method === "PUT" && answerMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+
+      await saveAssessmentAnswer(
+        { userId: trusted.identity.userId },
+        decodeURIComponent(answerMatch[1] ?? ""),
+        {
+          questionStableId: String(body.questionStableId ?? ""),
+          selectedOptionIds: Array.isArray(body.selectedOptionIds)
+            ? body.selectedOptionIds.map((value) => String(value))
+            : []
+        }
+      );
+
+      sendJson(response, 200, { saved: true });
+      return;
+    }
+
+    const submitMatch = pathname.match(
+      /^\/assessment-attempts\/([^/]+)\/submit$/
+    );
+
+    if (request.method === "POST" && submitMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(response, 200, {
+        attempt: await submitAssessmentAttempt(
+          { userId: trusted.identity.userId },
+          decodeURIComponent(submitMatch[1] ?? "")
+        )
+      });
       return;
     }
 

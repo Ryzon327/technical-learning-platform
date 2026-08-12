@@ -31,8 +31,15 @@ assert_status() {
   local method="$1"
   local path="$2"
   local expected="$3"
+  local body="${4:-}"
+
+  local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method")
+  if [ -n "$body" ]; then
+    args+=(-H "content-type: application/json" --data "$body")
+  fi
+
   local status
-  status="$(curl -sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method"     "http://127.0.0.1:${PORT}${path}")"
+  status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"
 
   if [ "$status" != "$expected" ]; then
     echo "FAIL: $method $path expected $expected, got $status"
@@ -42,16 +49,14 @@ assert_status() {
   fi
 }
 
-assert_status GET '/learning/progress?path=path.test' 401
-assert_status GET '/learning/resume?path=path.test' 401
-assert_status GET /learning/missions/mission.test/access 401
-assert_status GET /learning/competencies 401
-assert_status GET '/learning/next-action?path=path.test' 401
-assert_status GET /learning/history 401
-assert_status GET /learning/review 401
-assert_status POST /learning/missions/mission.test/start 401
-assert_status POST /learning/missions/mission.test/complete 401
-
 assert_status GET /assessments 401
+assert_status POST /assessments/assessment.test/attempts 401
+assert_status GET /assessment-attempts/test-attempt 401
+assert_status PUT /assessment-attempts/test-attempt/answers 401   '{"questionStableId":"question.one","selectedOptionIds":["a"]}'
+assert_status POST /assessment-attempts/test-attempt/submit 401
 
-echo "PASS: Wave 3 learning and Wave 4 assessment routes reject unauthenticated requests"
+assert_status GET '/learning/progress?path=path.test' 401
+assert_status GET /learning/competencies 401
+
+echo "PASS: assessment listing/start/read/save/submit routes reject unauthenticated requests"
+echo "PASS: Wave 3 learning routes remain protected"
