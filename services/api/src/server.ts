@@ -10,6 +10,7 @@ import {
   submitAssessmentAttempt
 } from "./assessment-attempts";
 import { listPublishedAssessments } from "./assessments";
+import { getReadinessAssessmentOutcome } from "./readiness";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
@@ -136,6 +137,22 @@ async function handleRequest(
         attempt: await startAssessmentAttempt(
           { userId: trusted.identity.userId },
           stableId
+        )
+      });
+      return;
+    }
+
+    const readinessOutcomeMatch = pathname.match(
+      new RegExp("^/assessment-attempts/([^/]+)/readiness-outcome$")
+    );
+
+    if (request.method === "GET" && readinessOutcomeMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(response, 200, {
+        outcome: await getReadinessAssessmentOutcome(
+          { userId: trusted.identity.userId },
+          decodeURIComponent(readinessOutcomeMatch[1] ?? "")
         )
       });
       return;

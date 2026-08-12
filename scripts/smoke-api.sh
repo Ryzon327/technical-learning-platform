@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -15,32 +14,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "===== API SMOKE TEST ====="
-
 APP_ENV=test API_PORT="$PORT" npm run start --workspace @tlp/api >"$LOG_FILE" 2>&1 &
 API_PID=$!
 
 for _ in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/null 2>&1; then
-    break
-  fi
+  if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/null 2>&1; then break; fi
   sleep 0.25
 done
 
 assert_status() {
-  local method="$1"
-  local path="$2"
-  local expected="$3"
-  local body="${4:-}"
-
+  local method="$1"; local path="$2"; local expected="$3"; local body="${4:-}"
   local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method")
-  if [ -n "$body" ]; then
-    args+=(-H "content-type: application/json" --data "$body")
-  fi
-
+  if [ -n "$body" ]; then args+=(-H "content-type: application/json" --data "$body"); fi
   local status
   status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"
-
   if [ "$status" != "$expected" ]; then
     echo "FAIL: $method $path expected $expected, got $status"
     cat /tmp/tlp-smoke-body
@@ -52,11 +39,11 @@ assert_status() {
 assert_status GET /assessments 401
 assert_status POST /assessments/assessment.test/attempts 401
 assert_status GET /assessment-attempts/test-attempt 401
-assert_status PUT /assessment-attempts/test-attempt/answers 401   '{"questionStableId":"question.one","selectedOptionIds":["a"]}'
+assert_status PUT /assessment-attempts/test-attempt/answers 401 '{"questionStableId":"question.one","selectedOptionIds":["a"]}'
 assert_status POST /assessment-attempts/test-attempt/submit 401
-
+assert_status GET /assessment-attempts/test-attempt/readiness-outcome 401
 assert_status GET '/learning/progress?path=path.test' 401
 assert_status GET /learning/competencies 401
 
-echo "PASS: assessment listing/start/read/save/submit routes reject unauthenticated requests"
+echo "PASS: assessment and readiness/test-out routes reject unauthenticated requests"
 echo "PASS: Wave 3 learning routes remain protected"

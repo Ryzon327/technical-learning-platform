@@ -9,6 +9,7 @@ import {
   type AssessmentScore
 } from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
+import { processReadinessAssessmentOutcome } from "./readiness";
 
 interface TrustedStudent {
   userId: string;
@@ -510,6 +511,11 @@ export async function submitAssessmentAttempt(
       retryable: true
     });
   }
+
+  await processReadinessAssessmentOutcome(
+    { userId: student.userId },
+    attemptId
+  );
 
   return getAssessmentAttempt(student, attemptId);
 }

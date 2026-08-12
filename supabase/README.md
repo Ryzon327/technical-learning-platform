@@ -1,38 +1,19 @@
 # Supabase
 
-Current Assessment implementation migrations:
+Current Assessment migrations:
 
 - `20260812000100_assessment_foundation.sql`
 - `20260812000200_assessment_attempts_scoring.sql`
+- `20260812000300_readiness_test_out.sql`
 
-## Assessment attempts
+## Readiness and test-out
 
-Attempts are persisted with a frozen assessment/version reference and explicit state:
+Test-out must be explicitly enabled and must use an `evidence_producing` assessment.
 
-- `in_progress`
-- `submitted`
-- `passed`
-- `failed`
-- `interrupted`
+A successful test-out preserves `assessment-attempt:<attempt-id>` as the authoritative source reference, advances mapped competency through the trusted server flow, records approved prerequisite satisfaction, clears matching review state, and appends learning history.
 
-Technical interruption is distinct from failure.
+An unsuccessful test-out does not remove progress, demote competency, or create prerequisite satisfaction. It creates an understandable review recommendation.
 
-## Answer security
+## Evidence Engine boundary
 
-Assessment answer keys remain in server-only `assessment_questions.correct_option_ids`.
-
-Student-delivered question payloads do not include answer keys.
-
-## Mutation boundary
-
-Authenticated users may read their own attempt/result state through RLS.
-
-There are intentionally no direct authenticated insert/update policies for attempt or answer mutation. The trusted API owns:
-
-- attempt creation;
-- answer persistence;
-- attempt-limit checks;
-- deterministic scoring;
-- pass/fail persistence.
-
-The browser cannot provide its own score or pass/fail result.
+Wave 4 preserves the authoritative assessment source record. The later Evidence Engine converts eligible source outcomes into canonical Evidence Records with provenance.

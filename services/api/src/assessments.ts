@@ -8,6 +8,7 @@ export interface StudentAssessmentSummary {
   purpose: AssessmentPurpose;
   passingPercent: number;
   maxAttempts?: number;
+  testOutEnabled: boolean;
 }
 
 function isPurpose(value: unknown): value is AssessmentPurpose {
@@ -18,7 +19,7 @@ export async function listPublishedAssessments(accessToken: string): Promise<Stu
   const supabase = createUserScopedSupabaseClient(accessToken);
   const { data, error } = await supabase
     .from("assessment_definitions")
-    .select("stable_id,version,title,purpose,passing_percent,max_attempts")
+    .select("stable_id,version,title,purpose,passing_percent,max_attempts,test_out_enabled")
     .eq("publication_state", "published")
     .order("title");
 
@@ -28,7 +29,7 @@ export async function listPublishedAssessments(accessToken: string): Promise<Stu
     if (!isPurpose(row.purpose)) throw new AppError({ code: "INTERNAL_ERROR", message: "Invalid assessment purpose returned", retryable: false });
     return {
       stableId: String(row.stable_id), version: Number(row.version), title: String(row.title), purpose: row.purpose,
-      passingPercent: Number(row.passing_percent), maxAttempts: row.max_attempts == null ? undefined : Number(row.max_attempts)
+      passingPercent: Number(row.passing_percent), maxAttempts: row.max_attempts == null ? undefined : Number(row.max_attempts), testOutEnabled: Boolean(row.test_out_enabled)
     };
   });
 }
