@@ -53,6 +53,7 @@ import { createRequestContext } from "./request-context";
 import { createStudentNote, deleteStudentNote, getStudentNote, listStudentNotes, updateStudentNote } from "./notes";
 import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, renameStudentTag, replaceNoteBlocks, replaceNoteTags, setNotePinned } from "./note-organization";
 import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, searchStudentNotes } from "./note-retrieval";
+import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-export";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -120,6 +121,27 @@ async function handleRequest(
         service: "api",
         checkedAt: new Date().toISOString()
       });
+      return;
+    }
+
+    const noteExportMatch = pathname.match(/^\/notes\/([^/]+)\/export$/);
+
+    if (request.method === "GET" && noteExportMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const noteId = decodeURIComponent(noteExportMatch[1] ?? "");
+      const bundle = await buildStudentNoteExport(trusted.accessToken, noteId);
+      const serialized = serializeStudentNoteExport(
+        bundle,
+        url.searchParams.get("format")
+      );
+
+      response.statusCode = 200;
+      response.setHeader("content-type", serialized.contentType);
+      response.setHeader(
+        "content-disposition",
+        `attachment; filename="note-${noteId}.${serialized.extension}"`
+      );
+      response.end(serialized.body);
       return;
     }
 

@@ -50,8 +50,10 @@ assert_status GET '/notes/search?q=networking' 401
 assert_status GET /bookmarks 401
 assert_status POST /bookmarks 401 '{"targetType":"mission","targetStableId":"mission.test"}'
 assert_status DELETE /bookmarks/test-bookmark 401
+assert_status GET '/notes/test-note/export?format=markdown' 401
 echo "PASS: Wave 4 assessment/recovery/readiness routes reject unauthenticated requests"
 echo "PASS: Wave 3 learning routes remain protected"
 echo "PASS: Wave 5 private note routes reject unauthenticated requests"
 echo "PASS: Wave 5 block/tag/pin routes reject unauthenticated requests"
 echo "PASS: Wave 5 private retrieval and bookmark routes reject unauthenticated requests"
+echo "PASS: Wave 5 private export route rejects unauthenticated requests"
