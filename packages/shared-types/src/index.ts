@@ -30,5 +30,6 @@ export * from "./assessment-recovery";
 export * from "./assessment";
 export * from "./notes";
 export * from "./note-blocks";
+export * from "./note-retrieval";
 export * from "./errors";
 export * from "./version";

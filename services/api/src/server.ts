@@ -52,6 +52,7 @@ import { log } from "./logger";
 import { createRequestContext } from "./request-context";
 import { createStudentNote, deleteStudentNote, getStudentNote, listStudentNotes, updateStudentNote } from "./notes";
 import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, renameStudentTag, replaceNoteBlocks, replaceNoteTags, setNotePinned } from "./note-organization";
+import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, searchStudentNotes } from "./note-retrieval";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -119,6 +120,44 @@ async function handleRequest(
         service: "api",
         checkedAt: new Date().toISOString()
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/notes/search") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const tagIds = url.searchParams.getAll("tagId");
+      const pinnedValue = url.searchParams.get("pinned");
+      sendJson(response, 200, { results: await searchStudentNotes(trusted.accessToken, { query: url.searchParams.get("q") ?? "", tagIds, contextType: url.searchParams.get("contextType") ?? undefined, contextStableId: url.searchParams.get("contextStableId") ?? undefined, pinned: pinnedValue == null ? undefined : pinnedValue === "true", limit: Number(url.searchParams.get("limit") ?? 25) }) });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/bookmarks") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { bookmarks: await listStudentBookmarks(trusted.accessToken) });
+      return;
+    }
+    if (request.method === "POST" && pathname === "/bookmarks") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, {
+        bookmark: await createStudentBookmark(trusted.accessToken, {
+          targetType: String(body.targetType) as import("@tlp/shared-types").BookmarkTargetType,
+          targetStableId: String(body.targetStableId ?? ""),
+          ...(body.targetVersion === undefined
+            ? {}
+            : { targetVersion: Number(body.targetVersion) }),
+          ...(body.label === undefined
+            ? {}
+            : { label: String(body.label) })
+        })
+      });
+      return;
+    }
+    const bookmarkMatch = pathname.match(/^\/bookmarks\/([^/]+)$/);
+    if (request.method === "DELETE" && bookmarkMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      await deleteStudentBookmark(trusted.accessToken, decodeURIComponent(bookmarkMatch[1] ?? ""));
+      sendJson(response, 200, { deleted: true });
       return;
     }
 
