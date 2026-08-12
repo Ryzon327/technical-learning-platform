@@ -22,3 +22,4 @@ Wave 4 emits an authoritative assessment-source handoff for the later Evidence E
 - `20260812001300_lab_container_provider_foundation.sql` — provider registry and disabled-by-default Container Provider foundation.
 - `20260812001400_container_runtime_hardening.sql` — Container Provider runtime-adapter hardening metadata; provider remains disabled by default.
 - `20260812001500_container_provider_canary_gate.sql` — server-only Container Provider canary history and explicit activation-state gate.
+- `20260812001600_container_provider_controlled_rollout.sql` — explicit Container Provider activation guard, allowlist/percentage/all rollout modes, and suspension-safe rollback.

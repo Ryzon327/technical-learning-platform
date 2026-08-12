@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "provision-founder": "tsx src/admin/provision-founder.ts",
-    "lab:container:canary": "tsx src/admin/run-container-canary.ts"
+    "lab:container:canary": "tsx src/admin/run-container-canary.ts",
+    "lab:container:rollout": "tsx src/admin/manage-container-rollout.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
