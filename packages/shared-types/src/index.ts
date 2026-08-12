@@ -34,3 +34,4 @@ export * from "./note-retrieval";
 export * from "./note-export";
 export * from "./errors";
 export * from "./version";
+export * from "./labs";

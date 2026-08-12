@@ -54,6 +54,7 @@ import { createStudentNote, deleteStudentNote, getStudentNote, listStudentNotes,
 import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, renameStudentTag, replaceNoteBlocks, replaceNoteTags, setNotePinned } from "./note-organization";
 import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, searchStudentNotes } from "./note-retrieval";
 import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-export";
+import { mockLabProvider } from "./mock-lab-provider";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -121,6 +122,12 @@ async function handleRequest(
         service: "api",
         checkedAt: new Date().toISOString()
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/lab-providers/mock/capabilities") {
+      await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { capabilities: await mockLabProvider.getCapabilities(), capacity: await mockLabProvider.getCapacity() });
       return;
     }
 
