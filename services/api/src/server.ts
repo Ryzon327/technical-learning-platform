@@ -55,6 +55,7 @@ import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, re
 import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, searchStudentNotes } from "./note-retrieval";
 import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-export";
 import { mockLabProvider } from "./mock-lab-provider";
+import { endLabSession, getLabSession, listLabSessions, requestLabSession, startLabSession } from "./lab-sessions";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -122,6 +123,40 @@ async function handleRequest(
         service: "api",
         checkedAt: new Date().toISOString()
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/lab-sessions") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { sessions: await listLabSessions(trusted.accessToken) });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/lab-sessions") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, { session: await requestLabSession(trusted.accessToken, trusted.identity.userId, { labDefinitionStableId: String(body.labDefinitionStableId ?? ""), ...(body.labDefinitionVersion === undefined ? {} : { labDefinitionVersion: Number(body.labDefinitionVersion) }) }) });
+      return;
+    }
+
+    const labSessionMatch = pathname.match(/^\/lab-sessions\/([^/]+)$/);
+    if (request.method === "GET" && labSessionMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { session: await getLabSession(trusted.accessToken, decodeURIComponent(labSessionMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionStartMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/start$/);
+    if (request.method === "POST" && labSessionStartMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { session: await startLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionStartMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionEndMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/end$/);
+    if (request.method === "POST" && labSessionEndMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { session: await endLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionEndMatch[1] ?? "")) });
       return;
     }
 

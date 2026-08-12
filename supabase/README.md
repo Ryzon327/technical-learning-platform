@@ -15,3 +15,4 @@ Wave 4 emits an authoritative assessment-source handoff for the later Evidence E
 - `20260812000700_note_retrieval_bookmarks.sql` — private note retrieval indexes and student-owned bookmarks.
 - Wave 5 Batch 4 adds private note export and closure hardening without adding new persistent tables.
 - `20260812000800_lab_definition_foundation.sql` — provider-independent Lab Definition foundation; student reads are limited to published definitions and no student write policy is granted.
+- `20260812000900_lab_session_lifecycle.sql` — student-owned Lab Session lifecycle, server-only provider references, expiration metadata, cleanup state, and state-integrity controls.
