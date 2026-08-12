@@ -49,3 +49,20 @@ Current:
 
 Do not expand Curriculum scope by default after closure.
 <!-- END WAVE 2 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 3 IMPLEMENTATION CLOSURE -->
+# Implementation Progress — Wave 3 Closed
+
+Completed:
+
+- Wave 0 — Engineering Foundation
+- Wave 1 — Platform Kernel and Authentication
+- Wave 2 — Curriculum Engine
+- Wave 3 — Learning Engine / Core Learning Experience
+
+Current:
+
+- Advance to the next approved wave defined in `MVP_IMPLEMENTATION_SEQUENCE.md`.
+
+The Learning Engine is closed for the MVP baseline unless reopened by a verified defect or unmet approved requirement.
+<!-- END WAVE 3 IMPLEMENTATION CLOSURE -->

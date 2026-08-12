@@ -228,3 +228,24 @@ Curriculum implementation is closed for the MVP baseline unless reopened by a ve
 
 Continue with the next approved implementation wave in the MVP implementation sequence.
 <!-- END WAVE 2 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 3 IMPLEMENTATION CLOSURE -->
+# Wave 3 Closure
+
+**Wave 3 — Learning Engine / Core Learning Experience:** COMPLETE
+
+Implemented:
+
+- learning progress;
+- resume/continue;
+- prerequisites;
+- competency state;
+- next action;
+- history;
+- review/reinforcement;
+- readiness/test-out integration boundary.
+
+The actual assessment/test-out engine remains intentionally deferred to its approved implementation wave.
+
+Do not expand Learning Engine scope by default after closure.
+<!-- END WAVE 3 IMPLEMENTATION CLOSURE -->
