@@ -294,3 +294,19 @@ Next implementation work must follow:
 
 `docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md`
 <!-- END WAVE 3 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 4 IMPLEMENTATION CLOSURE -->
+# Wave 4 Implementation Closure — 2026-08-12
+
+- Build Wave 0 — Engineering Foundation: **COMPLETE**
+- Build Wave 1 — Platform Kernel and Authentication: **COMPLETE**
+- Build Wave 2 — Curriculum Engine: **COMPLETE**
+- Build Wave 3 — Learning Engine / Core Learning Experience: **COMPLETE**
+- Build Wave 4 — Assessments and Test-Out: **COMPLETE**
+
+Wave 4 now provides the deterministic assessment path required by the Learning Engine while preserving the Evidence Engine boundary.
+
+Next implementation work:
+
+**Wave 5 — Knowledge and Notes**
+<!-- END WAVE 4 IMPLEMENTATION CLOSURE -->

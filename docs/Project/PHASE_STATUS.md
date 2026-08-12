@@ -249,3 +249,26 @@ The actual assessment/test-out engine remains intentionally deferred to its appr
 
 Do not expand Learning Engine scope by default after closure.
 <!-- END WAVE 3 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 4 IMPLEMENTATION CLOSURE -->
+# Wave 4 Closure
+
+**Wave 4 — Assessments and Test-Out:** COMPLETE
+
+Implemented:
+
+- deterministic assessment definitions;
+- persisted attempts and answers;
+- deterministic scoring;
+- retry enforcement;
+- technical interruption recovery;
+- readiness/test-out;
+- competency/prerequisite advancement;
+- review recommendation;
+- integrity metadata;
+- Evidence Engine source handoff.
+
+Canonical Evidence Records remain intentionally deferred to Wave 7.
+
+Next: Wave 5 — Knowledge and Notes.
+<!-- END WAVE 4 IMPLEMENTATION CLOSURE -->

@@ -66,3 +66,21 @@ Current:
 
 The Learning Engine is closed for the MVP baseline unless reopened by a verified defect or unmet approved requirement.
 <!-- END WAVE 3 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 4 IMPLEMENTATION CLOSURE -->
+# Implementation Progress — Wave 4 Closed
+
+Completed:
+
+- Wave 0 — Engineering Foundation
+- Wave 1 — Platform Kernel and Authentication
+- Wave 2 — Curriculum Foundation
+- Wave 3 — Core Learning Experience
+- Wave 4 — Assessments and Test-Out
+
+Current:
+
+- Wave 5 — Knowledge and Notes
+
+Wave 4 remains closed unless reopened by a verified defect or unmet approved requirement.
+<!-- END WAVE 4 IMPLEMENTATION CLOSURE -->
