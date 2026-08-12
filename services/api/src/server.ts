@@ -11,6 +11,7 @@ import {
 } from "./assessment-attempts";
 import { listPublishedAssessments } from "./assessments";
 import { getReadinessAssessmentOutcome } from "./readiness";
+import { interruptAssessmentAttempt, resumeInterruptedAssessmentAttempt } from "./assessment-recovery";
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
@@ -139,6 +140,23 @@ async function handleRequest(
           stableId
         )
       });
+      return;
+    }
+
+    const assessmentInterruptMatch = pathname.match(new RegExp("^/assessment-attempts/([^/]+)/interrupt$"));
+
+    if (request.method === "POST" && assessmentInterruptMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, { recovery: await interruptAssessmentAttempt({ userId: trusted.identity.userId }, decodeURIComponent(assessmentInterruptMatch[1] ?? ""), String(body.reason ?? "unknown")) });
+      return;
+    }
+
+    const assessmentResumeMatch = pathname.match(new RegExp("^/assessment-attempts/([^/]+)/resume$"));
+
+    if (request.method === "POST" && assessmentResumeMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { recovery: await resumeInterruptedAssessmentAttempt({ userId: trusted.identity.userId }, decodeURIComponent(assessmentResumeMatch[1] ?? "")) });
       return;
     }
 

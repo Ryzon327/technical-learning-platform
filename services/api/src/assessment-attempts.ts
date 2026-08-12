@@ -10,6 +10,7 @@ import {
 } from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
 import { processReadinessAssessmentOutcome } from "./readiness";
+import { buildAssessmentEvidenceHandoff } from "./assessment-recovery";
 
 interface TrustedStudent {
   userId: string;
@@ -513,6 +514,11 @@ export async function submitAssessmentAttempt(
   }
 
   await processReadinessAssessmentOutcome(
+    { userId: student.userId },
+    attemptId
+  );
+
+  await buildAssessmentEvidenceHandoff(
     { userId: student.userId },
     attemptId
   );
