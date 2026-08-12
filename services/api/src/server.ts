@@ -55,6 +55,7 @@ import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, re
 import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, searchStudentNotes } from "./note-retrieval";
 import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-export";
 import { mockLabProvider } from "./mock-lab-provider";
+import { sendLabProviderCatalog } from "./lab-provider-routes";
 import { endLabSession, getLabSession, listLabSessions, requestLabSession, startLabSession } from "./lab-sessions";
 import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateLabSession } from "./lab-runtime";
 import { attestLabIsolation, cleanupLabSessionResources, expireLabSession, listLabOperations, recoverLabSession } from "./lab-operations";
@@ -222,6 +223,12 @@ async function handleRequest(
     if (request.method === "GET" && labSessionOperationsMatch) {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { operations: await listLabOperations(trusted.accessToken, decodeURIComponent(labSessionOperationsMatch[1] ?? "")) });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/lab-providers") {
+      await resolveTrustedRequestIdentity(request);
+      await sendLabProviderCatalog(response);
       return;
     }
 
