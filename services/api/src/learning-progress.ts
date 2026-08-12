@@ -9,6 +9,7 @@ import {
 } from "@tlp/shared-types";
 import { getPublishedLearningPathTree } from "./curriculum";
 import { createUserScopedSupabaseClient } from "./supabase";
+import { evaluateMissionPrerequisites } from "./learning-navigation";
 
 type MissionAction = "start" | "complete";
 
@@ -113,6 +114,26 @@ export async function recordMissionProgressAction(
       code: "VALIDATION_ERROR",
       message: "Mission stable ID is required",
       retryable: false
+    });
+  }
+
+  const prerequisiteEvaluation =
+    await evaluateMissionPrerequisites(accessToken, stableId);
+
+  if (prerequisiteEvaluation.state === "temporarily_unavailable") {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: prerequisiteEvaluation.explanation,
+      retryable: true
+    });
+  }
+
+  if (!prerequisiteEvaluation.allowed) {
+    throw new AppError({
+      code: "CONFLICT",
+      message: "Prerequisites are not yet satisfied",
+      retryable: false,
+      details: { prerequisiteEvaluation }
     });
   }
 

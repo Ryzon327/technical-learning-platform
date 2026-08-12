@@ -27,6 +27,10 @@ import {
   getLearningPathProgress,
   recordMissionProgressAction
 } from "./learning-progress";
+import {
+  evaluateMissionPrerequisites,
+  getResumeTarget
+} from "./learning-navigation";
 import { readJsonBody } from "./http-body";
 import { sendJson } from "./http-utils";
 import { log } from "./logger";
@@ -119,6 +123,38 @@ async function handleRequest(
       const trusted = await resolveTrustedRequestIdentity(request);
       const stableId = decodeURIComponent(pathname.slice("/curriculum/paths/".length));
       sendJson(response, 200, await getPublishedLearningPathTree(trusted.accessToken, stableId));
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/resume") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const pathStableId = url.searchParams.get("path") ?? "";
+      sendJson(
+        response,
+        200,
+        await getResumeTarget(trusted.accessToken, pathStableId)
+      );
+      return;
+    }
+
+    const missionAccessMatch = pathname.match(
+      /^\/learning\/missions\/([^/]+)\/access$/
+    );
+
+    if (request.method === "GET" && missionAccessMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const missionStableId = decodeURIComponent(
+        missionAccessMatch[1] ?? ""
+      );
+
+      sendJson(
+        response,
+        200,
+        await evaluateMissionPrerequisites(
+          trusted.accessToken,
+          missionStableId
+        )
+      );
       return;
     }
 

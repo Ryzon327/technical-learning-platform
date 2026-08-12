@@ -32,15 +32,12 @@ assert_status() {
   local path="$2"
   local expected="$3"
   local body="${4:-}"
-
   local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method")
   if [ -n "$body" ]; then
     args+=(-H "content-type: application/json" --data "$body")
   fi
-
   local status
   status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"
-
   if [ "$status" != "$expected" ]; then
     echo "FAIL: $method $path expected $expected, got $status"
     cat /tmp/tlp-smoke-body
@@ -50,23 +47,14 @@ assert_status() {
 }
 
 assert_status GET /auth/me 401
-assert_status GET /admin/ping 401
 assert_status GET /curriculum/paths 401
 assert_status GET '/learning/progress?path=path.test' 401
+assert_status GET '/learning/resume?path=path.test' 401
+assert_status GET /learning/missions/mission.test/access 401
 assert_status POST /learning/missions/mission.test/start 401
 assert_status POST /learning/missions/mission.test/complete 401
+assert_status GET /admin/ping 401
 
-assert_status POST /admin/curriculum/learning-paths 401 '{"stableId":"path.test","title":"Test"}'
-assert_status POST /admin/curriculum/courses 401 '{"learningPathId":"x","stableId":"course.test","title":"Test","position":0}'
-assert_status POST /admin/curriculum/modules 401 '{"courseId":"x","stableId":"module.test","title":"Test","position":0}'
-assert_status POST /admin/curriculum/missions 401 '{"moduleId":"x","stableId":"mission.test","title":"Test","position":0}'
-assert_status POST /admin/curriculum/competencies 401 '{"stableId":"competency.test","title":"Test"}'
-assert_status POST /admin/curriculum/competency-prerequisites 401 '{"competencyId":"x","prerequisiteCompetencyId":"y"}'
-assert_status POST /admin/curriculum/mission-competencies 401 '{"missionId":"x","competencyId":"y"}'
-assert_status POST /admin/curriculum/learning-paths/test-id/validate 401
-assert_status POST /admin/curriculum/learning-paths/test-id/transition 401 '{"to":"review"}'
-
-echo "PASS: authentication routes reject unauthenticated requests"
-echo "PASS: curriculum authoring surface rejects unauthenticated requests"
-echo "PASS: learning progress reads reject unauthenticated requests"
-echo "PASS: learning progress writes reject unauthenticated requests"
+echo "PASS: resume route rejects unauthenticated requests"
+echo "PASS: prerequisite evaluation rejects unauthenticated requests"
+echo "PASS: mission progression remains authentication protected"

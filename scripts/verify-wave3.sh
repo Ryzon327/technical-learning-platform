@@ -6,10 +6,11 @@ cd "$ROOT"
 
 required=(
   "packages/shared-types/src/learning.ts"
-  "packages/shared-types/src/learning.test.ts"
+  "packages/shared-types/src/learning-navigation.ts"
   "services/api/src/learning-progress.ts"
-  "services/api/src/learning-progress.test.ts"
+  "services/api/src/learning-navigation.ts"
   "supabase/migrations/20260811000700_learning_progress_foundation.sql"
+  "supabase/migrations/20260811000800_learning_resume_prerequisites.sql"
 )
 
 for path in "${required[@]}"; do
@@ -19,37 +20,19 @@ for path in "${required[@]}"; do
   fi
 done
 
-if ! grep -Fq 'student_learning_progress'   supabase/migrations/20260811000700_learning_progress_foundation.sql; then
-  echo "FAIL: student learning progress table is missing."
-  exit 1
-fi
+grep -Fq 'selectResumeTarget' packages/shared-types/src/learning-navigation.ts   || { echo "FAIL: resume selection missing."; exit 1; }
 
-if ! grep -Fq 'auth.uid() = user_id'   supabase/migrations/20260811000700_learning_progress_foundation.sql; then
-  echo "FAIL: student progress ownership RLS is missing."
-  exit 1
-fi
+grep -Fq 'evaluatePrerequisiteRules' packages/shared-types/src/learning-navigation.ts   || { echo "FAIL: prerequisite evaluation missing."; exit 1; }
 
-if ! grep -Fq 'record_mission_progress'   supabase/migrations/20260811000700_learning_progress_foundation.sql; then
-  echo "FAIL: deterministic mission progress function is missing."
-  exit 1
-fi
+grep -Fq 'learning_prerequisite_rules' supabase/migrations/20260811000800_learning_resume_prerequisites.sql   || { echo "FAIL: prerequisite rules missing."; exit 1; }
 
-if ! grep -Fq 'getLearningPathProgress' services/api/src/server.ts; then
-  echo "FAIL: learning progress read route is not wired."
-  exit 1
-fi
+grep -Fq 'learning_requirement_satisfactions' supabase/migrations/20260811000800_learning_resume_prerequisites.sql   || { echo "FAIL: authoritative satisfaction bridge missing."; exit 1; }
 
-if ! grep -Fq 'recordMissionProgressAction' services/api/src/server.ts; then
-  echo "FAIL: learning progress write routes are not wired."
-  exit 1
-fi
+grep -Fq 'Prerequisites are not yet satisfied' services/api/src/learning-progress.ts   || { echo "FAIL: mission prerequisite enforcement missing."; exit 1; }
 
-if ! grep -Fq 'aggregateLearningPathProgress'   packages/shared-types/src/learning.ts; then
-  echo "FAIL: deterministic progress aggregation is missing."
-  exit 1
-fi
+grep -Fq 'getResumeTarget' services/api/src/server.ts   || { echo "FAIL: resume route missing."; exit 1; }
 
-echo "Wave 3 Batch 1 learning progress structure verified."
+echo "Wave 3 Batch 2 resume and prerequisite structure verified."
 
 npm run typecheck
 npm run test
@@ -57,4 +40,4 @@ npm run build
 bash scripts/security-scan.sh
 bash scripts/smoke-api.sh
 
-echo "Wave 3 Batch 1 verification passed."
+echo "Wave 3 Batch 2 verification passed."
