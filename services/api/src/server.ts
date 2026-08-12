@@ -23,6 +23,7 @@ import {
   listPublishedLearningPaths
 } from "./curriculum";
 import { getApiHealthDetails } from "./health";
+import { listStudentCompetencyState } from "./competency";
 import {
   getLearningPathProgress,
   recordMissionProgressAction
@@ -123,6 +124,17 @@ async function handleRequest(
       const trusted = await resolveTrustedRequestIdentity(request);
       const stableId = decodeURIComponent(pathname.slice("/curriculum/paths/".length));
       sendJson(response, 200, await getPublishedLearningPathTree(trusted.accessToken, stableId));
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/competencies") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(
+        response,
+        200,
+        await listStudentCompetencyState(trusted.accessToken)
+      );
       return;
     }
 

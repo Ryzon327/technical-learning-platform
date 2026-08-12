@@ -1,20 +1,23 @@
 # Supabase
 
-Current implementation migrations include:
+Current Learning Engine implementation migrations:
 
 - `20260811000700_learning_progress_foundation.sql`
 - `20260811000800_learning_resume_prerequisites.sql`
+- `20260811000900_competency_state_foundation.sql`
 
-## Resume
+## Competency state
 
-Resume derives from current published curriculum plus meaningful progress. Retired or replaced historical targets are not returned as broken links.
+Student competency state is RLS-readable by its owner.
 
-## Prerequisites
+Authenticated clients have no direct write policy for competency state, accepted evidence references, or competency transition events.
 
-Content completion is derived from Learning Progress.
+Competency advancement is server authoritative. Later Assessment, Lab, Evidence, and Portfolio engines contribute evidence references through trusted server-side integrations.
 
-Competency, readiness-assessment, and equivalent-competency satisfaction use the server-owned `learning_requirement_satisfactions` bridge. Authenticated clients have no write policy on that table.
+AI does not decide mastery.
 
-Temporary evaluation failure remains distinct from student non-completion.
+## Auditability
 
-Service-role credentials remain server-only.
+Competency state transitions are appended to `student_competency_state_events`.
+
+Administrative correction is represented as an evidence source and must remain attributable rather than silently rewriting student history.

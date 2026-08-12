@@ -22,5 +22,6 @@ export * from "./curriculum-admin";
 export * from "./curriculum-quality";
 export * from "./learning";
 export * from "./learning-navigation";
+export * from "./competency";
 export * from "./errors";
 export * from "./version";

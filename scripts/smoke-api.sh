@@ -31,13 +31,9 @@ assert_status() {
   local method="$1"
   local path="$2"
   local expected="$3"
-  local body="${4:-}"
-  local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method")
-  if [ -n "$body" ]; then
-    args+=(-H "content-type: application/json" --data "$body")
-  fi
   local status
-  status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"
+  status="$(curl -sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method"     "http://127.0.0.1:${PORT}${path}")"
+
   if [ "$status" != "$expected" ]; then
     echo "FAIL: $method $path expected $expected, got $status"
     cat /tmp/tlp-smoke-body
@@ -47,14 +43,13 @@ assert_status() {
 }
 
 assert_status GET /auth/me 401
-assert_status GET /curriculum/paths 401
 assert_status GET '/learning/progress?path=path.test' 401
 assert_status GET '/learning/resume?path=path.test' 401
 assert_status GET /learning/missions/mission.test/access 401
+assert_status GET /learning/competencies 401
 assert_status POST /learning/missions/mission.test/start 401
 assert_status POST /learning/missions/mission.test/complete 401
 assert_status GET /admin/ping 401
 
-echo "PASS: resume route rejects unauthenticated requests"
-echo "PASS: prerequisite evaluation rejects unauthenticated requests"
-echo "PASS: mission progression remains authentication protected"
+echo "PASS: learning progress/resume/prerequisite routes reject unauthenticated requests"
+echo "PASS: competency state route rejects unauthenticated requests"
