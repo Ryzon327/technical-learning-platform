@@ -1,0 +1,1 @@
+import {describe,expect,it} from "vitest";import {noteContainsUnsafeMarkup} from "@tlp/shared-types";describe("notes API boundary",()=>{it("rejects active markup patterns",()=>expect(noteContainsUnsafeMarkup('<img src=x onerror=alert(1)>')).toBe(true));});

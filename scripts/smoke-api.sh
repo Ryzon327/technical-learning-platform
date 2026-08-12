@@ -33,5 +33,11 @@ assert_status GET /assessment-attempts/test-attempt/readiness-outcome 401
 assert_status POST /assessment-attempts/test-attempt/interrupt 401 '{"reason":"network_error"}'
 assert_status POST /assessment-attempts/test-attempt/resume 401
 assert_status GET '/learning/progress?path=path.test' 401
+assert_status GET /notes 401
+assert_status POST /notes 401 '{"title":"test"}'
+assert_status GET /notes/test-note 401
+assert_status PUT /notes/test-note 401 '{"title":"test"}'
+assert_status DELETE /notes/test-note 401
 echo "PASS: Wave 4 assessment/recovery/readiness routes reject unauthenticated requests"
 echo "PASS: Wave 3 learning routes remain protected"
+echo "PASS: Wave 5 private note routes reject unauthenticated requests"

@@ -50,6 +50,7 @@ import { readJsonBody } from "./http-body";
 import { sendJson } from "./http-utils";
 import { log } from "./logger";
 import { createRequestContext } from "./request-context";
+import { createStudentNote, deleteStudentNote, getStudentNote, listStudentNotes, updateStudentNote } from "./notes";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -119,6 +120,13 @@ async function handleRequest(
       });
       return;
     }
+
+    if (request.method === "GET" && pathname === "/notes") { const trusted=await resolveTrustedRequestIdentity(request); sendJson(response,200,{notes:await listStudentNotes(trusted.accessToken)}); return; }
+    if (request.method === "POST" && pathname === "/notes") { const trusted=await resolveTrustedRequestIdentity(request); const body=await readJsonBody(request); sendJson(response,201,{note:await createStudentNote(trusted.accessToken,body)}); return; }
+    const noteMatch = pathname.match(/^\/notes\/([^/]+)$/);
+    if (request.method === "GET" && noteMatch) { const trusted=await resolveTrustedRequestIdentity(request); sendJson(response,200,{note:await getStudentNote(trusted.accessToken,decodeURIComponent(noteMatch[1]??""))}); return; }
+    if (request.method === "PUT" && noteMatch) { const trusted=await resolveTrustedRequestIdentity(request); const body=await readJsonBody(request); sendJson(response,200,{note:await updateStudentNote(trusted.accessToken,decodeURIComponent(noteMatch[1]??""),body)}); return; }
+    if (request.method === "DELETE" && noteMatch) { const trusted=await resolveTrustedRequestIdentity(request); await deleteStudentNote(trusted.accessToken,decodeURIComponent(noteMatch[1]??"")); sendJson(response,200,{deleted:true}); return; }
 
     if (request.method === "GET" && pathname === "/auth/me") {
       const trusted = await resolveTrustedRequestIdentity(request);

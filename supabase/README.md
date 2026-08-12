@@ -10,3 +10,4 @@ Current Assessment migrations:
 Technical interruption is a recoverable non-failure state, saved answers remain preserved, and completed results receive deterministic integrity metadata.
 
 Wave 4 emits an authoritative assessment-source handoff for the later Evidence Engine. Wave 7 remains responsible for canonical Evidence Records and provenance.
+- `20260812000500_student_notes_foundation.sql` — private student notes and stable learning-context references with RLS ownership.
