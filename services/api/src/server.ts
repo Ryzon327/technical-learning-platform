@@ -23,6 +23,11 @@ import {
   listPublishedLearningPaths
 } from "./curriculum";
 import { getApiHealthDetails } from "./health";
+import {
+  getRecommendedNextAction,
+  listLearningHistory,
+  listReviewState
+} from "./learning-guidance";
 import { listStudentCompetencyState } from "./competency";
 import {
   getLearningPathProgress,
@@ -124,6 +129,47 @@ async function handleRequest(
       const trusted = await resolveTrustedRequestIdentity(request);
       const stableId = decodeURIComponent(pathname.slice("/curriculum/paths/".length));
       sendJson(response, 200, await getPublishedLearningPathTree(trusted.accessToken, stableId));
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/next-action") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const pathStableId = url.searchParams.get("path") ?? "";
+
+      sendJson(
+        response,
+        200,
+        await getRecommendedNextAction(
+          trusted.accessToken,
+          pathStableId
+        )
+      );
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/history") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const requestedLimit = Number(url.searchParams.get("limit") ?? "100");
+
+      sendJson(
+        response,
+        200,
+        await listLearningHistory(
+          trusted.accessToken,
+          Number.isFinite(requestedLimit) ? requestedLimit : 100
+        )
+      );
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/learning/review") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+
+      sendJson(
+        response,
+        200,
+        await listReviewState(trusted.accessToken)
+      );
       return;
     }
 

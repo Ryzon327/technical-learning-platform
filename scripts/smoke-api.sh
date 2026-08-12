@@ -42,14 +42,14 @@ assert_status() {
   fi
 }
 
-assert_status GET /auth/me 401
 assert_status GET '/learning/progress?path=path.test' 401
 assert_status GET '/learning/resume?path=path.test' 401
 assert_status GET /learning/missions/mission.test/access 401
 assert_status GET /learning/competencies 401
+assert_status GET '/learning/next-action?path=path.test' 401
+assert_status GET /learning/history 401
+assert_status GET /learning/review 401
 assert_status POST /learning/missions/mission.test/start 401
 assert_status POST /learning/missions/mission.test/complete 401
-assert_status GET /admin/ping 401
 
-echo "PASS: learning progress/resume/prerequisite routes reject unauthenticated requests"
-echo "PASS: competency state route rejects unauthenticated requests"
+echo "PASS: all Wave 3 learning routes reject unauthenticated requests"

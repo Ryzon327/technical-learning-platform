@@ -1,23 +1,26 @@
 # Supabase
 
-Current Learning Engine implementation migrations:
+Current Learning Engine migrations:
 
 - `20260811000700_learning_progress_foundation.sql`
 - `20260811000800_learning_resume_prerequisites.sql`
 - `20260811000900_competency_state_foundation.sql`
+- `20260811001000_learning_history_review.sql`
 
-## Competency state
+## Learning history
 
-Student competency state is RLS-readable by its owner.
+Learning history is student-owned and RLS readable only by the owning student.
 
-Authenticated clients have no direct write policy for competency state, accepted evidence references, or competency transition events.
+The browser has no direct write policy. Trusted engine flows append meaningful educational events.
 
-Competency advancement is server authoritative. Later Assessment, Lab, Evidence, and Portfolio engines contribute evidence references through trusted server-side integrations.
+## Review state
 
-AI does not decide mastery.
+Review is modeled as explicit competency review state, not inactivity punishment.
 
-## Auditability
+Time away, missed days, streak loss, or engagement frequency do not lower competency or progress.
 
-Competency state transitions are appended to `student_competency_state_events`.
+## Next action
 
-Administrative correction is represented as an evidence source and must remain attributable rather than silently rewriting student history.
+Recommended-next-action logic is deterministic and derived from current progress, resume state, and competency review state.
+
+AI does not choose authoritative progression.
