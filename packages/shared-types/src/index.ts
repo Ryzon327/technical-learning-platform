@@ -29,5 +29,6 @@ export * from "./readiness";
 export * from "./assessment-recovery";
 export * from "./assessment";
 export * from "./notes";
+export * from "./note-blocks";
 export * from "./errors";
 export * from "./version";

@@ -51,6 +51,7 @@ import { sendJson } from "./http-utils";
 import { log } from "./logger";
 import { createRequestContext } from "./request-context";
 import { createStudentNote, deleteStudentNote, getStudentNote, listStudentNotes, updateStudentNote } from "./notes";
+import { createStudentTag, deleteStudentTag, listNoteBlocks, listStudentTags, renameStudentTag, replaceNoteBlocks, replaceNoteTags, setNotePinned } from "./note-organization";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -118,6 +119,62 @@ async function handleRequest(
         service: "api",
         checkedAt: new Date().toISOString()
       });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/note-tags") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { tags: await listStudentTags(trusted.accessToken) });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/note-tags") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, { tag: await createStudentTag(trusted.accessToken, body.name) });
+      return;
+    }
+
+    const noteTagMatch = pathname.match(/^\/note-tags\/([^/]+)$/);
+    if (request.method === "PUT" && noteTagMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, { tag: await renameStudentTag(trusted.accessToken, decodeURIComponent(noteTagMatch[1] ?? ""), body.name) });
+      return;
+    }
+    if (request.method === "DELETE" && noteTagMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      await deleteStudentTag(trusted.accessToken, decodeURIComponent(noteTagMatch[1] ?? ""));
+      sendJson(response, 200, { deleted: true });
+      return;
+    }
+
+    const noteBlocksMatch = pathname.match(/^\/notes\/([^/]+)\/blocks$/);
+    if (request.method === "GET" && noteBlocksMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { blocks: await listNoteBlocks(trusted.accessToken, decodeURIComponent(noteBlocksMatch[1] ?? "")) });
+      return;
+    }
+    if (request.method === "PUT" && noteBlocksMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, { blocks: await replaceNoteBlocks(trusted.accessToken, decodeURIComponent(noteBlocksMatch[1] ?? ""), Array.isArray(body.blocks) ? body.blocks : []) });
+      return;
+    }
+
+    const noteTagsMatch = pathname.match(/^\/notes\/([^/]+)\/tags$/);
+    if (request.method === "PUT" && noteTagsMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, { tagIds: await replaceNoteTags(trusted.accessToken, decodeURIComponent(noteTagsMatch[1] ?? ""), Array.isArray(body.tagIds) ? body.tagIds : []) });
+      return;
+    }
+
+    const notePinnedMatch = pathname.match(/^\/notes\/([^/]+)\/pinned$/);
+    if (request.method === "PUT" && notePinnedMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, { pinned: await setNotePinned(trusted.accessToken, decodeURIComponent(notePinnedMatch[1] ?? ""), Boolean(body.pinned)) });
       return;
     }
 

@@ -38,6 +38,15 @@ assert_status POST /notes 401 '{"title":"test"}'
 assert_status GET /notes/test-note 401
 assert_status PUT /notes/test-note 401 '{"title":"test"}'
 assert_status DELETE /notes/test-note 401
+assert_status GET /note-tags 401
+assert_status POST /note-tags 401 '{"name":"networking"}'
+assert_status PUT /note-tags/test-tag 401 '{"name":"routing"}'
+assert_status DELETE /note-tags/test-tag 401
+assert_status GET /notes/test-note/blocks 401
+assert_status PUT /notes/test-note/blocks 401 '{"blocks":[]}'
+assert_status PUT /notes/test-note/tags 401 '{"tagIds":[]}'
+assert_status PUT /notes/test-note/pinned 401 '{"pinned":true}'
 echo "PASS: Wave 4 assessment/recovery/readiness routes reject unauthenticated requests"
 echo "PASS: Wave 3 learning routes remain protected"
 echo "PASS: Wave 5 private note routes reject unauthenticated requests"
+echo "PASS: Wave 5 block/tag/pin routes reject unauthenticated requests"
