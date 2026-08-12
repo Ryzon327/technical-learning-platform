@@ -56,6 +56,7 @@ import { createStudentBookmark, deleteStudentBookmark, listStudentBookmarks, sea
 import { buildStudentNoteExport, serializeStudentNoteExport } from "./note-export";
 import { mockLabProvider } from "./mock-lab-provider";
 import { endLabSession, getLabSession, listLabSessions, requestLabSession, startLabSession } from "./lab-sessions";
+import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateLabSession } from "./lab-runtime";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -157,6 +158,34 @@ async function handleRequest(
     if (request.method === "POST" && labSessionEndMatch) {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { session: await endLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionEndMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionAccessMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/access$/);
+    if (request.method === "GET" && labSessionAccessMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { access: await getLabAccessDelivery(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionAccessMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionResetMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/reset$/);
+    if (request.method === "POST" && labSessionResetMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { reset: await resetLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionResetMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionValidateMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/validate$/);
+    if (request.method === "POST" && labSessionValidateMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { validation: await validateLabSession(trusted.accessToken, trusted.identity.userId, decodeURIComponent(labSessionValidateMatch[1] ?? "")) });
+      return;
+    }
+
+    const labSessionValidationsMatch = pathname.match(/^\/lab-sessions\/([^/]+)\/validations$/);
+    if (request.method === "GET" && labSessionValidationsMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { validations: await listLabValidationRuns(trusted.accessToken, decodeURIComponent(labSessionValidationsMatch[1] ?? "")) });
       return;
     }
 

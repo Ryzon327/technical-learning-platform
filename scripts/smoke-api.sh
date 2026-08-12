@@ -15,8 +15,13 @@ assert_status POST /lab-sessions 401 '{"labDefinitionStableId":"LABDEF-TEST"}'
 assert_status GET /lab-sessions/test-session 401
 assert_status POST /lab-sessions/test-session/start 401
 assert_status POST /lab-sessions/test-session/end 401
+assert_status GET /lab-sessions/test-session/access 401
+assert_status POST /lab-sessions/test-session/reset 401
+assert_status POST /lab-sessions/test-session/validate 401
+assert_status GET /lab-sessions/test-session/validations 401
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
 echo 'PASS: Wave 6 mock provider capability route rejects unauthenticated requests'
 echo 'PASS: Wave 6 session request/status/start/end routes reject unauthenticated requests'
+echo 'PASS: Wave 6 access/reset/validation routes reject unauthenticated requests'

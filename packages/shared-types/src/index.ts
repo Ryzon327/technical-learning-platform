@@ -36,3 +36,4 @@ export * from "./errors";
 export * from "./version";
 export * from "./labs";
 export * from "./lab-sessions";
+export * from "./lab-runtime";
