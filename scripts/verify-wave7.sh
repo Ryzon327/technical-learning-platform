@@ -103,6 +103,128 @@ echo "PASS: no student Evidence creation route exists"
 echo "PASS: assessment and lab handoff consumption remain deferred"
 echo "PASS: AI holds no Evidence authority"
 
+# ============================================================
+# Wave 7 Batch 2 — EVID-003 Competency Evidence Linking.
+# Batch 1 checks above are preserved verbatim.
+# ============================================================
+
+LINK_TYPES="packages/shared-types/src/evidence-competency.ts"
+LINK_SERVICE="services/api/src/evidence-competency.ts"
+LINK_MIGRATION="supabase/migrations/20260813000200_evidence_competency_linking.sql"
+COMPETENCY_MIGRATION="supabase/migrations/20260811000900_competency_state_foundation.sql"
+
+for p in \
+  "$LINK_TYPES" \
+  packages/shared-types/src/evidence-competency.test.ts \
+  "$LINK_SERVICE" \
+  services/api/src/evidence-competency.test.ts \
+  "$LINK_MIGRATION" \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_2_COMPETENCY_EVIDENCE_LINKING.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- shared Evidence competency contract --------------------------------------
+grep -Fq 'export interface EvidenceCompetencyLink' "$LINK_TYPES" || exit 1
+grep -Fq 'export type EvidenceCompetencyRelationship' "$LINK_TYPES" || exit 1
+grep -Fq 'export type EvidenceCompetencyLinkSource' "$LINK_TYPES" || exit 1
+grep -Fq 'export interface CreateEvidenceCompetencyLinkInput' "$LINK_TYPES" || exit 1
+grep -Fq 'export interface AuthoritativeCompetencyEvidenceReference' "$LINK_TYPES" || exit 1
+grep -Fq 'export * from "./evidence-competency";' packages/shared-types/src/index.ts || exit 1
+
+# Mapping sources must never grant AI authority.
+if grep -nEi 'ai_generated|llm|model_decision' "$LINK_TYPES" "$LINK_SERVICE" "$LINK_MIGRATION"; then
+  echo "FAIL: AI mapping authority detected in the competency linking path"; exit 1
+fi
+
+# A link must never assert mastery.
+if grep -nEi 'markCompetencyDemonstrated|decideCompetencyTransition|recordAuthoritativeCompetencyEvidence' "$LINK_SERVICE"; then
+  echo "FAIL: Evidence linking reaches into Learning Engine mastery authority"; exit 1
+fi
+
+# --- migration, constraints, RLS ----------------------------------------------
+grep -Fq 'create table if not exists public.evidence_competency_links' "$LINK_MIGRATION" || exit 1
+grep -Fq 'references public.evidence_records(id)' "$LINK_MIGRATION" || exit 1
+grep -Fq 'references public.competencies(id)' "$LINK_MIGRATION" || exit 1
+grep -Fq 'competency_version integer not null check (competency_version > 0)' "$LINK_MIGRATION" || exit 1
+grep -Fq "relationship in ('required', 'supporting')" "$LINK_MIGRATION" || exit 1
+grep -Fq "'approved_curriculum_mapping'" "$LINK_MIGRATION" || exit 1
+grep -Fq 'unique (evidence_id, competency_stable_id, competency_version, relationship)' "$LINK_MIGRATION" || exit 1
+grep -Fq 'alter table public.evidence_competency_links enable row level security' "$LINK_MIGRATION" || exit 1
+grep -Fq 'for select to authenticated' "$LINK_MIGRATION" || exit 1
+grep -Fq 'auth.uid() = user_id' "$LINK_MIGRATION" || exit 1
+grep -Fq 'Evidence competency link owner must match the Evidence owner' "$LINK_MIGRATION" || exit 1
+grep -Fq 'must preserve the exact competency definition reference' "$LINK_MIGRATION" || exit 1
+
+if grep -A2 -Ei '^[[:space:]]*on public\.evidence_competency_links[[:space:]]*$' "$LINK_MIGRATION" \
+  | grep -qEi '^[[:space:]]*for[[:space:]]+(insert|update|delete|all)\b'; then
+  echo "FAIL: student write policy granted on evidence_competency_links"; exit 1
+fi
+
+if grep -qEi 'create policy[^;]*evidence_competency_links[^;]*for[[:space:]]+(insert|update|delete|all)\b' "$LINK_MIGRATION"; then
+  echo "FAIL: student write policy granted on evidence_competency_links"; exit 1
+fi
+
+# The Learning Engine's own tables must not be redefined or mutated here.
+if grep -nEi 'student_competency_state|student_competency_evidence_refs|drop table' "$LINK_MIGRATION"; then
+  echo "FAIL: Batch 2 migration touches Learning Engine competency objects"; exit 1
+fi
+
+grep -Fq 'create table if not exists public.student_competency_evidence_refs' "$COMPETENCY_MIGRATION" || {
+  echo "FAIL: existing student_competency_evidence_refs was removed"; exit 1
+}
+grep -Fq 'export async function recordAuthoritativeCompetencyEvidence' services/api/src/competency.ts || {
+  echo "FAIL: existing recordAuthoritativeCompetencyEvidence was removed"; exit 1
+}
+
+# --- server-authoritative linking ---------------------------------------------
+grep -Fq 'export async function linkEvidenceToCompetency' "$LINK_SERVICE" || exit 1
+grep -Fq 'export async function listEvidenceCompetencyLinks' "$LINK_SERVICE" || exit 1
+grep -Fq 'export async function listCompetencyEvidenceLinks' "$LINK_SERVICE" || exit 1
+grep -Fq 'export async function getAuthoritativeCompetencyEvidenceReferences' "$LINK_SERVICE" || exit 1
+grep -Fq 'createServerSupabaseClient()' "$LINK_SERVICE" || exit 1
+grep -Fq 'createUserScopedSupabaseClient(accessToken)' "$LINK_SERVICE" || exit 1
+grep -Fq 'evidence.userId !== input.userId' "$LINK_SERVICE" || exit 1
+grep -Fq 'evaluateEvidenceLinkEligibility' "$LINK_SERVICE" || exit 1
+grep -Fq 'evidence.competency.linked' "$LINK_SERVICE" || exit 1
+grep -Fq 'competency_version: definition.version' "$LINK_SERVICE" || exit 1
+
+# No automatic source-engine consumption in this batch.
+if grep -nE 'assessment_evidence_handoffs|lab_validation_runs|lab_validation_results' "$LINK_SERVICE"; then
+  echo "FAIL: Batch 2 must not consume assessment or lab source truth"; exit 1
+fi
+
+# --- authenticated read routes, no student mutation route ---------------------
+grep -Fq 'evidenceCompetencyMatch' services/api/src/server.ts || exit 1
+grep -Fq 'competencyEvidenceMatch' services/api/src/server.ts || exit 1
+grep -Fq 'listEvidenceCompetencyLinks(trusted.accessToken' services/api/src/server.ts || exit 1
+grep -Fq 'listCompetencyEvidenceLinks(trusted.accessToken' services/api/src/server.ts || exit 1
+
+if grep -nE 'request\.method === "(POST|PUT|PATCH|DELETE)" && (evidenceCompetencyMatch|competencyEvidenceMatch)' services/api/src/server.ts; then
+  echo "FAIL: student Evidence competency mutation route exists"; exit 1
+fi
+if grep -Fq 'linkEvidenceToCompetency' services/api/src/server.ts; then
+  echo "FAIL: trusted linking is reachable from the HTTP surface"; exit 1
+fi
+
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' "$LINK_TYPES" "$LINK_SERVICE" "$LINK_MIGRATION"; then
+  echo "FAIL: AI dependency detected in the competency mapping path"; exit 1
+fi
+
+echo "PASS: shared Evidence competency link type exists and is exported"
+echo "PASS: Evidence competency link table exists with approved constraints"
+echo "PASS: relationship and link-source values are constrained"
+echo "PASS: RLS grants students SELECT only on their own links"
+echo "PASS: no student Evidence competency write policy is granted"
+echo "PASS: Evidence owner is authoritative for link ownership"
+echo "PASS: only active integrity-verified Evidence may be linked"
+echo "PASS: the exact historical competency definition version is preserved"
+echo "PASS: linking is server-authoritative and idempotent"
+echo "PASS: existing student_competency_evidence_refs and Learning Engine flow are preserved"
+echo "PASS: a link never marks a competency demonstrated"
+echo "PASS: assessment and lab consumption remain deferred to later batches"
+echo "PASS: authenticated read routes exist with no student mutation route"
+echo "PASS: AI holds no competency mapping authority"
+
 npm run typecheck
 npm run test
 npm run build
@@ -110,3 +232,4 @@ bash scripts/security-scan.sh
 bash scripts/smoke-api.sh
 
 echo "Wave 7 Batch 1 verification passed."
+echo "Wave 7 Batch 2 verification passed."

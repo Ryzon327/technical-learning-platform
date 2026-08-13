@@ -28,3 +28,8 @@ Wave 4 emits an authoritative assessment-source handoff for the later Evidence E
 Wave 7 owns Canonical Evidence Records in `public.evidence_records`. Canonical Evidence creation is server-authoritative: no student insert, update, or delete policy is granted, and provenance columns are immutable after creation.
 
 Wave 4 `assessment_evidence_handoffs` remain source-engine handoffs and are not consumed into Canonical Evidence in this batch. Wave 6 lab validation runs and results remain deterministic source-engine truth. Later Wave 7 batches establish the assessment and lab Evidence handoff consumption.
+- `20260813000200_evidence_competency_linking.sql` — Wave 7 Batch 2 canonical Evidence-to-competency relationships with preserved competency definition versions, server-authoritative linking, and student read-only RLS.
+
+Wave 7 Batch 1 owns canonical Evidence Records in `public.evidence_records`. Wave 7 Batch 2 owns canonical Evidence-to-competency relationships in `public.evidence_competency_links`, which reference the exact historical `public.competencies` row (`stable_id`, `version`) a mapping was approved against.
+
+The Evidence Engine stores trusted proof and trusted mappings. The Learning Engine still owns competency state: `public.student_competency_state`, `public.student_competency_evidence_refs` and `public.student_competency_state_events` are unchanged, and a link never marks a competency demonstrated.

@@ -60,6 +60,7 @@ import { endLabSession, getLabSession, listLabSessions, requestLabSession, start
 import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateLabSession } from "./lab-runtime";
 import { attestLabIsolation, cleanupLabSessionResources, expireLabSession, listLabOperations, recoverLabSession } from "./lab-operations";
 import { getCanonicalEvidenceForStudent, listStudentEvidence } from "./evidence";
+import { listCompetencyEvidenceLinks, listEvidenceCompetencyLinks } from "./evidence-competency";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -242,6 +243,20 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/evidence") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { evidence: await listStudentEvidence(trusted.accessToken) });
+      return;
+    }
+
+    const evidenceCompetencyMatch = pathname.match(/^\/evidence\/([^/]+)\/competencies$/);
+    if (request.method === "GET" && evidenceCompetencyMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { competencies: await listEvidenceCompetencyLinks(trusted.accessToken, decodeURIComponent(evidenceCompetencyMatch[1] ?? "")) });
+      return;
+    }
+
+    const competencyEvidenceMatch = pathname.match(/^\/competencies\/([^/]+)\/evidence$/);
+    if (request.method === "GET" && competencyEvidenceMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { evidence: await listCompetencyEvidenceLinks(trusted.accessToken, decodeURIComponent(competencyEvidenceMatch[1] ?? "")) });
       return;
     }
 
