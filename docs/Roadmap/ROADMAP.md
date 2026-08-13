@@ -103,3 +103,13 @@ Current:
 
 Wave 5 remains closed unless reopened by a verified defect or unmet approved requirement.
 <!-- END WAVE 5 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 6 CLOSURE -->
+## Wave 6 — Lab Engine MVP
+
+**Implementation Status:** Complete
+
+Exit gate satisfied: the platform can support the governed lifecycle of a real practical lab through the LMS with deterministic validation, reset/cleanup, isolation, capacity controls, and no direct provider administrative access for students.
+
+Next implementation wave: **Wave 7 — Evidence**.
+<!-- END WAVE 6 CLOSURE -->

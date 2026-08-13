@@ -297,3 +297,13 @@ AI-assisted notes remain intentionally deferred until the AI Gateway exists.
 
 Next: Wave 6 — Lab Engine MVP.
 <!-- END WAVE 5 IMPLEMENTATION CLOSURE -->
+
+<!-- BEGIN WAVE 6 STATUS -->
+## Build Wave 6 — Lab Engine MVP
+
+**Status:** Complete
+
+Completion review passed after validating LAB-001 through LAB-012 implementation boundaries and the real-provider student learning loop.
+
+Next: Build Wave 7 — Evidence Engine.
+<!-- END WAVE 6 STATUS -->
