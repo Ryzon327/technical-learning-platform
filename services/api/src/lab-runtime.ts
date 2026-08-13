@@ -1,32 +1,45 @@
 import {
   AppError,
   deriveLabValidationState,
+  type LabProvider,
   type LabAccessDelivery,
   type LabResetResult,
   type LabValidationCheckResult,
   type LabValidationRunResult
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
+import { getLabProvider } from "./lab-provider-registry";
 import { getLabSession } from "./lab-sessions";
-import { mockLabProvider } from "./mock-lab-provider";
 import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
 const dep = (message:string) => new AppError({ code:"DEPENDENCY_UNAVAILABLE", message, retryable:true });
 
-async function providerRef(userId:string, sessionId:string) {
+/**
+ * Loads the authoritative persisted provider reference for a session and
+ * resolves the owning provider implementation.
+ *
+ * Rollout policy is never consulted here: an existing session must remain
+ * accessible, resettable and validatable regardless of the current rollout
+ * state of its provider.
+ */
+async function providerRef(userId:string, sessionId:string):Promise<{providerId:string;providerSessionId:string;provider:LabProvider}> {
   const s=createServerSupabaseClient();
   const {data,error}=await s.from("lab_session_provider_references").select("provider_id,provider_session_id").eq("lab_session_id",sessionId).eq("user_id",userId).maybeSingle();
   if(error) throw dep("Unable to load lab provider reference");
   if(!data) throw new AppError({code:"NOT_FOUND",message:"Lab provider session not found",retryable:false});
-  if(String(data.provider_id)!=="mock") throw dep("The configured lab provider is not available in this build");
-  return { providerSessionId:String(data.provider_session_id) };
+  const providerId=String(data.provider_id);
+  const providerSessionId=String(data.provider_session_id);
+  let provider:LabProvider;
+  try { provider=getLabProvider(providerId); }
+  catch { throw dep("The configured lab provider is not available in this build"); }
+  return { providerId, providerSessionId, provider };
 }
 
 export async function getLabAccessDelivery(accessToken:string,userId:string,sessionId:string):Promise<LabAccessDelivery>{
   const session=await getLabSession(accessToken,sessionId);
   if(!["ready","active"].includes(session.state)) throw new AppError({code:"CONFLICT",message:"Lab access is available only when the session is ready or active",retryable:false});
   const ref=await providerRef(userId,sessionId);
-  const connection=await mockLabProvider.getConnection(ref.providerSessionId);
+  const connection=await ref.provider.getConnection(ref.providerSessionId);
   return {
     sessionId,
     method:connection.method,
@@ -50,7 +63,7 @@ export async function resetLabSession(accessToken:string,userId:string,sessionId
   if(stateError) throw dep("Unable to read lab reset state");
   const resetCount=Number(state?.reset_count??0);
   if(resetCount>=5) throw new AppError({code:"RATE_LIMITED",message:"This lab has reached its reset limit for the current session",retryable:false});
-  await mockLabProvider.reset(ref.providerSessionId);
+  await ref.provider.reset(ref.providerSessionId);
   const resetAt=new Date().toISOString();
   const nextCount=resetCount+1;
   const {error:runtimeError}=await server.from("lab_session_runtime_state").upsert({lab_session_id:sessionId,user_id:userId,reset_count:nextCount,last_reset_at:resetAt},{onConflict:"lab_session_id"});
@@ -77,7 +90,9 @@ export async function validateLabSession(accessToken:string,userId:string,sessio
   const results:LabValidationCheckResult[]=[];
   for(const check of checks??[]){
     try{
-      const probe=await mockLabProvider.runValidationProbe(ref.providerSessionId,String(check.probe_id));
+      // Deterministic, provider-executed probe. Pass/fail derives only from this
+      // structured result; no model or heuristic participates in grading.
+      const probe=await ref.provider.runValidationProbe(ref.providerSessionId,String(check.probe_id));
       results.push({checkStableId:String(check.stable_id),title:String(check.title),required:Boolean(check.required),passed:probe.passed,state:probe.passed?"passed":"failed",explanation:probe.passed?String(check.explanation):`${String(check.explanation)} This requirement is not complete yet.`});
     }catch{
       results.push({checkStableId:String(check.stable_id),title:String(check.title),required:Boolean(check.required),state:"technical_error",explanation:"The validator could not complete this check. This is a technical error and does not count as a student failure."});

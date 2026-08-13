@@ -8,7 +8,7 @@ import {
   type RequestLabSessionInput
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
-import { mockLabProvider } from "./mock-lab-provider";
+import { chooseLabProviderOrNull, getLabProvider } from "./lab-provider-registry";
 import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
 const liveStates: LabSessionState[] = [
@@ -104,6 +104,18 @@ async function getProviderRef(userId:string,id:string):Promise<{providerId:strin
   return data ? {providerId:String(data.provider_id),providerSessionId:String(data.provider_session_id)} : null;
 }
 
+/**
+ * Resolves the persisted provider for an existing session.
+ *
+ * The persisted reference is authoritative: rollout policy is never consulted
+ * here, so an existing Container session stays operable and cleanable even
+ * after Container provisioning is suspended or rollout is turned off.
+ */
+function providerForRef(providerId:string){
+  try { return getLabProvider(providerId); }
+  catch { throw dep("Lab provider session is unavailable"); }
+}
+
 export async function getLabSession(accessToken:string,id:string):Promise<LabSession>{
   const s=createUserScopedSupabaseClient(accessToken);
   const {data,error}=await s.from("lab_sessions").select("id,lab_definition_stable_id,lab_definition_version,provider_id,lifecycle_state,requested_at,ready_at,active_at,last_activity_at,expires_at,validation_state_reference,cleanup_state,failure_code,failure_message,connection_metadata_reference").eq("id",id).maybeSingle();
@@ -126,6 +138,14 @@ export async function requestLabSession(accessToken:string,userId:string,input:R
   if(existingError) throw dep("Unable to check existing lab sessions");
   if((existing ?? []).length) throw new AppError({code:"CONFLICT",message:"An active lab session already exists for this lab",retryable:false});
 
+  // Provider selection happens here and only here. It consults the persisted
+  // control plane (activation + rollout), runtime enablement, provider health,
+  // provider capacity and the definition's required capabilities.
+  const outcome=await chooseLabProviderOrNull(definition.requiredCapabilities,userId);
+  if(!outcome.selection && outcome.failure==="unsatisfiable"){
+    throw dep("No enabled healthy Lab Provider currently satisfies this Lab Definition");
+  }
+
   const expiresAt=new Date(Date.now()+definition.sessionLimitMinutes*60000).toISOString();
   const {data:created,error:createError}=await user.from("lab_sessions").insert({
     lab_definition_stable_id:definition.stableId,
@@ -143,20 +163,22 @@ export async function requestLabSession(accessToken:string,userId:string,input:R
   const id=String(created.id);
   writeAuditEvent({eventType:"lab.session.requested",outcome:"success",actorId:userId,targetType:"lab_session",targetId:id});
 
-  const capacity=await mockLabProvider.getCapacity();
-  if(!capacity.available){
+  // No provider is free right now, but one could serve this later: queue safely.
+  if(!outcome.selection){
     await transition(userId,id,"requested","queued");
     return getLabSession(accessToken,id);
   }
 
-  await transition(userId,id,"requested","provisioning",{provider_id:mockLabProvider.providerId,cleanup_state:"pending"});
+  const {providerId,provider}=outcome.selection;
+  await transition(userId,id,"requested","provisioning",{provider_id:providerId,cleanup_state:"pending"});
 
   try{
-    const ps=await mockLabProvider.provision({definition,userId});
-    await saveProviderRef(userId,id,ps.providerId,ps.providerSessionId);
+    const ps=await provider.provision({definition,userId});
+    // The selected provider id is the authoritative persisted owner of this session.
+    await saveProviderRef(userId,id,providerId,ps.providerSessionId);
     const readyAt=new Date().toISOString();
     await transition(userId,id,"provisioning","ready",{ready_at:readyAt,last_activity_at:readyAt,failure_code:null,failure_message:null});
-    writeAuditEvent({eventType:"lab.session.ready",outcome:"success",actorId:userId,targetType:"lab_session",targetId:id,metadata:{providerId:ps.providerId}});
+    writeAuditEvent({eventType:"lab.session.ready",outcome:"success",actorId:userId,targetType:"lab_session",targetId:id,metadata:{providerId}});
   }catch(error){
     await transition(userId,id,"provisioning","provisioning_failed",{
       failure_code:error instanceof AppError ? error.code : "INTERNAL_ERROR",
@@ -173,8 +195,9 @@ export async function startLabSession(accessToken:string,userId:string,id:string
   if(session.state==="active") return session;
   if(session.state!=="ready") throw new AppError({code:"CONFLICT",message:`Lab cannot start while it is ${session.stateLabel.toLowerCase()}`,retryable:false});
   const ref=await getProviderRef(userId,id);
-  if(!ref||ref.providerId!=="mock") throw dep("Lab provider session is unavailable");
-  await mockLabProvider.start(ref.providerSessionId);
+  if(!ref) throw dep("Lab provider session is unavailable");
+  const provider=providerForRef(ref.providerId);
+  await provider.start(ref.providerSessionId);
   const activeAt=new Date().toISOString();
   await transition(userId,id,"ready","active",{active_at:activeAt,last_activity_at:activeAt});
   writeAuditEvent({eventType:"lab.session.started",outcome:"success",actorId:userId,targetType:"lab_session",targetId:id});
@@ -194,12 +217,12 @@ export async function endLabSession(accessToken:string,userId:string,id:string):
     throw dep("Lab cleanup reference is unavailable");
   }
 
-  if(ref.providerId!=="mock") throw dep("Unsupported lab provider");
+  const provider=providerForRef(ref.providerId);
   if(session.state==="cleaning") return session;
 
   await transition(userId,id,session.state,"cleaning",{cleanup_state:"cleaning"});
   try{
-    await mockLabProvider.destroy(ref.providerSessionId);
+    await provider.destroy(ref.providerSessionId);
     await transition(userId,id,"cleaning","terminated",{cleanup_state:"complete",last_activity_at:new Date().toISOString()});
     writeAuditEvent({eventType:"lab.session.terminated",outcome:"success",actorId:userId,targetType:"lab_session",targetId:id});
   }catch{

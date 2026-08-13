@@ -80,6 +80,25 @@ export interface LabConnectionInfo { method: LabAccessMethod; endpoint: string; 
 export interface LabHealth { state: LabProviderHealthState; checkedAt: string; detail?: string; }
 export interface LabValidationProbeResult { probeId: string; passed: boolean; detail: string; }
 
+/**
+ * Provider-neutral isolation attestation contract (Wave 6 / Batch 10).
+ *
+ * Every LabProvider must be able to attest these four properties for one of its
+ * sessions. Providers may expose additional provider-specific detail elsewhere
+ * (for example an isolationMode label), but these assertions are mandatory and
+ * must never be weakened.
+ */
+export interface LabProviderIsolationStatus {
+  /** Must always be false: students never hold provider administrative rights. */
+  studentHasProviderAdminAccess: boolean;
+  /** Must always be false: the provider management plane is never exposed. */
+  managementPlaneExposed: boolean;
+  /** Must always be true: session network isolation is enforced. */
+  networkIsolationEnforced: boolean;
+  /** Must always be true: provider resources are scoped to the owning session. */
+  resourceOwnershipScoped: boolean;
+}
+
 export interface LabProvider {
   getCapabilities(): Promise<LabProviderCapabilities>;
   getCapacity(): Promise<LabProviderCapacity>;
@@ -91,4 +110,5 @@ export interface LabProvider {
   getConnection(sessionId: string): Promise<LabConnectionInfo>;
   getHealth(sessionId?: string): Promise<LabHealth>;
   runValidationProbe(sessionId: string, probeId: string): Promise<LabValidationProbeResult>;
+  getIsolationStatus(sessionId: string): Promise<LabProviderIsolationStatus>;
 }

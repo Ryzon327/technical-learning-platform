@@ -7,6 +7,7 @@ import {
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
 import { processDueLabOperations } from "./lab-operations";
+import { chooseLabProviderOrNull, isContainerRuntimeEnabled } from "./lab-provider-registry";
 import { mockLabProvider } from "./mock-lab-provider";
 import { createServerSupabaseClient } from "./supabase";
 
@@ -101,8 +102,26 @@ async function loadQueuedDefinition(stableId: string, version: number): Promise<
   return mapDefinition(data as Record<string, unknown>);
 }
 
+async function markQueuedProvisioningFailed(sessionId: string, userId: string, error: unknown): Promise<void> {
+  const server = createServerSupabaseClient();
+  await server.from("lab_sessions").update({
+    lifecycle_state: "provisioning_failed",
+    failure_code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+    failure_message: "The queued lab could not be prepared. It can be retried without learning penalty."
+  }).eq("id", sessionId).eq("user_id", userId);
+  writeAuditEvent({ eventType: "lab.session.queue_provisioning_failed", outcome: "failure", actorId: userId, targetType: "lab_session", targetId: sessionId });
+}
+
 export async function drainQueuedLabSessions(snapshot: LabProviderOperationalSnapshot): Promise<{ provisioned: number; failed: number }> {
-  if (!shouldProvisionQueuedSession(snapshot.healthState, snapshot.capacityAvailable)) return { provisioned: 0, failed: 0 };
+  // The operational snapshot describes the legacy/default (Mock) provider. It
+  // remains a fast-path skip when Mock is the only runtime this instance can
+  // use, but it must not block Container-eligible queued sessions.
+  if (
+    !shouldProvisionQueuedSession(snapshot.healthState, snapshot.capacityAvailable) &&
+    !isContainerRuntimeEnabled()
+  ) {
+    return { provisioned: 0, failed: 0 };
+  }
   const server = createServerSupabaseClient();
   const { data: queued, error } = await server.from("lab_sessions")
     .select("id,user_id,lab_definition_stable_id,lab_definition_version,requested_at")
@@ -110,20 +129,37 @@ export async function drainQueuedLabSessions(snapshot: LabProviderOperationalSna
   if (error) throw dependency("Unable to load queued lab sessions");
   let provisioned = 0; let failed = 0;
   for (const row of queued ?? []) {
-    const capacity = await mockLabProvider.getCapacity();
-    const health = await mockLabProvider.getHealth();
-    if (!shouldProvisionQueuedSession(health.state, capacity.available)) break;
     const sessionId = String(row.id); const userId = String(row.user_id);
+
+    let definition: LabDefinition;
+    try {
+      definition = await loadQueuedDefinition(String(row.lab_definition_stable_id), Number(row.lab_definition_version));
+    } catch (error) {
+      await markQueuedProvisioningFailed(sessionId, userId, error);
+      failed += 1;
+      continue;
+    }
+
+    // Queued retries re-run provider selection with the current control-plane
+    // policy. An already provisioned session is never re-selected.
+    const outcome = await chooseLabProviderOrNull(definition.requiredCapabilities, userId);
+    if (!outcome.selection) {
+      if (outcome.failure === "transient") break;
+      await markQueuedProvisioningFailed(sessionId, userId, dependency("No enabled healthy Lab Provider currently satisfies this Lab Definition"));
+      failed += 1;
+      continue;
+    }
+
+    const { providerId, provider } = outcome.selection;
     const { data: claimed, error: claimError } = await server.from("lab_sessions")
-      .update({ lifecycle_state: "provisioning", provider_id: mockLabProvider.providerId, cleanup_state: "pending" })
+      .update({ lifecycle_state: "provisioning", provider_id: providerId, cleanup_state: "pending" })
       .eq("id", sessionId).eq("user_id", userId).eq("lifecycle_state", "queued").select("id").maybeSingle();
     if (claimError) throw dependency("Unable to claim queued lab session");
     if (!claimed) continue;
     try {
-      const definition = await loadQueuedDefinition(String(row.lab_definition_stable_id), Number(row.lab_definition_version));
-      const providerSession = await mockLabProvider.provision({ definition, userId });
+      const providerSession = await provider.provision({ definition, userId });
       const { error: refError } = await server.from("lab_session_provider_references").upsert({
-        lab_session_id: sessionId, user_id: userId, provider_id: providerSession.providerId,
+        lab_session_id: sessionId, user_id: userId, provider_id: providerId,
         provider_session_id: providerSession.providerSessionId
       }, { onConflict: "lab_session_id" });
       if (refError) throw dependency("Unable to persist queued provider reference");
@@ -133,15 +169,10 @@ export async function drainQueuedLabSessions(snapshot: LabProviderOperationalSna
         failure_code: null, failure_message: null
       }).eq("id", sessionId).eq("user_id", userId).eq("lifecycle_state", "provisioning");
       if (readyError) throw dependency("Unable to mark queued lab ready");
-      writeAuditEvent({ eventType: "lab.session.queue_provisioned", outcome: "success", actorId: userId, targetType: "lab_session", targetId: sessionId });
+      writeAuditEvent({ eventType: "lab.session.queue_provisioned", outcome: "success", actorId: userId, targetType: "lab_session", targetId: sessionId, metadata: { providerId } });
       provisioned += 1;
     } catch (error) {
-      await server.from("lab_sessions").update({
-        lifecycle_state: "provisioning_failed",
-        failure_code: error instanceof AppError ? error.code : "INTERNAL_ERROR",
-        failure_message: "The queued lab could not be prepared. It can be retried without learning penalty."
-      }).eq("id", sessionId).eq("user_id", userId);
-      writeAuditEvent({ eventType: "lab.session.queue_provisioning_failed", outcome: "failure", actorId: userId, targetType: "lab_session", targetId: sessionId });
+      await markQueuedProvisioningFailed(sessionId, userId, error);
       failed += 1;
     }
   }

@@ -23,10 +23,11 @@ describe("lab provider registry", () => {
   });
 
   it("chooses an enabled healthy provider when no extra capabilities are required", async () => {
-    const provider = await chooseLabProvider([]);
+    const selection = await chooseLabProvider([], "test-user");
 
-    const capabilities = await provider.getCapabilities();
+    const capabilities = await selection.provider.getCapabilities();
 
+    expect(selection.providerId).toBe("mock");
     expect(capabilities.providerId).toBe("mock");
   });
 });

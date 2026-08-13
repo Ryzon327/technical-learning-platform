@@ -17,7 +17,7 @@ export interface LabOperationRecord {
 export interface LabIsolationAttestation {
   sessionId: string;
   providerId: string;
-  isolationMode: "mock-isolated";
+  isolationMode: string;
   studentHasProviderAdminAccess: false;
   managementPlaneExposed: false;
   networkIsolationEnforced: true;

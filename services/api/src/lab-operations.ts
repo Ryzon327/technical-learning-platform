@@ -3,14 +3,15 @@ import {
   canRetryLabOperation,
   nextLabOperationDelaySeconds,
   type LabIsolationAttestation,
+  type LabProvider,
   type LabOperationKind,
   type LabOperationRecord,
   type LabOperationState,
   type LabSessionState
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
+import { getLabProvider, labProviderIsolationMode } from "./lab-provider-registry";
 import { getLabSession } from "./lab-sessions";
-import { mockLabProvider } from "./mock-lab-provider";
 import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
 const dependency = (message: string) => new AppError({
@@ -64,11 +65,19 @@ export async function attestLabIsolation(
   }
 
   const ref = await getProviderReference(userId, sessionId);
-  if (!ref || ref.providerId !== "mock") {
+  if (!ref) {
     throw dependency("Lab provider isolation state is unavailable");
   }
 
-  const status = await mockLabProvider.getIsolationStatus(ref.providerSessionId);
+  // The persisted provider owns this session; rollout state is irrelevant here.
+  let provider: LabProvider;
+  try {
+    provider = getLabProvider(ref.providerId);
+  } catch {
+    throw dependency("Lab provider isolation state is unavailable");
+  }
+
+  const status = await provider.getIsolationStatus(ref.providerSessionId);
   if (
     status.studentHasProviderAdminAccess ||
     status.managementPlaneExposed ||
@@ -85,7 +94,7 @@ export async function attestLabIsolation(
   return {
     sessionId,
     providerId: ref.providerId,
-    isolationMode: "mock-isolated",
+    isolationMode: labProviderIsolationMode(ref.providerId),
     studentHasProviderAdminAccess: false,
     managementPlaneExposed: false,
     networkIsolationEnforced: true,
@@ -142,8 +151,9 @@ export async function cleanupLabSessionResources(accessToken: string, userId: st
   try {
     const ref = await getProviderReference(userId, sessionId);
     if (ref) {
-      if (ref.providerId !== "mock") throw dependency("Unsupported provider for cleanup");
-      await mockLabProvider.destroy(ref.providerSessionId);
+      // Cleanup always follows the persisted provider, including Container
+      // sessions whose rollout has since been switched off or suspended.
+      await getLabProvider(ref.providerId).destroy(ref.providerSessionId);
     }
     const now = new Date().toISOString();
     await setSessionState(userId, sessionId, "terminated", { cleanup_state: "complete", last_activity_at: now, failure_code: null, failure_message: null });
