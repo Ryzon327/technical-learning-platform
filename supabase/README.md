@@ -23,3 +23,8 @@ Wave 4 emits an authoritative assessment-source handoff for the later Evidence E
 - `20260812001400_container_runtime_hardening.sql` — Container Provider runtime-adapter hardening metadata; provider remains disabled by default.
 - `20260812001500_container_provider_canary_gate.sql` — server-only Container Provider canary history and explicit activation-state gate.
 - `20260812001600_container_provider_controlled_rollout.sql` — explicit Container Provider activation guard, allowlist/percentage/all rollout modes, and suspension-safe rollback.
+- `20260813000100_evidence_foundation.sql` — Wave 7 Canonical Evidence Records with immutable provenance, server-authoritative creation, and student read-only RLS.
+
+Wave 7 owns Canonical Evidence Records in `public.evidence_records`. Canonical Evidence creation is server-authoritative: no student insert, update, or delete policy is granted, and provenance columns are immutable after creation.
+
+Wave 4 `assessment_evidence_handoffs` remain source-engine handoffs and are not consumed into Canonical Evidence in this batch. Wave 6 lab validation runs and results remain deterministic source-engine truth. Later Wave 7 batches establish the assessment and lab Evidence handoff consumption.

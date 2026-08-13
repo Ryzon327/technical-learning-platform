@@ -24,6 +24,9 @@ assert_status POST /lab-sessions/test-session/expire 401
 assert_status POST /lab-sessions/test-session/cleanup 401
 assert_status POST /lab-sessions/test-session/recover 401
 assert_status GET /lab-sessions/test-session/operations 401
+assert_status GET /evidence 401
+assert_status GET /evidence/test-evidence 401
+assert_status POST /evidence 404 '{"sourceType":"assessment_attempt"}'
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -31,3 +34,5 @@ echo 'PASS: Wave 6 mock provider capability route rejects unauthenticated reques
 echo 'PASS: Wave 6 session request/status/start/end routes reject unauthenticated requests'
 echo 'PASS: Wave 6 access/reset/validation routes reject unauthenticated requests'
 echo 'PASS: Wave 6 isolation/expiration/cleanup/recovery routes reject unauthenticated requests'
+echo 'PASS: Wave 7 evidence read routes reject unauthenticated requests'
+echo 'PASS: Wave 7 exposes no student evidence creation route'

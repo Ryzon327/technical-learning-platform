@@ -28,6 +28,7 @@ export * from "./assessment-attempt";
 export * from "./readiness";
 export * from "./assessment-recovery";
 export * from "./assessment";
+export * from "./evidence";
 export * from "./notes";
 export * from "./note-blocks";
 export * from "./note-retrieval";

@@ -19,6 +19,7 @@
     "security:scan": "bash scripts/security-scan.sh",
     "smoke:api": "bash scripts/smoke-api.sh",
     "admin:provision-founder": "npm run provision-founder --workspace @tlp/api",
+    "verify:wave7": "bash scripts/verify-wave7.sh",
     "verify:wave6-batch10": "bash scripts/verify-wave6-batch10.sh",
     "test:wave6-batch10": "tsx --test tests/wave6-batch10/lab-provider-rollout.w6b10.test.ts tests/wave6-batch10/lab-provider-selection.w6b10.test.ts tests/wave6-batch10/lab-session-lifecycle.w6b10.test.ts tests/wave6-batch10/lab-integration-wiring.w6b10.test.ts"
   },

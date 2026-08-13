@@ -59,6 +59,7 @@ import { sendLabProviderCatalog } from "./lab-provider-routes";
 import { endLabSession, getLabSession, listLabSessions, requestLabSession, startLabSession } from "./lab-sessions";
 import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateLabSession } from "./lab-runtime";
 import { attestLabIsolation, cleanupLabSessionResources, expireLabSession, listLabOperations, recoverLabSession } from "./lab-operations";
+import { getCanonicalEvidenceForStudent, listStudentEvidence } from "./evidence";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -235,6 +236,19 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/lab-providers/mock/capabilities") {
       await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { capabilities: await mockLabProvider.getCapabilities(), capacity: await mockLabProvider.getCapacity() });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/evidence") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { evidence: await listStudentEvidence(trusted.accessToken) });
+      return;
+    }
+
+    const evidenceRecordMatch = pathname.match(/^\/evidence\/([^/]+)$/);
+    if (request.method === "GET" && evidenceRecordMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, { evidence: await getCanonicalEvidenceForStudent(trusted.accessToken, decodeURIComponent(evidenceRecordMatch[1] ?? "")) });
       return;
     }
 
