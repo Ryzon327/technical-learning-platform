@@ -225,6 +225,142 @@ echo "PASS: assessment and lab consumption remain deferred to later batches"
 echo "PASS: authenticated read routes exist with no student mutation route"
 echo "PASS: AI holds no competency mapping authority"
 
+# ============================================================
+# Wave 7 Batch 3 — EVID-005 Assessment Evidence.
+# Batch 1 and Batch 2 checks above are preserved verbatim.
+# ============================================================
+
+ASSESSMENT_EVIDENCE_TYPES="packages/shared-types/src/assessment-evidence.ts"
+ASSESSMENT_EVIDENCE_SERVICE="services/api/src/assessment-evidence.ts"
+ASSESSMENT_EVIDENCE_MIGRATION="supabase/migrations/20260813000300_assessment_evidence_consumption.sql"
+HANDOFF_MIGRATION="supabase/migrations/20260812000400_assessment_recovery_integrity.sql"
+
+for p in \
+  "$ASSESSMENT_EVIDENCE_TYPES" \
+  packages/shared-types/src/assessment-evidence.test.ts \
+  "$ASSESSMENT_EVIDENCE_SERVICE" \
+  services/api/src/assessment-evidence.test.ts \
+  "$ASSESSMENT_EVIDENCE_MIGRATION" \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_3_ASSESSMENT_EVIDENCE.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- shared assessment Evidence contract --------------------------------------
+grep -Fq 'export function evaluateAssessmentEvidenceEligibility' "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export function buildAssessmentEvidenceMetadata' "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export function toEvidenceCompetencyRelationship' "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export * from "./assessment-evidence";' packages/shared-types/src/index.ts || exit 1
+
+# --- eligibility: only evidence-producing, only terminal attempts --------------
+grep -Fq "EVIDENCE_PRODUCING_ASSESSMENT_PURPOSE" "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+grep -Fq "assessment_not_evidence_producing" "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+grep -Fq "attempt_not_terminal" "$ASSESSMENT_EVIDENCE_TYPES" || exit 1
+
+# --- provenance: upstream digest preserved, never recomputed ------------------
+grep -Fq 'sourceIntegrityDigest: facts.resultDigest' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'sourceType: "assessment_attempt"' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'sourceEngine: "assessment"' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'linkSource: "source_engine_mapping"' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'competency_stable_id,competency_version,required' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+
+if grep -nE 'calculateAssessmentResultDigest|scoreAssessment' "$ASSESSMENT_EVIDENCE_SERVICE"; then
+  echo "FAIL: Evidence ingestion must not recompute assessment scoring truth"; exit 1
+fi
+
+# --- no answer keys, questions or options may reach Evidence ------------------
+if grep -nE 'assessment_attempt_answers|selected_option_ids|correct_option_ids|assessment_questions' "$ASSESSMENT_EVIDENCE_SERVICE"; then
+  echo "FAIL: assessment Evidence must not read questions, options or answer keys"; exit 1
+fi
+
+# --- submission authority is never subordinate to ingestion -------------------
+grep -Fq 'tryConsumeAssessmentEvidenceHandoff' services/api/src/assessment-attempts.ts || exit 1
+if ! awk '/export async function submitAssessmentAttempt/,0' services/api/src/assessment-attempts.ts \
+  | grep -n 'buildAssessmentEvidenceHandoff' > /tmp/w7b3_handoff_line \
+  || ! awk '/export async function submitAssessmentAttempt/,0' services/api/src/assessment-attempts.ts \
+  | grep -n 'tryConsumeAssessmentEvidenceHandoff' > /tmp/w7b3_consume_line; then
+  echo "FAIL: submission does not persist the handoff before Evidence ingestion"; exit 1
+fi
+if [ "$(cut -d: -f1 /tmp/w7b3_handoff_line | head -1)" -ge "$(cut -d: -f1 /tmp/w7b3_consume_line | head -1)" ]; then
+  echo "FAIL: Evidence ingestion must run after the assessment handoff is persisted"; exit 1
+fi
+rm -f /tmp/w7b3_handoff_line /tmp/w7b3_consume_line
+
+grep -Fq 'assessment.evidence.consumption_failed' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'assessment.evidence.consumed' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+
+# The consumer must never mutate assessment scoring state or the handoff.
+if grep -nE 'from\("assessment_evidence_handoffs"\)[^;]*\.(update|upsert|insert|delete)\(' "$ASSESSMENT_EVIDENCE_SERVICE"; then
+  echo "FAIL: Evidence ingestion must not rewrite the assessment handoff"; exit 1
+fi
+if grep -nE 'from\("assessment_attempts"\)[^;]*\.(update|upsert|insert|delete)\(' "$ASSESSMENT_EVIDENCE_SERVICE"; then
+  echo "FAIL: Evidence ingestion must not mutate assessment attempts"; exit 1
+fi
+
+# --- durable retry state ------------------------------------------------------
+grep -Fq 'create table if not exists public.assessment_evidence_consumptions' "$ASSESSMENT_EVIDENCE_MIGRATION" || exit 1
+grep -Fq "state in ('consumed', 'skipped', 'failed')" "$ASSESSMENT_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'alter table public.assessment_evidence_consumptions enable row level security' "$ASSESSMENT_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'export async function retryFailedAssessmentEvidenceConsumption' "$ASSESSMENT_EVIDENCE_SERVICE" || exit 1
+
+# A policy may span lines, so reject any policy defined in this migration at all:
+# the consumption table is internal operational state with no student access.
+if grep -qi 'create policy' "$ASSESSMENT_EVIDENCE_MIGRATION"; then
+  echo "FAIL: internal consumption state must not be student readable"; exit 1
+fi
+if grep -A2 -Ei '^[[:space:]]*on public\.assessment_evidence_consumptions[[:space:]]*$' "$ASSESSMENT_EVIDENCE_MIGRATION" \
+  | grep -qEi '^[[:space:]]*for[[:space:]]+(select|insert|update|delete|all)\b'; then
+  echo "FAIL: internal consumption state must not be student readable"; exit 1
+fi
+
+# The Wave 4 handoff table and Batch 1/2 tables must not be altered.
+if grep -nE 'alter table public\.(assessment_evidence_handoffs|evidence_records|evidence_competency_links)|drop table' "$ASSESSMENT_EVIDENCE_MIGRATION"; then
+  echo "FAIL: Batch 3 migration alters an upstream table"; exit 1
+fi
+grep -Fq 'create table if not exists public.assessment_evidence_handoffs' "$HANDOFF_MIGRATION" || {
+  echo "FAIL: Wave 4 assessment evidence handoff table was removed"; exit 1
+}
+
+# --- failed Evidence must never count as demonstration ------------------------
+grep -Fq 'export type EvidenceOutcome' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'export function deriveEvidenceOutcome' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'qualifiesForDemonstration' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'qualifiesForDemonstration' services/api/src/evidence-competency.ts || exit 1
+grep -Fq 'export async function getQualifyingCompetencyEvidenceReferences' services/api/src/evidence-competency.ts || exit 1
+
+# Failed Evidence and its competency link must still be created and retained.
+if grep -nE 'resultState === "passed"|resultState !== "failed"' "$ASSESSMENT_EVIDENCE_SERVICE"; then
+  echo "FAIL: failed assessment Evidence must still be created and linked"; exit 1
+fi
+
+# --- authenticated read route, no student mutation route ----------------------
+grep -Fq 'assessmentEvidenceMatch' services/api/src/server.ts || exit 1
+grep -Fq 'getAssessmentAttemptEvidenceId(trusted.identity.userId' services/api/src/server.ts || exit 1
+if grep -nE 'request\.method === "(POST|PUT|PATCH|DELETE)" && assessmentEvidenceMatch' services/api/src/server.ts; then
+  echo "FAIL: student assessment Evidence mutation route exists"; exit 1
+fi
+if grep -Fq 'consumeAssessmentEvidenceHandoff' services/api/src/server.ts; then
+  echo "FAIL: Evidence ingestion is reachable from the HTTP surface"; exit 1
+fi
+
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' "$ASSESSMENT_EVIDENCE_TYPES" "$ASSESSMENT_EVIDENCE_SERVICE" "$ASSESSMENT_EVIDENCE_MIGRATION"; then
+  echo "FAIL: AI dependency detected in the assessment Evidence path"; exit 1
+fi
+
+echo "PASS: assessment Evidence shared type exists and is exported"
+echo "PASS: only evidence-producing assessments may create Evidence"
+echo "PASS: practice and diagnostic assessments create no Evidence"
+echo "PASS: interrupted and in-progress attempts create no negative Evidence"
+echo "PASS: passed and failed terminal attempts both create canonical Evidence"
+echo "PASS: assessment result_digest is preserved as the source integrity digest"
+echo "PASS: exact approved competency versions are preserved on every link"
+echo "PASS: no questions, options or answer keys reach Evidence metadata"
+echo "PASS: Evidence ingestion runs only after the authoritative handoff is persisted"
+echo "PASS: ingestion failure never fails submission and is durably retryable"
+echo "PASS: Evidence ingestion never rewrites assessment results or handoffs"
+echo "PASS: failed Evidence is retained but cannot qualify as demonstration"
+echo "PASS: authenticated attempt Evidence route exists with no student mutation route"
+echo "PASS: AI holds no assessment Evidence authority"
+
 npm run typecheck
 npm run test
 npm run build
@@ -233,3 +369,4 @@ bash scripts/smoke-api.sh
 
 echo "Wave 7 Batch 1 verification passed."
 echo "Wave 7 Batch 2 verification passed."
+echo "Wave 7 Batch 3 verification passed."

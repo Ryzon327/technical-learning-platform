@@ -1,9 +1,11 @@
 import {
   AppError,
+  deriveEvidenceOutcome,
   evaluateEvidenceLinkEligibility,
   evaluateExistingEvidenceCompetencyLink,
   isEvidenceCompetencyLinkSource,
   isEvidenceCompetencyRelationship,
+  qualifiesAsDemonstrationEvidence,
   toStudentEvidenceCompetencyLink,
   validateCreateEvidenceCompetencyLinkInput,
   type AuthoritativeCompetencyEvidenceReference,
@@ -11,8 +13,9 @@ import {
   type CreateEvidenceCompetencyLinkInput,
   type CurriculumPublicationState,
   type EvidenceCompetencyLink,
-  type EvidenceRecord,
   type EvidenceMetadata,
+  type EvidenceOutcome,
+  type EvidenceRecord,
   type StudentEvidenceCompetencyLink
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
@@ -570,6 +573,12 @@ export async function getAuthoritativeCompetencyEvidenceReferences(
       continue;
     }
 
+    // The authoritative outcome comes from the source engine's recorded result
+    // state, so a failed assessment is reported as negative rather than as
+    // unqualified accepted proof.
+    const resultState = evidence.metadata.resultState;
+    const evidenceOutcome: EvidenceOutcome = deriveEvidenceOutcome(resultState);
+
     references.push({
       evidenceId: link.evidenceId,
       competencyStableId: link.competencyStableId,
@@ -580,9 +589,36 @@ export async function getAuthoritativeCompetencyEvidenceReferences(
       evidenceSourceType: evidence.sourceType,
       evidenceSourceEngine: evidence.sourceEngine,
       evidenceSourceReference: evidence.sourceReference,
-      evidenceSourceOccurredAt: evidence.sourceOccurredAt
+      evidenceSourceOccurredAt: evidence.sourceOccurredAt,
+      evidenceOutcome,
+      ...(typeof resultState === "string"
+        ? { evidenceResultState: resultState }
+        : {}),
+      qualifiesForDemonstration: qualifiesAsDemonstrationEvidence(evidenceOutcome)
     });
   }
 
   return references;
+}
+
+/**
+ * Mastery-safe subset of `getAuthoritativeCompetencyEvidenceReferences`.
+ *
+ * Returns only references whose source engine recorded a positive outcome, so a
+ * Learning Engine consumer cannot accidentally treat a failed assessment as
+ * proof that a competency was demonstrated. The failed Evidence and its
+ * competency link are still created, still stored and still returned by the
+ * full accessor above: historical truth is preserved, only its interpretation
+ * is constrained.
+ */
+export async function getQualifyingCompetencyEvidenceReferences(
+  userId: string,
+  competencyStableId: string
+): Promise<AuthoritativeCompetencyEvidenceReference[]> {
+  const references = await getAuthoritativeCompetencyEvidenceReferences(
+    userId,
+    competencyStableId
+  );
+
+  return references.filter((reference) => reference.qualifiesForDemonstration);
 }

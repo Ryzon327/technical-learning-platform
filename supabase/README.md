@@ -33,3 +33,9 @@ Wave 4 `assessment_evidence_handoffs` remain source-engine handoffs and are not 
 Wave 7 Batch 1 owns canonical Evidence Records in `public.evidence_records`. Wave 7 Batch 2 owns canonical Evidence-to-competency relationships in `public.evidence_competency_links`, which reference the exact historical `public.competencies` row (`stable_id`, `version`) a mapping was approved against.
 
 The Evidence Engine stores trusted proof and trusted mappings. The Learning Engine still owns competency state: `public.student_competency_state`, `public.student_competency_evidence_refs` and `public.student_competency_state_events` are unchanged, and a link never marks a competency demonstrated.
+- `20260813000300_assessment_evidence_consumption.sql` — Wave 7 Batch 3 durable state for consuming approved assessment outcomes into canonical Evidence.
+
+Wave 7 Batch 3 consumes `public.assessment_evidence_handoffs` into canonical Evidence and Evidence-to-competency links. The handoff table remains Wave 4 source-engine truth and is never rewritten by ingestion; `public.assessment_evidence_consumptions` holds only internal retry state and is server-only (RLS enabled with no policy).
+
+Only `evidence_producing` assessments create Evidence. Practice and diagnostic assessments create none, and interrupted or in-progress attempts never create negative Evidence. Both passed and failed terminal attempts create Evidence and competency links; a failed result is retained as traceable proof but reports a negative outcome so the Learning Engine cannot count it as demonstrated.
+

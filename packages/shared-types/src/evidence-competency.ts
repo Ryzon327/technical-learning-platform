@@ -113,8 +113,60 @@ export interface StudentEvidenceCompetencyLink {
 }
 
 /**
+ * The authoritative outcome an Evidence Record observed, as reported by its
+ * source engine.
+ *
+ * Wave 7 / Batch 3 added this because a link means "approved proof relevant to
+ * this competency", which is true of a failed assessment as much as a passed
+ * one. Without the outcome, a downstream consumer could count a failed
+ * assessment as accepted proof of demonstration.
+ *
+ * `indeterminate` is the fail-closed default: an Evidence Record that does not
+ * declare a positive outcome never qualifies as demonstration proof.
+ */
+export type EvidenceOutcome = "positive" | "negative" | "indeterminate";
+
+export const EVIDENCE_OUTCOMES: readonly EvidenceOutcome[] = [
+  "positive",
+  "negative",
+  "indeterminate"
+];
+
+/**
+ * Derives the authoritative outcome from an Evidence Record's recorded result
+ * state. Engine-neutral and fail-closed: only an explicit success is positive,
+ * and anything unrecognised is indeterminate.
+ */
+export function deriveEvidenceOutcome(
+  resultState: unknown
+): EvidenceOutcome {
+  if (resultState === "passed") {
+    return "positive";
+  }
+  if (resultState === "failed") {
+    return "negative";
+  }
+  return "indeterminate";
+}
+
+/**
+ * Only a positive outcome may be treated as proof that a competency was
+ * demonstrated. Negative and indeterminate Evidence stays fully traceable but
+ * never advances mastery.
+ */
+export function qualifiesAsDemonstrationEvidence(
+  outcome: EvidenceOutcome
+): boolean {
+  return outcome === "positive";
+}
+
+/**
  * Read-only contract handed to the Learning / Competency Engine. It reports
  * approved proof; it never asks for a transition.
+ *
+ * `evidenceOutcome` and `qualifiesForDemonstration` let the Learning Engine
+ * deterministically distinguish a passed result from a failed one. Both are
+ * derived from the source engine's recorded result, never from a caller.
  */
 export interface AuthoritativeCompetencyEvidenceReference {
   evidenceId: string;
@@ -127,6 +179,12 @@ export interface AuthoritativeCompetencyEvidenceReference {
   evidenceSourceEngine: EvidenceRecord["sourceEngine"];
   evidenceSourceReference: string;
   evidenceSourceOccurredAt: string;
+  /** Authoritative outcome recorded by the source engine. */
+  evidenceOutcome: EvidenceOutcome;
+  /** Result state as recorded, when the source engine declares one. */
+  evidenceResultState?: string;
+  /** True only for a positive outcome. Never true for a failed assessment. */
+  qualifiesForDemonstration: boolean;
 }
 
 export interface EvidenceCompetencyValidationResult {

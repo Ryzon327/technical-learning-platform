@@ -11,6 +11,7 @@ import {
 import { createServerSupabaseClient } from "./supabase";
 import { processReadinessAssessmentOutcome } from "./readiness";
 import { buildAssessmentEvidenceHandoff } from "./assessment-recovery";
+import { tryConsumeAssessmentEvidenceHandoff } from "./assessment-evidence";
 
 interface TrustedStudent {
   userId: string;
@@ -522,6 +523,12 @@ export async function submitAssessmentAttempt(
     { userId: student.userId },
     attemptId
   );
+
+  // The authoritative result and its handoff are now persisted and complete.
+  // Canonical Evidence ingestion is downstream processing: it holds no scoring
+  // authority, and a failure here is audited and made retryable rather than
+  // failing the submission, changing the result, or touching the handoff.
+  await tryConsumeAssessmentEvidenceHandoff(student.userId, attemptId);
 
   return getAssessmentAttempt(student, attemptId);
 }

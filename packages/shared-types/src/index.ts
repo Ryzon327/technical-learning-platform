@@ -30,6 +30,7 @@ export * from "./assessment-recovery";
 export * from "./assessment";
 export * from "./evidence";
 export * from "./evidence-competency";
+export * from "./assessment-evidence";
 export * from "./notes";
 export * from "./note-blocks";
 export * from "./note-retrieval";

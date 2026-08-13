@@ -61,6 +61,7 @@ import { getLabAccessDelivery, listLabValidationRuns, resetLabSession, validateL
 import { attestLabIsolation, cleanupLabSessionResources, expireLabSession, listLabOperations, recoverLabSession } from "./lab-operations";
 import { getCanonicalEvidenceForStudent, listStudentEvidence } from "./evidence";
 import { listCompetencyEvidenceLinks, listEvidenceCompetencyLinks } from "./evidence-competency";
+import { getAssessmentAttemptEvidenceId } from "./assessment-evidence";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -426,6 +427,20 @@ async function handleRequest(
     if (request.method === "POST" && assessmentResumeMatch) {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { recovery: await resumeInterruptedAssessmentAttempt({ userId: trusted.identity.userId }, decodeURIComponent(assessmentResumeMatch[1] ?? "")) });
+      return;
+    }
+
+    const assessmentEvidenceMatch = pathname.match(new RegExp("^/assessment-attempts/([^/]+)/evidence$"));
+
+    if (request.method === "GET" && assessmentEvidenceMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const attemptId = decodeURIComponent(assessmentEvidenceMatch[1] ?? "");
+      const evidenceId = await getAssessmentAttemptEvidenceId(trusted.identity.userId, attemptId);
+
+      sendJson(response, 200, {
+        evidence: evidenceId ? await getCanonicalEvidenceForStudent(trusted.accessToken, evidenceId) : null,
+        competencies: evidenceId ? await listEvidenceCompetencyLinks(trusted.accessToken, evidenceId) : []
+      });
       return;
     }
 
