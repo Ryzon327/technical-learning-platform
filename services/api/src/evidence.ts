@@ -8,15 +8,18 @@ import {
   isEvidenceRecordState,
   isEvidenceSourceEngine,
   isEvidenceSourceType,
+  resolveEffectiveEvidenceState,
   toStudentEvidenceRecord,
   validateCreateCanonicalEvidenceInput,
+  withEffectiveEvidenceState,
   type CreateCanonicalEvidenceInput,
   type EvidenceCanonicalDigestInput,
   type EvidenceMetadata,
   type EvidenceRecord,
-  type StudentEvidenceRecord
+  type StudentEvidenceRecordWithState
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
+import { loadCorrectionEventsByEvidence } from "./evidence-correction";
 import {
   createServerSupabaseClient,
   createUserScopedSupabaseClient
@@ -256,7 +259,7 @@ export async function createCanonicalEvidence(
 /** Student read. Ownership is enforced by RLS through the user-scoped client. */
 export async function listStudentEvidence(
   accessToken: string
-): Promise<StudentEvidenceRecord[]> {
+): Promise<StudentEvidenceRecordWithState[]> {
   const supabase = createUserScopedSupabaseClient(accessToken);
 
   const { data, error } = await supabase
@@ -268,8 +271,23 @@ export async function listStudentEvidence(
     throw dependency("Unable to load Evidence Records");
   }
 
-  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map(
-    (row) => toStudentEvidenceRecord(mapEvidenceRecordRow(row))
+  const records = ((data ?? []) as unknown as Array<Record<string, unknown>>).map(
+    (row) => mapEvidenceRecordRow(row)
+  );
+
+  // Effective trust state is derived at read time so Evidence never silently
+  // disappears: an invalidated or superseded record is still listed, carrying
+  // its current state and the explanation for it.
+  const corrections = await loadCorrectionEventsByEvidence(
+    records.map((record) => record.id),
+    accessToken
+  );
+
+  return records.map((record) =>
+    withEffectiveEvidenceState(
+      toStudentEvidenceRecord(record),
+      resolveEffectiveEvidenceState(record, corrections.get(record.id) ?? [])
+    )
   );
 }
 
@@ -277,7 +295,7 @@ export async function listStudentEvidence(
 export async function getCanonicalEvidenceForStudent(
   accessToken: string,
   evidenceId: string
-): Promise<StudentEvidenceRecord> {
+): Promise<StudentEvidenceRecordWithState> {
   if (typeof evidenceId !== "string" || evidenceId.trim() === "") {
     throw new AppError({
       code: "VALIDATION_ERROR",
@@ -306,9 +324,16 @@ export async function getCanonicalEvidenceForStudent(
     });
   }
 
-  return toStudentEvidenceRecord(
-    mapEvidenceRecordRow(
-      data as unknown as Record<string, unknown>
-    )
+  const record = mapEvidenceRecordRow(
+    data as unknown as Record<string, unknown>
+  );
+  const corrections = await loadCorrectionEventsByEvidence(
+    [record.id],
+    accessToken
+  );
+
+  return withEffectiveEvidenceState(
+    toStudentEvidenceRecord(record),
+    resolveEffectiveEvidenceState(record, corrections.get(record.id) ?? [])
   );
 }

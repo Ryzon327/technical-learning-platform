@@ -534,6 +534,157 @@ echo "PASS: no mastery state is mutated by Lab Evidence ingestion"
 echo "PASS: authenticated lab Evidence route exists with no student mutation route"
 echo "PASS: AI holds no Lab Evidence authority"
 
+# ============================================================
+# Wave 7 Batch 5 — EVID-006 Evidence Review, Correction and Effective State.
+# Batch 1-4 checks above are preserved verbatim.
+# ============================================================
+
+CORRECTION_TYPES="packages/shared-types/src/evidence-correction.ts"
+CORRECTION_SERVICE="services/api/src/evidence-correction.ts"
+CORRECTION_MIGRATION="supabase/migrations/20260813000500_evidence_correction_history.sql"
+EVIDENCE_FOUNDATION_MIGRATION="supabase/migrations/20260813000100_evidence_foundation.sql"
+
+for p in \
+  "$CORRECTION_TYPES" \
+  packages/shared-types/src/evidence-correction.test.ts \
+  "$CORRECTION_SERVICE" \
+  services/api/src/evidence-correction.test.ts \
+  "$CORRECTION_MIGRATION" \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_5_EVIDENCE_REVIEW_CORRECTION_EFFECTIVE_STATE.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- correction model and effective state resolver -----------------------------
+grep -Fq 'export interface EvidenceCorrectionEvent' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'export function resolveEffectiveEvidenceState' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'export function evaluateCorrectionTransition' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'export function isEffectivelyTrustedEvidence' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'export * from "./evidence-correction";' packages/shared-types/src/index.ts || exit 1
+grep -Fq 'create table if not exists public.evidence_correction_events' "$CORRECTION_MIGRATION" || exit 1
+
+# Effective state must reuse the canonical Batch 1 vocabulary.
+if grep -nE "type EvidenceRecordState[[:space:]]*=|'under_review'|\"under_review\"" "$CORRECTION_TYPES"; then
+  echo "FAIL: Batch 5 must not introduce a competing Evidence state vocabulary"; exit 1
+fi
+
+# --- transition rules and fail-closed replay ----------------------------------
+grep -Fq 'TRANSITION_NOT_PERMITTED' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'SEQUENCE_GAP' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'PREVIOUS_STATE_MISMATCH' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'INVALID_TRANSITION' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'sequenceValid' "$CORRECTION_TYPES" || exit 1
+
+# --- reason requirement --------------------------------------------------------
+grep -Fq 'export function validateCorrectionReason' "$CORRECTION_TYPES" || exit 1
+grep -Fq 'length(btrim(reason))' "$CORRECTION_MIGRATION" || exit 1
+
+# --- privileged authority reuses the existing model ----------------------------
+grep -Fq 'founder_admin' "$CORRECTION_TYPES" || exit 1
+grep -Fq "actor_role in ('founder_admin')" "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'from public.user_profiles' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'requireCorrectionAuthority' "$CORRECTION_SERVICE" || exit 1
+grep -Fq 'await founder(request)' services/api/src/server.ts || exit 1
+grep -Fq 'appendEvidenceCorrection(trusted.identity' services/api/src/server.ts || exit 1
+
+# --- append-only history -------------------------------------------------------
+grep -Fq 'append-only and cannot be updated' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'append-only and cannot be deleted' "$CORRECTION_MIGRATION" || exit 1
+if grep -nE '\.(update|upsert|delete)\(' "$CORRECTION_SERVICE"; then
+  echo "FAIL: Evidence correction history must be append-only"; exit 1
+fi
+
+# --- student read-only boundary ------------------------------------------------
+grep -Fq 'for select to authenticated' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'auth.uid() = user_id' "$CORRECTION_MIGRATION" || exit 1
+W7B5_POLICY_TARGETS="$(grep -A2 -Ei '^[[:space:]]*on public\.evidence_correction_events[[:space:]]*$' \
+  "$CORRECTION_MIGRATION" || true)"
+if printf '%s\n' "$W7B5_POLICY_TARGETS" \
+  | grep -Eiq '^[[:space:]]*for[[:space:]]+(insert|update|delete|all)\b'; then
+  echo "FAIL: student write policy granted on evidence_correction_events"; exit 1
+fi
+if grep -nE 'request\.method === "(POST|PUT|PATCH|DELETE)" && evidenceCorrectionsMatch\)' services/api/src/server.ts; then
+  echo "FAIL: student Evidence correction mutation route exists"; exit 1
+fi
+
+# --- ownership and supersession safety -----------------------------------------
+grep -Fq 'Evidence correction owner must match the Evidence owner' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'Superseding Evidence must belong to the same student' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'Circular Evidence supersession is not permitted' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'superseding_evidence_id <> evidence_id' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'user_id: record.userId' "$CORRECTION_SERVICE" || exit 1
+
+# --- concurrency and idempotency ------------------------------------------------
+grep -Fq 'unique (evidence_id, sequence_number)' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'unique (evidence_id, idempotency_key)' "$CORRECTION_MIGRATION" || exit 1
+grep -Fq 'expectedPreviousState' "$CORRECTION_SERVICE" || exit 1
+grep -Fq 'findByIdempotencyKey' "$CORRECTION_SERVICE" || exit 1
+
+# --- downstream consumers evaluate effective state dynamically -----------------
+grep -Fq 'loadCorrectionEventsByEvidence' services/api/src/evidence-competency.ts || exit 1
+grep -Fq 'resolveEffectiveEvidenceState' services/api/src/evidence-competency.ts || exit 1
+grep -Fq 'isEffectivelyTrustedEvidence' services/api/src/evidence-competency.ts || exit 1
+grep -Fq 'evidenceEffectiveState' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'loadCorrectionEventsByEvidence' services/api/src/evidence.ts || exit 1
+
+# The resolution must happen inside the accessor body, not merely be imported.
+W7B5_ACCESSOR_BODY="$(awk '/export async function getAuthoritativeCompetencyEvidenceReferences/,0' \
+  services/api/src/evidence-competency.ts)"
+for needle in 'loadCorrectionEventsByEvidence(' 'resolveEffectiveEvidenceState(' 'isEffectivelyTrustedEvidence('; do
+  case "$W7B5_ACCESSOR_BODY" in
+    *"$needle"*) ;;
+    *)
+      echo "FAIL: the competency accessor must resolve effective state at read time ($needle)"
+      exit 1
+      ;;
+  esac
+done
+
+# Qualification must never be a stored or cached judgement.
+if grep -nE 'qualifies_for_demonstration|qualifying_cached' services/api/src/evidence-competency.ts "$CORRECTION_MIGRATION"; then
+  echo "FAIL: qualification must be derived at read time, never cached"; exit 1
+fi
+
+# --- original Evidence and source truth remain untouched -----------------------
+if grep -nE 'from\("evidence_records"\)[^;]*\.(update|upsert|insert|delete)\(' "$CORRECTION_SERVICE"; then
+  echo "FAIL: Evidence correction must not rewrite the original Evidence Record"; exit 1
+fi
+if grep -nE 'alter table public\.evidence_records|guard_evidence_record_provenance|drop trigger if exists evidence_records_provenance_guard' "$CORRECTION_MIGRATION"; then
+  echo "FAIL: Batch 5 must not weaken Batch 1 provenance immutability"; exit 1
+fi
+grep -Fq 'Canonical Evidence provenance is immutable' "$EVIDENCE_FOUNDATION_MIGRATION" || {
+  echo "FAIL: Batch 1 provenance immutability trigger was removed"; exit 1
+}
+for t in assessment_attempts assessment_evidence_handoffs lab_validation_runs lab_validation_results lab_evidence_handoffs; do
+  if grep -nE "\b$t\b" "$CORRECTION_SERVICE" "$CORRECTION_MIGRATION"; then
+    echo "FAIL: Evidence correction must not touch source-engine truth ($t)"; exit 1
+  fi
+done
+
+# --- no certificate work, no mastery mutation, no AI authority -----------------
+if grep -nEi 'certificate|student_competency_state|recordAuthoritativeCompetencyEvidence|decideCompetencyTransition' "$CORRECTION_SERVICE" "$CORRECTION_MIGRATION"; then
+  echo "FAIL: Evidence correction must not touch mastery or certificate state"; exit 1
+fi
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' "$CORRECTION_TYPES" "$CORRECTION_SERVICE" "$CORRECTION_MIGRATION"; then
+  echo "FAIL: AI dependency detected in the Evidence correction path"; exit 1
+fi
+
+echo "PASS: Evidence correction event model exists and is exported"
+echo "PASS: correction history is append-only in the database and the service"
+echo "PASS: effective state is derived deterministically and fails closed"
+echo "PASS: only approved state transitions are permitted"
+echo "PASS: a bounded non-blank reason is required for every correction"
+echo "PASS: corrections require the existing founder_admin authority"
+echo "PASS: students may read their own history and mutate nothing"
+echo "PASS: ownership is taken from the Evidence Record, never the caller"
+echo "PASS: self, cross-user and circular supersession are refused"
+echo "PASS: concurrent corrections cannot both claim the same predecessor"
+echo "PASS: retries with a stable key are idempotent"
+echo "PASS: qualifying Evidence is evaluated against effective state at read time"
+echo "PASS: original Evidence provenance and integrity remain unrewritten"
+echo "PASS: assessment and lab source truth remain untouched"
+echo "PASS: no mastery or certificate state is mutated"
+echo "PASS: AI holds no Evidence correction authority"
+
 npm run typecheck
 npm run test
 npm run build
@@ -544,3 +695,4 @@ echo "Wave 7 Batch 1 verification passed."
 echo "Wave 7 Batch 2 verification passed."
 echo "Wave 7 Batch 3 verification passed."
 echo "Wave 7 Batch 4 verification passed."
+echo "Wave 7 Batch 5 verification passed."

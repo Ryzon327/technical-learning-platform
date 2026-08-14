@@ -63,6 +63,11 @@ import { getCanonicalEvidenceForStudent, listStudentEvidence } from "./evidence"
 import { listCompetencyEvidenceLinks, listEvidenceCompetencyLinks } from "./evidence-competency";
 import { getAssessmentAttemptEvidenceId } from "./assessment-evidence";
 import { listLabSessionEvidenceIds } from "./lab-evidence";
+import {
+  appendEvidenceCorrection,
+  getEvidenceCorrectionHistory,
+  getStudentEvidenceCorrectionHistory
+} from "./evidence-correction";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -245,6 +250,46 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/evidence") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { evidence: await listStudentEvidence(trusted.accessToken) });
+      return;
+    }
+
+    const evidenceCorrectionsMatch = pathname.match(/^\/evidence\/([^/]+)\/corrections$/);
+    if (request.method === "GET" && evidenceCorrectionsMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        corrections: await getStudentEvidenceCorrectionHistory(
+          trusted.accessToken,
+          decodeURIComponent(evidenceCorrectionsMatch[1] ?? "")
+        )
+      });
+      return;
+    }
+
+    const adminEvidenceCorrectionsMatch = pathname.match(/^\/admin\/evidence\/([^/]+)\/corrections$/);
+    if (request.method === "GET" && adminEvidenceCorrectionsMatch) {
+      const trusted = await founder(request);
+      sendJson(response, 200, {
+        corrections: await getEvidenceCorrectionHistory(
+          trusted.identity,
+          decodeURIComponent(adminEvidenceCorrectionsMatch[1] ?? "")
+        )
+      });
+      return;
+    }
+
+    if (request.method === "POST" && adminEvidenceCorrectionsMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, {
+        correction: await appendEvidenceCorrection(trusted.identity, {
+          evidenceId: decodeURIComponent(adminEvidenceCorrectionsMatch[1] ?? ""),
+          action: String(body.action ?? "") as Parameters<typeof appendEvidenceCorrection>[1]["action"],
+          reason: String(body.reason ?? ""),
+          expectedPreviousState: String(body.expectedPreviousState ?? "") as Parameters<typeof appendEvidenceCorrection>[1]["expectedPreviousState"],
+          ...(body.supersedingEvidenceId ? { supersedingEvidenceId: String(body.supersedingEvidenceId) } : {}),
+          ...(body.idempotencyKey ? { idempotencyKey: String(body.idempotencyKey) } : {})
+        })
+      });
       return;
     }
 

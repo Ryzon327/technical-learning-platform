@@ -38,6 +38,11 @@ assert_status DELETE /assessment-attempts/test-attempt/evidence 404
 assert_status GET /lab-sessions/test-session/evidence 401
 assert_status POST /lab-sessions/test-session/evidence 404 '{"validationRunId":"test"}'
 assert_status DELETE /lab-sessions/test-session/evidence 404
+assert_status GET /evidence/test-evidence/corrections 401
+assert_status POST /evidence/test-evidence/corrections 404 '{"action":"invalidate"}'
+assert_status DELETE /evidence/test-evidence/corrections 404
+assert_status GET /admin/evidence/test-evidence/corrections 401
+assert_status POST /admin/evidence/test-evidence/corrections 401 '{"action":"invalidate","reason":"unauthenticated smoke probe"}'
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -53,3 +58,6 @@ echo 'PASS: Wave 7 assessment attempt evidence route rejects unauthenticated req
 echo 'PASS: Wave 7 exposes no student assessment evidence mutation route'
 echo 'PASS: Wave 7 lab session evidence route rejects unauthenticated requests'
 echo 'PASS: Wave 7 exposes no student lab evidence mutation route'
+echo 'PASS: Wave 7 evidence correction history read rejects unauthenticated requests'
+echo 'PASS: Wave 7 exposes no student evidence correction mutation route'
+echo 'PASS: Wave 7 privileged evidence correction routes reject unauthenticated access'

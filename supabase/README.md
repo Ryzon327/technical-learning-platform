@@ -45,4 +45,11 @@ Wave 7 Batch 4 consumes `public.lab_validation_runs` into canonical Evidence and
 The approved competency mapping in force when a validation becomes authoritative is frozen in `public.lab_evidence_handoffs` (immutable, server-only) so a delayed ingestion retry can never pick up a mission version published after the lab was performed.
 
 Only authoritative deterministic outcomes create Evidence. A `passed` run is positive Evidence; an `incomplete` run is negative Evidence that stays traceable but can never qualify as demonstration; a `technical_error` run creates no Evidence at all, so a validator outage never masquerades as student failure. Competency links resolve through the approved curriculum mapping (`public.mission_competencies`), which preserves the exact `public.competencies` version.
+- `20260813000500_evidence_correction_history.sql` — Wave 7 Batch 5 append-only Evidence review and correction history.
+
+Wave 7 Batch 5 adds `public.evidence_correction_events`: an append-only review and correction history for canonical Evidence. The original record in `public.evidence_records` is never rewritten — provenance, ownership and both integrity digests remain exactly as accepted, and the Batch 1 immutability trigger is unchanged.
+
+Effective trust state (`active`, `invalidated`, `superseded`, plus an under-review flag) is derived at read time from the original record plus its ordered history. Downstream qualification is therefore never cached: Evidence invalidated or superseded today stops qualifying for demonstration today, while remaining fully visible with its effective state and explanation.
+
+Corrections are privileged: only a `founder_admin` actor may author one, enforced in the service and again by a database trigger reading `public.user_profiles`. Students may read the history of their own Evidence and have no mutation policy. Correction never alters assessment or lab source truth — the source engine's record of what happened stays exactly as observed.
 

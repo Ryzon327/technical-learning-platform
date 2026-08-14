@@ -5,7 +5,9 @@ import {
   evaluateExistingEvidenceCompetencyLink,
   isEvidenceCompetencyLinkSource,
   isEvidenceCompetencyRelationship,
+  isEffectivelyTrustedEvidence,
   qualifiesAsDemonstrationEvidence,
+  resolveEffectiveEvidenceState,
   toStudentEvidenceCompetencyLink,
   validateCreateEvidenceCompetencyLinkInput,
   type AuthoritativeCompetencyEvidenceReference,
@@ -19,6 +21,9 @@ import {
   type StudentEvidenceCompetencyLink
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
+import {
+  loadCorrectionEventsByEvidence
+} from "./evidence-correction";
 import { mapEvidenceRecordRow } from "./evidence";
 import {
   createServerSupabaseClient,
@@ -503,6 +508,10 @@ export async function listCompetencyEvidenceLinks(
  * Read-only by design: it reports approved Evidence references for a
  * competency so the existing deterministic transition logic can interpret them.
  * It deliberately performs no state transition and marks nothing demonstrated.
+ *
+ * This is the full historical accessor: invalidated and superseded Evidence is
+ * still returned, carrying its effective state, so disputes remain
+ * reconstructable. Only `qualifiesForDemonstration` changes.
  */
 export async function getAuthoritativeCompetencyEvidenceReferences(
   userId: string,
@@ -562,22 +571,38 @@ export async function getAuthoritativeCompetencyEvidenceReferences(
 
   const references: AuthoritativeCompetencyEvidenceReference[] = [];
 
+  // Effective trust state is resolved at read time from the append-only
+  // correction history, never cached onto the link. Evidence invalidated or
+  // superseded after it was linked therefore stops qualifying immediately.
+  const correctionsByEvidence = await loadCorrectionEventsByEvidence(
+    links.map((link) => link.evidenceId)
+  );
+
   for (const link of links) {
     const evidence = evidenceById.get(link.evidenceId);
     if (!evidence) {
       continue;
     }
 
-    // Evidence that is no longer usable stops being reported as trusted proof.
-    if (!evaluateEvidenceLinkEligibility(evidence).eligible) {
-      continue;
-    }
+    const effective = resolveEffectiveEvidenceState(
+      evidence,
+      correctionsByEvidence.get(link.evidenceId) ?? []
+    );
 
     // The authoritative outcome comes from the source engine's recorded result
     // state, so a failed assessment is reported as negative rather than as
     // unqualified accepted proof.
     const resultState = evidence.metadata.resultState;
     const evidenceOutcome: EvidenceOutcome = deriveEvidenceOutcome(resultState);
+
+    // Qualification requires BOTH a positive source outcome and Evidence that
+    // is effectively trusted right now. Integrity must also still be verified.
+    const trusted =
+      isEffectivelyTrustedEvidence(effective) &&
+      evaluateEvidenceLinkEligibility({
+        state: effective.state,
+        integrityState: evidence.integrityState
+      }).eligible;
 
     references.push({
       evidenceId: link.evidenceId,
@@ -594,7 +619,10 @@ export async function getAuthoritativeCompetencyEvidenceReferences(
       ...(typeof resultState === "string"
         ? { evidenceResultState: resultState }
         : {}),
-      qualifiesForDemonstration: qualifiesAsDemonstrationEvidence(evidenceOutcome)
+      evidenceEffectiveState: effective.state,
+      evidenceUnderReview: effective.underReview,
+      qualifiesForDemonstration:
+        trusted && qualifiesAsDemonstrationEvidence(evidenceOutcome)
     });
   }
 

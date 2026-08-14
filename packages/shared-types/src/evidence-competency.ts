@@ -1,4 +1,8 @@
-import type { EvidenceMetadata, EvidenceRecord } from "./evidence";
+import type {
+  EvidenceMetadata,
+  EvidenceRecord,
+  EvidenceRecordState
+} from "./evidence";
 import { validateEvidenceMetadata } from "./evidence";
 import type { CurriculumPublicationState } from "./curriculum";
 
@@ -172,6 +176,9 @@ export function qualifiesAsDemonstrationEvidence(
  * `evidenceOutcome` and `qualifiesForDemonstration` let the Learning Engine
  * deterministically distinguish a passed result from a failed one. Both are
  * derived from the source engine's recorded result, never from a caller.
+ *
+ * `qualifiesForDemonstration` additionally requires the Evidence to be
+ * effectively trusted right now, so it is never a stale cached judgement.
  */
 export interface AuthoritativeCompetencyEvidenceReference {
   evidenceId: string;
@@ -186,6 +193,15 @@ export interface AuthoritativeCompetencyEvidenceReference {
   evidenceSourceOccurredAt: string;
   /** Authoritative outcome recorded by the source engine. */
   evidenceOutcome: EvidenceOutcome;
+  /**
+   * Effective trust state derived at read time from the Evidence Record plus its
+   * append-only correction history (Wave 7 / Batch 5). Evidence that has been
+   * invalidated or superseded reports that here and stops qualifying, even
+   * though it was active when the link was created.
+   */
+  evidenceEffectiveState: EvidenceRecordState;
+  /** True while a privileged review of this Evidence is open. */
+  evidenceUnderReview: boolean;
   /** Result state as recorded, when the source engine declares one. */
   evidenceResultState?: string;
   /** True only for a positive outcome. Never true for a failed assessment. */
