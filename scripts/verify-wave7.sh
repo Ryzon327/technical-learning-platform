@@ -685,6 +685,226 @@ echo "PASS: assessment and lab source truth remain untouched"
 echo "PASS: no mastery or certificate state is mutated"
 echo "PASS: AI holds no Evidence correction authority"
 
+# ============================================================
+# Wave 7 Batch 6 — EVID-007 Student Evidence Portfolio View.
+# Batch 1-5 checks above are preserved verbatim.
+# ============================================================
+
+PORTFOLIO_TYPES="packages/shared-types/src/evidence-portfolio.ts"
+PORTFOLIO_SERVICE="services/api/src/evidence-portfolio.ts"
+PORTFOLIO_VIEW="apps/web/src/evidence/EvidencePortfolioView.tsx"
+PORTFOLIO_WEB_SERVICE="apps/web/src/evidence/evidence-portfolio-service.ts"
+API_CLIENT="apps/web/src/lib/api-client.ts"
+WORKSPACE_SHELL="apps/web/src/auth/AuthenticatedApp.tsx"
+
+for p in \
+  "$PORTFOLIO_TYPES" \
+  packages/shared-types/src/evidence-portfolio.test.ts \
+  "$PORTFOLIO_SERVICE" \
+  "$PORTFOLIO_VIEW" \
+  "$PORTFOLIO_WEB_SERVICE" \
+  "$API_CLIENT" \
+  apps/web/src/lib/api-client.test.ts \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_6_STUDENT_EVIDENCE_PORTFOLIO.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- read model composes existing truth, owns none of it ----------------------
+grep -Fq 'export * from "./evidence-portfolio";' packages/shared-types/src/index.ts || exit 1
+grep -Fq 'listStudentEvidence' "$PORTFOLIO_SERVICE" || exit 1
+grep -Fq 'listEvidenceCompetencyLinksForEvidenceIds' "$PORTFOLIO_SERVICE" || exit 1
+grep -Fq 'resolveCompetencyCurriculumContext' "$PORTFOLIO_SERVICE" || exit 1
+grep -Fq 'export async function resolveCompetencyCurriculumContext' services/api/src/curriculum.ts || exit 1
+grep -Fq 'export async function listEvidenceCompetencyLinksForEvidenceIds' services/api/src/evidence-competency.ts || exit 1
+
+# The portfolio must never write, and must never walk curriculum tables itself.
+if grep -nE '\.(insert|update|upsert|delete)\(' "$PORTFOLIO_SERVICE"; then
+  echo "FAIL: the Evidence portfolio must be a read model"; exit 1
+fi
+for t in mission_competencies missions learning_modules courses evidence_correction_events; do
+  if grep -nE "from\(\"$t\"\)" "$PORTFOLIO_SERVICE"; then
+    echo "FAIL: the portfolio must consume owning services, not query $t directly"; exit 1
+  fi
+done
+
+# --- proof qualification reuses canonical outcome semantics -------------------
+grep -Fq 'qualifiesAsDemonstrationEvidence' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'deriveEvidenceOutcome' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'resultState: record.metadata.resultState' "$PORTFOLIO_SERVICE" || exit 1
+grep -Fq 'evidenceOutcome: deriveEvidenceOutcome' "$PORTFOLIO_SERVICE" || exit 1
+
+# Negative Evidence must never be presented as current proof: the rule must
+# consult the source-engine outcome, not effective state and integrity alone.
+# Terminate on a line that is exactly a closing brace: the parameter object's
+# own "}): boolean {" line would otherwise end the range before the body.
+W7B6_PROOF_RULE="$(awk '/export function isCurrentProof/,/^}$/' "$PORTFOLIO_TYPES")"
+case "$W7B6_PROOF_RULE" in
+  *"qualifiesAsDemonstrationEvidence("*) ;;
+  *)
+    echo "FAIL: portfolio proof qualification must reuse the canonical outcome rule"
+    exit 1
+    ;;
+esac
+case "$W7B6_PROOF_RULE" in
+  *"resultState"*) ;;
+  *)
+    echo "FAIL: proof qualification must consider the source-engine result state"
+    exit 1
+    ;;
+esac
+
+# --- historical curriculum context must be version aware ----------------------
+grep -Fq 'export function competencyReferenceKey' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'competencyVersion: number' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'references: readonly CompetencyReference[]' services/api/src/curriculum.ts || exit 1
+grep -Fq 'competencyReferenceKey' services/api/src/curriculum.ts || exit 1
+grep -Fq 'competencyReferenceKey(link)' "$PORTFOLIO_SERVICE" || exit 1
+
+# Curriculum context must never be keyed by stable id alone, and never "latest".
+if grep -nE 'competencyStableIds: readonly string\[\]' services/api/src/curriculum.ts; then
+  echo "FAIL: curriculum context must resolve the exact competency version"; exit 1
+fi
+W7B6_CURRICULUM_ACCESSOR="$(awk '/export async function resolveCompetencyCurriculumContext/,0' services/api/src/curriculum.ts)"
+case "$W7B6_CURRICULUM_ACCESSOR" in
+  *'order("version", { ascending: false })'*)
+    echo "FAIL: curriculum context must not fall back to the latest competency version"
+    exit 1
+    ;;
+esac
+
+# --- required runtime configuration is declared in the canonical template -----
+W7B6_ENV_TEMPLATE=""
+for candidate in .env.example .env.sample .env.template; do
+  if [ -f "$candidate" ]; then W7B6_ENV_TEMPLATE="$candidate"; break; fi
+done
+if [ -z "$W7B6_ENV_TEMPLATE" ]; then
+  echo "FAIL: no canonical environment template found for VITE_API_BASE_URL"; exit 1
+fi
+if ! grep -Eq '^[[:space:]]*#?[[:space:]]*VITE_API_BASE_URL=' "$W7B6_ENV_TEMPLATE"; then
+  echo "FAIL: VITE_API_BASE_URL must be declared in $W7B6_ENV_TEMPLATE"; exit 1
+fi
+
+# --- effective state is reused, never re-derived ------------------------------
+grep -Fq 'effectiveState: record.effectiveState' "$PORTFOLIO_SERVICE" || exit 1
+grep -Fq 'export function isCurrentProof' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'export function describeEffectiveStatus' "$PORTFOLIO_TYPES" || exit 1
+if grep -nE 'resolveEffectiveEvidenceState\(|loadCorrectionEventsByEvidence\(' "$PORTFOLIO_SERVICE"; then
+  echo "FAIL: effective state must come from listStudentEvidence, not be recomputed"; exit 1
+fi
+
+# Invalidated and superseded Evidence must remain visible, never filtered away.
+if grep -nE 'effectiveState !== "active"|filter\(.*invalidated|filter\(.*superseded' "$PORTFOLIO_SERVICE" "$PORTFOLIO_TYPES"; then
+  echo "FAIL: corrected Evidence must remain visible and clearly identified"; exit 1
+fi
+
+# --- filtering and grouping ---------------------------------------------------
+grep -Fq 'export function filterPortfolioItems' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'export function groupPortfolioItemsByCompetency' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'export function normalizePortfolioFilters' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'courseStableId' "$PORTFOLIO_TYPES" || exit 1
+grep -Fq 'isEvidenceSourceType' "$PORTFOLIO_TYPES" || exit 1
+
+# Filtering constrains first; grouping presents the filtered result.
+W7B6_ASSEMBLE="$(awk '/export function assembleEvidencePortfolio/,0' "$PORTFOLIO_TYPES")"
+case "$W7B6_ASSEMBLE" in
+  *"filterPortfolioItems("*) ;;
+  *) echo "FAIL: the portfolio must filter before grouping"; exit 1 ;;
+esac
+case "$W7B6_ASSEMBLE" in
+  *"groupPortfolioItemsByCompetency(filtered)"*) ;;
+  *) echo "FAIL: grouping must present the filtered result"; exit 1 ;;
+esac
+
+# --- privacy-safe presentation ------------------------------------------------
+for leak in evidence_integrity_digest source_integrity_digest integrityDigest \
+  sourceIntegrityDigest providerId providerSessionId actorId actor_role userId; do
+  if grep -nE "\b$leak\b" "$PORTFOLIO_TYPES"; then
+    echo "FAIL: the portfolio view model must not expose $leak"; exit 1
+  fi
+done
+
+# --- authenticated, user-scoped route ----------------------------------------
+grep -Fq 'pathname === "/evidence/portfolio"' services/api/src/server.ts || exit 1
+grep -Fq 'getStudentEvidencePortfolio(trusted.accessToken' services/api/src/server.ts || exit 1
+if grep -nE 'request\.method === "(POST|PUT|PATCH|DELETE)"[^;]*"/evidence/portfolio"' services/api/src/server.ts; then
+  echo "FAIL: the portfolio must be read-only"; exit 1
+fi
+# The aggregate route must be matched before the /evidence/:id route.
+W7B6_PORTFOLIO_LINE="$(grep -n 'pathname === "/evidence/portfolio"' services/api/src/server.ts | head -1 | cut -d: -f1)"
+W7B6_RECORD_LINE="$(grep -n 'const evidenceRecordMatch' services/api/src/server.ts | head -1 | cut -d: -f1)"
+if [ "$W7B6_PORTFOLIO_LINE" -ge "$W7B6_RECORD_LINE" ]; then
+  echo "FAIL: /evidence/portfolio must be routed before /evidence/:id"; exit 1
+fi
+
+# --- generic API client owns transport only -----------------------------------
+grep -Fq 'Authorization: `Bearer ${accessToken}`' "$API_CLIENT" || exit 1
+grep -Fq 'VITE_API_BASE_URL' "$API_CLIENT" || exit 1
+grep -Fq 'export class ApiRequestError' "$API_CLIENT" || exit 1
+# Inspect code only: the module's own comments legitimately explain what it does
+# NOT own, so documentation must not trip the boundary check.
+W7B6_API_CLIENT_CODE="$(sed -e '/^[[:space:]]*\/\*/,/\*\//d' -e '/^[[:space:]]*\*/d' \
+  -e 's://.*::' "$API_CLIENT")"
+for forbidden in evidence portfolio competency supabase; do
+  if printf '%s\n' "$W7B6_API_CLIENT_CODE" | grep -niE "\b$forbidden\b"; then
+    echo "FAIL: the generic API client must not contain $forbidden logic"; exit 1
+  fi
+done
+# React components must never construct bearer headers themselves.
+if grep -nE 'Authorization|Bearer' "$PORTFOLIO_VIEW" "$WORKSPACE_SHELL"; then
+  echo "FAIL: components must call service modules, not build auth headers"; exit 1
+fi
+
+# --- accessibility (structural, per the repository's lightweight convention) ---
+for needle in '<section' '<h2' '<h3' '<ul' '<dl' 'aria-labelledby' 'aria-live' \
+  'role="alert"' '<label htmlFor' '<time dateTime' 'statusLabel'; do
+  case "$(cat "$PORTFOLIO_VIEW")" in
+    *"$needle"*) ;;
+    *) echo "FAIL: portfolio view is missing accessible markup ($needle)"; exit 1 ;;
+  esac
+done
+grep -Fq 'aria-current' "$WORKSPACE_SHELL" || exit 1
+grep -Fq '<nav aria-label' "$WORKSPACE_SHELL" || exit 1
+# Status must never be conveyed by colour or a bare badge.
+if grep -nE 'className="[^"]*badge|color:|backgroundColor' "$PORTFOLIO_VIEW"; then
+  echo "FAIL: status must not rely on colour or badges alone"; exit 1
+fi
+
+# --- no EVID-008 scope, no AI, no routing library -----------------------------
+# Word-bounded so ordinary words such as "shared-types" do not trip the check.
+if grep -RniE '\b(download|downloadable|share|shareable|sharing|share[-_]?link|public[-_]?url|publicUrl|verification[-_]?id|verificationId|employer)\b' \
+  "$PORTFOLIO_TYPES" "$PORTFOLIO_SERVICE" "$PORTFOLIO_VIEW" "$PORTFOLIO_WEB_SERVICE"; then
+  echo "FAIL: EVID-008 scope must not appear in Batch 6"; exit 1
+fi
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' \
+  "$PORTFOLIO_TYPES" "$PORTFOLIO_SERVICE" "$PORTFOLIO_VIEW" "$PORTFOLIO_WEB_SERVICE"; then
+  echo "FAIL: AI dependency detected in the Evidence portfolio"; exit 1
+fi
+if grep -nE 'react-router|@remix-run|wouter' apps/web/package.json; then
+  echo "FAIL: Batch 6 must not introduce a routing library"; exit 1
+fi
+if grep -nE '"(jsdom|@testing-library/react|jest-axe)"' apps/web/package.json; then
+  echo "FAIL: Batch 6 must not introduce a DOM testing stack"; exit 1
+fi
+
+echo "PASS: Evidence portfolio read model exists and is exported"
+echo "PASS: the portfolio composes existing services and owns no domain truth"
+echo "PASS: effective Evidence state is reused, never re-derived"
+echo "PASS: proof qualification reuses the canonical outcome rule"
+echo "PASS: negative Evidence can never be shown as current proof"
+echo "PASS: curriculum context resolves the exact pinned competency version"
+echo "PASS: VITE_API_BASE_URL is declared in the canonical environment template"
+echo "PASS: corrected Evidence remains visible and is never shown as current proof"
+echo "PASS: filters constrain the result before grouping presents it"
+echo "PASS: competency, canonical source type and course filters exist"
+echo "PASS: curriculum owns the competency to course relationship"
+echo "PASS: the view model exposes no digests, provenance or internal identifiers"
+echo "PASS: the portfolio route is authenticated, user scoped and read-only"
+echo "PASS: the generic API client owns transport only"
+echo "PASS: components never construct bearer headers"
+echo "PASS: portfolio presentation uses semantic accessible markup"
+echo "PASS: status is readable text rather than colour or badges alone"
+echo "PASS: no export, sharing, AI, routing library or DOM testing stack added"
+
 npm run typecheck
 npm run test
 npm run build
@@ -696,3 +916,4 @@ echo "Wave 7 Batch 2 verification passed."
 echo "Wave 7 Batch 3 verification passed."
 echo "Wave 7 Batch 4 verification passed."
 echo "Wave 7 Batch 5 verification passed."
+echo "Wave 7 Batch 6 verification passed."

@@ -477,6 +477,53 @@ export async function listEvidenceCompetencyLinks(
   return projectLinks(links, await loadCompetencyContext(accessToken, links));
 }
 
+/**
+ * Student read: competency links for several Evidence Records in one query.
+ *
+ * Added by Wave 7 / Batch 6 so the portfolio does not issue one query per
+ * Evidence Record. Behaviour is identical to listEvidenceCompetencyLinks; only
+ * the batching differs. Ownership is still enforced by RLS through the
+ * user-scoped client.
+ */
+export async function listEvidenceCompetencyLinksForEvidenceIds(
+  accessToken: string,
+  evidenceIds: readonly string[]
+): Promise<Map<string, StudentEvidenceCompetencyLink[]>> {
+  const byEvidence = new Map<string, StudentEvidenceCompetencyLink[]>();
+  if (evidenceIds.length === 0) {
+    return byEvidence;
+  }
+
+  const supabase = createUserScopedSupabaseClient(accessToken);
+
+  const { data, error } = await supabase
+    .from("evidence_competency_links")
+    .select(LINK_COLUMNS)
+    .in("evidence_id", [...evidenceIds])
+    .order("linked_at", { ascending: false });
+
+  if (error) {
+    throw dependency("Unable to load Evidence competency links");
+  }
+
+  const links = ((data ?? []) as unknown as Array<Record<string, unknown>>).map(
+    (row) => mapEvidenceCompetencyLinkRow(row)
+  );
+
+  const context = await loadCompetencyContext(accessToken, links);
+
+  for (const projected of projectLinks(links, context)) {
+    const existing = byEvidence.get(projected.evidenceId);
+    if (existing) {
+      existing.push(projected);
+    } else {
+      byEvidence.set(projected.evidenceId, [projected]);
+    }
+  }
+
+  return byEvidence;
+}
+
 /** Student read: which of their Evidence Records support one competency. */
 export async function listCompetencyEvidenceLinks(
   accessToken: string,

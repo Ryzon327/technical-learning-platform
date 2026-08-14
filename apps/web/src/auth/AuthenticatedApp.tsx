@@ -1,11 +1,17 @@
 import { useState } from "react";
 import { AuthUiError } from "./auth-service";
 import { useAuth } from "./AuthProvider";
+import { EvidencePortfolioView } from "../evidence/EvidencePortfolioView";
 import { FounderMfaGate } from "./FounderMfaGate";
+
+type WorkspaceView = "overview" | "evidence";
 
 function Workspace() {
   const { user, profile, authState, signOut } = useAuth();
   const [error, setError] = useState("");
+  // Smallest accessible navigation consistent with this shell: no routing
+  // library is introduced, and each control is a native button.
+  const [view, setView] = useState<WorkspaceView>("overview");
 
   async function handleSignOut() {
     setError("");
@@ -31,6 +37,30 @@ function Workspace() {
           <strong>{profile?.displayName || user?.email || "student"}</strong>.
         </p>
 
+        <nav aria-label="Workspace sections">
+          <ul className="workspace-nav">
+            <li>
+              <button
+                type="button"
+                aria-current={view === "overview" ? "page" : undefined}
+                onClick={() => setView("overview")}
+              >
+                Overview
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={view === "evidence" ? "page" : undefined}
+                onClick={() => setView("evidence")}
+              >
+                Evidence portfolio
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        {view === "overview" && (
         <dl className="status-grid">
           <div>
             <dt>Role</dt>
@@ -47,6 +77,9 @@ function Workspace() {
             <dd>Wave 1 — Authentication</dd>
           </div>
         </dl>
+        )}
+
+        {view === "evidence" && <EvidencePortfolioView />}
 
         {error && (
           <p className="form-message error-message" role="alert">

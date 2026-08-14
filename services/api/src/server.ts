@@ -68,6 +68,7 @@ import {
   getEvidenceCorrectionHistory,
   getStudentEvidenceCorrectionHistory
 } from "./evidence-correction";
+import { getStudentEvidencePortfolio } from "./evidence-portfolio";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -250,6 +251,19 @@ async function handleRequest(
     if (request.method === "GET" && pathname === "/evidence") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, { evidence: await listStudentEvidence(trusted.accessToken) });
+      return;
+    }
+
+    if (request.method === "GET" && pathname === "/evidence/portfolio") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        portfolio: await getStudentEvidencePortfolio(trusted.accessToken, {
+          competencyStableId: url.searchParams.get("competencyStableId") ?? undefined,
+          sourceType: url.searchParams.get("sourceType") ?? undefined,
+          courseStableId: url.searchParams.get("courseStableId") ?? undefined,
+          limit: url.searchParams.get("limit") ?? undefined
+        })
+      });
       return;
     }
 
