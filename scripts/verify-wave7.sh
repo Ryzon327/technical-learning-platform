@@ -361,6 +361,179 @@ echo "PASS: failed Evidence is retained but cannot qualify as demonstration"
 echo "PASS: authenticated attempt Evidence route exists with no student mutation route"
 echo "PASS: AI holds no assessment Evidence authority"
 
+# ============================================================
+# Wave 7 Batch 4 — EVID-004 Lab Validation Evidence.
+# Batch 1, Batch 2 and Batch 3 checks above are preserved verbatim.
+# ============================================================
+
+LAB_EVIDENCE_TYPES="packages/shared-types/src/lab-evidence.ts"
+LAB_EVIDENCE_SERVICE="services/api/src/lab-evidence.ts"
+LAB_EVIDENCE_MIGRATION="supabase/migrations/20260813000400_lab_evidence_consumption.sql"
+LAB_VALIDATION_MIGRATION="supabase/migrations/20260812001000_lab_access_reset_validation.sql"
+
+for p in \
+  "$LAB_EVIDENCE_TYPES" \
+  packages/shared-types/src/lab-evidence.test.ts \
+  "$LAB_EVIDENCE_SERVICE" \
+  services/api/src/lab-evidence.test.ts \
+  "$LAB_EVIDENCE_MIGRATION" \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_4_LAB_VALIDATION_EVIDENCE.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- authoritative Lab Evidence source ----------------------------------------
+grep -Fq 'export function evaluateLabEvidenceEligibility' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export function buildLabValidationSourceReference' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'lab-validation-run:' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export * from "./lab-evidence";' packages/shared-types/src/index.ts || exit 1
+grep -Fq 'sourceType: "lab_validation"' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'sourceEngine: "lab"' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'sourceOccurredAt: facts.checkedAt' "$LAB_EVIDENCE_SERVICE" || exit 1
+
+# --- deterministic source integrity -------------------------------------------
+grep -Fq 'export function buildLabValidationCanonicalString' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'lab-validation-v1' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'createHash("sha256")' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'sourceIntegrityDigest: calculateLabValidationSourceDigest(facts)' "$LAB_EVIDENCE_SERVICE" || exit 1
+if grep -nE 'JSON\.stringify' "$LAB_EVIDENCE_TYPES"; then
+  echo "FAIL: lab source integrity must not hash JSON serialization"; exit 1
+fi
+
+# --- outcome qualification safety ---------------------------------------------
+grep -Fq 'technical_error' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'validation_technical_error' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq '"incomplete"' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'export function deriveEvidenceOutcome' packages/shared-types/src/evidence-competency.ts || exit 1
+grep -Fq 'export async function getQualifyingCompetencyEvidenceReferences' services/api/src/evidence-competency.ts || exit 1
+
+# A technical validator failure must never be recorded as a student outcome.
+if grep -nE 'runState === .technical_error.[^)]*eligible: true' "$LAB_EVIDENCE_TYPES"; then
+  echo "FAIL: validator technical failure must not create student Evidence"; exit 1
+fi
+
+# --- frozen historical mapping authority --------------------------------------
+grep -Fq 'export interface LabEvidenceMappingAuthority' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export function buildLabMappingAuthorityCanonicalString' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export function resolveMappingAuthority' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'export async function captureLabEvidenceHandoff' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'loadFrozenMappingAuthority' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'ignoreDuplicates: true' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'facts.mappingAuthorityDigest' "$LAB_EVIDENCE_TYPES" || exit 1
+grep -Fq 'create table if not exists public.lab_evidence_handoffs' "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'Lab evidence handoff is immutable once captured' "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'Lab evidence handoff must pin the lab definition of its session' "$LAB_EVIDENCE_MIGRATION" || exit 1
+
+# Consumption must read the frozen snapshot, never re-resolve the curriculum.
+if awk '/export async function consumeLabValidationEvidence/,0' "$LAB_EVIDENCE_SERVICE" \
+  | grep -q 'resolveCurrentMappingAuthority('; then
+  echo "FAIL: consumption must use the frozen mapping authority, not current curriculum"; exit 1
+fi
+
+# The snapshot must be frozen before any Evidence is created.
+if ! awk '/export async function consumeLabValidationEvidence/,0' "$LAB_EVIDENCE_SERVICE" \
+  | grep -n 'captureLabEvidenceHandoff' > /tmp/w7b4_capture_line \
+  || ! awk '/export async function consumeLabValidationEvidence/,0' "$LAB_EVIDENCE_SERVICE" \
+  | grep -n 'createCanonicalEvidence(' > /tmp/w7b4_create_line; then
+  echo "FAIL: consumption does not freeze the mapping authority before creating Evidence"; exit 1
+fi
+if [ "$(cut -d: -f1 /tmp/w7b4_capture_line | head -1)" -ge "$(cut -d: -f1 /tmp/w7b4_create_line | head -1)" ]; then
+  echo "FAIL: the mapping authority must be frozen before Evidence is created"; exit 1
+fi
+rm -f /tmp/w7b4_capture_line /tmp/w7b4_create_line
+
+# --- competency-link integration from approved configuration only -------------
+grep -Fq 'mission_competencies' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'linkSource: "approved_curriculum_mapping"' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'competencyVersion: mapping.competencyVersion' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'lab.evidence.competency_mapping_unresolved' "$LAB_EVIDENCE_SERVICE" || exit 1
+if grep -nE 'create table[^;]*competency' "$LAB_EVIDENCE_MIGRATION"; then
+  echo "FAIL: Batch 4 must not create a second competency registry"; exit 1
+fi
+
+# --- ownership and failure isolation ------------------------------------------
+grep -Fq 'baseFacts.userId !== trustedUserId' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'Lab validation run and lab session ownership diverge' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'Lab evidence consumption owner must match the validation run owner' "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'tryConsumeLabValidationEvidence' services/api/src/lab-runtime.ts || exit 1
+grep -Fq 'lab.evidence.consumed' "$LAB_EVIDENCE_SERVICE" || exit 1
+grep -Fq 'lab.evidence.consumption_failed' "$LAB_EVIDENCE_SERVICE" || exit 1
+
+# Ingestion must run only after the authoritative validation run is persisted.
+if ! awk '/export async function validateLabSession/,0' services/api/src/lab-runtime.ts \
+  | grep -n 'lab_validation_results' > /tmp/w7b4_results_line \
+  || ! awk '/export async function validateLabSession/,0' services/api/src/lab-runtime.ts \
+  | grep -n 'tryConsumeLabValidationEvidence' > /tmp/w7b4_consume_line; then
+  echo "FAIL: lab validation does not persist results before Evidence ingestion"; exit 1
+fi
+if [ "$(cut -d: -f1 /tmp/w7b4_results_line | head -1)" -ge "$(cut -d: -f1 /tmp/w7b4_consume_line | head -1)" ]; then
+  echo "FAIL: Evidence ingestion must run after the validation result is persisted"; exit 1
+fi
+rm -f /tmp/w7b4_results_line /tmp/w7b4_consume_line
+
+# Ingestion must never rewrite Lab Engine truth.
+for t in lab_validation_runs lab_validation_results lab_sessions; do
+  if grep -nE "from\(\"$t\"\)[^;]*\.(update|upsert|insert|delete)\(" "$LAB_EVIDENCE_SERVICE"; then
+    echo "FAIL: Evidence ingestion must not mutate $t"; exit 1
+  fi
+done
+if grep -nE 'runValidationProbe|deriveLabValidationState' "$LAB_EVIDENCE_SERVICE"; then
+  echo "FAIL: Evidence ingestion must not re-evaluate lab validation"; exit 1
+fi
+
+# --- retry safety and internal state security ---------------------------------
+grep -Fq 'create table if not exists public.lab_evidence_consumptions' "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq "state in ('consumed', 'skipped', 'failed')" "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'alter table public.lab_evidence_consumptions enable row level security' "$LAB_EVIDENCE_MIGRATION" || exit 1
+grep -Fq 'export async function retryFailedLabEvidenceConsumption' "$LAB_EVIDENCE_SERVICE" || exit 1
+
+if grep -qi 'create policy' "$LAB_EVIDENCE_MIGRATION"; then
+  echo "FAIL: internal lab ingestion state must not be student readable"; exit 1
+fi
+if grep -nE 'alter table public\.(lab_validation_runs|lab_validation_results|lab_sessions|evidence_records|evidence_competency_links)|drop table' "$LAB_EVIDENCE_MIGRATION"; then
+  echo "FAIL: Batch 4 migration alters an upstream table"; exit 1
+fi
+grep -Fq 'create table if not exists public.lab_validation_runs' "$LAB_VALIDATION_MIGRATION" || {
+  echo "FAIL: Wave 6 lab validation schema was removed"; exit 1
+}
+
+# --- no direct mastery mutation -----------------------------------------------
+if grep -nE 'student_competency_state|recordAuthoritativeCompetencyEvidence|decideCompetencyTransition|markCompetencyDemonstrated' "$LAB_EVIDENCE_SERVICE"; then
+  echo "FAIL: Lab Evidence ingestion must not touch Learning Engine mastery"; exit 1
+fi
+
+# --- student read route, no student mutation route ----------------------------
+grep -Fq 'labSessionEvidenceMatch' services/api/src/server.ts || exit 1
+grep -Fq 'listLabSessionEvidenceIds(trusted.identity.userId' services/api/src/server.ts || exit 1
+if grep -nE 'request\.method === "(POST|PUT|PATCH|DELETE)" && labSessionEvidenceMatch' services/api/src/server.ts; then
+  echo "FAIL: student lab Evidence mutation route exists"; exit 1
+fi
+if grep -Fq 'consumeLabValidationEvidence' services/api/src/server.ts; then
+  echo "FAIL: Lab Evidence ingestion is reachable from the HTTP surface"; exit 1
+fi
+
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' "$LAB_EVIDENCE_TYPES" "$LAB_EVIDENCE_SERVICE" "$LAB_EVIDENCE_MIGRATION"; then
+  echo "FAIL: AI dependency detected in the lab Evidence path"; exit 1
+fi
+
+echo "PASS: lab Evidence shared type exists and is exported"
+echo "PASS: canonical Lab validation run is the only trusted Evidence source"
+echo "PASS: source integrity digest is deterministic and explicitly ordered"
+echo "PASS: passed and incomplete runs both create canonical Evidence"
+echo "PASS: validator technical failure never becomes student Evidence"
+echo "PASS: incomplete runs are negative and never qualify for demonstration"
+echo "PASS: competency links come only from approved curriculum mapping"
+echo "PASS: the approved mapping authority is frozen when validation becomes authoritative"
+echo "PASS: delayed ingestion retries reuse the frozen mapping, not newer curriculum"
+echo "PASS: the frozen mapping authority is bound into the source integrity digest"
+echo "PASS: exact competency versions are preserved and never guessed"
+echo "PASS: Evidence ownership derives from the authoritative Lab data"
+echo "PASS: ingestion runs only after the authoritative validation is persisted"
+echo "PASS: ingestion failure never alters Lab validation truth and is retryable"
+echo "PASS: internal ingestion state is server-only with no student policy"
+echo "PASS: no mastery state is mutated by Lab Evidence ingestion"
+echo "PASS: authenticated lab Evidence route exists with no student mutation route"
+echo "PASS: AI holds no Lab Evidence authority"
+
 npm run typecheck
 npm run test
 npm run build
@@ -370,3 +543,4 @@ bash scripts/smoke-api.sh
 echo "Wave 7 Batch 1 verification passed."
 echo "Wave 7 Batch 2 verification passed."
 echo "Wave 7 Batch 3 verification passed."
+echo "Wave 7 Batch 4 verification passed."

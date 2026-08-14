@@ -35,6 +35,9 @@ assert_status DELETE /competencies/competency.test/evidence 404
 assert_status GET /assessment-attempts/test-attempt/evidence 401
 assert_status POST /assessment-attempts/test-attempt/evidence 404 '{"evidenceId":"test"}'
 assert_status DELETE /assessment-attempts/test-attempt/evidence 404
+assert_status GET /lab-sessions/test-session/evidence 401
+assert_status POST /lab-sessions/test-session/evidence 404 '{"validationRunId":"test"}'
+assert_status DELETE /lab-sessions/test-session/evidence 404
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -48,3 +51,5 @@ echo 'PASS: Wave 7 evidence competency link read routes reject unauthenticated r
 echo 'PASS: Wave 7 exposes no student evidence competency mutation route'
 echo 'PASS: Wave 7 assessment attempt evidence route rejects unauthenticated requests'
 echo 'PASS: Wave 7 exposes no student assessment evidence mutation route'
+echo 'PASS: Wave 7 lab session evidence route rejects unauthenticated requests'
+echo 'PASS: Wave 7 exposes no student lab evidence mutation route'

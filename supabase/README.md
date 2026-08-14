@@ -38,4 +38,11 @@ The Evidence Engine stores trusted proof and trusted mappings. The Learning Engi
 Wave 7 Batch 3 consumes `public.assessment_evidence_handoffs` into canonical Evidence and Evidence-to-competency links. The handoff table remains Wave 4 source-engine truth and is never rewritten by ingestion; `public.assessment_evidence_consumptions` holds only internal retry state and is server-only (RLS enabled with no policy).
 
 Only `evidence_producing` assessments create Evidence. Practice and diagnostic assessments create none, and interrupted or in-progress attempts never create negative Evidence. Both passed and failed terminal attempts create Evidence and competency links; a failed result is retained as traceable proof but reports a negative outcome so the Learning Engine cannot count it as demonstrated.
+- `20260813000400_lab_evidence_consumption.sql` — Wave 7 Batch 4 durable state for consuming deterministic Lab validation runs into canonical Evidence.
+
+Wave 7 Batch 4 consumes `public.lab_validation_runs` into canonical Evidence and Evidence-to-competency links. The Lab Engine remains authoritative for validation truth: runs and results are never rewritten by ingestion, and `public.lab_evidence_consumptions` holds only internal retry state, server-only with RLS enabled and no policy.
+
+The approved competency mapping in force when a validation becomes authoritative is frozen in `public.lab_evidence_handoffs` (immutable, server-only) so a delayed ingestion retry can never pick up a mission version published after the lab was performed.
+
+Only authoritative deterministic outcomes create Evidence. A `passed` run is positive Evidence; an `incomplete` run is negative Evidence that stays traceable but can never qualify as demonstration; a `technical_error` run creates no Evidence at all, so a validator outage never masquerades as student failure. Competency links resolve through the approved curriculum mapping (`public.mission_competencies`), which preserves the exact `public.competencies` version.
 

@@ -143,9 +143,14 @@ export function deriveEvidenceOutcome(
   if (resultState === "passed") {
     return "positive";
   }
-  if (resultState === "failed") {
+  // "failed" is the Assessment Engine's terminal negative state; "incomplete"
+  // is the Lab Engine's. Both are deterministic student outcomes recorded by
+  // their source engine, and neither may qualify as demonstration.
+  if (resultState === "failed" || resultState === "incomplete") {
     return "negative";
   }
+  // Anything else — including a Lab "technical_error" or an interrupted
+  // assessment — is indeterminate and never qualifies.
   return "indeterminate";
 }
 

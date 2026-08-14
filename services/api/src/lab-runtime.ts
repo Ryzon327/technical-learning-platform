@@ -9,6 +9,7 @@ import {
 } from "@tlp/shared-types";
 import { writeAuditEvent } from "./audit";
 import { getLabProvider } from "./lab-provider-registry";
+import { tryConsumeLabValidationEvidence } from "./lab-evidence";
 import { getLabSession } from "./lab-sessions";
 import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
@@ -109,6 +110,13 @@ export async function validateLabSession(accessToken:string,userId:string,sessio
   if(resultError) throw dep("Unable to persist lab validation results");
   await server.from("lab_sessions").update({validation_state_reference:runId,last_activity_at:checkedAt}).eq("id",sessionId).eq("user_id",userId);
   writeAuditEvent({eventType:"lab.session.validated",outcome:state==="technical_error"?"failure":"success",actorId:userId,targetType:"lab_session",targetId:sessionId,metadata:{validationRunId:runId,state}});
+
+  // The deterministic validation run and its results are now persisted and
+  // authoritative. Canonical Evidence ingestion is downstream processing: it
+  // holds no validation authority, and a failure here is audited and made
+  // retryable rather than failing validation or altering the recorded result.
+  await tryConsumeLabValidationEvidence(userId,runId);
+
   return {id:runId,sessionId,state,checkedAt,results};
 }
 
