@@ -52,4 +52,11 @@ Wave 7 Batch 5 adds `public.evidence_correction_events`: an append-only review a
 Effective trust state (`active`, `invalidated`, `superseded`, plus an under-review flag) is derived at read time from the original record plus its ordered history. Downstream qualification is therefore never cached: Evidence invalidated or superseded today stops qualifying for demonstration today, while remaining fully visible with its effective state and explanation.
 
 Corrections are privileged: only a `founder_admin` actor may author one, enforced in the service and again by a database trigger reading `public.user_profiles`. Students may read the history of their own Evidence and have no mutation policy. Correction never alters assessment or lab source truth — the source engine's record of what happened stays exactly as observed.
+- `20260813000600_evidence_verification_references.sql` — Wave 7 Batch 7 stable, opaque verification references for canonical Evidence.
+
+Wave 7 Batch 7 adds `public.evidence_verification_references`: one immutable, cryptographically random identifier per Evidence Record, minted server-side when a student first requests an export. It exists so future Certificate Engine verification does not require an Evidence schema redesign.
+
+It lives beside `public.evidence_records` rather than inside it, because Batch 1 provenance immutability must not be weakened to attach an identifier after Evidence creation. The table stores no Evidence content and no status: export representations are projected on demand, so revoked or superseded Evidence is never presented as currently valid.
+
+An identifier existing does not make Evidence public. RLS grants students `SELECT` on their own references only — there is no anonymous verification endpoint, no public read policy, no share token and no employer access in this batch.
 

@@ -1,4 +1,5 @@
 import type {
+  EvidenceExport,
   EvidencePortfolio,
   EvidencePortfolioFilters
 } from "@tlp/shared-types";
@@ -44,4 +45,38 @@ export async function loadEvidencePortfolio(
   );
 
   return response.portfolio;
+}
+
+/**
+ * Requests a privacy-safe export of the student's own evidence (EVID-008).
+ *
+ * Authenticated and private: the API derives ownership from the trusted request
+ * identity, so nothing here can request another student's evidence.
+ */
+export async function requestEvidenceExport(
+  accessToken: string,
+  options: LoadPortfolioOptions = {}
+): Promise<EvidenceExport> {
+  const filters = options.filters ?? {};
+
+  const response = await apiRequest<{ export: EvidenceExport }>(
+    accessToken,
+    "/evidence/export",
+    {
+      method: "POST",
+      query: {
+        ...(filters.competencyStableId
+          ? { competencyStableId: filters.competencyStableId }
+          : {}),
+        ...(filters.sourceType ? { sourceType: filters.sourceType } : {}),
+        ...(filters.courseStableId
+          ? { courseStableId: filters.courseStableId }
+          : {}),
+        ...(filters.limit ? { limit: filters.limit } : {})
+      },
+      ...(options.signal ? { signal: options.signal } : {})
+    }
+  );
+
+  return response.export;
 }

@@ -42,6 +42,10 @@ assert_status GET /evidence/test-evidence/corrections 401
 assert_status POST /evidence/test-evidence/corrections 404 '{"action":"invalidate"}'
 assert_status DELETE /evidence/test-evidence/corrections 404
 assert_status GET /evidence/portfolio 401
+assert_status POST /evidence/export 401 '{}'
+assert_status GET /evidence/export 404
+assert_status GET /verify/test-verification-id 404
+assert_status GET /evidence/verify/test-verification-id 404
 assert_status POST /evidence/portfolio 404 '{"competencyStableId":"x"}'
 assert_status DELETE /evidence/portfolio 404
 assert_status GET /admin/evidence/test-evidence/corrections 401
@@ -66,3 +70,5 @@ echo 'PASS: Wave 7 exposes no student evidence correction mutation route'
 echo 'PASS: Wave 7 privileged evidence correction routes reject unauthenticated access'
 echo 'PASS: Wave 7 evidence portfolio rejects unauthenticated requests'
 echo 'PASS: Wave 7 evidence portfolio exposes no student mutation route'
+echo 'PASS: Wave 7 evidence export rejects unauthenticated requests'
+echo 'PASS: Wave 7 exposes no anonymous evidence verification route'

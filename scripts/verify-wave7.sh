@@ -692,6 +692,7 @@ echo "PASS: AI holds no Evidence correction authority"
 
 PORTFOLIO_TYPES="packages/shared-types/src/evidence-portfolio.ts"
 PORTFOLIO_SERVICE="services/api/src/evidence-portfolio.ts"
+EXPORT_PANEL="apps/web/src/evidence/EvidenceExportPanel.tsx"
 PORTFOLIO_VIEW="apps/web/src/evidence/EvidencePortfolioView.tsx"
 PORTFOLIO_WEB_SERVICE="apps/web/src/evidence/evidence-portfolio-service.ts"
 API_CLIENT="apps/web/src/lib/api-client.ts"
@@ -905,6 +906,203 @@ echo "PASS: portfolio presentation uses semantic accessible markup"
 echo "PASS: status is readable text rather than colour or badges alone"
 echo "PASS: no export, sharing, AI, routing library or DOM testing stack added"
 
+# ============================================================
+# Wave 7 Batch 7 — EVID-008 Evidence Export and Verification Hooks.
+# Batch 1-6 checks above are preserved verbatim.
+# ============================================================
+
+EXPORT_TYPES="packages/shared-types/src/evidence-export.ts"
+EXPORT_SERVICE="services/api/src/evidence-export.ts"
+VERIFICATION_MIGRATION="supabase/migrations/20260813000600_evidence_verification_references.sql"
+EXPORT_PANEL="apps/web/src/evidence/EvidenceExportPanel.tsx"
+PORTFOLIO_VIEW="apps/web/src/evidence/EvidencePortfolioView.tsx"
+PORTFOLIO_WEB_SERVICE="apps/web/src/evidence/evidence-portfolio-service.ts"
+
+for p in \
+  "$EXPORT_TYPES" \
+  packages/shared-types/src/evidence-export.test.ts \
+  "$EXPORT_SERVICE" \
+  "$VERIFICATION_MIGRATION" \
+  "$EXPORT_PANEL" \
+  docs/Engineering-OS/BUILD_WAVE_7_BATCH_7_EVIDENCE_EXPORT_VERIFICATION_HOOKS.md; do
+  [ -e "$p" ] || { echo "MISSING: $p"; exit 1; }
+done
+
+# --- export representation reuses existing projections ------------------------
+grep -Fq 'export * from "./evidence-export";' packages/shared-types/src/index.ts || exit 1
+grep -Fq 'export function toExportedEvidenceItem' "$EXPORT_TYPES" || exit 1
+grep -Fq 'export function assembleEvidenceExport' "$EXPORT_TYPES" || exit 1
+grep -Fq 'EvidencePortfolioItem' "$EXPORT_TYPES" || exit 1
+grep -Fq 'getStudentEvidencePortfolio' "$EXPORT_SERVICE" || exit 1
+
+# The export must never serialize the Evidence record or re-read it directly.
+if grep -nE 'from\("evidence_records"\)|mapEvidenceRecordRow' "$EXPORT_SERVICE"; then
+  echo "FAIL: export must project the safe portfolio model, not evidence_records"; exit 1
+fi
+
+# --- privacy-safe payload -----------------------------------------------------
+for leak in integrityDigest sourceIntegrityDigest evidence_integrity_digest \
+  providerId providerSessionId actorId lastCorrectionReason correctionCount; do
+  if grep -nE "\b$leak\b" "$EXPORT_TYPES"; then
+    echo "FAIL: export representation must not expose $leak"; exit 1
+  fi
+done
+
+# --- current effective state, never a stale snapshot --------------------------
+grep -Fq 'export function deriveVerificationStatus' "$EXPORT_TYPES" || exit 1
+grep -Fq 'verificationStatus: status' "$EXPORT_TYPES" || exit 1
+grep -Fq 'currentlyDemonstrates: item.isCurrentProof' "$EXPORT_TYPES" || exit 1
+W7B7_STATUS_RULE="$(awk '/export function deriveVerificationStatus/,/^}$/' "$EXPORT_TYPES")"
+for needle in '"revoked"' '"superseded"' '"unavailable"'; do
+  case "$W7B7_STATUS_RULE" in
+    *"$needle"*) ;;
+    *) echo "FAIL: verification status must represent corrected Evidence ($needle)"; exit 1 ;;
+  esac
+done
+if grep -nE 'verification_status|effective_state' "$VERIFICATION_MIGRATION"; then
+  echo "FAIL: effective state must not be snapshotted into the verification table"; exit 1
+fi
+
+# --- exact competency version preserved ---------------------------------------
+grep -Fq 'competencyReferenceKey' "$EXPORT_TYPES" || exit 1
+grep -Fq 'competencyVersion: link.competencyVersion' "$EXPORT_TYPES" || exit 1
+
+# --- opaque, non-guessable verification identifier ----------------------------
+grep -Fq 'export function mintVerificationId' "$EXPORT_SERVICE" || exit 1
+grep -Fq 'randomBytes(' "$EXPORT_SERVICE" || exit 1
+grep -Fq 'node:crypto' "$EXPORT_SERVICE" || exit 1
+grep -Fq 'VERIFICATION_ID_PATTERN' "$EXPORT_TYPES" || exit 1
+grep -Fq "verification_id ~ '^ev1_[a-f0-9]{48}\$'" "$VERIFICATION_MIGRATION" || exit 1
+# The identifier must never be derived from an evidence id, user id or sequence.
+W7B7_MINT="$(awk '/export function mintVerificationId/,/^}$/' "$EXPORT_SERVICE")"
+if printf '%s\n' "$W7B7_MINT" | grep -nE 'evidenceId|userId|evidence_id|user_id|Date\.now|counter'; then
+  echo "FAIL: the verification identifier must not be derived from platform identifiers"; exit 1
+fi
+
+# --- stable, immutable, server-owned reference --------------------------------
+grep -Fq 'create table if not exists public.evidence_verification_references' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'evidence_id uuid primary key' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'Evidence verification references are immutable once minted' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'Evidence verification reference owner must match the Evidence owner' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'onConflict: "evidence_id"' "$EXPORT_SERVICE" || exit 1
+# Inspect SQL statements only: the migration's own comments legitimately explain
+# which Batch 1 guarantee they preserve.
+W7B7_MIGRATION_SQL="$(sed -e 's:--.*::' "$VERIFICATION_MIGRATION")"
+if printf '%s\n' "$W7B7_MIGRATION_SQL" \
+  | grep -nE 'alter table public\.evidence_records|create or replace function public\.guard_evidence_record_provenance|drop trigger[^;]*evidence_records|drop table'; then
+  echo "FAIL: Batch 7 must not weaken Batch 1 Evidence immutability"; exit 1
+fi
+
+# --- private by default: no public access anywhere ----------------------------
+grep -Fq 'alter table public.evidence_verification_references enable row level security' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'for select to authenticated' "$VERIFICATION_MIGRATION" || exit 1
+grep -Fq 'auth.uid() = user_id' "$VERIFICATION_MIGRATION" || exit 1
+# Word-bounded so "insert into public.platform_schema_version" is not a match.
+if grep -nEi '\bto[[:space:]]+(anon|public)\b|using[[:space:]]*\([[:space:]]*true[[:space:]]*\)' \
+  "$VERIFICATION_MIGRATION"; then
+  echo "FAIL: verification references must have no public read policy"; exit 1
+fi
+W7B7_VERIF_POLICY_TARGETS="$(grep -A2 -Ei '^[[:space:]]*on public\.evidence_verification_references[[:space:]]*$' \
+  "$VERIFICATION_MIGRATION" || true)"
+if printf '%s\n' "$W7B7_VERIF_POLICY_TARGETS" \
+  | grep -Eiq '^[[:space:]]*for[[:space:]]+(insert|update|delete|all)\b'; then
+  echo "FAIL: student write policy granted on verification references"; exit 1
+fi
+
+# --- authenticated student-controlled export, no anonymous route --------------
+grep -Fq 'pathname === "/evidence/export"' services/api/src/server.ts || exit 1
+grep -Fq 'exportStudentEvidence(trusted.accessToken, trusted.identity.userId' services/api/src/server.ts || exit 1
+if grep -nE '"/verify|/verification/|publicVerification|anonymousVerification' services/api/src/server.ts; then
+  echo "FAIL: no anonymous or public verification route may exist in Batch 7"; exit 1
+fi
+# The export route must be matched before the /evidence/:id route.
+W7B7_EXPORT_LINE="$(grep -n 'pathname === "/evidence/export"' services/api/src/server.ts | head -1 | cut -d: -f1)"
+W7B7_RECORD_LINE="$(grep -n 'const evidenceRecordMatch' services/api/src/server.ts | head -1 | cut -d: -f1)"
+if [ "$W7B7_EXPORT_LINE" -ge "$W7B7_RECORD_LINE" ]; then
+  echo "FAIL: /evidence/export must be routed before /evidence/:id"; exit 1
+fi
+
+# --- method-restricted routes must not fall through to the identifier route ---
+ROUTING_TYPES="packages/shared-types/src/evidence-routing.ts"
+[ -e "$ROUTING_TYPES" ] || { echo "MISSING: $ROUTING_TYPES"; exit 1; }
+[ -e packages/shared-types/src/evidence-routing.test.ts ] || {
+  echo "MISSING: packages/shared-types/src/evidence-routing.test.ts"; exit 1; }
+
+grep -Fq 'export function isReservedEvidencePathSegment' "$ROUTING_TYPES" || exit 1
+grep -Fq '"portfolio"' "$ROUTING_TYPES" || exit 1
+grep -Fq '"export"' "$ROUTING_TYPES" || exit 1
+grep -Fq 'export * from "./evidence-routing";' packages/shared-types/src/index.ts || exit 1
+
+# The single-identifier Evidence route must refuse reserved collection names, so
+# an unsupported method returns the route-not-found response rather than
+# authenticating and answering as if "export" were an Evidence identifier.
+grep -Fq 'isReservedEvidencePathSegment' services/api/src/server.ts || exit 1
+W7B7_RECORD_ROUTE="$(grep -A6 'const evidenceRecordMatch' services/api/src/server.ts)"
+case "$W7B7_RECORD_ROUTE" in
+  *"!isReservedEvidencePathSegment("*) ;;
+  *)
+    echo "FAIL: the Evidence identifier route must exclude reserved path segments"
+    exit 1
+    ;;
+esac
+
+# --- source truth is never mutated --------------------------------------------
+for t in evidence_records evidence_competency_links evidence_correction_events \
+  assessment_attempts lab_validation_runs; do
+  if grep -nE "from\(\"$t\"\)" "$EXPORT_SERVICE"; then
+    echo "FAIL: export must not read or write $t directly"; exit 1
+  fi
+done
+if grep -nE '\.(update|delete)\(' "$EXPORT_SERVICE"; then
+  echo "FAIL: export must not mutate stored records"; exit 1
+fi
+
+# --- student-facing export request is accessible and private -------------------
+grep -Fq 'requestEvidenceExport' "$PORTFOLIO_WEB_SERVICE" || exit 1
+grep -Fq 'requestEvidenceExport' "$EXPORT_PANEL" || exit 1
+grep -Fq 'describeExportContents' "$EXPORT_PANEL" || exit 1
+grep -Fq 'EvidenceExportPanel' "$PORTFOLIO_VIEW" || exit 1
+for needle in '<table' '<caption' 'scope="col"' 'scope="row"' 'aria-live' 'aria-labelledby' '<time dateTime'; do
+  case "$(cat "$EXPORT_PANEL")" in
+    *"$needle"*) ;;
+    *) echo "FAIL: export presentation is missing accessible markup ($needle)"; exit 1 ;;
+  esac
+done
+if grep -nE 'Authorization|Bearer ' "$EXPORT_PANEL"; then
+  echo "FAIL: components must call service modules, not build auth headers"; exit 1
+fi
+# The export panel must not rely on colour or badges for status either.
+if grep -nE 'className="[^"]*badge|color:|backgroundColor' "$EXPORT_PANEL"; then
+  echo "FAIL: export status must not rely on colour or badges alone"; exit 1
+fi
+
+# --- deferred scope stays deferred --------------------------------------------
+if grep -RniE '\b(share[-_]?link|shareToken|employer|public[-_]?profile|blockchain|pdfkit|puppeteer)\b' \
+  "$EXPORT_TYPES" "$EXPORT_SERVICE" "$VERIFICATION_MIGRATION" "$PORTFOLIO_WEB_SERVICE"; then
+  echo "FAIL: EVID-008 future extensions must not appear in Batch 7"; exit 1
+fi
+if grep -R -nEi 'openai|anthropic|ollama|ai gateway|AIGW' \
+  "$EXPORT_TYPES" "$EXPORT_SERVICE" "$VERIFICATION_MIGRATION"; then
+  echo "FAIL: AI dependency detected in the Evidence export path"; exit 1
+fi
+
+echo "PASS: Evidence export representation exists and is exported"
+echo "PASS: export projects the safe portfolio model, never evidence_records"
+echo "PASS: export exposes no digests, provider data or correction mechanics"
+echo "PASS: verification status reflects current effective state at read time"
+echo "PASS: revoked and superseded Evidence is never presented as current"
+echo "PASS: exact competency stable id and version are preserved"
+echo "PASS: verification identifiers are opaque and cryptographically random"
+echo "PASS: verification references are stable, immutable and server owned"
+echo "PASS: Batch 1 Evidence immutability is preserved"
+echo "PASS: verification references have no public or student write policy"
+echo "PASS: export is authenticated, student controlled and never anonymous"
+echo "PASS: unsupported methods on /evidence/export return route-not-found"
+echo "PASS: reserved collection names are never read as Evidence identifiers"
+echo "PASS: export never mutates Evidence or source-engine truth"
+echo "PASS: the export request is accessible and private"
+echo "PASS: sharing, employer access, documents and AI remain deferred"
+
 npm run typecheck
 npm run test
 npm run build
@@ -917,3 +1115,4 @@ echo "Wave 7 Batch 3 verification passed."
 echo "Wave 7 Batch 4 verification passed."
 echo "Wave 7 Batch 5 verification passed."
 echo "Wave 7 Batch 6 verification passed."
+echo "Wave 7 Batch 7 verification passed."

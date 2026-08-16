@@ -32,6 +32,8 @@ export * from "./evidence";
 export * from "./evidence-competency";
 export * from "./evidence-correction";
 export * from "./evidence-portfolio";
+export * from "./evidence-export";
+export * from "./evidence-routing";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";

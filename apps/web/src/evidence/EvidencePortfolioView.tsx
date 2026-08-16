@@ -8,6 +8,7 @@ import {
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
+import { EvidenceExportPanel } from "./EvidenceExportPanel";
 import { loadEvidencePortfolio } from "./evidence-portfolio-service";
 
 /**
@@ -276,6 +277,8 @@ export function EvidencePortfolioView() {
           hands-on lab will add evidence here.
         </p>
       )}
+
+      <EvidenceExportPanel filters={filters} />
 
       {portfolio?.groups.map((group) => (
         <CompetencyGroup

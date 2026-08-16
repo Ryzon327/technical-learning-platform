@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   AppError,
+  isReservedEvidencePathSegment,
   type CurriculumPublicationState
 } from "@tlp/shared-types";
 import {
@@ -69,6 +70,7 @@ import {
   getStudentEvidenceCorrectionHistory
 } from "./evidence-correction";
 import { getStudentEvidencePortfolio } from "./evidence-portfolio";
+import { exportStudentEvidence } from "./evidence-export";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
 
@@ -254,6 +256,19 @@ async function handleRequest(
       return;
     }
 
+    if (request.method === "POST" && pathname === "/evidence/export") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        export: await exportStudentEvidence(trusted.accessToken, trusted.identity.userId, {
+          competencyStableId: url.searchParams.get("competencyStableId") ?? undefined,
+          sourceType: url.searchParams.get("sourceType") ?? undefined,
+          courseStableId: url.searchParams.get("courseStableId") ?? undefined,
+          limit: url.searchParams.get("limit") ?? undefined
+        })
+      });
+      return;
+    }
+
     if (request.method === "GET" && pathname === "/evidence/portfolio") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, {
@@ -322,9 +337,14 @@ async function handleRequest(
     }
 
     const evidenceRecordMatch = pathname.match(/^\/evidence\/([^/]+)$/);
-    if (request.method === "GET" && evidenceRecordMatch) {
+    const evidenceRecordSegment = decodeURIComponent(evidenceRecordMatch?.[1] ?? "");
+    if (
+      request.method === "GET" &&
+      evidenceRecordMatch &&
+      !isReservedEvidencePathSegment(evidenceRecordSegment)
+    ) {
       const trusted = await resolveTrustedRequestIdentity(request);
-      sendJson(response, 200, { evidence: await getCanonicalEvidenceForStudent(trusted.accessToken, decodeURIComponent(evidenceRecordMatch[1] ?? "")) });
+      sendJson(response, 200, { evidence: await getCanonicalEvidenceForStudent(trusted.accessToken, evidenceRecordSegment) });
       return;
     }
 
