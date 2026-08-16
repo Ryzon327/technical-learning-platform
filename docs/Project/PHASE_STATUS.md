@@ -307,3 +307,13 @@ Completion review passed after validating LAB-001 through LAB-012 implementation
 
 Next: Build Wave 7 — Evidence Engine.
 <!-- END WAVE 6 STATUS -->
+
+<!-- BEGIN WAVE 7 STATUS -->
+## Build Wave 7 — Evidence Engine
+
+**Status:** Complete
+
+Completion review passed after validating EVID-001 through EVID-008 against the Feature Registry acceptance criteria, the cross-batch Evidence invariants, and the engine-wide security and private-by-default boundaries.
+
+Next: Build Wave 8 — Certificates.
+<!-- END WAVE 7 STATUS -->

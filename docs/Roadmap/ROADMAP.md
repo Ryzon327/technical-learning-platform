@@ -113,3 +113,13 @@ Exit gate satisfied: the platform can support the governed lifecycle of a real p
 
 Next implementation wave: **Wave 7 — Evidence**.
 <!-- END WAVE 6 CLOSURE -->
+
+<!-- BEGIN WAVE 7 CLOSURE -->
+## Wave 7 — Evidence Engine
+
+**Implementation Status:** Complete
+
+Exit gate satisfied: the platform can record durable, provenance-bearing proof of what a student demonstrated, link it to the exact approved competency version, correct it through an append-only history, resolve its effective trust state at read time, present it privately to the student, and export it with a stable verification hook — without granting public access, without AI authority, and without rewriting assessment or Lab source truth.
+
+Next implementation wave: **Build Wave 8 — Certificates**.
+<!-- END WAVE 7 CLOSURE -->
