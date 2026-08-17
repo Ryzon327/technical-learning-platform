@@ -53,21 +53,28 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-definition\.ts$' \
   | grep -v 'certificate-definition\.test\.ts$' \
   | grep -v 'certificate-eligibility\.ts$' \
-  | grep -v 'certificate-eligibility\.test\.ts$' || true)"
+  | grep -v 'certificate-eligibility\.test\.ts$' \
+  | grep -v 'certificate-issuance\.ts$' \
+  | grep -v 'certificate-issuance\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-if grep -Fq 'export interface CertificateDefinition ' packages/shared-types/src/certificate-eligibility.ts; then
-  fail "certificate-eligibility.ts must import the Certificate Definition model, not redeclare it"
-fi
+for module in certificate-eligibility certificate-issuance; do
+  if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
+    fail "$module.ts must import the Certificate Definition model, not redeclare it"
+  fi
+done
 DEFINITION_DECLARATIONS="$(grep -rlF 'export interface CertificateDefinition ' packages/shared-types/src services/api/src 2>/dev/null || true)"
 [ "$DEFINITION_DECLARATIONS" = "packages/shared-types/src/certificate-definition.ts" ] \
   || fail "the Certificate Definition model is declared outside certificate-definition.ts: $DEFINITION_DECLARATIONS"
 
-CERT_MIGRATIONS="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
+# Scoped to the CERT-001 definition migration. CERT-003 owns a separate
+# issuance migration, asserted independently in its own section; the invariant
+# here is that the Certificate Definition schema lives in exactly one file.
+CERT_MIGRATIONS="$(ls supabase/migrations/*certificate_definition*.sql 2>/dev/null | wc -l | tr -d ' ')"
 [ "$CERT_MIGRATIONS" = "1" ] \
-  || fail "expected exactly one certificate migration, found $CERT_MIGRATIONS"
+  || fail "expected exactly one certificate definition migration, found $CERT_MIGRATIONS"
 
 # The empty scaffolds stay empty in Batch 1; the real architecture is
 # packages/shared-types + services/api.
@@ -384,7 +391,7 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
   case "$route" in
-    '"/certificates/eligibility"'|'"/certificates/definitions"') ;;
+    '"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"') ;;
     *) fail "an unapproved student certificate route exists: $route" ;;
   esac
 done
@@ -455,11 +462,14 @@ done
 ELIG_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$ELIG_SERVICE" || true)"
 
 # --- 14. no persistence, no migration ---------------------------------------
-# CERT-002 is computed on demand. CERT-003 owns issuance snapshots and CERT-004
-# owns the durable Certificate Record.
-CERT_MIGRATION_COUNT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
-[ "$CERT_MIGRATION_COUNT" = "1" ] \
-  || fail "CERT-002 must add no migration; found $CERT_MIGRATION_COUNT certificate migrations"
+# CERT-002 is computed on demand and persists nothing. CERT-003 owns the
+# issuance record and its snapshots in its own migration, and CERT-004 owns the
+# durable lifecycle. The invariant here is that no *eligibility* schema exists,
+# so the check is scoped by name rather than counting all certificate
+# migrations.
+if ls supabase/migrations/*eligibility*.sql >/dev/null 2>&1; then
+  fail "CERT-002 must add no eligibility migration"
+fi
 
 if ls supabase/migrations/*eligibilit*.sql >/dev/null 2>&1; then
   fail "CERT-002 must not introduce an eligibility migration"
@@ -698,6 +708,9 @@ echo "PASS: the exact selected certificate version is the one evaluated"
 echo "PASS: no version is presented as latest, current, recommended or preferred"
 
 # --- 24. no issuance or CERT-003+ control -----------------------------------
+# Later-feature surfaces stay prohibited. CERT-003 authorizes exactly one
+# student control, worded as a request rather than an issuance the client
+# performs; every other issuance-adjacent affordance still fails the build.
 for forbidden in 'Issue certificate' 'Claim certificate' 'Generate certificate' \
                  'Download certificate' 'Share certificate' 'Verify certificate' \
                  onIssue handleIssue handleClaim handleDownload; do
@@ -706,17 +719,38 @@ for forbidden in 'Issue certificate' 'Claim certificate' 'Generate certificate' 
   fi
 done
 
+# The one approved CERT-003 control, by exact wording.
+grep -Fq 'CERTIFICATE_REQUEST_ACTION_LABEL' "$UI_VIEW" \
+  || fail "the approved certificate request control is missing"
+grep -Fq '"Request this certificate"' "$UI_PRESENTATION" \
+  || fail "the approved request wording is missing"
+grep -Fq 'Certificate issued: ' "$UI_PRESENTATION" \
+  || fail "the approved issuance success wording is missing"
+
 # No later-Feature endpoint may be called from the client, even if the server
-# would reject it.
-if echo "$UI_SERVICE_CODE$UI_VIEW_CODE" | grep -qE '/certificates/(issue|claim|verify)|"/verify/'; then
+# would reject it. Anchored with a terminating quote so the approved
+# /certificates/issuance path is not mistaken for /certificates/issue.
+if echo "$UI_SERVICE_CODE$UI_VIEW_CODE" | grep -qE '/certificates/(issue|claim|verify)"|"/verify/'; then
   fail "the eligibility UI must not call an issuance or verification endpoint"
 fi
 
-for method in POST PATCH PUT DELETE; do
+# CERT-003 authorizes exactly one write from this UI: the issuance request.
+# Every other method remains prohibited, and POST is permitted only to the
+# approved path.
+for method in PATCH PUT DELETE; do
   if echo "$UI_SERVICE_CODE" | grep -Fq "method: \"$method\""; then
-    fail "the eligibility UI must be read-only; found $method"
+    fail "the eligibility UI must not use $method"
   fi
 done
+
+UI_POST_COUNT="$(echo "$UI_SERVICE_CODE" | grep -c 'method: "POST"' || true)"
+if [ "$UI_POST_COUNT" -gt 1 ]; then
+  fail "only one CERT-related POST is authorized; found $UI_POST_COUNT"
+fi
+if [ "$UI_POST_COUNT" = "1" ]; then
+  echo "$UI_SERVICE_CODE" | grep -Fq '"/certificates/issuance"' \
+    || fail "the only authorized UI POST destination is /certificates/issuance"
+fi
 
 for forbidden in userId studentId user_id subjectId; do
   if echo "$UI_SERVICE_CODE" | grep -Fq "$forbidden"; then
@@ -730,7 +764,7 @@ grep -Fq 'does not request or issue a certificate' "$UI_VIEW" \
   || fail "the eligibility UI must disclose that checking does not issue a certificate"
 
 echo "PASS: the eligibility UI exposes no issuance, sharing or verification control"
-echo "PASS: the eligibility UI is read-only and sends no user identifier"
+echo "PASS: the eligibility UI sends no user identifier and writes only via the approved issuance request"
 echo "PASS: the student is told that checking eligibility issues nothing"
 
 # --- 25. accessibility ------------------------------------------------------
@@ -837,6 +871,204 @@ grep -Fq 'aria-current' "$UI_SHELL" \
 
 echo "PASS: the eligibility view is reachable from the existing navigation"
 
+# ============================================================
+# CERT-003 — Deterministic Certificate Issuance (Batch 4)
+# ============================================================
+
+ISSUE_TYPES="packages/shared-types/src/certificate-issuance.ts"
+ISSUE_TYPE_TESTS="packages/shared-types/src/certificate-issuance.test.ts"
+ISSUE_SERVICE="services/api/src/certificate-issuance.ts"
+ISSUE_SERVICE_TESTS="services/api/src/certificate-issuance.test.ts"
+ISSUE_MIGRATION="supabase/migrations/20260813000800_certificate_issuance_foundation.sql"
+ISSUE_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_4_DETERMINISTIC_CERTIFICATE_ISSUANCE.md"
+
+for p in \
+  "$ISSUE_TYPES" "$ISSUE_TYPE_TESTS" "$ISSUE_SERVICE" \
+  "$ISSUE_SERVICE_TESTS" "$ISSUE_MIGRATION" "$ISSUE_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+ISSUE_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$ISSUE_SERVICE" || true)"
+ISSUE_MIGRATION_CODE="$(grep -vE '^\s*--' "$ISSUE_MIGRATION" || true)"
+ISSUE_RPC="$(awk '/create or replace function public\.certificate_issue/{cap=1} /revoke all on function public\.certificate_issue/{cap=0} cap' "$ISSUE_MIGRATION")"
+[ -n "$ISSUE_RPC" ] || fail "the certificate_issue RPC body was not found"
+
+# --- 28. exactly one issuance migration and schema --------------------------
+ISSUE_MIGRATIONS="$(ls supabase/migrations/*certificate_issuance*.sql 2>/dev/null | wc -l | tr -d ' ')"
+[ "$ISSUE_MIGRATIONS" = "1" ] \
+  || fail "expected exactly one certificate issuance migration, found $ISSUE_MIGRATIONS"
+
+grep -Fq 'unique (user_id, certificate_definition_id)' "$ISSUE_MIGRATION" \
+  || fail "the CERT-003 idempotency constraint is missing"
+grep -Fq "verification_id text not null unique" "$ISSUE_MIGRATION" \
+  || fail "the opaque verification identifier is missing"
+grep -Fq "'^cert1_[a-f0-9]{48}\$'" "$ISSUE_MIGRATION" \
+  || fail "the verification identifier format is not constrained"
+grep -Fq 'references public.evidence_records(id) on delete restrict' "$ISSUE_MIGRATION" \
+  || fail "justifying Evidence must not be deletable"
+
+for table in certificates certificate_competency_snapshots certificate_evidence_snapshots; do
+  grep -Fq "alter table public.$table enable row level security" "$ISSUE_MIGRATION" \
+    || fail "RLS is not enabled on $table"
+done
+
+ISSUE_POLICIES="$(grep -c '^create policy' "$ISSUE_MIGRATION" || true)"
+[ "$ISSUE_POLICIES" = "3" ] \
+  || fail "expected exactly 3 issuance select policies, found $ISSUE_POLICIES"
+if grep -A3 -Ei '^on public\.certificate' "$ISSUE_MIGRATION" \
+  | grep -qEi '^\s*for\s+(insert|update|delete|all)\b'; then
+  fail "a student write policy is granted on a certificate table"
+fi
+if echo "$ISSUE_MIGRATION_CODE" | grep -qE '\bto[[:space:]]+(anon|public)\b'; then
+  fail "issued certificates must not be readable by anon or public"
+fi
+
+echo "PASS: exactly one CERT-003 migration with student read-only RLS"
+echo "PASS: one certificate per student per exact definition version"
+
+# --- 29. eligibility is re-evaluated at issuance -----------------------------
+grep -Fq 'getStudentCertificateEligibility' "$ISSUE_SERVICE" \
+  || fail "issuance does not re-evaluate eligibility"
+grep -Fq 'decideCertificateIssuance' "$ISSUE_SERVICE" \
+  || fail "issuance does not use the shared issuance decider"
+
+for rule in qualifiesForDemonstration deriveEvidenceOutcome \
+            qualifiesAsDemonstrationEvidence resolveEffectiveEvidenceState \
+            isEffectivelyTrustedEvidence evaluateCertificateEligibility; do
+  if echo "$ISSUE_SERVICE_CODE" | grep -Fq "$rule"; then
+    fail "CERT-003 must not re-implement the eligibility rule $rule"
+  fi
+done
+
+echo "PASS: issuance re-evaluates eligibility through the CERT-002 evaluator"
+
+# --- 29b. the integrity pin set covers BOTH eligibility gates ---------------
+# A CERT-002 result becomes eligible through required competencies AND
+# definition-level Evidence policies. Evidence linked only to an optional
+# competency can still be what carried a policy to its minimumCount, so the pin
+# set must union both gates or a relied-upon record could drift undetected.
+grep -Fq '"competencyRequirements" | "evidencePolicies"' "$ISSUE_TYPES" \
+  || fail "the issuance snapshot does not consume both eligibility gates"
+grep -Fq 'policy.satisfyingEvidenceIds' "$ISSUE_TYPES" \
+  || fail "the pin set omits Evidence counted toward Evidence policies"
+grep -Fq 'contributing.add(evidenceId)' "$ISSUE_TYPES" \
+  || fail "the pin set is not accumulated as a deduplicated union"
+
+# The union must be read from the evaluation, never recomputed here. Judged on
+# comment-stripped code: the module documents why policy Evidence must be
+# pinned, and naming minimumCount in that explanation is not arithmetic.
+ISSUE_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$ISSUE_TYPES" || true)"
+if echo "$ISSUE_TYPES_CODE" | grep -qE 'minimumCount|qualifyingCount|>='; then
+  fail "CERT-003 must not recompute Evidence policy satisfaction"
+fi
+
+echo "PASS: the integrity pin set unions both eligibility gates without recomputing them"
+
+# --- 30. the RPC confirms, never re-evaluates -------------------------------
+RPC_PUBLISHED="$(echo "$ISSUE_RPC" | grep -n "definition_state <> 'published'" | head -1 | cut -d: -f1)"
+RPC_SUPERSEDED="$(echo "$ISSUE_RPC" | grep -n 'definition_superseded is not null' | head -1 | cut -d: -f1)"
+RPC_DRIFT="$(echo "$ISSUE_RPC" | grep -n 'Authoritative Evidence changed' | head -1 | cut -d: -f1)"
+RPC_LOCK="$(echo "$ISSUE_RPC" | grep -n 'for update' | head -1 | cut -d: -f1)"
+RPC_INSERT="$(echo "$ISSUE_RPC" | grep -n 'insert into public.certificates' | head -1 | cut -d: -f1)"
+
+for pair in "RPC_PUBLISHED:published check" "RPC_SUPERSEDED:supersession check" \
+            "RPC_DRIFT:Evidence drift check" "RPC_LOCK:definition lock" \
+            "RPC_INSERT:certificate insert"; do
+  varname="${pair%%:*}"
+  label="${pair##*:}"
+  eval "value=\$$varname"
+  [ -n "$value" ] || fail "the issuance RPC is missing its $label"
+done
+
+for guard in RPC_PUBLISHED RPC_SUPERSEDED RPC_DRIFT RPC_LOCK; do
+  eval "value=\$$guard"
+  [ "$value" -lt "$RPC_INSERT" ] \
+    || fail "the issuance RPC creates a record before confirming ($guard)"
+done
+
+# The RPC must confirm by equality, never by re-deriving Wave 7 or CERT-002.
+for forbidden in previous_effective_state new_effective_state minimum_count \
+                 require_positive_outcome evidence_competency_links; do
+  if echo "$ISSUE_RPC" | grep -Fq "$forbidden"; then
+    fail "the issuance RPC must not re-implement eligibility: $forbidden"
+  fi
+done
+echo "$ISSUE_RPC" | grep -Fq 'is distinct from pinned.correction_count' \
+  || fail "the issuance RPC does not detect appended Evidence corrections"
+echo "$ISSUE_RPC" | grep -Fq 'references unpinned Evidence' \
+  || fail "the issuance RPC does not reject unpinned Evidence snapshots"
+
+echo "$ISSUE_RPC" | grep -Fq 'security definer' \
+  || fail "the issuance RPC is not security definer"
+echo "$ISSUE_RPC" | grep -Fq 'set search_path = public' \
+  || fail "the issuance RPC has no fixed search_path"
+grep -Fq 'revoke all on function public.certificate_issue' "$ISSUE_MIGRATION" \
+  || fail "the issuance RPC does not revoke execute from client roles"
+if echo "$ISSUE_MIGRATION_CODE" | grep -Fq 'grant execute'; then
+  fail "CERT-003 must not grant execute on any function"
+fi
+
+echo "PASS: the issuance RPC confirms integrity before creating the record"
+echo "PASS: the issuance RPC is privileged and grants no student execution"
+
+# --- 31. idempotency and authorization --------------------------------------
+EXISTING_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'findExistingCertificate(userId' | head -1 | cut -d: -f1)"
+EVALUATE_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'getStudentCertificateEligibility(' | head -1 | cut -d: -f1)"
+[ -n "$EXISTING_AT" ] || fail "issuance does not look up an existing certificate"
+[ "$EXISTING_AT" -lt "$EVALUATE_AT" ] \
+  || fail "the existing certificate must be returned before re-evaluating"
+
+grep -Fq '"23505"' "$ISSUE_SERVICE" \
+  || fail "issuance does not recover from a lost uniqueness race"
+grep -Fq 'alreadyIssued: true' "$ISSUE_SERVICE" \
+  || fail "idempotent replay is not reported"
+
+ISSUE_ROUTE_BLOCK="$(awk "/CERT-003 — the student's own issued certificates/{cap=1} /CERT-002 — certificates a student may select/{cap=0} cap" "$SERVER")"
+[ -n "$ISSUE_ROUTE_BLOCK" ] || fail "the CERT-003 route block was not found"
+
+echo "$ISSUE_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity(request)' \
+  || fail "the issuance route does not resolve a trusted identity"
+echo "$ISSUE_ROUTE_BLOCK" | grep -Fq 'issueStudentCertificate(trusted.identity.userId' \
+  || fail "the issuance route does not issue to the authenticated caller"
+for smuggled in 'body.userId' 'body.studentId' 'searchParams.get("userId")' \
+                'body.eligible' 'body.evidenceIds'; do
+  if echo "$ISSUE_ROUTE_BLOCK" | grep -Fq "$smuggled"; then
+    fail "the issuance route accepts a client-supplied claim: $smuggled"
+  fi
+done
+
+echo "PASS: issuance is idempotent and returns the existing record on replay"
+echo "PASS: issuance targets only the authenticated caller"
+
+# --- 32. no CERT-004+ behaviour ---------------------------------------------
+for forbidden in 'status text' lifecycle expires_at expiration revoked_at \
+                 revocation superseded_by_certificate presentation_metadata; do
+  if echo "$ISSUE_MIGRATION_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-004+ concept leaked into the CERT-003 schema: $forbidden"
+  fi
+done
+if echo "$ISSUE_SERVICE_CODE" | grep -qiE 'revoke|expiresAt|expirationMonths|portfolio|shareLink|employer|\bpdf\b'; then
+  fail "CERT-004+ behaviour leaked into the issuance service"
+fi
+if grep -Fq '/certificates/verify' "$SERVER"; then
+  fail "CERT-005 verification must not exist in CERT-003"
+fi
+if echo "$ISSUE_SERVICE_CODE" | grep -qiE 'sendEmail|smtp|EmailProvider'; then
+  fail "CERT-003 must not build notification infrastructure"
+fi
+if echo "$ISSUE_SERVICE_CODE$ISSUE_MIGRATION_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the issuance path"
+fi
+if echo "$ISSUE_MIGRATION_CODE" | grep -Fq 'audit'; then
+  fail "CERT-003 must reuse the platform audit mechanism, not create one"
+fi
+
+grep -Fq 'certificate.issued' "$ISSUE_SERVICE" \
+  || fail "issuance emits no audit event"
+
+echo "PASS: no CERT-004+ lifecycle, verification or notification behaviour exists"
+echo "PASS: issuance is audited through the existing platform mechanism"
+
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
 # ------------------------------------------------------------
@@ -862,5 +1094,8 @@ echo "CERT-001 Certificate Definition Model is implemented."
 echo "Wave 8 Batch 2 verification passed."
 echo "CERT-002 backend eligibility evaluator/API verification passed."
 echo "CERT-002 student eligibility UI and accessibility verification passed."
+echo "Wave 8 Batch 4 verification passed."
+echo "CERT-003 Deterministic Certificate Issuance is implemented."
+echo "Concurrency and rollback are structurally verified only; no live PostgreSQL test exists."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"

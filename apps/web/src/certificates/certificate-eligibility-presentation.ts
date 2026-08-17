@@ -197,6 +197,47 @@ export function describeLoadingStatus(input: {
   return "No eligibility result to show.";
 }
 
+/**
+ * CERT-003 — wording for the student issuance action.
+ *
+ * "Request" rather than "issue": the student asks, and the server decides after
+ * re-evaluating eligibility itself. The label must never imply the click
+ * creates the certificate.
+ */
+export const CERTIFICATE_REQUEST_ACTION_LABEL = "Request this certificate";
+export const CERTIFICATE_REQUEST_PENDING_LABEL = "Requesting…";
+
+/** Success wording. Names the certificate, as CERT-003 section 11 requires. */
+export function describeIssuanceSuccess(input: {
+  title: string;
+  alreadyIssued: boolean;
+}): string {
+  return input.alreadyIssued
+    ? `Already issued: ${input.title}. You requested this before, so no new certificate was created.`
+    : `Certificate issued: ${input.title}`;
+}
+
+/**
+ * Explains a refusal in the student's terms.
+ *
+ * A refusal is never phrased as a fault: the certificate may not be available,
+ * requirements may remain, or the answer may simply not be determinable yet.
+ */
+export function describeIssuanceRefusal(reason: string | undefined): string {
+  switch (reason) {
+    case "not_eligible":
+      return "You don't currently meet the requirements for this certificate, so it wasn't issued.";
+    case "eligibility_unknown":
+      return "We couldn't confirm your eligibility just now, so nothing was issued. You can try again shortly.";
+    case "definition_not_issuable":
+      return "This certificate isn't available to be issued at the moment.";
+    case "authoritative_inputs_changed":
+      return "Your evidence changed while this was being processed, so nothing was issued. You can check your eligibility again.";
+    default:
+      return "We couldn't complete this request, so nothing was issued.";
+  }
+}
+
 /** Exact version wording for secondary detail. Never labelled latest or current. */
 export function describeCertificateVersion(
   result: Pick<CertificateEligibilityResult, "certificateDefinitionVersion">

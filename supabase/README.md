@@ -75,5 +75,19 @@ Supersession is permitted and never deletes history: a self-reference is rejecte
 
 RLS is enabled on all three tables. Authenticated users may `SELECT` published definitions only; draft, review and retired definitions stay invisible. No student INSERT, UPDATE, DELETE or ALL policy is granted anywhere — authoring is server-authoritative through the `founder_admin` path.
 
+- `20260813000800_certificate_issuance_foundation.sql` — Wave 8 Batch 4 CERT-003 Deterministic Certificate Issuance.
+
+Wave 8 Batch 4 owns the authoritative Certificate Record in `public.certificates`, with historical reference snapshots in `public.certificate_competency_snapshots` and `public.certificate_evidence_snapshots`.
+
+`unique (user_id, certificate_definition_id)` is the issuance invariant: exactly one certificate per student per exact Certificate Definition version. A retry after a lost network response therefore returns the existing record rather than creating a duplicate. The `verification_id` is an opaque `cert1_` identifier minted at issuance so a future CERT-005 verification surface needs no schema change — **CERT-003 exposes no public verification route, page or lookup of any kind**.
+
+Snapshots are references, never copied truth: they store Evidence ids and exact `competency_stable_id`/`competency_version` pins only. No Evidence content, digest, outcome, effective state or correction history is duplicated, so Wave 7 remains the single source of Evidence truth. Both the Certificate Definition and the referenced Evidence use `on delete restrict` — what justified a certificate cannot be deleted out from under it.
+
+Issued records are historical. `guard_certificate_immutable` rejects every UPDATE to `public.certificates`, and the snapshot tables are frozen the same way, so later definition supersession, Evidence correction or a change in current eligibility never rewrites what was issued. Lifecycle reactions to those events belong to CERT-004 and CERT-008.
+
+RLS is enabled on all three tables with three `SELECT`-only policies scoped to `auth.uid()`. No student INSERT, UPDATE, DELETE or ALL policy is granted anywhere, and no `anon` or `public` grant exists.
+
+Issuance runs through `public.certificate_issue(...)`, a privileged RPC following the `curriculum_publish_learning_path_tree` convention: `security definer`, fixed `search_path`, and EXECUTE revoked from `public`, `anon` and `authenticated`. In one transaction it locks the definition and confirms it is still published and not superseded, returns any existing record rather than creating a second, confirms every relied-upon Evidence row is unchanged, and only then writes the certificate and both snapshot sets. It is a confirmer, not an evaluator — CERT-002 in TypeScript decides eligibility, and the RPC compares observed values by equality without replaying the Wave 7 correction resolver or recomputing policy counts.
+
 Requirement replacement is atomic. `certificate_definition_replace_competencies()` and `certificate_definition_replace_evidence_policies()` perform the DELETE and INSERT inside one PL/pgSQL function, so a failure rolls both back and the previous requirement set survives rather than being left emptied. Both lock the parent definition with `SELECT ... FOR UPDATE`, validate input array lengths, and re-enforce the published freeze before deleting anything. Both follow the privileged-RPC convention of `curriculum_publish_learning_path_tree`: `security definer`, fixed `search_path`, and EXECUTE revoked from `public`, `anon` and `authenticated` so only the service role may call them. No student execution permission is granted.
 

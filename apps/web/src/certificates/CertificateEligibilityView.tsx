@@ -9,8 +9,12 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
 import {
+  CERTIFICATE_REQUEST_ACTION_LABEL,
+  CERTIFICATE_REQUEST_PENDING_LABEL,
   describeCertificateVersion,
   describeEligibilityStatus,
+  describeIssuanceRefusal,
+  describeIssuanceSuccess,
   describeEligibilityStatusLabel,
   describeEvidencePolicyProgress,
   describeEvidencePolicyState,
@@ -24,7 +28,8 @@ import {
 } from "./certificate-eligibility-presentation";
 import {
   loadCertificateEligibility,
-  loadSelectableCertificates
+  loadSelectableCertificates,
+  requestCertificateIssuance
 } from "./certificate-eligibility-service";
 
 /**
@@ -169,6 +174,8 @@ export function CertificateEligibilityView() {
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [requesting, setRequesting] = useState(false);
+  const [issuanceMessage, setIssuanceMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -228,6 +235,10 @@ export function CertificateEligibilityView() {
   );
 
   useEffect(() => {
+    // A previous issuance result must not linger against a different
+    // certificate.
+    setIssuanceMessage("");
+
     if (!selectedKey) {
       setResult(null);
       return;
@@ -250,6 +261,39 @@ export function CertificateEligibilityView() {
   const selected = labelled.find(
     (candidate) => `${candidate.stableId}@${candidate.version}` === selectedKey
   );
+
+  async function requestIssuance(): Promise<void> {
+    if (!selected || requesting) return;
+
+    setRequesting(true);
+    setError("");
+    setIssuanceMessage("");
+
+    try {
+      // The exact selected version is requested. No substitution.
+      const issuance = await requestCertificateIssuance(accessToken, {
+        stableId: selected.stableId,
+        version: selected.version
+      });
+
+      setIssuanceMessage(
+        describeIssuanceSuccess({
+          title: selected.plainLanguageTitle || selected.title,
+          alreadyIssued: issuance.alreadyIssued
+        })
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof ApiRequestError
+          ? describeIssuanceRefusal(
+              (caught.details as { reason?: string } | undefined)?.reason
+            )
+          : "We could not complete this request, so nothing was issued."
+      );
+    } finally {
+      setRequesting(false);
+    }
+  }
 
   return (
     <section className="card" aria-labelledby="eligibility-title">
@@ -277,12 +321,18 @@ export function CertificateEligibilityView() {
         ))}
       </select>
 
+      {/*
+        One polite live region for the whole view. The issuance result is
+        announced here rather than in a second region, so a screen reader gets a
+        single meaningful change instead of competing announcements.
+      */}
       <p aria-live="polite">
-        {describeLoadingStatus({
-          loading,
-          hasSelection: selectedKey !== "",
-          hasResult: result !== null
-        })}
+        {issuanceMessage ||
+          describeLoadingStatus({
+            loading,
+            hasSelection: selectedKey !== "",
+            hasResult: result !== null
+          })}
       </p>
 
       {error && (
@@ -308,6 +358,31 @@ export function CertificateEligibilityView() {
       )}
 
       {result && !loading && <EligibilityResultPanel result={result} />}
+
+      {/*
+        CERT-003 — the only issuance control. Shown solely when the
+        authoritative displayed eligibility is "eligible". The server
+        re-evaluates eligibility before issuing, so this button never decides
+        anything; it requests.
+      */}
+      {result && !loading && result.status === "eligible" && (
+        <section className="card" aria-labelledby="issuance-title">
+          <h3 id="issuance-title">Certificate request</h3>
+          <p>
+            Requesting sends this to the platform, which checks your
+            requirements again before issuing.
+          </p>
+          <button
+            type="button"
+            disabled={requesting}
+            onClick={() => void requestIssuance()}
+          >
+            {requesting
+              ? CERTIFICATE_REQUEST_PENDING_LABEL
+              : CERTIFICATE_REQUEST_ACTION_LABEL}
+          </button>
+        </section>
+      )}
     </section>
   );
 }

@@ -22,18 +22,28 @@ export class ApiRequestError extends Error {
   readonly code: string;
   readonly status: number;
   readonly retryable: boolean;
+  /**
+   * Structured detail the API attached to the error, passed through verbatim.
+   *
+   * Transport only: this module never interprets it. Feature modules read the
+   * fields they understand, so a machine-readable reason does not have to be
+   * recovered by matching on human-readable message text.
+   */
+  readonly details?: Record<string, unknown>;
 
   constructor(input: {
     message: string;
     code: string;
     status: number;
     retryable: boolean;
+    details?: Record<string, unknown>;
   }) {
     super(input.message);
     this.name = "ApiRequestError";
     this.code = input.code;
     this.status = input.status;
     this.retryable = input.retryable;
+    if (input.details) this.details = input.details;
   }
 }
 
@@ -108,11 +118,17 @@ export function normalizeApiError(
       ? error.message
       : "The platform could not complete that request.";
 
+  const details =
+    error.details && typeof error.details === "object"
+      ? (error.details as Record<string, unknown>)
+      : undefined;
+
   return new ApiRequestError({
     message,
     code,
     status,
-    retryable: error.retryable === true || status >= 500
+    retryable: error.retryable === true || status >= 500,
+    ...(details ? { details } : {})
   });
 }
 

@@ -1,5 +1,6 @@
 import type {
   CertificateEligibilityResult,
+  CertificateIssuanceResult,
   StudentCertificateDefinitionOption
 } from "@tlp/shared-types";
 import { apiRequest } from "../lib/api-client";
@@ -51,4 +52,28 @@ export async function loadCertificateEligibility(
   });
 
   return response.eligibility;
+}
+
+/**
+ * CERT-003 — requests issuance for one exact Certificate Definition version.
+ *
+ * The server re-evaluates eligibility itself and decides. This call carries
+ * only which certificate version is being requested; it sends no identity, no
+ * eligibility claim and no evidence reference, so nothing here can influence
+ * the decision. Issuance is idempotent server-side: a repeated request returns
+ * the same record with `alreadyIssued: true`.
+ */
+export async function requestCertificateIssuance(
+  accessToken: string,
+  input: { stableId: string; version: number; signal?: AbortSignal }
+): Promise<CertificateIssuanceResult> {
+  return apiRequest<CertificateIssuanceResult>(
+    accessToken,
+    "/certificates/issuance",
+    {
+      method: "POST",
+      body: { stableId: input.stableId, version: input.version },
+      ...(input.signal ? { signal: input.signal } : {})
+    }
+  );
 }

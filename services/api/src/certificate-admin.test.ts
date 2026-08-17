@@ -85,12 +85,14 @@ describe("privileged authoring boundary", () => {
       // so compare against the unescaped form.
       const unescaped = literal.replace(/\\/g, "");
 
-      // CERT-002 adds two approved student reads: the eligibility evaluation
-      // and the discovery read that feeds its selector. Every other certificate
-      // route must still be privileged authoring under /admin/certificates.
+      // CERT-002 adds two approved student reads (eligibility and the discovery
+      // read that feeds its selector); CERT-003 adds one approved student
+      // write (issuance). Every other certificate route must still be
+      // privileged authoring under /admin/certificates.
       if (
         unescaped.includes('"/certificates/eligibility"') ||
-        unescaped.includes('"/certificates/definitions"')
+        unescaped.includes('"/certificates/definitions"') ||
+        unescaped.includes('"/certificates/issuance"')
       ) {
         continue;
       }
@@ -113,16 +115,17 @@ describe("privileged authoring boundary", () => {
 });
 
 describe("no student mutation surface", () => {
-  it("B: exposes no non-admin certificate route beyond the approved reads", () => {
-    // CERT-001 had no student certificate route. CERT-002 adds exactly two
-    // approved student reads; every other non-admin certificate route is still
-    // forbidden, and no student certificate mutation route may exist.
+  it("B: exposes no non-admin certificate route beyond the approved surface", () => {
+    // CERT-001 had no student certificate route. CERT-002 added two approved
+    // reads and CERT-003 one approved write. Every other non-admin certificate
+    // route is still forbidden, and no student certificate record route exists.
     const nonAdmin = (
       server.match(/pathname === "\/(?!admin)[^"]*certificate[^"]*"/gi) ?? []
     ).sort();
     expect(nonAdmin).toEqual([
       'pathname === "/certificates/definitions"',
-      'pathname === "/certificates/eligibility"'
+      'pathname === "/certificates/eligibility"',
+      'pathname === "/certificates/issuance"'
     ]);
 
     // No student certificate record route (a path-parameter match).
@@ -188,9 +191,20 @@ describe("normalized model and version identity", () => {
 
   it("C4: the server always allocates the version", () => {
     expect(service).toContain("nextCertificateDefinitionVersion");
-    // A caller cannot choose a version, so a material change can only ever
-    // create a new version rather than overwrite an existing one.
-    expect(server).not.toMatch(/version:\s*Number\(body\.version\)/);
+
+    // A caller cannot choose a version when AUTHORING, so a material change can
+    // only ever create a new version rather than overwrite an existing one.
+    //
+    // Scoped to the authoring block: CERT-003 issuance legitimately reads a
+    // version from the request to target one exact existing published version,
+    // which is the opposite concern.
+    const authoringBlock = server.slice(
+      server.indexOf(
+        "// CERT-001 — privileged Certificate Definition authoring."
+      ),
+      server.indexOf('pathname === "/admin/ping"')
+    );
+    expect(authoringBlock).not.toMatch(/version:\s*Number\(body\.version\)/);
   });
 });
 

@@ -47,6 +47,7 @@ import {
   getStudentCertificateEligibility,
   listSelectableCertificateDefinitions
 } from "./certificate-eligibility";
+import { issueStudentCertificate } from "./certificate-issuance";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -362,6 +363,24 @@ async function handleRequest(
           limit: url.searchParams.get("limit") ?? undefined
         })
       });
+      return;
+    }
+
+    // CERT-003 — the student's own issued certificates, and issuance.
+    //
+    // The subject is always trusted.identity.userId. There is deliberately no
+    // userId parameter: the request body carries only which exact certificate
+    // definition version to issue. Issuance is idempotent server-side, so a
+    // retry after a lost response returns the same record rather than a
+    // duplicate.
+    if (request.method === "POST" && pathname === "/certificates/issuance") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const body = await readJsonBody(request);
+      const issuance = await issueStudentCertificate(trusted.identity.userId, {
+        stableId: String(body.stableId ?? ""),
+        version: Number(body.version)
+      });
+      sendJson(response, issuance.alreadyIssued ? 200 : 201, issuance);
       return;
     }
 

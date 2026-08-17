@@ -74,6 +74,13 @@ assert_status GET /certificates/definitions 401
 assert_status POST /certificates/definitions 404 '{"stableId":"certdef-smoke-001"}'
 assert_status PATCH /certificates/definitions 404 '{"title":"smoke"}'
 assert_status DELETE /certificates/definitions 404
+assert_status POST /certificates/issuance 401 '{"stableId":"certdef-smoke-001","version":1}'
+assert_status GET /certificates/issuance 404
+assert_status PATCH /certificates/issuance 404 '{"stableId":"certdef-smoke-001"}'
+assert_status DELETE /certificates/issuance 404
+assert_status POST /certificates/issue 404 '{"stableId":"certdef-smoke-001"}'
+assert_status POST /certificates/claim 404 '{"stableId":"certdef-smoke-001"}'
+assert_status GET /certificates/verify/test-verification-id 404
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -105,3 +112,6 @@ echo 'PASS: CERT-002 eligibility exposes no mutation route'
 echo 'PASS: CERT-002 exposes no admin eligibility endpoint'
 echo 'PASS: CERT-002 certificate discovery rejects unauthenticated requests'
 echo 'PASS: CERT-002 certificate discovery exposes no mutation route'
+echo 'PASS: CERT-003 issuance rejects unauthenticated requests'
+echo 'PASS: CERT-003 issuance exposes no read or mutation alternative'
+echo 'PASS: CERT-003 exposes no issue/claim/verify route'
