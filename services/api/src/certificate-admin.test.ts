@@ -71,7 +71,7 @@ describe("privileged authoring boundary", () => {
     );
   });
 
-  it("A3: every certificate path segment sits under /admin/certificates", () => {
+  it("A3: every certificate authoring path sits under /admin/certificates", () => {
     const paths = server.match(/\/admin\/certificates\/[a-z-\\/^$()[\]+]*/g) ?? [];
     expect(paths.length).toBeGreaterThan(0);
 
@@ -83,7 +83,15 @@ describe("privileged authoring boundary", () => {
     for (const literal of certificatePathLiterals) {
       // Regex-literal routes escape the separators (\/admin\/certificates\/),
       // so compare against the unescaped form.
-      expect(literal.replace(/\\/g, "")).toContain("/admin/certificates/");
+      const unescaped = literal.replace(/\\/g, "");
+
+      // CERT-002 adds one approved student read. Every other certificate route
+      // must still be privileged authoring under /admin/certificates.
+      if (unescaped.includes('"/certificates/eligibility"')) {
+        continue;
+      }
+
+      expect(unescaped).toContain("/admin/certificates/");
     }
   });
 
@@ -101,13 +109,15 @@ describe("privileged authoring boundary", () => {
 });
 
 describe("no student mutation surface", () => {
-  it("B: exposes no non-admin certificate route at all", () => {
-    // Any certificate route literal that is not under /admin is a student
-    // surface, which CERT-001 does not have.
+  it("B: exposes no non-admin certificate route beyond the approved read", () => {
+    // CERT-001 had no student certificate route. CERT-002 adds exactly one
+    // approved student read; every other non-admin certificate route is still
+    // forbidden, and no student certificate mutation route may exist.
     const nonAdmin =
       server.match(/pathname === "\/(?!admin)[^"]*certificate[^"]*"/gi) ?? [];
-    expect(nonAdmin).toEqual([]);
+    expect(nonAdmin).toEqual(['pathname === "/certificates/eligibility"']);
 
+    // No student certificate record route (a path-parameter match).
     const nonAdminMatch =
       server.match(/\/\^\\\/(?!admin)[^/]*certificate[^\n]*/gi) ?? [];
     expect(nonAdminMatch).toEqual([]);

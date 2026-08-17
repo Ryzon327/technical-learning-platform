@@ -45,11 +45,25 @@ grep -Fq 'export interface CertificateDefinition' "$CERT_TYPES" \
 grep -Fq 'export * from "./certificate-definition";' packages/shared-types/src/index.ts \
   || fail "certificate-definition is not exported from shared-types"
 
+# CERT-002 adds the eligibility module, which is a different concern rather than
+# a second Definition model. The invariant is narrowed, not weakened: any other
+# certificate module is still a failure, and the modules that are allowed must
+# not redeclare the Certificate Definition model.
 DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-definition\.ts$' \
-  | grep -v 'certificate-definition\.test\.ts$' || true)"
+  | grep -v 'certificate-definition\.test\.ts$' \
+  | grep -v 'certificate-eligibility\.ts$' \
+  | grep -v 'certificate-eligibility\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
+
+# Only certificate-definition.ts may declare the Certificate Definition model.
+if grep -Fq 'export interface CertificateDefinition ' packages/shared-types/src/certificate-eligibility.ts; then
+  fail "certificate-eligibility.ts must import the Certificate Definition model, not redeclare it"
+fi
+DEFINITION_DECLARATIONS="$(grep -rlF 'export interface CertificateDefinition ' packages/shared-types/src services/api/src 2>/dev/null || true)"
+[ "$DEFINITION_DECLARATIONS" = "packages/shared-types/src/certificate-definition.ts" ] \
+  || fail "the Certificate Definition model is declared outside certificate-definition.ts: $DEFINITION_DECLARATIONS"
 
 CERT_MIGRATIONS="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
 [ "$CERT_MIGRATIONS" = "1" ] \
@@ -358,15 +372,31 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
   || fail "students must only be able to read published definitions"
 
 # No non-admin certificate route may exist at all.
-if grep -nE 'pathname === "/(?!admin)[^"]*certificate' "$SERVER" 2>/dev/null | grep -q .; then
-  fail "a non-admin certificate route exists"
+# Batch 1 forbade every student certificate route, because Batch 1 had none.
+# Batch 2 adds exactly one approved student read — GET /certificates/eligibility
+# (CERT-002). The invariant is therefore narrowed, not weakened: the only
+# permitted student certificate path is the eligibility read, and any
+# certificate record, issuance or verification route is still a failure.
+STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
+for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
+  [ "$route" = '"/certificates/eligibility"' ] \
+    || fail "an unapproved student certificate route exists: $route"
+done
+
+if grep -nE 'pathname === "/certificates"' "$SERVER" | grep -q .; then
+  fail "a student certificate collection route exists"
 fi
-if grep -nE 'pathname === "/certificates?' "$SERVER" | grep -q .; then
-  fail "a student certificate route exists"
+# Anchored at the start of the regex literal so the privileged
+# /admin/certificates/... routes are not mistaken for student record routes.
+if grep -nE 'pathname\.match\(/\^\\/certificates\\/' "$SERVER" | grep -q .; then
+  fail "a student certificate record route exists"
+fi
+if grep -nE 'pathname === "/certificate-definitions' "$SERVER" | grep -q .; then
+  fail "a student certificate definition route exists"
 fi
 
 echo "PASS: no student write policy and no public certificate read exists"
-echo "PASS: no student-facing certificate route exists"
+echo "PASS: the only student certificate route is the approved eligibility read"
 
 # ------------------------------------------------------------
 # 11. CERT-002 through CERT-009 remain unimplemented
@@ -394,8 +424,183 @@ if echo "$CERT_SERVICE_CODE$CERT_MIGRATION_CODE" \
   fail "an AI dependency exists in the Certificate Definition path"
 fi
 
-echo "PASS: CERT-002 through CERT-009 remain unimplemented"
+echo "PASS: no CERT-002+ behaviour exists in the Certificate Definition path"
 echo "PASS: AI holds no authority in the Certificate Definition path"
+
+# ============================================================
+# CERT-002 — Certificate Eligibility Rules (Batch 2)
+# ============================================================
+
+ELIG_TYPES="packages/shared-types/src/certificate-eligibility.ts"
+ELIG_TYPE_TESTS="packages/shared-types/src/certificate-eligibility.test.ts"
+ELIG_SERVICE="services/api/src/certificate-eligibility.ts"
+ELIG_SERVICE_TESTS="services/api/src/certificate-eligibility.test.ts"
+ELIG_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_2_CERTIFICATE_ELIGIBILITY_RULES.md"
+
+for p in \
+  "$ELIG_TYPES" \
+  "$ELIG_TYPE_TESTS" \
+  "$ELIG_SERVICE" \
+  "$ELIG_SERVICE_TESTS" \
+  "$ELIG_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+ELIG_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$ELIG_SERVICE" || true)"
+
+# --- 14. no persistence, no migration ---------------------------------------
+# CERT-002 is computed on demand. CERT-003 owns issuance snapshots and CERT-004
+# owns the durable Certificate Record.
+CERT_MIGRATION_COUNT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
+[ "$CERT_MIGRATION_COUNT" = "1" ] \
+  || fail "CERT-002 must add no migration; found $CERT_MIGRATION_COUNT certificate migrations"
+
+if ls supabase/migrations/*eligibilit*.sql >/dev/null 2>&1; then
+  fail "CERT-002 must not introduce an eligibility migration"
+fi
+if echo "$CERT_MIGRATION_CODE" | grep -qi 'eligibilit'; then
+  fail "no eligibility table may exist in the certificate schema"
+fi
+
+# Evaluation must be free of side effects.
+for write in '.insert(' '.update(' '.delete(' '.upsert(' '.rpc(' 'writeAuditEvent'; do
+  if echo "$ELIG_SERVICE_CODE" | grep -Fq "$write"; then
+    fail "eligibility evaluation must be side-effect free; found $write"
+  fi
+done
+
+echo "PASS: CERT-002 adds no migration and persists no eligibility snapshot"
+echo "PASS: eligibility evaluation is side-effect free"
+
+# --- 15. canonical Wave 7 reuse, no second qualifying rule -------------------
+grep -Fq 'getAuthoritativeCompetencyEvidenceReferences' "$ELIG_SERVICE" \
+  || fail "eligibility does not read Wave 7 authoritative Evidence references"
+grep -Fq 'qualifiesForDemonstration' "$ELIG_TYPES" \
+  || fail "the evaluator does not consume the Wave 7 qualifying verdict"
+
+# The Wave 7 qualification rule must not be re-derived inside the Certificate
+# Engine — the verdict is read, never recomputed.
+for rule in deriveEvidenceOutcome qualifiesAsDemonstrationEvidence \
+            resolveEffectiveEvidenceState isEffectivelyTrustedEvidence; do
+  if echo "$ELIG_SERVICE_CODE" | grep -Fq "$rule"; then
+    fail "CERT-002 must not re-implement the Wave 7 rule $rule"
+  fi
+done
+
+# student_competency_state collapses versions and cannot prove an exact pin.
+for forbidden in student_competency_state listStudentCompetencyState \
+                 student_competency_evidence_refs; do
+  if echo "$ELIG_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-002 must not prove eligibility from $forbidden"
+  fi
+done
+
+echo "PASS: eligibility reuses the canonical Wave 7 qualification verdict"
+echo "PASS: version-collapsed competency state is never used as certificate proof"
+
+# --- 16. exact competency version, never latest -----------------------------
+grep -Fq 'reference.competencyVersion === requirement.competencyVersion' "$ELIG_TYPES" \
+  || fail "the evaluator does not match the exact pinned competency version"
+grep -Fq 'version_not_evidenced' "$ELIG_TYPES" \
+  || fail "a version mismatch is not reported distinctly"
+grep -Fq "'latest' is not supported" "$ELIG_SERVICE" \
+  || fail "the service does not refuse a latest-version request"
+
+if echo "$ELIG_SERVICE_CODE" | grep -qiE 'newest|fallback'; then
+  fail "no latest/newest competency fallback is permitted"
+fi
+if echo "$ELIG_SERVICE_CODE" | grep -qE '\.order\(|\.limit\('; then
+  fail "eligibility must not select a competency version by ordering"
+fi
+
+echo "PASS: eligibility matches the exact pinned competency version only"
+
+# --- 17. three distinct outcomes --------------------------------------------
+grep -Fq 'export type CertificateEligibilityStatus' "$ELIG_TYPES" \
+  || fail "the CERT-002 eligibility status type is missing"
+for status in '"eligible"' '"ineligible"' '"unknown"'; do
+  grep -Fq "$status" "$ELIG_TYPES" \
+    || fail "the CERT-002 outcome $status is not modelled"
+done
+grep -Fq 'CERTIFICATE_ELIGIBILITY_STATUSES' "$ELIG_TYPES" \
+  || fail "the three CERT-002 outcomes are not enumerated distinctly"
+
+for reason in definition_not_published evidence_under_unresolved_review \
+              dependency_unavailable; do
+  grep -Fq "$reason" "$ELIG_TYPES" \
+    || fail "unknown reason $reason is missing"
+done
+
+grep -Fq 'unknownReason: "dependency_unavailable"' "$ELIG_SERVICE" \
+  || fail "a dependency failure is not reported as unknown"
+grep -Fq 'unknownReason: "definition_not_published"' "$ELIG_SERVICE" \
+  || fail "an unpublished definition is not reported as unknown"
+grep -Fq 'unknownReason: "evidence_under_unresolved_review"' "$ELIG_TYPES" \
+  || fail "an unresolved review is not reported as unknown"
+
+# The API layer must never fabricate a verdict; only the shared evaluator does.
+if echo "$ELIG_SERVICE_CODE" | grep -Fq '"ineligible"'; then
+  fail "the API layer must not determine ineligibility itself"
+fi
+grep -Fq 'evaluateCertificateEligibility' "$ELIG_SERVICE" \
+  || fail "the service does not delegate to the deterministic evaluator"
+
+echo "PASS: eligible, ineligible and unknown remain distinct outcomes"
+echo "PASS: dependency failure, unresolved review and unpublished definitions are never ineligibility"
+
+# --- 18. published definitions only -----------------------------------------
+grep -Fq 'definition.publicationState !== "published"' "$ELIG_SERVICE" \
+  || fail "student eligibility is not restricted to published definitions"
+grep -Fq 'definition.publicationState !== "published"' "$ELIG_TYPES" \
+  || fail "the evaluator does not restrict eligibility to published definitions"
+
+echo "PASS: normal student eligibility evaluates published definition versions only"
+
+# --- 19. authorization: own user only ---------------------------------------
+ELIG_ROUTE_BLOCK="$(awk "/CERT-002 — the student's own certificate eligibility/{cap=1} /const evidenceCorrectionsMatch/{cap=0} cap" "$SERVER")"
+[ -n "$ELIG_ROUTE_BLOCK" ] || fail "the CERT-002 route block was not found in server.ts"
+
+echo "$ELIG_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity(request)' \
+  || fail "the eligibility route does not resolve a trusted identity"
+echo "$ELIG_ROUTE_BLOCK" | grep -Fq 'trusted.identity.userId' \
+  || fail "the eligibility route does not evaluate the authenticated caller"
+
+for smuggled in 'searchParams.get("userId")' 'searchParams.get("studentId")' \
+                'readJsonBody'; do
+  if echo "$ELIG_ROUTE_BLOCK" | grep -Fq "$smuggled"; then
+    fail "the eligibility route accepts a client-supplied subject: $smuggled"
+  fi
+done
+
+if grep -Fq '/admin/certificates/eligibility' "$SERVER"; then
+  fail "no admin eligibility endpoint is permitted in this batch"
+fi
+
+echo "PASS: eligibility evaluates only the authenticated caller"
+echo "PASS: no admin eligibility endpoint exists"
+
+# --- 20. CERT-003 through CERT-009 remain unimplemented ---------------------
+if echo "$ELIG_SERVICE_CODE" | grep -qEi 'issueCertificate|grantCertificate|mintCertificate|student_certificates|issued_certificates'; then
+  fail "CERT-003 issuance leaked into Batch 2"
+fi
+if echo "$ELIG_SERVICE_CODE" | grep -qEi 'verificationId|verificationCode|randomUUID|randomBytes'; then
+  fail "CERT-005 verification identifiers leaked into Batch 2"
+fi
+if echo "$ELIG_SERVICE_CODE" | grep -qEi 'lifecycle|expiresAt|expires_at|expirationDate|revoke'; then
+  fail "CERT-004 lifecycle or expiration leaked into Batch 2"
+fi
+if echo "$ELIG_SERVICE_CODE" | grep -qEi 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the eligibility path"
+fi
+
+# No React or UI file was added in this batch.
+if git status --porcelain apps/web 2>/dev/null | grep -q .; then
+  fail "Batch 2 defers frontend UI; apps/web must be unchanged"
+fi
+
+echo "PASS: CERT-003 through CERT-009 remain unimplemented"
+echo "PASS: AI holds no authority over eligibility"
+echo "PASS: frontend UI remains deferred and apps/web is unchanged"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
@@ -419,5 +624,8 @@ echo ""
 echo "============================================================"
 echo "Wave 8 Batch 1 verification passed."
 echo "CERT-001 Certificate Definition Model is implemented."
+echo "Wave 8 Batch 2 verification passed."
+echo "CERT-002 backend eligibility evaluator/API verification passed."
+echo "Student eligibility UI/accessibility remains pending before CERT-002 closure."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"

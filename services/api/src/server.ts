@@ -43,6 +43,7 @@ import {
   updateCertificateDefinition,
   validateCertificateDefinitionForPublication
 } from "./certificate-admin";
+import { getStudentCertificateEligibility } from "./certificate-eligibility";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -357,6 +358,26 @@ async function handleRequest(
           courseStableId: url.searchParams.get("courseStableId") ?? undefined,
           limit: url.searchParams.get("limit") ?? undefined
         })
+      });
+      return;
+    }
+
+    // CERT-002 — the student's own certificate eligibility.
+    //
+    // The subject is always trusted.identity.userId. There is deliberately no
+    // userId query parameter and no request body, so a client cannot ask about
+    // anyone else. This is the only student-facing certificate route: no
+    // issuance, no certificate record, no verification.
+    if (request.method === "GET" && pathname === "/certificates/eligibility") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        eligibility: await getStudentCertificateEligibility(
+          trusted.identity.userId,
+          {
+            stableId: url.searchParams.get("stableId") ?? "",
+            version: Number(url.searchParams.get("version"))
+          }
+        )
       });
       return;
     }
