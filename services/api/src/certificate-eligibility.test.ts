@@ -58,14 +58,16 @@ describe("authorization boundary", () => {
     }
   });
 
-  it("A4: exactly the three approved student certificate routes exist", () => {
+  it("A4: exactly the four approved student certificate routes exist", () => {
     // CERT-002 owns an eligibility read and the discovery read that feeds its
-    // selector; CERT-003 owns the issuance request. Any other student
-    // certificate route is unapproved.
+    // selector; CERT-003 owns the issuance request; CERT-004 owns the
+    // own-certificate status read. Any other student certificate route is
+    // unapproved.
     const studentCertificateRoutes = (
       server.match(/pathname === "\/certificates[^"]*"/g) ?? []
     ).sort();
     expect(studentCertificateRoutes).toEqual([
+      'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
       'pathname === "/certificates/issuance"'

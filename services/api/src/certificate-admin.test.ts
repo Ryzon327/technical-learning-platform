@@ -87,12 +87,14 @@ describe("privileged authoring boundary", () => {
 
       // CERT-002 adds two approved student reads (eligibility and the discovery
       // read that feeds its selector); CERT-003 adds one approved student
-      // write (issuance). Every other certificate route must still be
-      // privileged authoring under /admin/certificates.
+      // write (issuance); CERT-004 adds the own-certificate status read. Every
+      // other certificate route must still be privileged authoring under
+      // /admin/certificates.
       if (
         unescaped.includes('"/certificates/eligibility"') ||
         unescaped.includes('"/certificates/definitions"') ||
-        unescaped.includes('"/certificates/issuance"')
+        unescaped.includes('"/certificates/issuance"') ||
+        unescaped.includes('pathname === "/certificates")')
       ) {
         continue;
       }
@@ -117,12 +119,14 @@ describe("privileged authoring boundary", () => {
 describe("no student mutation surface", () => {
   it("B: exposes no non-admin certificate route beyond the approved surface", () => {
     // CERT-001 had no student certificate route. CERT-002 added two approved
-    // reads and CERT-003 one approved write. Every other non-admin certificate
-    // route is still forbidden, and no student certificate record route exists.
+    // reads, CERT-003 one approved write, CERT-004 the own-certificate status
+    // read. Exact equality, so a fifth route fails: /certificates/* is never
+    // generally permitted.
     const nonAdmin = (
       server.match(/pathname === "\/(?!admin)[^"]*certificate[^"]*"/gi) ?? []
     ).sort();
     expect(nonAdmin).toEqual([
+      'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
       'pathname === "/certificates/issuance"'

@@ -59,7 +59,9 @@ assert_status PUT /admin/certificates/definitions/test-definition/evidence-polic
 assert_status POST /admin/certificates/definitions/test-definition/validate 401
 assert_status POST /admin/certificates/definitions/test-definition/transition 401 '{"to":"published"}'
 assert_status POST /admin/certificates/definitions/test-definition/supersede 401 '{"supersededByDefinitionId":"test"}'
-assert_status GET /certificates 404
+assert_status GET /certificates 401
+assert_status POST /certificates 404 '{"x":1}'
+assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
 assert_status POST /certificates 404 '{"certificateDefinitionId":"test"}'
 assert_status GET /certificate-definitions 404
@@ -115,3 +117,5 @@ echo 'PASS: CERT-002 certificate discovery exposes no mutation route'
 echo 'PASS: CERT-003 issuance rejects unauthenticated requests'
 echo 'PASS: CERT-003 issuance exposes no read or mutation alternative'
 echo 'PASS: CERT-003 exposes no issue/claim/verify route'
+echo 'PASS: CERT-004 own-certificate read rejects unauthenticated requests'
+echo 'PASS: CERT-004 exposes no certificate mutation route'

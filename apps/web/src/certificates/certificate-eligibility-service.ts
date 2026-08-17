@@ -1,7 +1,8 @@
 import type {
   CertificateEligibilityResult,
   CertificateIssuanceResult,
-  StudentCertificateDefinitionOption
+  StudentCertificateDefinitionOption,
+  StudentCertificateRecord
 } from "@tlp/shared-types";
 import { apiRequest } from "../lib/api-client";
 
@@ -17,6 +18,27 @@ import { apiRequest } from "../lib/api-client";
  * subject from the authenticated session, so a student can only ever ask about
  * themselves.
  */
+
+/**
+ * CERT-004 — the student's own certificates and their effective lifecycle
+ * status.
+ *
+ * Sends no identifier: the server derives the subject from the authenticated
+ * session, so a learner can only ever see their own records. Status is derived
+ * server-side and displayed verbatim.
+ */
+export async function loadStudentCertificates(
+  accessToken: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<StudentCertificateRecord[]> {
+  const response = await apiRequest<{
+    certificates: StudentCertificateRecord[];
+  }>(accessToken, "/certificates", {
+    ...(options.signal ? { signal: options.signal } : {})
+  });
+
+  return response.certificates;
+}
 
 export async function loadSelectableCertificates(
   accessToken: string,

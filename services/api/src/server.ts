@@ -48,6 +48,7 @@ import {
   listSelectableCertificateDefinitions
 } from "./certificate-eligibility";
 import { issueStudentCertificate } from "./certificate-issuance";
+import { listStudentCertificateRecords } from "./certificate-lifecycle";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -373,6 +374,20 @@ async function handleRequest(
     // definition version to issue. Issuance is idempotent server-side, so a
     // retry after a lost response returns the same record rather than a
     // duplicate.
+    // CERT-004 — the student's own certificates and their effective lifecycle
+    // status. Read-only, scoped to the authenticated caller. There is no
+    // lifecycle control here: CERT-008 owns revoke/correct/supersede/restore,
+    // and CERT-005 owns any public verification.
+    if (request.method === "GET" && pathname === "/certificates") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        certificates: await listStudentCertificateRecords(
+          trusted.identity.userId
+        )
+      });
+      return;
+    }
+
     if (request.method === "POST" && pathname === "/certificates/issuance") {
       const trusted = await resolveTrustedRequestIdentity(request);
       const body = await readJsonBody(request);

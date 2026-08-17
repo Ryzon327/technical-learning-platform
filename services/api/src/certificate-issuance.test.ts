@@ -68,19 +68,27 @@ describe("A: authorization boundary", () => {
     expect(issuanceRoute).toContain("version: Number(body.version)");
   });
 
-  it("A3: the approved student certificate routes are exactly three", () => {
+  it("A3: the approved student certificate routes are exactly four", () => {
+    // CERT-004 added the own-certificate status read.
     const routes = (
       server.match(/pathname === "\/certificates[^"]*"/g) ?? []
     ).sort();
     expect(routes).toEqual([
+      'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
       'pathname === "/certificates/issuance"'
     ]);
   });
 
-  it("A4: no student certificate collection or record route exists", () => {
-    expect(server).not.toMatch(/pathname === "\/certificates"/);
+  it("A4: the certificate collection is read-only and no record route exists", () => {
+    // CERT-004 authorizes a GET at /certificates. A collection write would be a
+    // lifecycle control, which CERT-008 owns.
+    for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+      expect(server).not.toMatch(
+        new RegExp(`request\\.method === "${method}" && pathname === "/certificates"`)
+      );
+    }
     expect(server).not.toMatch(/pathname\.match\(\/\^\\\/certificates\\\//);
   });
 

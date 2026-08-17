@@ -55,12 +55,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-eligibility\.ts$' \
   | grep -v 'certificate-eligibility\.test\.ts$' \
   | grep -v 'certificate-issuance\.ts$' \
-  | grep -v 'certificate-issuance\.test\.ts$' || true)"
+  | grep -v 'certificate-issuance\.test\.ts$' \
+  | grep -v 'certificate-lifecycle\.ts$' \
+  | grep -v 'certificate-lifecycle\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -333,10 +335,10 @@ for fn in \
   BODY="$(awk "/create or replace function public\.$fn/{cap=1} /revoke all on function public\.$fn/{cap=0} cap" "$CERT_MIGRATION")"
   [ -n "$BODY" ] || fail "could not isolate the body of $fn"
 
-  FREEZE_LINE="$(echo "$BODY" | grep -n "materially immutable" | head -1 | cut -d: -f1)"
-  DELETE_LINE="$(echo "$BODY" | grep -n "delete from public\." | head -1 | cut -d: -f1)"
-  LENGTH_LINE="$(echo "$BODY" | grep -n "must be the same length" | head -1 | cut -d: -f1)"
-  LOCK_LINE="$(echo "$BODY" | grep -n "for update" | head -1 | cut -d: -f1)"
+  FREEZE_LINE="$(echo "$BODY" | grep -n "materially immutable" | head -1 | cut -d: -f1 || true)"
+  DELETE_LINE="$(echo "$BODY" | grep -n "delete from public\." | head -1 | cut -d: -f1 || true)"
+  LENGTH_LINE="$(echo "$BODY" | grep -n "must be the same length" | head -1 | cut -d: -f1 || true)"
+  LOCK_LINE="$(echo "$BODY" | grep -n "for update" | head -1 | cut -d: -f1 || true)"
 
   [ -n "$FREEZE_LINE" ] || fail "$fn does not enforce the published freeze"
   [ -n "$DELETE_LINE" ] || fail "$fn performs no delete"
@@ -391,13 +393,16 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
   case "$route" in
-    '"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"') ;;
+    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"') ;;
     *) fail "an unapproved student certificate route exists: $route" ;;
   esac
 done
 
-if grep -nE 'pathname === "/certificates"' "$SERVER" | grep -q .; then
-  fail "a student certificate collection route exists"
+# CERT-004 authorizes exactly one own-certificate read at /certificates. It must
+# be GET only; a collection write would be a lifecycle control, which CERT-008
+# owns.
+if grep -nE 'request\.method === "(POST|PATCH|PUT|DELETE)" && pathname === "/certificates"' "$SERVER" | grep -q .; then
+  fail "a student certificate collection write route exists"
 fi
 # Anchored at the start of the regex literal so the privileged
 # /admin/certificates/... routes are not mistaken for student record routes.
@@ -965,11 +970,11 @@ fi
 echo "PASS: the integrity pin set unions both eligibility gates without recomputing them"
 
 # --- 30. the RPC confirms, never re-evaluates -------------------------------
-RPC_PUBLISHED="$(echo "$ISSUE_RPC" | grep -n "definition_state <> 'published'" | head -1 | cut -d: -f1)"
-RPC_SUPERSEDED="$(echo "$ISSUE_RPC" | grep -n 'definition_superseded is not null' | head -1 | cut -d: -f1)"
-RPC_DRIFT="$(echo "$ISSUE_RPC" | grep -n 'Authoritative Evidence changed' | head -1 | cut -d: -f1)"
-RPC_LOCK="$(echo "$ISSUE_RPC" | grep -n 'for update' | head -1 | cut -d: -f1)"
-RPC_INSERT="$(echo "$ISSUE_RPC" | grep -n 'insert into public.certificates' | head -1 | cut -d: -f1)"
+RPC_PUBLISHED="$(echo "$ISSUE_RPC" | grep -n "definition_state <> 'published'" | head -1 | cut -d: -f1 || true)"
+RPC_SUPERSEDED="$(echo "$ISSUE_RPC" | grep -n 'definition_superseded is not null' | head -1 | cut -d: -f1 || true)"
+RPC_DRIFT="$(echo "$ISSUE_RPC" | grep -n 'Authoritative Evidence changed' | head -1 | cut -d: -f1 || true)"
+RPC_LOCK="$(echo "$ISSUE_RPC" | grep -n 'for update' | head -1 | cut -d: -f1 || true)"
+RPC_INSERT="$(echo "$ISSUE_RPC" | grep -n 'insert into public.certificates' | head -1 | cut -d: -f1 || true)"
 
 for pair in "RPC_PUBLISHED:published check" "RPC_SUPERSEDED:supersession check" \
             "RPC_DRIFT:Evidence drift check" "RPC_LOCK:definition lock" \
@@ -1012,8 +1017,8 @@ echo "PASS: the issuance RPC confirms integrity before creating the record"
 echo "PASS: the issuance RPC is privileged and grants no student execution"
 
 # --- 31. idempotency and authorization --------------------------------------
-EXISTING_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'findExistingCertificate(userId' | head -1 | cut -d: -f1)"
-EVALUATE_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'getStudentCertificateEligibility(' | head -1 | cut -d: -f1)"
+EXISTING_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'findExistingCertificate(userId' | head -1 | cut -d: -f1 || true)"
+EVALUATE_AT="$(echo "$ISSUE_SERVICE_CODE" | grep -n 'getStudentCertificateEligibility(' | head -1 | cut -d: -f1 || true)"
 [ -n "$EXISTING_AT" ] || fail "issuance does not look up an existing certificate"
 [ "$EXISTING_AT" -lt "$EVALUATE_AT" ] \
   || fail "the existing certificate must be returned before re-evaluating"
@@ -1040,11 +1045,15 @@ done
 echo "PASS: issuance is idempotent and returns the existing record on replay"
 echo "PASS: issuance targets only the authenticated caller"
 
-# --- 32. no CERT-004+ behaviour ---------------------------------------------
-for forbidden in 'status text' lifecycle expires_at expiration revoked_at \
+# --- 32. no CERT-005+ behaviour in the CERT-003 path ------------------------
+# Narrowed for CERT-004: lifecycle status, transition history and the pinned
+# expiry are now CERT-004's approved scope, and CERT-004 owns its own migration.
+# What must still never appear in the CERT-003 ISSUANCE migration is a cached
+# status column or a CERT-008 workflow concept.
+for forbidden in 'status text' lifecycle revoked_at \
                  revocation superseded_by_certificate presentation_metadata; do
   if echo "$ISSUE_MIGRATION_CODE" | grep -Fq "$forbidden"; then
-    fail "CERT-004+ concept leaked into the CERT-003 schema: $forbidden"
+    fail "CERT-005+ concept leaked into the CERT-003 schema: $forbidden"
   fi
 done
 if echo "$ISSUE_SERVICE_CODE" | grep -qiE 'revoke|expiresAt|expirationMonths|portfolio|shareLink|employer|\bpdf\b'; then
@@ -1066,8 +1075,286 @@ fi
 grep -Fq 'certificate.issued' "$ISSUE_SERVICE" \
   || fail "issuance emits no audit event"
 
-echo "PASS: no CERT-004+ lifecycle, verification or notification behaviour exists"
+echo "PASS: no CERT-005+ lifecycle, verification or notification behaviour exists"
 echo "PASS: issuance is audited through the existing platform mechanism"
+
+# ============================================================
+# CERT-004 — Certificate Record and Lifecycle (Batch 5)
+# ============================================================
+
+LIFE_TYPES="packages/shared-types/src/certificate-lifecycle.ts"
+LIFE_TYPE_TESTS="packages/shared-types/src/certificate-lifecycle.test.ts"
+LIFE_SERVICE="services/api/src/certificate-lifecycle.ts"
+LIFE_SERVICE_TESTS="services/api/src/certificate-lifecycle.test.ts"
+LIFE_MIGRATION="supabase/migrations/20260813000900_certificate_lifecycle_foundation.sql"
+LIFE_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_5_CERTIFICATE_RECORD_AND_LIFECYCLE.md"
+
+for p in \
+  "$LIFE_TYPES" "$LIFE_TYPE_TESTS" "$LIFE_SERVICE" \
+  "$LIFE_SERVICE_TESTS" "$LIFE_MIGRATION" "$LIFE_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+LIFE_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$LIFE_TYPES" || true)"
+LIFE_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$LIFE_SERVICE" || true)"
+LIFE_MIGRATION_CODE="$(grep -vE '^\s*--' "$LIFE_MIGRATION" || true)"
+LIFE_RPC="$(awk '/create or replace function public\.certificate_record_lifecycle_event/{cap=1} /revoke all on function public\.certificate_record_lifecycle_event/{cap=0} cap' "$LIFE_MIGRATION")"
+[ -n "$LIFE_RPC" ] || fail "the certificate_record_lifecycle_event RPC was not found"
+
+# --- 33. the approved state model, and only that ----------------------------
+for status in active superseded expired revoked corrected; do
+  grep -Fq "\"$status\"" "$LIFE_TYPES" || fail "lifecycle status $status is missing"
+done
+if echo "$LIFE_TYPES_CODE" | grep -qiE '"(pending|issued|valid|invalid|draft|archived)"'; then
+  fail "CERT-004 must not invent lifecycle states"
+fi
+
+grep -Fq '["active", "superseded"]' "$LIFE_TYPES" || fail "edge active->superseded missing"
+grep -Fq '["active", "revoked"]' "$LIFE_TYPES" || fail "edge active->revoked missing"
+grep -Fq '["active", "corrected"]' "$LIFE_TYPES" || fail "edge active->corrected missing"
+grep -Fq '["active", "expired"]' "$LIFE_TYPES" || fail "edge active->expired missing"
+grep -Fq '["revoked", "active"]' "$LIFE_TYPES" || fail "edge revoked->active missing"
+
+echo "PASS: exactly the approved lifecycle states and transitions are modelled"
+
+# --- 34. append-only historical truth ---------------------------------------
+grep -Fq 'create table if not exists public.certificate_lifecycle_events' "$LIFE_MIGRATION" \
+  || fail "the lifecycle history table is missing"
+grep -Fq 'guard_certificate_lifecycle_append_only' "$LIFE_MIGRATION" \
+  || fail "lifecycle history is not append-only"
+grep -Fq 'before update or delete on public.certificate_lifecycle_events' "$LIFE_MIGRATION" \
+  || fail "lifecycle history permits update or delete"
+grep -Fq 'unique (certificate_id, sequence_number)' "$LIFE_MIGRATION" \
+  || fail "lifecycle history is not contiguous"
+grep -Fq 'previous_status <> new_status' "$LIFE_MIGRATION" \
+  || fail "a no-op lifecycle transition is permitted"
+
+# CERT-003's issuance record must remain immutable.
+grep -Fq 'guard_certificate_immutable' "$ISSUE_MIGRATION" \
+  || fail "the CERT-003 certificate immutability guard is missing"
+if echo "$LIFE_MIGRATION_CODE" | grep -qE 'drop trigger if exists certificates_immutable|update public\.certificates'; then
+  fail "CERT-004 must not weaken CERT-003 certificate immutability"
+fi
+
+echo "PASS: lifecycle history is append-only and issuance truth stays immutable"
+
+# --- 35. no cached status ---------------------------------------------------
+if echo "$LIFE_MIGRATION_CODE" | grep -qE '\bcurrent_status\b|\blifecycle_status\b'; then
+  fail "CERT-004 must not cache a mutable current status"
+fi
+grep -Fq 'resolveEffectiveCertificateStatus' "$LIFE_TYPES" \
+  || fail "the effective status resolver is missing"
+grep -Fq 'resolveEffectiveCertificateStatus' "$LIFE_SERVICE" \
+  || fail "the service does not derive status at read time"
+for guard in SEQUENCE_GAP PREVIOUS_STATUS_MISMATCH INVALID_TRANSITION; do
+  grep -Fq "$guard" "$LIFE_TYPES" || fail "the resolver does not fail closed on $guard"
+done
+
+echo "PASS: status is derived at read time and fails closed on broken history"
+
+# --- 36. pinned expiry ------------------------------------------------------
+grep -Fq 'add column if not exists expires_at timestamptz' "$LIFE_MIGRATION" \
+  || fail "the pinned expiry column is missing"
+grep -Fq 'make_interval(months => definition_expiration_months)' "$LIFE_MIGRATION" \
+  || fail "the expiry is not pinned from the issuance-time definition"
+grep -Fq 'calculateCertificateExpiry' "$LIFE_TYPES" \
+  || fail "the expiry calculation is missing"
+if echo "$LIFE_SERVICE_CODE$LIFE_MIGRATION_CODE" | grep -qiE 'setInterval|setTimeout|cron|pg_cron|scheduler'; then
+  fail "CERT-004 must not introduce a scheduler"
+fi
+
+echo "PASS: expiry is pinned at issuance and derived without a scheduler"
+
+# --- 36b. the EFFECTIVE certificate_issue RPC -------------------------------
+#
+# CERT-004 redefines public.certificate_issue with CREATE OR REPLACE so the
+# expiry can be pinned in the issuance transaction. The function PostgreSQL
+# would actually execute is therefore CERT-004's, not CERT-003's.
+#
+# Section 30 above proves the ORIGINALLY APPROVED implementation in the
+# CERT-003 migration. This section proves the EFFECTIVE REPLACEMENT preserves
+# every one of those guarantees while adding pinned expiration. Both are
+# required; neither replaces the other.
+EFFECTIVE_ISSUE_RPC="$(awk '/create or replace function public\.certificate_issue/{cap=1} /revoke all on function public\.certificate_issue/{cap=0} cap' "$LIFE_MIGRATION")"
+[ -n "$EFFECTIVE_ISSUE_RPC" ] \
+  || fail "the effective certificate_issue RPC was not found in the CERT-004 migration"
+
+# Signature: callers must not have to change.
+for param in 'target_user_id uuid' 'target_definition_id uuid' \
+             'new_verification_id text' 'pin_evidence_ids uuid[]' \
+             'pin_states text[]' 'pin_integrity_states text[]' \
+             'pin_result_states text[]' 'pin_correction_counts integer[]' \
+             'snap_competency_stable_ids text[]' 'snap_competency_versions integer[]' \
+             'snap_evidence_ids uuid[]' 'snap_evidence_competency_stable_ids text[]' \
+             'snap_evidence_competency_versions integer[]'; do
+  echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq "$param" \
+    || fail "the effective issuance RPC changed its signature: missing $param"
+done
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'returns uuid' \
+  || fail "the effective issuance RPC changed its return type"
+
+# Presence alone would not catch an ADDED parameter, which would break callers
+# just as surely as a removed one. Pin the exact arity.
+EFF_SIGNATURE="$(echo "$EFFECTIVE_ISSUE_RPC" \
+  | awk '/create or replace function public\.certificate_issue\(/{cap=1;next} /^\)$/{cap=0} cap')"
+EFF_PARAM_COUNT="$(echo "$EFF_SIGNATURE" \
+  | grep -cE '^[[:space:]]+[a-z_]+[[:space:]]+(uuid|text|integer|timestamptz)(\[\])?,?[[:space:]]*$' || true)"
+[ "$EFF_PARAM_COUNT" = "13" ] \
+  || fail "the effective issuance RPC takes $EFF_PARAM_COUNT parameters, expected 13"
+
+# CERT-004's reason for replacing the function: the expiry is pinned in the
+# same transaction that creates the record.
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'make_interval(months => definition_expiration_months)' \
+  || fail "the effective issuance RPC does not pin the expiry from the issuance-time definition"
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'expires_at' \
+  || fail "the effective issuance RPC does not write the pinned expiry"
+
+# Security boundary.
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'security definer' \
+  || fail "the effective issuance RPC is not security definer"
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'set search_path = public' \
+  || fail "the effective issuance RPC has no fixed search_path"
+grep -Fq 'revoke all on function public.certificate_issue' "$LIFE_MIGRATION" \
+  || fail "the effective issuance RPC does not revoke execute from client roles"
+if grep -Ei 'grant +execute +on +function +public\.certificate_issue' "$LIFE_MIGRATION" | grep -q .; then
+  fail "the effective issuance RPC must not grant execute to any client role"
+fi
+
+# Required confirmations, and their ordering relative to the insert.
+EFF_LOCK="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'for update' | head -1 | cut -d: -f1 || true)"
+EFF_PUBLISHED="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n "definition_state <> 'published'" | head -1 | cut -d: -f1 || true)"
+EFF_SUPERSEDED="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'definition_superseded is not null' | head -1 | cut -d: -f1 || true)"
+EFF_EXISTING="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'return existing_certificate_id;' | head -1 | cut -d: -f1 || true)"
+EFF_DRIFT="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'Authoritative Evidence changed' | head -1 | cut -d: -f1 || true)"
+EFF_UNPINNED="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'references unpinned Evidence' | head -1 | cut -d: -f1 || true)"
+EFF_INSERT="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -n 'insert into public.certificates' | head -1 | cut -d: -f1 || true)"
+
+for pair in "EFF_LOCK:definition lock" "EFF_PUBLISHED:published confirmation" \
+            "EFF_SUPERSEDED:supersession confirmation" \
+            "EFF_EXISTING:idempotent existing-certificate return" \
+            "EFF_DRIFT:Evidence pin confirmation" \
+            "EFF_UNPINNED:unpinned-snapshot rejection" \
+            "EFF_INSERT:certificate insert"; do
+  varname="${pair%%:*}"
+  label="${pair##*:}"
+  eval "value=\$$varname"
+  [ -n "$value" ] || fail "the effective issuance RPC lost its $label"
+done
+
+for guard in EFF_LOCK EFF_PUBLISHED EFF_SUPERSEDED EFF_EXISTING EFF_DRIFT EFF_UNPINNED; do
+  eval "value=\$$guard"
+  [ "$value" -lt "$EFF_INSERT" ] \
+    || fail "the effective issuance RPC creates a record before confirming ($guard)"
+done
+
+# All four transaction-time Evidence pins survive.
+for pin in 'is distinct from pinned.state' \
+           'is distinct from pinned.integrity_state' \
+           'is distinct from pinned.result_state' \
+           'is distinct from pinned.correction_count'; do
+  echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq "$pin" \
+    || fail "the effective issuance RPC dropped an Evidence pin: $pin"
+done
+
+# Exactly one certificate record, and both snapshot sets, in the same body.
+EFF_INSERT_COUNT="$(echo "$EFFECTIVE_ISSUE_RPC" | grep -c 'insert into public.certificates (' || true)"
+[ "$EFF_INSERT_COUNT" = "1" ] \
+  || fail "the effective issuance RPC inserts $EFF_INSERT_COUNT certificate records"
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'insert into public.certificate_competency_snapshots' \
+  || fail "the effective issuance RPC does not create competency snapshots"
+echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq 'insert into public.certificate_evidence_snapshots' \
+  || fail "the effective issuance RPC does not create Evidence snapshots"
+
+# Still a confirmer, never an evaluator.
+for forbidden in previous_effective_state new_effective_state minimum_count \
+                 require_positive_outcome evidence_competency_links; do
+  if echo "$EFFECTIVE_ISSUE_RPC" | grep -Fq "$forbidden"; then
+    fail "the effective issuance RPC re-implements eligibility: $forbidden"
+  fi
+done
+if echo "$EFFECTIVE_ISSUE_RPC" | grep -qiE 'order by|limit 1|\blatest\b|\bnewest\b'; then
+  fail "the effective issuance RPC infers a version by ordering"
+fi
+
+# The idempotency invariant is not dropped or altered by CERT-004.
+grep -Fq 'unique (user_id, certificate_definition_id)' "$ISSUE_MIGRATION" \
+  || fail "the CERT-003 idempotency constraint is missing"
+if echo "$LIFE_MIGRATION_CODE" | grep -qiE 'drop constraint[^;]*certificates_student_definition_key|alter table public\.certificates[^;]*drop'; then
+  fail "CERT-004 must not weaken the certificate idempotency constraint"
+fi
+
+echo "PASS: the effective certificate_issue RPC preserves every CERT-003 guarantee"
+echo "PASS: the effective issuance RPC keeps its signature, security and idempotency"
+
+# --- 37. student read boundary, no lifecycle control ------------------------
+LIFE_ROUTE_BLOCK="$(awk "/CERT-004 — the student's own certificates/{cap=1} /pathname === \"\/certificates\/issuance\"/{cap=0} cap" "$SERVER")"
+[ -n "$LIFE_ROUTE_BLOCK" ] || fail "the CERT-004 route block was not found"
+
+echo "$LIFE_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity(request)' \
+  || fail "the certificate read route does not resolve a trusted identity"
+echo "$LIFE_ROUTE_BLOCK" | grep -Fq 'trusted.identity.userId' \
+  || fail "the certificate read route does not scope to the caller"
+for smuggled in 'body.userId' 'body.studentId' 'searchParams.get("userId")'; do
+  if echo "$LIFE_ROUTE_BLOCK" | grep -Fq "$smuggled"; then
+    fail "the certificate read route accepts a client-supplied subject: $smuggled"
+  fi
+done
+
+# The transition machinery exists for CERT-008 and must not be reachable.
+if grep -Fq 'recordCertificateLifecycleTransition' "$SERVER"; then
+  fail "CERT-004 must expose no lifecycle transition route"
+fi
+for surface in '/certificates/revoke' '/certificates/status' '/certificates/lifecycle'; do
+  if grep -Fq "$surface" "$SERVER"; then
+    fail "CERT-004 must expose no lifecycle control: $surface"
+  fi
+done
+
+LIFE_POLICIES="$(grep -c '^create policy' "$LIFE_MIGRATION" || true)"
+[ "$LIFE_POLICIES" = "1" ] \
+  || fail "expected exactly 1 lifecycle select policy, found $LIFE_POLICIES"
+if grep -A3 -Ei '^on public\.certificate_lifecycle_events' "$LIFE_MIGRATION" \
+  | grep -qEi '^\s*for\s+(insert|update|delete|all)\b'; then
+  fail "a student write policy is granted on lifecycle history"
+fi
+
+echo "$LIFE_RPC" | grep -Fq 'security definer' || fail "the lifecycle RPC is not security definer"
+echo "$LIFE_RPC" | grep -Fq 'for update' || fail "the lifecycle RPC does not serialize transitions"
+grep -Fq 'revoke all on function public.certificate_record_lifecycle_event' "$LIFE_MIGRATION" \
+  || fail "the lifecycle RPC does not revoke execute from client roles"
+if echo "$LIFE_MIGRATION_CODE" | grep -Fq 'grant execute'; then
+  fail "CERT-004 must not grant execute on any function"
+fi
+
+echo "PASS: the certificate read is own-user only with no lifecycle control"
+echo "PASS: the lifecycle RPC is privileged and grants no student execution"
+
+# --- 38. no CERT-005+ behaviour ---------------------------------------------
+for forbidden in reason actor_id replacement_certificate notification notify; do
+  if echo "$LIFE_MIGRATION_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-008 workflow concept leaked into CERT-004: $forbidden"
+  fi
+done
+for forbidden in revokeCertificate correctCertificate supersedeCertificate \
+                 restoreCertificate; do
+  if echo "$LIFE_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-008 workflow leaked into CERT-004: $forbidden"
+  fi
+done
+if echo "$LIFE_SERVICE_CODE" | grep -qiE 'verificationId|verification_id|portfolio|sharelink|employer|\bpdf\b|branding'; then
+  fail "CERT-005+ behaviour leaked into CERT-004"
+fi
+if echo "$LIFE_SERVICE_CODE$LIFE_MIGRATION_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the lifecycle path"
+fi
+grep -Fq 'certificate.lifecycle.transitioned' "$LIFE_SERVICE" \
+  || fail "lifecycle transitions are not audited"
+if echo "$LIFE_MIGRATION_CODE" | grep -Fq 'audit'; then
+  fail "CERT-004 must reuse the platform audit mechanism, not create one"
+fi
+
+echo "PASS: CERT-005 through CERT-009 remain unimplemented"
+echo "PASS: lifecycle transitions are audited through the existing mechanism"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
@@ -1096,6 +1383,8 @@ echo "CERT-002 backend eligibility evaluator/API verification passed."
 echo "CERT-002 student eligibility UI and accessibility verification passed."
 echo "Wave 8 Batch 4 verification passed."
 echo "CERT-003 Deterministic Certificate Issuance is implemented."
+echo "Wave 8 Batch 5 verification passed."
+echo "CERT-004 Certificate Record and Lifecycle is implemented."
 echo "Concurrency and rollback are structurally verified only; no live PostgreSQL test exists."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"

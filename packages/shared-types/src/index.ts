@@ -37,6 +37,7 @@ export * from "./evidence-routing";
 export * from "./certificate-definition";
 export * from "./certificate-eligibility";
 export * from "./certificate-issuance";
+export * from "./certificate-lifecycle";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";
