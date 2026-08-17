@@ -43,7 +43,10 @@ import {
   updateCertificateDefinition,
   validateCertificateDefinitionForPublication
 } from "./certificate-admin";
-import { getStudentCertificateEligibility } from "./certificate-eligibility";
+import {
+  getStudentCertificateEligibility,
+  listSelectableCertificateDefinitions
+} from "./certificate-eligibility";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -358,6 +361,19 @@ async function handleRequest(
           courseStableId: url.searchParams.get("courseStableId") ?? undefined,
           limit: url.searchParams.get("limit") ?? undefined
         })
+      });
+      return;
+    }
+
+    // CERT-002 — certificates a student may select for evaluation.
+    //
+    // Read-only discovery, narrow by design: published and not superseded, with
+    // only the fields the selector needs. No eligibility is computed here, and
+    // no administrative field is exposed.
+    if (request.method === "GET" && pathname === "/certificates/definitions") {
+      await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        definitions: await listSelectableCertificateDefinitions()
       });
       return;
     }

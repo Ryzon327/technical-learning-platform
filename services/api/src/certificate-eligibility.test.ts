@@ -58,10 +58,14 @@ describe("authorization boundary", () => {
     }
   });
 
-  it("A4: exactly one student certificate route exists", () => {
-    const studentCertificateRoutes =
-      server.match(/pathname === "\/certificates[^"]*"/g) ?? [];
+  it("A4: exactly the two approved student certificate routes exist", () => {
+    // CERT-002 owns an eligibility read and the discovery read that feeds its
+    // selector. Any other student certificate route is unapproved.
+    const studentCertificateRoutes = (
+      server.match(/pathname === "\/certificates[^"]*"/g) ?? []
+    ).sort();
     expect(studentCertificateRoutes).toEqual([
+      'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"'
     ]);
   });
@@ -73,6 +77,99 @@ describe("authorization boundary", () => {
 
   it("A6: the service requires a student identifier from the caller", () => {
     expect(service).toContain("A student identifier is required");
+  });
+});
+
+describe("student certificate discovery endpoint", () => {
+  const discoveryRoute = server.slice(
+    server.indexOf(
+      "// CERT-002 — certificates a student may select for evaluation."
+    ),
+    server.indexOf("// CERT-002 — the student's own certificate eligibility.")
+  );
+
+  it("L: the discovery route is authenticated", () => {
+    expect(discoveryRoute).toContain("resolveTrustedRequestIdentity(request)");
+    expect(discoveryRoute).toContain(
+      'pathname === "/certificates/definitions"'
+    );
+  });
+
+  it("L2: the discovery route is read-only", () => {
+    expect(discoveryRoute).toContain('request.method === "GET"');
+    for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+      expect(discoveryRoute).not.toContain(`request.method === "${method}"`);
+    }
+    expect(discoveryRoute).not.toContain("readJsonBody");
+  });
+
+  it("L3: it returns published, non-superseded definitions only", () => {
+    expect(service).toContain('.eq("publication_state", "published")');
+    expect(service).toContain('.is("superseded_by_definition_id", null)');
+  });
+
+  it("L4: it exposes only the fields the selector needs", () => {
+    expect(service).toContain(
+      '.select("stable_id,version,title,description,plain_language_title")'
+    );
+    // Administrative and policy fields stay out of the student surface.
+    for (const withheld of [
+      "issuer",
+      "effective_at",
+      "expiration_months",
+      "verification_permitted",
+      "publication_state,",
+      "superseded_by_definition_id,"
+    ]) {
+      expect(
+        service.slice(
+          service.indexOf(".select(\"stable_id"),
+          service.indexOf(".select(\"stable_id") + 120
+        )
+      ).not.toContain(withheld);
+    }
+  });
+
+  it("L5: discovery performs no eligibility calculation", () => {
+    const discovery = serviceCode.slice(
+      serviceCode.indexOf(
+        "export async function listSelectableCertificateDefinitions"
+      ),
+      serviceCode.indexOf("function normalizeLocator")
+    );
+    for (const forbidden of [
+      "evaluateCertificateEligibility",
+      "qualifiesForDemonstration",
+      "eligible",
+      "getAuthoritativeCompetencyEvidenceReferences"
+    ]) {
+      expect(discovery).not.toContain(forbidden);
+    }
+  });
+
+  it("L6: discovery accepts no user identifier and no client input", () => {
+    expect(discoveryRoute).not.toContain("searchParams");
+    expect(discoveryRoute).not.toContain("userId");
+    expect(discoveryRoute).not.toContain("studentId");
+  });
+
+  it("L7: discovery never selects a version by ordering", () => {
+    // Sorting happens in TypeScript for presentation; no database ORDER BY
+    // may pick a version.
+    expect(serviceCode).not.toContain('.order(');
+    expect(serviceCode).not.toContain('.limit(');
+  });
+
+  it("L8: discovery is a read with no mutation", () => {
+    const discovery = serviceCode.slice(
+      serviceCode.indexOf(
+        "export async function listSelectableCertificateDefinitions"
+      ),
+      serviceCode.indexOf("function normalizeLocator")
+    );
+    for (const write of [".insert(", ".update(", ".delete(", ".upsert(", ".rpc("]) {
+      expect(discovery).not.toContain(write);
+    }
   });
 });
 
@@ -253,11 +350,21 @@ describe("CERT-003 through CERT-009 remain unimplemented", () => {
       "expires_at",
       "expirationDate",
       "expirationMonths",
-      "revoke",
-      "supersede"
+      "revoke"
     ]) {
       expect(serviceCode).not.toContain(forbidden);
     }
+
+    // superseded_by_definition_id is READ as a discovery filter — an explicit
+    // Founder decision that a definition was replaced. CERT-002 never writes
+    // it and never changes a definition's lifecycle.
+    expect(serviceCode).toContain(
+      '.is("superseded_by_definition_id", null)'
+    );
+    expect(serviceCode).not.toContain("supersedeCertificateDefinition");
+    expect(serviceCode).not.toMatch(
+      /update\([^)]*superseded_by_definition_id/
+    );
   });
 
   it("E4: no sharing, export or rendering surface exists", () => {

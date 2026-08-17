@@ -134,6 +134,59 @@ export interface CertificateEligibilityResult {
   unsatisfiedPolicyCount: number;
 }
 
+/**
+ * The minimum a student needs to choose a certificate to be evaluated against.
+ *
+ * Lives here rather than in its own module because it exists solely as the
+ * selection input to an eligibility evaluation — it is not a second Certificate
+ * Definition model, and it deliberately carries none of CERT-001's authoring or
+ * policy fields (issuer, effective date, expiration policy, verification
+ * policy, publication state, supersession, requirements). Those are either
+ * administrative or belong to the evaluation result, not to picking a
+ * certificate from a list.
+ *
+ * `stableId` and `version` are implementation identifiers the student never
+ * types: they travel with the chosen option so the exact selected version is
+ * the one evaluated.
+ */
+export interface StudentCertificateDefinitionOption {
+  stableId: string;
+  version: number;
+  title: string;
+  /** Accessible plain-language title required by CERT-001 section 10. */
+  plainLanguageTitle: string;
+  description?: string;
+}
+
+/**
+ * Labels a set of selectable definitions for a student.
+ *
+ * Version text is added only where a title alone would be ambiguous, so a
+ * single certificate reads as its plain name. No option is ever labelled
+ * "latest", "current", "recommended" or "preferred" — CERT-001 defines no such
+ * precedence, and inventing one here would contradict the exact-version model.
+ */
+export function labelCertificateDefinitionOptions(
+  options: readonly StudentCertificateDefinitionOption[]
+): Array<StudentCertificateDefinitionOption & { label: string }> {
+  const titleCounts = new Map<string, number>();
+
+  for (const option of options) {
+    const title = option.plainLanguageTitle || option.title;
+    titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
+  }
+
+  return options.map((option) => {
+    const title = option.plainLanguageTitle || option.title;
+    const ambiguous = (titleCounts.get(title) ?? 0) > 1;
+
+    return {
+      ...option,
+      label: ambiguous ? `${title} — Version ${option.version}` : title
+    };
+  });
+}
+
 export interface EvaluateCertificateEligibilityInput {
   definition: CertificateDefinition;
   /**

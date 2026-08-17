@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { AuthUiError } from "./auth-service";
 import { useAuth } from "./AuthProvider";
+import { CertificateEligibilityView } from "../certificates/CertificateEligibilityView";
 import { EvidencePortfolioView } from "../evidence/EvidencePortfolioView";
 import { FounderMfaGate } from "./FounderMfaGate";
 
-type WorkspaceView = "overview" | "evidence";
+type WorkspaceView = "overview" | "evidence" | "certificates";
 
 function Workspace() {
   const { user, profile, authState, signOut } = useAuth();
@@ -57,6 +58,15 @@ function Workspace() {
                 Evidence portfolio
               </button>
             </li>
+            <li>
+              <button
+                type="button"
+                aria-current={view === "certificates" ? "page" : undefined}
+                onClick={() => setView("certificates")}
+              >
+                Certificate eligibility
+              </button>
+            </li>
           </ul>
         </nav>
 
@@ -80,6 +90,8 @@ function Workspace() {
         )}
 
         {view === "evidence" && <EvidencePortfolioView />}
+
+        {view === "certificates" && <CertificateEligibilityView />}
 
         {error && (
           <p className="form-message error-message" role="alert">

@@ -85,9 +85,13 @@ describe("privileged authoring boundary", () => {
       // so compare against the unescaped form.
       const unescaped = literal.replace(/\\/g, "");
 
-      // CERT-002 adds one approved student read. Every other certificate route
-      // must still be privileged authoring under /admin/certificates.
-      if (unescaped.includes('"/certificates/eligibility"')) {
+      // CERT-002 adds two approved student reads: the eligibility evaluation
+      // and the discovery read that feeds its selector. Every other certificate
+      // route must still be privileged authoring under /admin/certificates.
+      if (
+        unescaped.includes('"/certificates/eligibility"') ||
+        unescaped.includes('"/certificates/definitions"')
+      ) {
         continue;
       }
 
@@ -109,13 +113,17 @@ describe("privileged authoring boundary", () => {
 });
 
 describe("no student mutation surface", () => {
-  it("B: exposes no non-admin certificate route beyond the approved read", () => {
-    // CERT-001 had no student certificate route. CERT-002 adds exactly one
-    // approved student read; every other non-admin certificate route is still
+  it("B: exposes no non-admin certificate route beyond the approved reads", () => {
+    // CERT-001 had no student certificate route. CERT-002 adds exactly two
+    // approved student reads; every other non-admin certificate route is still
     // forbidden, and no student certificate mutation route may exist.
-    const nonAdmin =
-      server.match(/pathname === "\/(?!admin)[^"]*certificate[^"]*"/gi) ?? [];
-    expect(nonAdmin).toEqual(['pathname === "/certificates/eligibility"']);
+    const nonAdmin = (
+      server.match(/pathname === "\/(?!admin)[^"]*certificate[^"]*"/gi) ?? []
+    ).sort();
+    expect(nonAdmin).toEqual([
+      'pathname === "/certificates/definitions"',
+      'pathname === "/certificates/eligibility"'
+    ]);
 
     // No student certificate record route (a path-parameter match).
     const nonAdminMatch =

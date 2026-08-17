@@ -2,7 +2,9 @@
 
 ## Certificate Eligibility Rules (CERT-002)
 
-**Status:** backend implemented; CERT-002 not yet complete — student eligibility UI/accessibility pending
+**Status:** backend implemented. This is the backend batch; the student
+eligibility UI and accessibility requirement was completed separately in
+`BUILD_WAVE_8_BATCH_3_STUDENT_ELIGIBILITY_UI.md`.
 **Scope:** eligibility evaluation only. No issuance, no certificate record, no
 lifecycle, no verification, no UI, no migration.
 
@@ -304,21 +306,24 @@ is unchanged.
 
 ---
 
-## 15. Deferred follow-up — accessibility and presentation
+## 15. Follow-up — accessibility and presentation (since completed)
 
 CERT-002 §10 requires eligibility **views** to use clear text, list
 requirements, explain incomplete state, support screen readers, avoid
 color-only status, and distinguish unavailable verification from unmet
 competency.
 
-Frontend UI was deferred by ruling 6, so **§10 is not yet met**. The API
-contract was shaped to make it straightforward — the result carries a
-requirement-by-requirement breakdown, an explicit `unmetReason` per requirement,
-and an `unknownReason` that separates "temporarily unavailable" from "unmet" —
-but no view exists.
+Frontend UI was deferred by ruling 6 at the time this batch was built, so §10
+was **not** met by this batch. The API contract was shaped to make it
+straightforward — the result carries a requirement-by-requirement breakdown, an
+explicit `unmetReason` per requirement, and an `unknownReason` that separates
+"temporarily unavailable" from "unmet".
 
-**This is an open Feature requirement, not a closed one.** It must be scheduled
-before CERT-002 can be considered complete against its own specification.
+**This was subsequently delivered** by the CERT-002 completion follow-up,
+recorded in `BUILD_WAVE_8_BATCH_3_STUDENT_ELIGIBILITY_UI.md`, which added the
+student eligibility view, the narrow discovery endpoint its selector needs, and
+the accessibility implementation. This document remains the record of the
+backend batch as built.
 
 ---
 

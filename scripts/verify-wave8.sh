@@ -377,10 +377,16 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 # (CERT-002). The invariant is therefore narrowed, not weakened: the only
 # permitted student certificate path is the eligibility read, and any
 # certificate record, issuance or verification route is still a failure.
+# The approved student certificate surface is exactly two read-only routes:
+# the eligibility evaluation, and the discovery read that feeds its selector.
+# Any other /certificates path is unapproved. /certificates/* is never broadly
+# permitted.
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
-  [ "$route" = '"/certificates/eligibility"' ] \
-    || fail "an unapproved student certificate route exists: $route"
+  case "$route" in
+    '"/certificates/eligibility"'|'"/certificates/definitions"') ;;
+    *) fail "an unapproved student certificate route exists: $route" ;;
+  esac
 done
 
 if grep -nE 'pathname === "/certificates"' "$SERVER" | grep -q .; then
@@ -593,14 +599,243 @@ if echo "$ELIG_SERVICE_CODE" | grep -qEi 'openai|anthropic|ollama|ai[-_ ]?gatewa
   fail "an AI dependency exists in the eligibility path"
 fi
 
-# No React or UI file was added in this batch.
-if git status --porcelain apps/web 2>/dev/null | grep -q .; then
-  fail "Batch 2 defers frontend UI; apps/web must be unchanged"
-fi
-
 echo "PASS: CERT-003 through CERT-009 remain unimplemented"
 echo "PASS: AI holds no authority over eligibility"
-echo "PASS: frontend UI remains deferred and apps/web is unchanged"
+
+# ============================================================
+# CERT-002 — Student Eligibility UI and Accessibility (follow-up)
+#
+# Batch 2 asserted that apps/web was unchanged, which recorded the
+# intentionally deferred UI. That assertion is replaced here — the UI is now
+# authorized and delivered — by substantive architecture and accessibility
+# checks over the delivered files.
+# ============================================================
+
+UI_PRESENTATION="apps/web/src/certificates/certificate-eligibility-presentation.ts"
+UI_PRESENTATION_TESTS="apps/web/src/certificates/certificate-eligibility-presentation.test.ts"
+UI_SERVICE="apps/web/src/certificates/certificate-eligibility-service.ts"
+UI_VIEW="apps/web/src/certificates/CertificateEligibilityView.tsx"
+UI_SHELL="apps/web/src/auth/AuthenticatedApp.tsx"
+UI_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_3_STUDENT_ELIGIBILITY_UI.md"
+
+for p in \
+  "$UI_PRESENTATION" \
+  "$UI_PRESENTATION_TESTS" \
+  "$UI_SERVICE" \
+  "$UI_VIEW" \
+  "$UI_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+UI_VIEW_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$UI_VIEW" || true)"
+UI_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$UI_SERVICE" || true)"
+UI_PRESENTATION_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$UI_PRESENTATION" || true)"
+
+# --- 21. no new dependency, no router, no DOM testing stack -----------------
+if grep -nE 'react-router|@remix-run|wouter|tanstack' apps/web/package.json; then
+  fail "the eligibility UI must not introduce a routing library"
+fi
+if grep -nE '"(jsdom|@testing-library/react|jest-axe|happy-dom)"' apps/web/package.json; then
+  fail "the eligibility UI must not introduce a DOM testing stack"
+fi
+
+echo "PASS: no routing library or DOM testing stack was introduced"
+
+# --- 22. the frontend computes no eligibility -------------------------------
+for forbidden in qualifiesForDemonstration deriveEvidenceOutcome \
+                 qualifiesAsDemonstrationEvidence resolveEffectiveEvidenceState \
+                 isEffectivelyTrustedEvidence evaluateCertificateEligibility; do
+  if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE$UI_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "the eligibility UI must not re-derive eligibility: $forbidden"
+  fi
+done
+
+# No local minimum-count comparison, in either direction.
+if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE" | grep -qE 'qualifyingCount[[:space:]]*>=|>=[[:space:]]*[a-zA-Z]*minimumCount|minimumCount[[:space:]]*<=|minimumCount[[:space:]]*>|<[[:space:]]*[a-zA-Z]*minimumCount'; then
+  fail "the eligibility UI must not compare counts to minimums"
+fi
+
+# No aggregate satisfaction decision in the frontend.
+if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE" | grep -qE '\.every\(|\.some\('; then
+  fail "the eligibility UI must not aggregate requirement satisfaction itself"
+fi
+
+# No local assignment of a truth value the backend owns.
+if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE" | grep -qE 'satisfied[[:space:]]*=[^=>]'; then
+  fail "the eligibility UI must not assign requirement satisfaction"
+fi
+if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE" | grep -qE 'status[[:space:]]*=[[:space:]]*"(eligible|ineligible|unknown)"'; then
+  fail "the eligibility UI must not assign an eligibility status"
+fi
+
+# No version preference inferred by sorting in the frontend.
+if echo "$UI_VIEW_CODE$UI_PRESENTATION_CODE$UI_SERVICE_CODE" | grep -qE '\.sort\('; then
+  fail "the eligibility UI must not order or prefer certificate versions"
+fi
+
+echo "PASS: the eligibility UI presents backend truth and computes none of it"
+echo "PASS: the eligibility UI performs no local satisfaction or status decision"
+
+# --- 23. exact-version selection --------------------------------------------
+grep -Fq 'stableId: option.stableId' "$UI_VIEW" \
+  || fail "the view does not pass the selected stable id through"
+grep -Fq 'version: option.version' "$UI_VIEW" \
+  || fail "the view does not pass the selected exact version through"
+grep -Fq '"/certificates/eligibility"' "$UI_SERVICE" \
+  || fail "the UI service does not call the approved eligibility endpoint"
+grep -Fq '"/certificates/definitions"' "$UI_SERVICE" \
+  || fail "the UI service does not call the approved discovery endpoint"
+
+# No option may be labelled with a precedence CERT-001 does not define.
+# Word-bounded and case-insensitive over comment-stripped code, so the check is
+# less brittle than an exact-case substring match and does not trip on prose
+# that documents the prohibition.
+if echo "$UI_PRESENTATION_CODE$UI_VIEW_CODE" | grep -qiE '\blatest\b|\bnewest\b|\brecommended\b|\bpreferred\b|current version'; then
+  fail "no certificate version may be labelled latest, newest, recommended, preferred or current"
+fi
+
+echo "PASS: the exact selected certificate version is the one evaluated"
+echo "PASS: no version is presented as latest, current, recommended or preferred"
+
+# --- 24. no issuance or CERT-003+ control -----------------------------------
+for forbidden in 'Issue certificate' 'Claim certificate' 'Generate certificate' \
+                 'Download certificate' 'Share certificate' 'Verify certificate' \
+                 onIssue handleIssue handleClaim handleDownload; do
+  if grep -Fq "$forbidden" "$UI_VIEW"; then
+    fail "the eligibility UI must expose no issuance control: $forbidden"
+  fi
+done
+
+# No later-Feature endpoint may be called from the client, even if the server
+# would reject it.
+if echo "$UI_SERVICE_CODE$UI_VIEW_CODE" | grep -qE '/certificates/(issue|claim|verify)|"/verify/'; then
+  fail "the eligibility UI must not call an issuance or verification endpoint"
+fi
+
+for method in POST PATCH PUT DELETE; do
+  if echo "$UI_SERVICE_CODE" | grep -Fq "method: \"$method\""; then
+    fail "the eligibility UI must be read-only; found $method"
+  fi
+done
+
+for forbidden in userId studentId user_id subjectId; do
+  if echo "$UI_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "the eligibility UI must never send a user identifier: $forbidden"
+  fi
+done
+
+# The student must be told that checking eligibility does not request or issue
+# anything, so an eligible result is never mistaken for a granted certificate.
+grep -Fq 'does not request or issue a certificate' "$UI_VIEW" \
+  || fail "the eligibility UI must disclose that checking does not issue a certificate"
+
+echo "PASS: the eligibility UI exposes no issuance, sharing or verification control"
+echo "PASS: the eligibility UI is read-only and sends no user identifier"
+echo "PASS: the student is told that checking eligibility issues nothing"
+
+# --- 25. accessibility ------------------------------------------------------
+grep -Fq 'htmlFor="certificate-select"' "$UI_VIEW" \
+  || fail "the certificate selector has no accessible label"
+grep -Fq 'id="certificate-select"' "$UI_VIEW" \
+  || fail "the certificate selector input is not associated with its label"
+grep -Fq '<select' "$UI_VIEW" \
+  || fail "the selector must be a native control"
+grep -Fq 'aria-live="polite"' "$UI_VIEW" \
+  || fail "the eligibility UI has no polite status region"
+grep -Fq 'role="alert"' "$UI_VIEW" \
+  || fail "the eligibility UI does not follow the role=alert error convention"
+grep -Fq 'aria-labelledby="eligibility-title"' "$UI_VIEW" \
+  || fail "the eligibility region is not labelled by its heading"
+
+LIVE_REGIONS="$(grep -c 'aria-live' "$UI_VIEW" || true)"
+[ "$LIVE_REGIONS" = "1" ] \
+  || fail "expected exactly one live region, found $LIVE_REGIONS"
+
+for custom in 'role="listbox"' 'role="combobox"' 'onKeyDown' 'tabIndex'; do
+  if grep -Fq "$custom" "$UI_VIEW"; then
+    fail "the eligibility UI must not build a custom control: $custom"
+  fi
+done
+
+# Status must be readable text, never colour alone.
+grep -Fq 'Choose a certificate' "$UI_VIEW" \
+  || fail "the certificate selector label text is missing"
+
+# Heading hierarchy as designed: one region title, then requirement and policy
+# subsections.
+grep -Fq '<h2 id="eligibility-title">' "$UI_VIEW" \
+  || fail "the eligibility view has no h2 title"
+grep -Fq '<h3' "$UI_VIEW" || fail "the eligibility view has no h3 heading level"
+grep -Fq '<h4' "$UI_VIEW" || fail "the eligibility view has no h4 heading level"
+
+# Lists must be associated with the heading that names them.
+grep -Fq 'aria-labelledby="eligibility-requirements-title"' "$UI_VIEW" \
+  || fail "the requirement list is not associated with its heading"
+grep -Fq 'aria-labelledby="eligibility-policies-title"' "$UI_VIEW" \
+  || fail "the evidence policy list is not associated with its heading"
+
+# Every status must be rendered through a text helper. The helper must be
+# CALLED, not merely imported — an unused import would otherwise satisfy a
+# name-only check while the status was rendered some other way.
+for helper in describeRequirementState describeEvidencePolicyState \
+              describeEligibilityStatusLabel; do
+  grep -Fq "$helper(" "$UI_VIEW" \
+    || fail "status is not rendered as text by $helper"
+done
+
+if grep -qiE 'className="[^"]*(green|red|amber|success-status|danger)' "$UI_VIEW"; then
+  fail "eligibility must not be conveyed through colour"
+fi
+# An inline style could encode status as colour outside the design system.
+if grep -Fq 'style={{' "$UI_VIEW"; then
+  fail "the eligibility UI must not encode status with inline styles"
+fi
+
+grep -Fq 'Satisfied' "$UI_PRESENTATION" \
+  || fail "the approved 'Satisfied' wording is missing"
+grep -Fq 'Still needed' "$UI_PRESENTATION" \
+  || fail "the approved 'Still needed' wording is missing"
+
+echo "PASS: the certificate selector is a labelled native control"
+echo "PASS: heading hierarchy and list relationships are present"
+echo "PASS: status is conveyed as text and never by colour alone"
+echo "PASS: one polite live region and the existing alert convention are used"
+
+# --- 25b. calm UX -----------------------------------------------------------
+# The platform philosophy forbids guilt, urgency and streak mechanics. Checked
+# case-insensitively over comment-stripped code so only student-visible wording
+# is judged.
+for phrase in "falling behind" "behind schedule" "hurry" "urgent" "streak" \
+              "act now" "finish these now" "you failed" "overdue" "don't miss"; do
+  if echo "$UI_PRESENTATION_CODE$UI_VIEW_CODE" | grep -qi "$phrase"; then
+    fail "calm UX: forbidden pressure wording '$phrase'"
+  fi
+done
+
+echo "PASS: eligibility wording carries no guilt, urgency or streak mechanics"
+
+# --- 26. unknown stays distinct from ineligible -----------------------------
+grep -Fq 'describeUnknownReason' "$UI_VIEW" \
+  || fail "the view does not explain an undetermined result"
+grep -Fq 'isUndetermined' "$UI_VIEW" \
+  || fail "the view does not distinguish undetermined from ineligible"
+for reason in evidence_under_unresolved_review dependency_unavailable \
+              definition_not_published; do
+  grep -Fq "$reason" "$UI_PRESENTATION" \
+    || fail "the UI has no explanation for $reason"
+done
+
+echo "PASS: undetermined eligibility is explained distinctly from ineligibility"
+
+# --- 27. the view is reachable ----------------------------------------------
+grep -Fq 'CertificateEligibilityView' "$UI_SHELL" \
+  || fail "the eligibility view is not reachable from the workspace shell"
+grep -Fq 'Certificate eligibility' "$UI_SHELL" \
+  || fail "the workspace navigation has no certificate eligibility entry"
+grep -Fq 'aria-current' "$UI_SHELL" \
+  || fail "the workspace navigation lost its current-page indication"
+
+echo "PASS: the eligibility view is reachable from the existing navigation"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
@@ -626,6 +861,6 @@ echo "Wave 8 Batch 1 verification passed."
 echo "CERT-001 Certificate Definition Model is implemented."
 echo "Wave 8 Batch 2 verification passed."
 echo "CERT-002 backend eligibility evaluator/API verification passed."
-echo "Student eligibility UI/accessibility remains pending before CERT-002 closure."
+echo "CERT-002 student eligibility UI and accessibility verification passed."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"

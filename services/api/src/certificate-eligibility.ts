@@ -1,6 +1,7 @@
 import type {
   AuthoritativeCompetencyEvidenceReference,
-  CertificateEligibilityResult
+  CertificateEligibilityResult,
+  StudentCertificateDefinitionOption
 } from "@tlp/shared-types";
 import {
   AppError,
@@ -42,6 +43,67 @@ import { getAuthoritativeCompetencyEvidenceReferences } from "./evidence-compete
 interface DefinitionLocator {
   stableId: string;
   version: number;
+}
+
+/**
+ * Student-facing discovery for the eligibility selector.
+ *
+ * Scope is deliberately tiny: it exists only so an authenticated student can
+ * choose a certificate to be evaluated against. It is not a catalogue — there
+ * is no search, no filtering, no pagination, no recommendation and no ranking.
+ *
+ * Selectable means published AND not superseded. Publication state alone is not
+ * enough: `superseded_by_definition_id` records an explicit Founder decision
+ * that a definition has been replaced, and a replaced certificate should not be
+ * offered as an ordinary choice for a new evaluation.
+ *
+ * This is a discovery/selection rule only. It does not retire the superseded
+ * definition, change its publication state, hide it from RLS, or prevent an
+ * exact-version reference to it elsewhere — the historical definition remains
+ * intact and evaluable if requested directly.
+ *
+ * Results are sorted in TypeScript rather than with a database ORDER BY,
+ * because CERT-002 forbids selecting a competency or certificate version by
+ * ordering. Sorting here is presentation only and picks nothing.
+ */
+export async function listSelectableCertificateDefinitions(): Promise<
+  StudentCertificateDefinitionOption[]
+> {
+  const supabase = createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("certificate_definitions")
+    .select("stable_id,version,title,description,plain_language_title")
+    .eq("publication_state", "published")
+    .is("superseded_by_definition_id", null);
+
+  if (error) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Unable to load available certificates",
+      retryable: true
+    });
+  }
+
+  const options: StudentCertificateDefinitionOption[] = (
+    (data ?? []) as unknown as Array<Record<string, unknown>>
+  ).map((row) => ({
+    stableId: String(row.stable_id),
+    version: Number(row.version),
+    title: String(row.title),
+    plainLanguageTitle: String(row.plain_language_title),
+    ...(row.description ? { description: String(row.description) } : {})
+  }));
+
+  // Stable, deterministic presentation order. No precedence is implied: two
+  // published, non-superseded versions of one certificate both remain
+  // independently selectable.
+  return options.sort(
+    (left, right) =>
+      left.plainLanguageTitle.localeCompare(right.plainLanguageTitle) ||
+      left.title.localeCompare(right.title) ||
+      left.version - right.version
+  );
 }
 
 /**
