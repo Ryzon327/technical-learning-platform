@@ -50,6 +50,21 @@ assert_status POST /evidence/portfolio 404 '{"competencyStableId":"x"}'
 assert_status DELETE /evidence/portfolio 404
 assert_status GET /admin/evidence/test-evidence/corrections 401
 assert_status POST /admin/evidence/test-evidence/corrections 401 '{"action":"invalidate","reason":"unauthenticated smoke probe"}'
+assert_status GET /admin/certificates/definitions 401
+assert_status POST /admin/certificates/definitions 401 '{"stableId":"certdef-smoke-001"}'
+assert_status GET /admin/certificates/definitions/test-definition 401
+assert_status PATCH /admin/certificates/definitions/test-definition 401 '{"title":"smoke"}'
+assert_status PUT /admin/certificates/definitions/test-definition/competencies 401 '{"requiredCompetencies":[]}'
+assert_status PUT /admin/certificates/definitions/test-definition/evidence-policies 401 '{"evidencePolicies":[]}'
+assert_status POST /admin/certificates/definitions/test-definition/validate 401
+assert_status POST /admin/certificates/definitions/test-definition/transition 401 '{"to":"published"}'
+assert_status POST /admin/certificates/definitions/test-definition/supersede 401 '{"supersededByDefinitionId":"test"}'
+assert_status GET /certificates 404
+assert_status GET /certificates/test-certificate 404
+assert_status POST /certificates 404 '{"certificateDefinitionId":"test"}'
+assert_status GET /certificate-definitions 404
+assert_status GET /certificates/verify/test-verification-id 404
+assert_status GET /verify/certificate/test-verification-id 404
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -72,3 +87,7 @@ echo 'PASS: Wave 7 evidence portfolio rejects unauthenticated requests'
 echo 'PASS: Wave 7 evidence portfolio exposes no student mutation route'
 echo 'PASS: Wave 7 evidence export rejects unauthenticated requests'
 echo 'PASS: Wave 7 exposes no anonymous evidence verification route'
+echo 'PASS: Wave 8 privileged certificate definition routes reject unauthenticated access'
+echo 'PASS: Wave 8 exposes no student certificate route'
+echo 'PASS: Wave 8 exposes no certificate issuance route'
+echo 'PASS: Wave 8 exposes no certificate verification route'

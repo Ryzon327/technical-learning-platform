@@ -59,4 +59,21 @@ Wave 7 Batch 7 adds `public.evidence_verification_references`: one immutable, cr
 It lives beside `public.evidence_records` rather than inside it, because Batch 1 provenance immutability must not be weakened to attach an identifier after Evidence creation. The table stores no Evidence content and no status: export representations are projected on demand, so revoked or superseded Evidence is never presented as currently valid.
 
 An identifier existing does not make Evidence public. RLS grants students `SELECT` on their own references only — there is no anonymous verification endpoint, no public read policy, no share token and no employer access in this batch.
+- `20260813000700_certificate_definition_foundation.sql` — Wave 8 Batch 1 CERT-001 Certificate Definition Model.
+
+Wave 8 Batch 1 owns the authoritative *specification* of a certificate across three normalized tables: `public.certificate_definitions`, `public.certificate_definition_competencies` and `public.certificate_definition_evidence_policies`. Structured requirements are columns, not JSON blobs.
+
+It owns nothing about a student. There is no student certificate table, no issuance record, no eligibility result, no verification identifier and no expiry timestamp in this migration. Those belong to CERT-002 (eligibility), CERT-003 (issuance), CERT-004 (record and lifecycle) and CERT-005 (verification), none of which are implemented.
+
+Identity is `(stable_id, version)`, unique, with the version always allocated server-side. Required competencies are pinned to one exact historical `public.competencies` row: the foreign key targets that row, and `guard_certificate_definition_competency_pin()` raises if the carried `competency_stable_id`/`competency_version` disagree with it. A certificate published against competency version 3 keeps meaning version 3, and a broken or unpublished reference blocks publication rather than being silently resolved to "latest".
+
+Published versions are *materially* immutable. `guard_certificate_definition_material_freeze()` rejects any change to `stable_id`, `version`, `issuer`, `effective_at`, `expiration_months` or `verification_permitted` once `publication_state = 'published'`, and `guard_certificate_definition_requirement_freeze()` rejects any insert, update or delete of requirement rows belonging to a published definition. These are the same conceptual fields as `CERTIFICATE_DEFINITION_MATERIAL_FIELDS` in `packages/shared-types/src/certificate-definition.ts`. Material change requires a new version. Title, description and presentation metadata stay editable, and `publication_state`/`superseded_by_definition_id` stay writable because they are the retirement and supersession mechanisms themselves.
+
+`expiration_months` is declarative: `NULL` means no expiration, otherwise an integer 1–600 month validity window. Nothing computes an expiry date, schedules revalidation, or models a revalidation type. `verification_permitted` is likewise a declarative boolean policy: it mints no identifier, grants no public read and creates no verification surface.
+
+Supersession is permitted and never deletes history: a self-reference is rejected by a CHECK constraint and a longer cycle by a bounded walk in `guard_certificate_definition_supersession()`. There are no prerequisite certificates.
+
+RLS is enabled on all three tables. Authenticated users may `SELECT` published definitions only; draft, review and retired definitions stay invisible. No student INSERT, UPDATE, DELETE or ALL policy is granted anywhere — authoring is server-authoritative through the `founder_admin` path.
+
+Requirement replacement is atomic. `certificate_definition_replace_competencies()` and `certificate_definition_replace_evidence_policies()` perform the DELETE and INSERT inside one PL/pgSQL function, so a failure rolls both back and the previous requirement set survives rather than being left emptied. Both lock the parent definition with `SELECT ... FOR UPDATE`, validate input array lengths, and re-enforce the published freeze before deleting anything. Both follow the privileged-RPC convention of `curriculum_publish_learning_path_tree`: `security definer`, fixed `search_path`, and EXECUTE revoked from `public`, `anon` and `authenticated` so only the service role may call them. No student execution permission is granted.
 

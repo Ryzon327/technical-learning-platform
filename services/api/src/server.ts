@@ -2,7 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import {
   AppError,
   isReservedEvidencePathSegment,
-  type CurriculumPublicationState
+  type CertificateDefinitionCompetencyRequirement,
+  type CertificateDefinitionEvidencePolicy,
+  type CertificateDefinitionPresentation,
+  type CurriculumPublicationState,
+  type EvidenceSourceType
 } from "@tlp/shared-types";
 import {
   getAssessmentAttempt,
@@ -28,6 +32,17 @@ import {
   updateDraftLearningPath,
   validateLearningPathForPublication
 } from "./curriculum-admin";
+import {
+  createDraftCertificateDefinition,
+  getCertificateDefinition,
+  listCertificateDefinitions,
+  setCertificateDefinitionCompetencies,
+  setCertificateDefinitionEvidencePolicies,
+  supersedeCertificateDefinition,
+  transitionCertificateDefinitionState,
+  updateCertificateDefinition,
+  validateCertificateDefinitionForPublication
+} from "./certificate-admin";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -110,6 +125,70 @@ function asPublicationState(value: unknown): CurriculumPublicationState {
 
 async function founder(request: IncomingMessage) {
   return requireFounderAdmin(await resolveTrustedRequestIdentity(request));
+}
+
+function asArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: "Expected an array",
+      retryable: false
+    });
+  }
+
+  return value as Record<string, unknown>[];
+}
+
+/**
+ * Transport coercion only. Every certificate rule — stable id shape, exact
+ * competency version, expiration window, boolean policy — is enforced by the
+ * shared validators inside certificate-admin, never here.
+ */
+function asCompetencyRequirements(
+  value: unknown
+): CertificateDefinitionCompetencyRequirement[] {
+  return asArray(value).map((entry) => ({
+    competencyStableId: String(entry.competencyStableId ?? ""),
+    competencyVersion: Number(entry.competencyVersion),
+    required: entry.required === undefined ? true : Boolean(entry.required)
+  }));
+}
+
+function asEvidencePolicies(
+  value: unknown
+): CertificateDefinitionEvidencePolicy[] {
+  return asArray(value).map((entry) => ({
+    evidenceSourceType: entry.evidenceSourceType as EvidenceSourceType,
+    minimumCount: Number(entry.minimumCount),
+    requirePositiveOutcome:
+      entry.requirePositiveOutcome === undefined
+        ? true
+        : Boolean(entry.requirePositiveOutcome)
+  }));
+}
+
+function asPresentation(value: unknown): CertificateDefinitionPresentation {
+  const presentation = (value ?? {}) as Record<string, unknown>;
+
+  return {
+    plainLanguageTitle: String(presentation.plainLanguageTitle ?? ""),
+    ...(presentation.plainLanguageSummary === undefined
+      ? {}
+      : { plainLanguageSummary: String(presentation.plainLanguageSummary) }),
+    ...(presentation.logoTextAlternative === undefined
+      ? {}
+      : { logoTextAlternative: String(presentation.logoTextAlternative) })
+  };
+}
+
+/**
+ * `expirationMonths` is nullable by design: null means no expiration. An
+ * absent field is left undefined so it is not confused with an explicit null.
+ */
+function asExpirationMonths(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return Number(value);
 }
 
 async function handleRequest(
@@ -915,6 +994,141 @@ async function handleRequest(
           decodeURIComponent(transition[1] ?? ""),
           asPublicationState(body.to),
           body.reason === undefined ? undefined : String(body.reason)
+        )
+      });
+      return;
+    }
+
+    // CERT-001 — privileged Certificate Definition authoring.
+    //
+    // Every route below resolves founder(request) first. There is deliberately
+    // no student-facing certificate route in Batch 1: no eligibility check, no
+    // issuance, no student certificate record and no verification endpoint.
+    // Students reach published definitions through RLS only.
+    if (request.method === "GET" && pathname === "/admin/certificates/definitions") {
+      await founder(request);
+      sendJson(response, 200, {
+        definitions: await listCertificateDefinitions()
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/admin/certificates/definitions") {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, {
+        definition: await createDraftCertificateDefinition(
+          { actorUserId: trusted.identity.userId },
+          {
+            stableId: String(body.stableId ?? ""),
+            title: String(body.title ?? ""),
+            description: body.description === undefined ? undefined : String(body.description),
+            issuer: String(body.issuer ?? ""),
+            effectiveAt: String(body.effectiveAt ?? ""),
+            expirationMonths: asExpirationMonths(body.expirationMonths),
+            verificationPermitted: body.verificationPermitted === undefined ? undefined : Boolean(body.verificationPermitted),
+            presentation: asPresentation(body.presentation),
+            ...(body.requiredCompetencies === undefined ? {} : { requiredCompetencies: asCompetencyRequirements(body.requiredCompetencies) }),
+            ...(body.evidencePolicies === undefined ? {} : { evidencePolicies: asEvidencePolicies(body.evidencePolicies) })
+          }
+        )
+      });
+      return;
+    }
+
+    const certificateDefinitionMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)$/);
+    if (request.method === "GET" && certificateDefinitionMatch) {
+      await founder(request);
+      sendJson(response, 200, {
+        definition: await getCertificateDefinition(
+          decodeURIComponent(certificateDefinitionMatch[1] ?? "")
+        )
+      });
+      return;
+    }
+
+    if (request.method === "PATCH" && certificateDefinitionMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        definition: await updateCertificateDefinition(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(certificateDefinitionMatch[1] ?? ""),
+          {
+            title: body.title === undefined ? undefined : String(body.title),
+            description: body.description === undefined ? undefined : body.description === null ? null : String(body.description),
+            issuer: body.issuer === undefined ? undefined : String(body.issuer),
+            effectiveAt: body.effectiveAt === undefined ? undefined : String(body.effectiveAt),
+            expirationMonths: asExpirationMonths(body.expirationMonths),
+            verificationPermitted: body.verificationPermitted === undefined ? undefined : Boolean(body.verificationPermitted),
+            presentation: body.presentation === undefined ? undefined : asPresentation(body.presentation)
+          }
+        )
+      });
+      return;
+    }
+
+    const certificateCompetenciesMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)\/competencies$/);
+    if (request.method === "PUT" && certificateCompetenciesMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        definition: await setCertificateDefinitionCompetencies(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(certificateCompetenciesMatch[1] ?? ""),
+          asCompetencyRequirements(body.requiredCompetencies)
+        )
+      });
+      return;
+    }
+
+    const certificateEvidencePoliciesMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)\/evidence-policies$/);
+    if (request.method === "PUT" && certificateEvidencePoliciesMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        definition: await setCertificateDefinitionEvidencePolicies(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(certificateEvidencePoliciesMatch[1] ?? ""),
+          asEvidencePolicies(body.evidencePolicies)
+        )
+      });
+      return;
+    }
+
+    const certificateValidateMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)\/validate$/);
+    if (request.method === "POST" && certificateValidateMatch) {
+      await founder(request);
+      sendJson(response, 200, await validateCertificateDefinitionForPublication(
+        decodeURIComponent(certificateValidateMatch[1] ?? "")
+      ));
+      return;
+    }
+
+    const certificateTransitionMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)\/transition$/);
+    if (request.method === "POST" && certificateTransitionMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        definition: await transitionCertificateDefinitionState(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(certificateTransitionMatch[1] ?? ""),
+          asPublicationState(body.to),
+          body.reason === undefined ? undefined : String(body.reason)
+        )
+      });
+      return;
+    }
+
+    const certificateSupersedeMatch = pathname.match(/^\/admin\/certificates\/definitions\/([^/]+)\/supersede$/);
+    if (request.method === "POST" && certificateSupersedeMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        definition: await supersedeCertificateDefinition(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(certificateSupersedeMatch[1] ?? ""),
+          String(body.supersededByDefinitionId ?? "")
         )
       });
       return;

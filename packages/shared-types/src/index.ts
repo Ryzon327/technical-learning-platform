@@ -34,6 +34,7 @@ export * from "./evidence-correction";
 export * from "./evidence-portfolio";
 export * from "./evidence-export";
 export * from "./evidence-routing";
+export * from "./certificate-definition";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";
