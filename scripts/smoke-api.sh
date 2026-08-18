@@ -60,6 +60,11 @@ assert_status POST /admin/certificates/definitions/test-definition/validate 401
 assert_status POST /admin/certificates/definitions/test-definition/transition 401 '{"to":"published"}'
 assert_status POST /admin/certificates/definitions/test-definition/supersede 401 '{"supersededByDefinitionId":"test"}'
 assert_status GET /certificates 401
+assert_status GET /certificates/portfolio 401
+assert_status GET '/certificates/portfolio?status=revoked' 401
+assert_status POST /certificates/portfolio 404 '{"x":1}'
+assert_status DELETE /certificates/portfolio 404
+assert_status GET /admin/certificates/portfolio 404
 assert_status POST /certificates 404 '{"x":1}'
 assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
@@ -141,3 +146,5 @@ echo 'PASS: CERT-004 exposes no certificate mutation route'
 echo 'PASS: CERT-005 public verification is reachable without authentication and fails closed as unavailable'
 echo 'PASS: CERT-005 rejects a malformed verification reference before any lookup'
 echo 'PASS: CERT-005 exposes no verification mutation, listing or search route'
+echo 'PASS: CERT-006 private portfolio rejects unauthenticated requests'
+echo 'PASS: CERT-006 exposes no portfolio mutation or admin route'

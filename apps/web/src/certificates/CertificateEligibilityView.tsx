@@ -4,10 +4,7 @@ import {
   type CertificateCompetencyRequirementResult,
   type CertificateEligibilityResult,
   type CertificateEvidencePolicyResult,
-  type StudentCertificateDefinitionOption,
-  type StudentCertificateRecord,
-  describeCertificateStatus,
-  explainCertificateStatus
+  type StudentCertificateDefinitionOption
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
@@ -32,7 +29,6 @@ import {
 import {
   loadCertificateEligibility,
   loadSelectableCertificates,
-  loadStudentCertificates,
   requestCertificateIssuance
 } from "./certificate-eligibility-service";
 
@@ -180,7 +176,6 @@ export function CertificateEligibilityView() {
   const [error, setError] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [issuanceMessage, setIssuanceMessage] = useState("");
-  const [held, setHeld] = useState<StudentCertificateRecord[]>([]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -203,25 +198,7 @@ export function CertificateEligibilityView() {
       }
     }
 
-    // CERT-004: the learner's existing certificates and their current status.
-    // Failing to load these must not block the eligibility experience.
-    async function loadHeld() {
-      try {
-        setHeld(
-          await loadStudentCertificates(accessToken, {
-            signal: controller.signal
-          })
-        );
-      } catch (caught) {
-        if (caught instanceof DOMException && caught.name === "AbortError") {
-          return;
-        }
-        setHeld([]);
-      }
-    }
-
     void loadCertificates();
-    void loadHeld();
     return () => controller.abort();
   }, [accessToken]);
 
@@ -378,56 +355,6 @@ export function CertificateEligibilityView() {
           There are no certificates available to check right now. This page will
           show them when they become available.
         </p>
-      )}
-
-      {/*
-        CERT-004 — the learner's own certificates and their current lifecycle
-        status. Read-only: there is no lifecycle control here, and CERT-008
-        owns revoke/correct/supersede/restore.
-      */}
-      {held.length > 0 && (
-        <section className="card" aria-labelledby="held-certificates-title">
-          <h3 id="held-certificates-title">Certificates you hold</h3>
-          <ul aria-labelledby="held-certificates-title">
-            {held.map((certificate) => (
-              <li key={certificate.id} className="card">
-                <dl className="status-grid">
-                  <div>
-                    <dt>Status</dt>
-                    <dd>
-                      {certificate.statusDetermined
-                        ? describeCertificateStatus(certificate.status)
-                        : "Status unavailable"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Issued</dt>
-                    <dd>
-                      <time dateTime={certificate.issuedAt}>
-                        {certificate.issuedAt.slice(0, 10)}
-                      </time>
-                    </dd>
-                  </div>
-                  {certificate.expiresAt && (
-                    <div>
-                      <dt>Valid until</dt>
-                      <dd>
-                        <time dateTime={certificate.expiresAt}>
-                          {certificate.expiresAt.slice(0, 10)}
-                        </time>
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-                <p>
-                  {certificate.statusDetermined
-                    ? explainCertificateStatus(certificate.status)
-                    : "We can't confirm this certificate's status right now. Please try again shortly."}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
       )}
 
       {result && !loading && <EligibilityResultPanel result={result} />}

@@ -2,10 +2,15 @@ import { useState } from "react";
 import { AuthUiError } from "./auth-service";
 import { useAuth } from "./AuthProvider";
 import { CertificateEligibilityView } from "../certificates/CertificateEligibilityView";
+import { CertificatePortfolioView } from "../certificates/CertificatePortfolioView";
 import { EvidencePortfolioView } from "../evidence/EvidencePortfolioView";
 import { FounderMfaGate } from "./FounderMfaGate";
 
-type WorkspaceView = "overview" | "evidence" | "certificates";
+type WorkspaceView =
+  | "overview"
+  | "evidence"
+  | "certificates"
+  | "certificate-portfolio";
 
 function Workspace() {
   const { user, profile, authState, signOut } = useAuth();
@@ -61,6 +66,17 @@ function Workspace() {
             <li>
               <button
                 type="button"
+                aria-current={
+                  view === "certificate-portfolio" ? "page" : undefined
+                }
+                onClick={() => setView("certificate-portfolio")}
+              >
+                Certificates
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
                 aria-current={view === "certificates" ? "page" : undefined}
                 onClick={() => setView("certificates")}
               >
@@ -90,6 +106,8 @@ function Workspace() {
         )}
 
         {view === "evidence" && <EvidencePortfolioView />}
+
+        {view === "certificate-portfolio" && <CertificatePortfolioView />}
 
         {view === "certificates" && <CertificateEligibilityView />}
 

@@ -68,7 +68,7 @@ describe("A: authorization boundary", () => {
     expect(issuanceRoute).toContain("version: Number(body.version)");
   });
 
-  it("A3: the approved student certificate routes are exactly four", () => {
+  it("A3: the approved student certificate routes are exactly five", () => {
     // CERT-004 added the own-certificate status read.
     const routes = (
       server.match(/pathname === "\/certificates[^"]*"/g) ?? []
@@ -77,7 +77,8 @@ describe("A: authorization boundary", () => {
       'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
-      'pathname === "/certificates/issuance"'
+      'pathname === "/certificates/issuance"',
+      'pathname === "/certificates/portfolio"'
     ]);
   });
 

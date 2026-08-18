@@ -94,6 +94,7 @@ describe("privileged authoring boundary", () => {
         unescaped.includes('"/certificates/eligibility"') ||
         unescaped.includes('"/certificates/definitions"') ||
         unescaped.includes('"/certificates/issuance"') ||
+        unescaped.includes('"/certificates/portfolio"') ||
         unescaped.includes('pathname === "/certificates")')
       ) {
         continue;
@@ -129,7 +130,8 @@ describe("no student mutation surface", () => {
       'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
-      'pathname === "/certificates/issuance"'
+      'pathname === "/certificates/issuance"',
+      'pathname === "/certificates/portfolio"'
     ]);
 
     // The only permitted non-admin path-parameter certificate route is

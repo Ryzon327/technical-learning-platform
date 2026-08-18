@@ -95,7 +95,7 @@ describe("A: student read boundary", () => {
     }
   });
 
-  it("A4: exactly the four approved student certificate routes exist", () => {
+  it("A4: exactly the five approved student certificate routes exist", () => {
     const routes = (
       server.match(/pathname === "\/certificates[^"]*"/g) ?? []
     ).sort();
@@ -103,7 +103,8 @@ describe("A: student read boundary", () => {
       'pathname === "/certificates"',
       'pathname === "/certificates/definitions"',
       'pathname === "/certificates/eligibility"',
-      'pathname === "/certificates/issuance"'
+      'pathname === "/certificates/issuance"',
+      'pathname === "/certificates/portfolio"'
     ]);
   });
 

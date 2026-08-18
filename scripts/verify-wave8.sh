@@ -59,12 +59,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-lifecycle\.ts$' \
   | grep -v 'certificate-lifecycle\.test\.ts$' \
   | grep -v 'certificate-verification\.ts$' \
-  | grep -v 'certificate-verification\.test\.ts$' || true)"
+  | grep -v 'certificate-verification\.test\.ts$' \
+  | grep -v 'certificate-portfolio\.ts$' \
+  | grep -v 'certificate-portfolio\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -402,7 +404,7 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
   case "$route" in
-    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"') ;;
+    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"'|'"/certificates/portfolio"') ;;
     *) fail "an unapproved student certificate route exists: $route" ;;
   esac
 done
@@ -1523,6 +1525,256 @@ fi
 echo "PASS: CERT-006 through CERT-009 remain unimplemented in verification"
 echo "PASS: the verification page is accessible and status is text"
 
+# ============================================================
+# CERT-006 — Student Certificate Portfolio (Batch 7)
+# ============================================================
+
+PORT_TYPES="packages/shared-types/src/certificate-portfolio.ts"
+PORT_TYPE_TESTS="packages/shared-types/src/certificate-portfolio.test.ts"
+PORT_SERVICE="services/api/src/certificate-portfolio.ts"
+PORT_SERVICE_TESTS="services/api/src/certificate-portfolio.test.ts"
+PORT_VIEW="apps/web/src/certificates/CertificatePortfolioView.tsx"
+PORT_WEB_SERVICE="apps/web/src/certificates/certificate-portfolio-service.ts"
+PORT_PRESENTATION="apps/web/src/certificates/certificate-portfolio-presentation.ts"
+PORT_PRESENTATION_TESTS="apps/web/src/certificates/certificate-portfolio-presentation.test.ts"
+PORT_SHELL="apps/web/src/auth/AuthenticatedApp.tsx"
+PORT_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_7_STUDENT_CERTIFICATE_PORTFOLIO.md"
+
+for p in \
+  "$PORT_TYPES" "$PORT_TYPE_TESTS" "$PORT_SERVICE" "$PORT_SERVICE_TESTS" \
+  "$PORT_VIEW" "$PORT_WEB_SERVICE" "$PORT_PRESENTATION" \
+  "$PORT_PRESENTATION_TESTS" "$PORT_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+PORT_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$PORT_SERVICE" || true)"
+
+# --- 45. no migration, read-only presentation -------------------------------
+CERT_MIGRATIONS_NOW="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
+[ "$CERT_MIGRATIONS_NOW" = "3" ] \
+  || fail "CERT-006 must add no migration; found $CERT_MIGRATIONS_NOW certificate migrations"
+
+for write in '.insert(' '.update(' '.delete(' '.upsert(' '.rpc('; do
+  if echo "$PORT_SERVICE_CODE" | grep -Fq "$write"; then
+    fail "the portfolio must be read-only; found $write"
+  fi
+done
+
+echo "PASS: CERT-006 adds no migration and performs no write"
+
+# --- 46. owner-only access, no admin surface --------------------------------
+PORT_ROUTE_BLOCK="$(awk "/CERT-006 — the learner's private certificate portfolio/{cap=1} /pathname === \"\/certificates\/portfolio\"/{print; cap=0; next} cap" "$SERVER")"
+[ -n "$PORT_ROUTE_BLOCK" ] || fail "the CERT-006 route block was not found"
+
+grep -Fq 'pathname === "/certificates/portfolio"' "$SERVER" \
+  || fail "the portfolio route is missing"
+grep -Fq 'getStudentCertificatePortfolio(' "$SERVER" \
+  || fail "the portfolio route does not call the portfolio service"
+grep -Fq 'trusted.identity.userId' "$SERVER" \
+  || fail "the portfolio route does not scope to the authenticated caller"
+
+# No client-supplied identity may select whose portfolio is read.
+for smuggled in 'searchParams.get("userId")' 'searchParams.get("studentId")'; do
+  if grep -Fq "$smuggled" "$SERVER"; then
+    fail "a route accepts a client-supplied subject: $smuggled"
+  fi
+done
+if echo "$PORT_SERVICE_CODE" | grep -qE 'body\.userId|body\.studentId'; then
+  fail "the portfolio must not accept a client-supplied subject"
+fi
+
+grep -Fq '.eq("user_id", userId)' "$PORT_SERVICE" \
+  || fail "the portfolio service does not scope its read to the caller"
+
+if grep -Fq '/admin/certificates/portfolio' "$SERVER"; then
+  fail "CERT-006 must not expose administrator portfolio access"
+fi
+
+PORTFOLIO_ROUTE_COUNT="$(grep -c 'pathname === "/certificates/portfolio"' "$SERVER" || true)"
+[ "$PORTFOLIO_ROUTE_COUNT" = "1" ] \
+  || fail "expected exactly one portfolio route, found $PORTFOLIO_ROUTE_COUNT"
+
+echo "PASS: the portfolio is authenticated, owner-only and has no admin surface"
+
+# --- 47. source-of-truth boundaries -----------------------------------------
+grep -Fq 'resolveEffectiveCertificateStatus' "$PORT_SERVICE" \
+  || fail "the portfolio does not reuse the CERT-004 lifecycle resolver"
+
+for forbidden in isValidCertificateLifecycleTransition calculateCertificateExpiry \
+                 evaluateCertificateEligibility getStudentCertificateEligibility \
+                 issueStudentCertificate decideCertificateIssuance; do
+  if echo "$PORT_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-006 must not duplicate another authority: $forbidden"
+  fi
+done
+
+# CERT-004's record contract must remain unchanged.
+LIFECYCLE_RECORD="$(awk '/export interface StudentCertificateRecord/{cap=1} cap{print} cap&&/^}/{exit}' packages/shared-types/src/certificate-lifecycle.ts)"
+[ -n "$LIFECYCLE_RECORD" ] || fail "StudentCertificateRecord was not found"
+if echo "$LIFECYCLE_RECORD" | grep -qE 'verificationId|verificationReference'; then
+  fail "CERT-004 StudentCertificateRecord must not gain a verification reference"
+fi
+
+echo "PASS: CERT-006 composes presentation without duplicating any authority"
+echo "PASS: the CERT-004 record contract is unchanged"
+
+# --- 48. privacy -------------------------------------------------------------
+for forbidden in user_profiles display_name email auth.users; do
+  if echo "$PORT_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "the portfolio must not read private profile data: $forbidden"
+  fi
+done
+
+for table in evidence_records evidence_competency_links \
+             evidence_correction_events evidence_verification_references \
+             certificate_evidence_snapshots; do
+  if echo "$PORT_SERVICE_CODE" | grep -Fq "$table"; then
+    fail "the portfolio must not read Evidence: $table"
+  fi
+done
+
+for forbidden in evidenceId evidenceOutcome resultState digest score; do
+  if echo "$PORT_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "the portfolio must expose no private Evidence detail: $forbidden"
+  fi
+done
+
+echo "PASS: the portfolio reads no profile data and no private Evidence detail"
+
+# --- 49. no CERT-007+ behaviour ---------------------------------------------
+if echo "$PORT_SERVICE_CODE" | grep -qiE 'sharelink|share_link|shareurl|download|\bpdf\b|\bqr\b|branding|employer'; then
+  fail "CERT-007+ behaviour leaked into CERT-006"
+fi
+if echo "$PORT_SERVICE_CODE" | grep -qiE 'revoke|restore|replacementCertificate'; then
+  fail "CERT-008 workflow leaked into CERT-006"
+fi
+if echo "$PORT_SERVICE_CODE" | grep -qE 'certificateKind|course_completion'; then
+  fail "CERT-006 must remain credential-kind agnostic (DEC-029 to DEC-035)"
+fi
+if echo "$PORT_SERVICE_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the portfolio path"
+fi
+
+# No export/share control, and no disabled placeholder standing in for one.
+#
+# Judged on comment-stripped code with a word-bounded search rather than on a
+# single-line `>Export<` pattern: JSX routinely puts button text on its own
+# line, which a tag-adjacent pattern would miss entirely.
+# Whole JSX comment blocks are dropped (not just their opening line), and the
+# TypeScript `export` keyword is neutralised, so only student-visible wording
+# and real handlers are judged.
+PORT_VIEW_CODE="$(awk '/\{\/\*/{skip=1} !skip; /\*\/\}/{skip=0}' "$PORT_VIEW" \
+  | grep -vE '^\s*(//|\*|/\*)' \
+  | sed -E 's/export (function|const|interface|type|default)/\1/g' || true)"
+if echo "$PORT_VIEW_CODE" | grep -qiE '\b(export|share|download|pdf)\b'; then
+  fail "CERT-006 must not render or wire an export, share or download control"
+fi
+PORT_PRESENTATION_WORDS="$(grep -vE '^\s*(//|\*|/\*)' "$PORT_PRESENTATION" \
+  | sed -E 's/export (function|const|interface|type|default)/\1/g' || true)"
+if echo "$PORT_PRESENTATION_WORDS" | grep -qiE '\b(export|share|download|pdf|qr)\b'; then
+  fail "CERT-006 presentation logic must not build an export or share affordance"
+fi
+
+echo "PASS: CERT-007 through CERT-009 remain unimplemented in the portfolio"
+
+# --- 50. partial failure -----------------------------------------------------
+grep -Fq 'unavailableEntries' "$PORT_TYPES" \
+  || fail "the portfolio cannot represent an unresolved certificate"
+grep -Fq 'unavailableEntries' "$PORT_SERVICE" \
+  || fail "the portfolio service does not degrade a single certificate safely"
+grep -Fq 'describeUnavailableEntry' "$PORT_VIEW" \
+  || fail "the portfolio does not present unresolved certificates"
+grep -Fq 'if (!effective.sequenceValid)' "$PORT_SERVICE" \
+  || fail "an incoherent lifecycle history is not degraded safely"
+
+echo "PASS: an unresolved certificate is represented, never dropped or fabricated"
+
+# --- 51. accessibility and reachability -------------------------------------
+grep -Fq 'describeCertificateStatus' "$PORT_VIEW" \
+  || fail "portfolio status is not rendered as text"
+grep -Fq 'aria-live="polite"' "$PORT_VIEW" \
+  || fail "the portfolio has no polite status region"
+grep -Fq '<h2 id="portfolio-certificates-title">' "$PORT_VIEW" \
+  || fail "the portfolio has no semantic heading"
+grep -Fq 'htmlFor="certificate-status-filter"' "$PORT_VIEW" \
+  || fail "the portfolio status filter has no accessible label"
+grep -Fq 'htmlFor="certificate-definition-filter"' "$PORT_VIEW" \
+  || fail "the portfolio certificate filter has no accessible label"
+grep -Fq '<select' "$PORT_VIEW" \
+  || fail "the portfolio filters must be native controls"
+for custom in 'role="listbox"' 'role="combobox"' 'onKeyDown' 'tabIndex'; do
+  if grep -Fq "$custom" "$PORT_VIEW"; then
+    fail "the portfolio must not build a custom control: $custom"
+  fi
+done
+if grep -qiE 'className="[^"]*(green|red|amber|success-status|danger)' "$PORT_VIEW"; then
+  fail "portfolio status must not be conveyed by colour"
+fi
+if grep -Fq 'style={{' "$PORT_VIEW"; then
+  fail "the portfolio must not encode status with inline styles"
+fi
+
+# --- 51b. one certificate can be focused, and its detail is real ------------
+#
+# CERT-006 section 5 requires a certificate detail presentation. That does not
+# require a route, but it does require that a learner can focus ONE owned
+# certificate and read its meaningful detail.
+grep -Fq '{describePortfolioDetailToggle(entry, isSelected)}' "$PORT_VIEW" \
+  || fail "the portfolio has no per-certificate detail control"
+grep -Fq 'onClick={() => onSelect(entry.certificateId)}' "$PORT_VIEW" \
+  || fail "the portfolio detail control focuses no certificate"
+grep -Fq '<button' "$PORT_VIEW" \
+  || fail "the portfolio detail control must be a native button"
+grep -Fq 'aria-expanded={isSelected}' "$PORT_VIEW" \
+  || fail "the portfolio detail control does not expose its expanded state"
+grep -Fq 'aria-controls={detailId}' "$PORT_VIEW" \
+  || fail "the portfolio detail control does not own a detail region"
+grep -Fq 'hidden={!isSelected}' "$PORT_VIEW" \
+  || fail "the portfolio detail region is not toggled by selection"
+
+# The detail a learner must actually be able to read.
+for detail in '<dt>Issuer</dt>' '<dt>Issued</dt>' '<dt>Valid until</dt>' \
+  '<dt>Certificate version</dt>' 'describeCertificateStatus' \
+  'explainCertificateStatus' 'Competencies this represents'; do
+  grep -Fq "$detail" "$PORT_VIEW" \
+    || fail "the certificate detail presentation is missing: $detail"
+done
+grep -Fq '{competency.title} (version {competency.version})' "$PORT_VIEW" \
+  || fail "the pinned competency title and version are not both presented"
+
+# Focus is in-page state, never a second router.
+grep -Fq 'selectPortfolioCertificate' "$PORT_VIEW" \
+  || fail "certificate focus is not owned by the pure presentation module"
+grep -Fq 'resolvePortfolioSelection' "$PORT_VIEW" \
+  || fail "a filtered-away certificate can remain focused"
+if grep -qE 'pushState|replaceState|window\.location|useNavigate|createBrowserRouter' \
+  "$PORT_VIEW" "$PORT_PRESENTATION"; then
+  fail "CERT-006 must not introduce routing to focus a certificate"
+fi
+
+# The verification action reaches CERT-005 and duplicates none of its logic.
+grep -Fq 'buildCertificateVerificationHref(entry.verificationReference)' "$PORT_VIEW" \
+  || fail "the portfolio does not offer this certificate's verification action"
+grep -Fq 'readVerificationReferenceFromPath' "$PORT_PRESENTATION_TESTS" \
+  || fail "the verification link is not proven against CERT-005's own path reader"
+PORT_PRESENTATION_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$PORT_PRESENTATION" || true)"
+if echo "$PORT_PRESENTATION_CODE" | grep -qiE 'fetch\(|verifyCertificate|holder|revoke'; then
+  fail "CERT-005 verification logic is duplicated in the portfolio presentation"
+fi
+
+echo "PASS: one owned certificate can be focused and read in detail"
+echo "PASS: the verification action reaches CERT-005 without duplicating it"
+
+grep -Fq 'CertificatePortfolioView' "$PORT_SHELL" \
+  || fail "the portfolio is not reachable from the workspace shell"
+grep -Fq 'certificate-portfolio' "$PORT_SHELL" \
+  || fail "the workspace navigation has no certificates destination"
+grep -Fq 'aria-current' "$PORT_SHELL" \
+  || fail "the workspace navigation lost its current-page indication"
+
+echo "PASS: the portfolio is accessible with labelled native filters"
+echo "PASS: the portfolio is reachable from the authenticated workspace"
+
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
 # ------------------------------------------------------------
@@ -1554,6 +1806,8 @@ echo "Wave 8 Batch 5 verification passed."
 echo "CERT-004 Certificate Record and Lifecycle is implemented."
 echo "Wave 8 Batch 6 verification passed."
 echo "CERT-005 Certificate Verification is implemented."
+echo "Wave 8 Batch 7 verification passed."
+echo "CERT-006 Student Certificate Portfolio is implemented."
 echo "Concurrency and rollback are structurally verified only; no live PostgreSQL test exists."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"

@@ -6,7 +6,8 @@ import {
   type CertificateDefinitionEvidencePolicy,
   type CertificateDefinitionPresentation,
   type CurriculumPublicationState,
-  type EvidenceSourceType
+  type EvidenceSourceType,
+  normalizeCertificatePortfolioFilters
 } from "@tlp/shared-types";
 import {
   getAssessmentAttempt,
@@ -50,6 +51,7 @@ import {
 import { issueStudentCertificate } from "./certificate-issuance";
 import { listStudentCertificateRecords } from "./certificate-lifecycle";
 import { verifyCertificateByReference } from "./certificate-verification";
+import { getStudentCertificatePortfolio } from "./certificate-portfolio";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -425,6 +427,28 @@ async function handleRequest(
     // status. Read-only, scoped to the authenticated caller. There is no
     // lifecycle control here: CERT-008 owns revoke/correct/supersede/restore,
     // and CERT-005 owns any public verification.
+    // CERT-006 — the learner's private certificate portfolio.
+    //
+    // Presentation only, scoped to the authenticated caller. It composes
+    // CERT-001 definition detail, CERT-003 pinned competency provenance and
+    // CERT-004 lifecycle status, and carries the owner's own verification
+    // reference so they can open CERT-005 verification of their credential.
+    // There is no admin access, no export execution and no lifecycle control.
+    if (request.method === "GET" && pathname === "/certificates/portfolio") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        portfolio: await getStudentCertificatePortfolio(
+          trusted.identity.userId,
+          normalizeCertificatePortfolioFilters({
+            status: url.searchParams.get("status") ?? undefined,
+            certificateDefinitionStableId:
+              url.searchParams.get("certificateDefinitionStableId") ?? undefined
+          })
+        )
+      });
+      return;
+    }
+
     if (request.method === "GET" && pathname === "/certificates") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(response, 200, {
