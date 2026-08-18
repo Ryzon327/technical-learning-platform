@@ -1012,8 +1012,29 @@ fi
 # --- authenticated student-controlled export, no anonymous route --------------
 grep -Fq 'pathname === "/evidence/export"' services/api/src/server.ts || exit 1
 grep -Fq 'exportStudentEvidence(trusted.accessToken, trusted.identity.userId' services/api/src/server.ts || exit 1
-if grep -nE '"/verify|/verification/|publicVerification|anonymousVerification' services/api/src/server.ts; then
-  echo "FAIL: no anonymous or public verification route may exist in Batch 7"; exit 1
+# Anonymous/public EVIDENCE verification remains forbidden. The check is scoped
+# to Evidence paths so that CERT-005 certificate verification — a separately
+# approved public surface that exposes no Evidence — is not caught by it.
+#
+# Narrowing rationale: the Batch 7 invariant is that EVID-008 minted a
+# verification hook WITHOUT exposing Evidence publicly. A certificate
+# verification route does not weaken that: it reads no Evidence table and
+# returns no Evidence field, which services/api/src/certificate-verification.ts
+# and its tests assert independently.
+if grep -nE '"/evidence/verify|"/verify/evidence|/evidence/verification/|publicEvidenceVerification|anonymousEvidenceVerification|publicVerification|anonymousVerification' services/api/src/server.ts; then
+  echo "FAIL: no anonymous or public Evidence verification route may exist in Batch 7"; exit 1
+fi
+
+# A bare /verify route would be an Evidence-verification surface by default,
+# since EVID-008 is what minted a verification hook. Only the explicitly
+# approved certificate path is permitted.
+if grep -nE 'pathname === "/verify|pathname\.match\(/\^\\/verify' services/api/src/server.ts; then
+  echo "FAIL: no top-level anonymous verification route may exist"; exit 1
+fi
+
+# The Evidence verification reference must still never be exposed publicly.
+if grep -nE 'evidence_verification_references|evidenceVerificationId' services/api/src/certificate-verification.ts 2>/dev/null; then
+  echo "FAIL: certificate verification must not read Evidence verification references"; exit 1
 fi
 # The export route must be matched before the /evidence/:id route.
 W7B7_EXPORT_LINE="$(grep -n 'pathname === "/evidence/export"' services/api/src/server.ts | head -1 | cut -d: -f1)"

@@ -132,10 +132,17 @@ describe("no student mutation surface", () => {
       'pathname === "/certificates/issuance"'
     ]);
 
-    // No student certificate record route (a path-parameter match).
-    const nonAdminMatch =
-      server.match(/\/\^\\\/(?!admin)[^/]*certificate[^\n]*/gi) ?? [];
-    expect(nonAdminMatch).toEqual([]);
+    // The only permitted non-admin path-parameter certificate route is
+    // CERT-005 public verification. A certificate RECORD route — which would
+    // let anyone address a certificate by id — remains forbidden.
+    const nonAdminMatch = (
+      server.match(/\/\^\\\/(?!admin)[^/]*certificate[^\n]*/gi) ?? []
+    ).map((literal) => literal.replace(/\\/g, ""));
+
+    for (const literal of nonAdminMatch) {
+      expect(literal).toContain("/certificates/verify/");
+    }
+    expect(nonAdminMatch.length).toBeLessThanOrEqual(1);
   });
 
   it("B2: grants no student write policy in the migration", () => {
@@ -625,10 +632,21 @@ describe("CERT-002 through CERT-009 remain unimplemented", () => {
     expect(migration).toContain("verification_permitted boolean not null");
   });
 
-  it("H5: no public or anonymous verification route exists", () => {
-    expect(server).not.toMatch(/pathname === "\/verify/);
-    expect(server).not.toMatch(/pathname\.match\([^)]*\\\/verify/);
+  it("H5: the only verification route is the approved CERT-005 public surface", () => {
+    // CERT-001 introduced no verification behaviour and still must not: the
+    // definition authoring block stays free of it. CERT-005 owns exactly one
+    // public verification path, and no other verification route may exist.
     expect(certificateRoutes).not.toContain("/verify");
+    expect(server).not.toMatch(/pathname === "\/verify/);
+
+    // The route literal spans two lines, so the regex literal itself is the
+    // reliable anchor.
+    const verificationRoutes =
+      server.match(/\/\^\\\/[a-z-]*\\\/?verify[^\n]*/gi) ?? [];
+    expect(verificationRoutes.length).toBe(1);
+    expect(verificationRoutes[0]?.replace(/\\/g, "")).toContain(
+      "/certificates/verify/"
+    );
   });
 
   it("H6: no expiry calculation, scheduler or revalidation model exists", () => {

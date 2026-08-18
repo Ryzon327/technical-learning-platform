@@ -65,8 +65,28 @@ assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
 assert_status POST /certificates 404 '{"certificateDefinitionId":"test"}'
 assert_status GET /certificate-definitions 404
-assert_status GET /certificates/verify/test-verification-id 404
+# CERT-005: the route now exists and is deliberately unauthenticated, so unlike
+# every other route here it reaches the data layer. The smoke environment has no
+# database configured, so a well-formed reference returns 503 "temporarily
+# unavailable" — which is exactly the CERT-005 section 12 requirement that a
+# dependency failure must never be reported as invalid or not-found.
+#
+# A malformed reference is still 400, because format is rejected before any
+# lookup is attempted.
+#
+# SCOPE OF THIS ASSERTION: it proves the dependency-unavailable path only.
+# The "well-formed but unknown reference -> 404" behaviour is a separate
+# CERT-005 requirement and is covered by executable tests in
+# services/api/src/certificate-verification.test.ts (describe "Z"), which mock
+# the data client to distinguish a healthy-but-empty lookup from a failing one.
+# No database is faked here.
+assert_status GET /certificates/verify/cert1_00000000000000000000000000000000000000000000000a 503
+assert_status GET /certificates/verify/test-verification-id 400
 assert_status GET /verify/certificate/test-verification-id 404
+assert_status POST /certificates/verify/cert1_00000000000000000000000000000000000000000000000a 404
+assert_status DELETE /certificates/verify/cert1_00000000000000000000000000000000000000000000000a 404
+assert_status GET /certificates/public 404
+assert_status GET /certificates/search 404
 assert_status GET '/certificates/eligibility?stableId=certdef-smoke-001&version=1' 401
 assert_status GET '/certificates/eligibility' 401
 assert_status POST /certificates/eligibility 404 '{"stableId":"certdef-smoke-001"}'
@@ -82,7 +102,6 @@ assert_status PATCH /certificates/issuance 404 '{"stableId":"certdef-smoke-001"}
 assert_status DELETE /certificates/issuance 404
 assert_status POST /certificates/issue 404 '{"stableId":"certdef-smoke-001"}'
 assert_status POST /certificates/claim 404 '{"stableId":"certdef-smoke-001"}'
-assert_status GET /certificates/verify/test-verification-id 404
 echo 'PASS: Wave 4 assessment routes remain protected'
 echo 'PASS: Wave 3 learning routes remain protected'
 echo 'PASS: Wave 5 note routes remain protected'
@@ -119,3 +138,6 @@ echo 'PASS: CERT-003 issuance exposes no read or mutation alternative'
 echo 'PASS: CERT-003 exposes no issue/claim/verify route'
 echo 'PASS: CERT-004 own-certificate read rejects unauthenticated requests'
 echo 'PASS: CERT-004 exposes no certificate mutation route'
+echo 'PASS: CERT-005 public verification is reachable without authentication and fails closed as unavailable'
+echo 'PASS: CERT-005 rejects a malformed verification reference before any lookup'
+echo 'PASS: CERT-005 exposes no verification mutation, listing or search route'

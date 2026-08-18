@@ -49,6 +49,7 @@ import {
 } from "./certificate-eligibility";
 import { issueStudentCertificate } from "./certificate-issuance";
 import { listStudentCertificateRecords } from "./certificate-lifecycle";
+import { verifyCertificateByReference } from "./certificate-verification";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -214,6 +215,52 @@ async function handleRequest(
   try {
     if (request.method === "GET" && pathname === "/health") {
       sendJson(response, 200, getApiHealthDetails());
+      return;
+    }
+
+    // CERT-005 — public certificate verification.
+    //
+    // Deliberately unauthenticated: an employer holding a reference must be
+    // able to confirm a certificate without an account. The public capability
+    // is exactly one exact opaque reference in, one curated result out. There
+    // is no search, no listing, no prefix lookup and no user lookup, and the
+    // payload carries no holder identity, no Evidence and no internal ids.
+    const certificateVerifyMatch = pathname.match(
+      /^\/certificates\/verify\/([^/]+)$/
+    );
+    if (request.method === "GET" && certificateVerifyMatch) {
+      const result = await verifyCertificateByReference(
+        decodeURIComponent(certificateVerifyMatch[1] ?? "")
+      );
+
+      if (result.outcome === "malformed_reference") {
+        throw new AppError({
+          code: "VALIDATION_ERROR",
+          message: "That verification reference is not in a valid format.",
+          retryable: false
+        });
+      }
+
+      if (result.outcome === "not_found") {
+        throw new AppError({
+          code: "NOT_FOUND",
+          message: "We could not find a certificate for that reference.",
+          retryable: false
+        });
+      }
+
+      // A dependency or replay failure is never reported as invalid or
+      // missing (CERT-005 section 12).
+      if (result.outcome === "unavailable") {
+        throw new AppError({
+          code: "DEPENDENCY_UNAVAILABLE",
+          message:
+            "Verification is temporarily unavailable. This does not mean the certificate is invalid.",
+          retryable: true
+        });
+      }
+
+      sendJson(response, 200, { verification: result.certificate });
       return;
     }
 

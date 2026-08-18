@@ -57,12 +57,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-issuance\.ts$' \
   | grep -v 'certificate-issuance\.test\.ts$' \
   | grep -v 'certificate-lifecycle\.ts$' \
-  | grep -v 'certificate-lifecycle\.test\.ts$' || true)"
+  | grep -v 'certificate-lifecycle\.test\.ts$' \
+  | grep -v 'certificate-verification\.ts$' \
+  | grep -v 'certificate-verification\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance certificate-lifecycle; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -149,9 +151,16 @@ if echo "$CERT_SERVICE_CODE$CERT_MIGRATION_CODE" \
   fail "CERT-001 must not mint verification identifiers; CERT-005 owns verification"
 fi
 
-if grep -qE 'pathname === "/verify|pathname\.match\([^)]*\\/verify|/certificates/verify' "$SERVER"; then
-  fail "a certificate verification route exists; CERT-005 is not in scope"
+# CERT-005 now owns exactly one public verification route. What CERT-001 must
+# still never do is mint identifiers or add verification behaviour of its own,
+# which the check above already enforces. A bare /verify route remains
+# forbidden, and the verification path must be the certificate one.
+if grep -qE 'pathname === "/verify' "$SERVER"; then
+  fail "a bare anonymous verification route exists"
 fi
+CERT_VERIFY_ROUTES="$(grep -cE '\^\\/certificates\\/verify' "$SERVER" || true)"
+[ "$CERT_VERIFY_ROUTES" -le 1 ] \
+  || fail "more than one certificate verification route exists"
 
 echo "PASS: verificationPermitted is a declarative boolean with no CERT-005 behaviour"
 
@@ -738,6 +747,11 @@ grep -Fq 'Certificate issued: ' "$UI_PRESENTATION" \
 if echo "$UI_SERVICE_CODE$UI_VIEW_CODE" | grep -qE '/certificates/(issue|claim|verify)"|"/verify/'; then
   fail "the eligibility UI must not call an issuance or verification endpoint"
 fi
+# The eligibility UI in particular must not reach the public verification
+# surface; CERT-005 has its own separate pre-auth view.
+if echo "$UI_SERVICE_CODE$UI_VIEW_CODE" | grep -Fq 'certificates/verify/'; then
+  fail "the eligibility UI must not call the public verification endpoint"
+fi
 
 # CERT-003 authorizes exactly one write from this UI: the issuance request.
 # Every other method remains prohibited, and POST is permitted only to the
@@ -1059,8 +1073,10 @@ done
 if echo "$ISSUE_SERVICE_CODE" | grep -qiE 'revoke|expiresAt|expirationMonths|portfolio|shareLink|employer|\bpdf\b'; then
   fail "CERT-004+ behaviour leaked into the issuance service"
 fi
-if grep -Fq '/certificates/verify' "$SERVER"; then
-  fail "CERT-005 verification must not exist in CERT-003"
+# CERT-005 owns verification. What must remain true is that the ISSUANCE
+# service implements none of it.
+if echo "$ISSUE_SERVICE_CODE" | grep -Fq '/certificates/verify'; then
+  fail "CERT-005 verification must not exist in the CERT-003 issuance service"
 fi
 if echo "$ISSUE_SERVICE_CODE" | grep -qiE 'sendEmail|smtp|EmailProvider'; then
   fail "CERT-003 must not build notification infrastructure"
@@ -1353,8 +1369,159 @@ if echo "$LIFE_MIGRATION_CODE" | grep -Fq 'audit'; then
   fail "CERT-004 must reuse the platform audit mechanism, not create one"
 fi
 
-echo "PASS: CERT-005 through CERT-009 remain unimplemented"
+echo "PASS: CERT-006 through CERT-009 remain unimplemented"
 echo "PASS: lifecycle transitions are audited through the existing mechanism"
+
+# ============================================================
+# CERT-005 — Certificate Verification (Batch 6)
+# ============================================================
+
+VERIFY_TYPES="packages/shared-types/src/certificate-verification.ts"
+VERIFY_TYPE_TESTS="packages/shared-types/src/certificate-verification.test.ts"
+VERIFY_SERVICE="services/api/src/certificate-verification.ts"
+VERIFY_SERVICE_TESTS="services/api/src/certificate-verification.test.ts"
+VERIFY_VIEW="apps/web/src/certificates/CertificateVerificationView.tsx"
+VERIFY_WEB_SERVICE="apps/web/src/certificates/certificate-verification-service.ts"
+VERIFY_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_6_CERTIFICATE_VERIFICATION.md"
+
+for p in \
+  "$VERIFY_TYPES" "$VERIFY_TYPE_TESTS" "$VERIFY_SERVICE" \
+  "$VERIFY_SERVICE_TESTS" "$VERIFY_VIEW" "$VERIFY_WEB_SERVICE" "$VERIFY_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+VERIFY_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$VERIFY_SERVICE" || true)"
+VERIFY_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$VERIFY_TYPES" || true)"
+
+# --- 39. no migration, no public policy -------------------------------------
+# Scoped to certificate migrations: Wave 7's evidence_verification_references
+# migration legitimately carries "verification" in its name.
+if ls supabase/migrations/*certificate*verification*.sql >/dev/null 2>&1; then
+  fail "CERT-005 must add no certificate verification migration"
+fi
+CERTIFICATE_MIGRATION_COUNT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
+[ "$CERTIFICATE_MIGRATION_COUNT" = "3" ] \
+  || fail "expected 3 certificate migrations, found $CERTIFICATE_MIGRATION_COUNT"
+for migration in supabase/migrations/*certificate*.sql; do
+  MIG_CODE="$(grep -vE '^\s*--' "$migration" || true)"
+  if echo "$MIG_CODE" | grep -qE '\bto[[:space:]]+(anon|public)\b'; then
+    fail "a public or anon RLS policy exists in $migration"
+  fi
+done
+
+echo "PASS: CERT-005 adds no migration and no public RLS policy"
+
+# --- 40. exact-equality lookup only -----------------------------------------
+grep -Fq '.eq("verification_id", reference)' "$VERIFY_SERVICE" \
+  || fail "verification does not look up by exact reference"
+for forbidden in '.like(' '.ilike(' '.filter(' '.order(' '.range(' '.textSearch(' '.limit('; do
+  if echo "$VERIFY_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "verification must use exact-equality lookup only; found $forbidden"
+  fi
+done
+grep -Fq 'isCertificateVerificationReference(reference)' "$VERIFY_SERVICE" \
+  || fail "verification does not validate the reference format"
+
+VERIFY_VALIDATE_AT="$(grep -n 'isCertificateVerificationReference(reference)' "$VERIFY_SERVICE" | head -1 | cut -d: -f1 || true)"
+VERIFY_QUERY_AT="$(grep -n 'createServerSupabaseClient()' "$VERIFY_SERVICE" | head -1 | cut -d: -f1 || true)"
+[ -n "$VERIFY_VALIDATE_AT" ] || fail "verification format validation is missing"
+[ -n "$VERIFY_QUERY_AT" ] || fail "verification performs no lookup"
+[ "$VERIFY_VALIDATE_AT" -lt "$VERIFY_QUERY_AT" ] \
+  || fail "a malformed reference reaches the database before validation"
+
+echo "PASS: verification validates the reference before any exact-equality lookup"
+
+# --- 41. no holder identity, no Evidence ------------------------------------
+for forbidden in user_id userId user_profiles display_name displayName email auth.users; do
+  if echo "$VERIFY_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "public verification must not reach holder identity: $forbidden"
+  fi
+done
+for forbidden in evidence_records evidence_competency_links \
+                 evidence_correction_events evidence_verification_references \
+                 certificate_evidence_snapshots; do
+  if echo "$VERIFY_SERVICE_CODE" | grep -Fq "$forbidden"; then
+    fail "public verification must not reach Evidence: $forbidden"
+  fi
+done
+
+grep -Fq 'CERTIFICATE_VERIFICATION_FORBIDDEN_FIELDS' "$VERIFY_TYPES" \
+  || fail "the forbidden public field list is missing"
+grep -Fq 'buildCertificateVerificationRecord' "$VERIFY_TYPES" \
+  || fail "the curated payload builder is missing"
+
+echo "PASS: public verification exposes no holder identity and no Evidence"
+
+# --- 42. lifecycle truth is reused, never collapsed -------------------------
+grep -Fq 'resolveEffectiveCertificateStatus' "$VERIFY_SERVICE" \
+  || fail "verification does not reuse the CERT-004 lifecycle resolver"
+if echo "$VERIFY_SERVICE_CODE$VERIFY_TYPES_CODE" | grep -qE '\bvalid:\s*(true|false)|isValid'; then
+  fail "verification must not collapse lifecycle into a boolean"
+fi
+grep -Fq 'if (!effective.sequenceValid)' "$VERIFY_SERVICE" \
+  || fail "an incoherent lifecycle history is not failed closed"
+grep -Fq 'unavailable' "$VERIFY_TYPES" \
+  || fail "the unavailable outcome is missing"
+
+echo "PASS: lifecycle state is reported accurately and fails closed as unavailable"
+
+# --- 43. read-only public surface -------------------------------------------
+for write in '.insert(' '.update(' '.delete(' '.upsert(' '.rpc('; do
+  if echo "$VERIFY_SERVICE_CODE" | grep -Fq "$write"; then
+    fail "public verification must be read-only; found $write"
+  fi
+done
+if echo "$VERIFY_SERVICE_CODE" | grep -qE 'writeAuditEvent|console\.log'; then
+  fail "the verification reference must not be logged"
+fi
+
+VERIFY_ROUTE_BLOCK="$(awk '/CERT-005 — public certificate verification/{cap=1} /pathname === "\/ready"/{cap=0} cap' "$SERVER")"
+[ -n "$VERIFY_ROUTE_BLOCK" ] || fail "the CERT-005 route block was not found"
+echo "$VERIFY_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity' \
+  && fail "the public verification route must not require authentication"
+echo "$VERIFY_ROUTE_BLOCK" | grep -Fq 'searchParams' \
+  && fail "the public verification route must accept no query parameters"
+echo "$VERIFY_ROUTE_BLOCK" | grep -Fq 'request.method === "GET"' \
+  || fail "the public verification route is not GET only"
+
+for surface in '/certificates/public' '/certificates/search' '/certificates/all'; do
+  if grep -Fq "$surface" "$SERVER"; then
+    fail "no public certificate listing or search may exist: $surface"
+  fi
+done
+
+echo "PASS: public verification is read-only, unauthenticated and unenumerable"
+
+# --- 44. no CERT-006+ behaviour ---------------------------------------------
+if echo "$VERIFY_SERVICE_CODE" | grep -qiE 'portfolio|sharelink|share_link|download|\bpdf\b|\bqr\b|branding|employer'; then
+  fail "CERT-006+ behaviour leaked into CERT-005"
+fi
+if echo "$VERIFY_SERVICE_CODE" | grep -qiE 'revoke|restore|replacementCertificate'; then
+  fail "CERT-008 workflow leaked into CERT-005"
+fi
+if echo "$VERIFY_SERVICE_CODE" | grep -qE 'certificateKind|certificate_kind|course_completion'; then
+  fail "CERT-005 must remain credential-kind agnostic (DEC-029 to DEC-035)"
+fi
+if echo "$VERIFY_SERVICE_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the verification path"
+fi
+
+# Accessibility: status as text, never colour alone.
+grep -Fq 'describeVerifiedStatus' "$VERIFY_VIEW" \
+  || fail "the verification page does not render status as text"
+grep -Fq 'aria-live="polite"' "$VERIFY_VIEW" \
+  || fail "the verification page has no polite status region"
+grep -Fq '<h1 id="verification-title">' "$VERIFY_VIEW" \
+  || fail "the verification page has no semantic heading"
+if grep -qiE 'className="[^"]*(green|red|amber|success-status|danger)' "$VERIFY_VIEW"; then
+  fail "verification status must not be conveyed by colour"
+fi
+if grep -Fq 'style={{' "$VERIFY_VIEW"; then
+  fail "the verification page must not encode status with inline styles"
+fi
+
+echo "PASS: CERT-006 through CERT-009 remain unimplemented in verification"
+echo "PASS: the verification page is accessible and status is text"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green
@@ -1385,6 +1552,8 @@ echo "Wave 8 Batch 4 verification passed."
 echo "CERT-003 Deterministic Certificate Issuance is implemented."
 echo "Wave 8 Batch 5 verification passed."
 echo "CERT-004 Certificate Record and Lifecycle is implemented."
+echo "Wave 8 Batch 6 verification passed."
+echo "CERT-005 Certificate Verification is implemented."
 echo "Concurrency and rollback are structurally verified only; no live PostgreSQL test exists."
 echo "Wave 7 Evidence Engine guarantees remain intact."
 echo "============================================================"
