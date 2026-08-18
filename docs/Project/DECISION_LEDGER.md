@@ -732,6 +732,193 @@ Secrets are never committed.
 
 ---
 
+# Credentials
+
+---
+
+## DEC-029
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Two Distinct Credential Semantics
+
+**Status**
+
+Approved
+
+**Decision**
+
+The platform supports two intentionally different credential claims.
+
+* **completion** — the learner completed the defined training/course requirements.
+* **competency** — the learner demonstrated required competency through authoritative Evidence.
+
+A completion credential must not imply competency.
+
+A competency credential must not imply that all instructional content was consumed.
+
+This extends the existing Learning Engine rule that the platform must distinguish completion from competency (LEARN-001).
+
+---
+
+## DEC-030
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Test-Out Does Not Imply Course Completion
+
+**Status**
+
+Approved
+
+**Decision**
+
+Demonstrated mastery through test-out does not automatically mean course completion.
+
+A learner who proves competency without consuming all required training may satisfy competency-certificate requirements. They do not automatically satisfy completion-certificate requirements.
+
+Learners who demonstrate competency are never required to consume training merely to receive a competency credential.
+
+This resolves a gap: LEARN-005 defines test-out but is silent on course completion.
+
+---
+
+## DEC-031
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Learning Engine Owns Course Completion Truth
+
+**Status**
+
+Approved
+
+**Decision**
+
+Ownership of the completion chain is fixed:
+
+* **Curriculum Engine** defines course structure.
+* **Learning Engine** determines whether the learner actually completed the required training, and owns that authoritative truth.
+* **Evidence Engine** converts the authoritative completion fact into canonical Evidence.
+* **Certificate Engine** consumes that Evidence.
+
+The frontend is never authoritative for course completion.
+
+---
+
+## DEC-032
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Dedicated course_completion Evidence Source Type
+
+**Status**
+
+Approved
+
+**Decision**
+
+Course completion uses a dedicated canonical Evidence source type, `course_completion`.
+
+`system_authoritative` must not be overloaded for this purpose, so that Evidence policies can address completion precisely rather than by convention.
+
+The Evidence must originate from trusted server-side Learning Engine truth.
+
+---
+
+## DEC-033
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+certificateKind Is a Material Certificate Definition Field
+
+**Status**
+
+Approved
+
+**Decision**
+
+Certificate Definitions carry a first-class semantic field `certificateKind`, with exactly two values: `completion` and `competency`.
+
+It is semantic, not presentation metadata: it describes what the issued credential asserts, and is therefore frozen as part of a published Certificate Definition's material meaning.
+
+No hybrid or additional kinds are permitted in the MVP without a further architecture decision.
+
+---
+
+## DEC-034
+
+**Category**
+
+Security
+
+**Title**
+
+A Published Certificate Must Never Require Nothing
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-001 will no longer universally require a competency for every certificate, but the safety property is preserved:
+
+* **completion** — must require authoritative `course_completion` Evidence through an approved Evidence policy.
+* **competency** — must require at least one required competency.
+
+Zero competency requirements together with zero Evidence policies must remain unpublishable.
+
+This safety property must not be weakened.
+
+---
+
+## DEC-035
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+One Certificate Pipeline for Both Credential Kinds
+
+**Status**
+
+Approved
+
+**Decision**
+
+There are never separate completion and competency certificate engines.
+
+Both credential kinds flow through one deterministic pipeline:
+
+authoritative prerequisite truth → canonical Evidence where applicable → CERT-002 deterministic eligibility → CERT-003 deterministic issuance → CERT-004 lifecycle.
+
+CERT-002, CERT-003 and CERT-004 remain credential-kind agnostic except where an explicit semantic validation requirement is genuinely necessary.
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

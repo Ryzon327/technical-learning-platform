@@ -327,6 +327,97 @@ Before MVP release:
 
 ---
 
+# 15b. Cross-Engine Batch — Course Completion Credentials
+
+This is an approved MVP requirement that spans three engines, so it is
+sequenced as its own batch rather than inside any single build wave.
+
+It must be completed before MVP release. It must **not** be implemented during
+CERT-005 or mixed into any other Certificate Engine feature.
+
+Governing decisions: **DEC-029 through DEC-035**.
+
+Implement:
+
+- authoritative server-owned course-completion truth in the Learning Engine.
+- a `course_completion` canonical Evidence source type and the adapter that
+  converts the Learning Engine completion fact into Evidence.
+- `certificateKind` (`completion` | `competency`) as a material Certificate
+  Definition field, frozen on publication.
+- a revised CERT-001 publication rule that permits a completion certificate
+  while keeping a requirement-free certificate unpublishable.
+
+Do not implement:
+
+- separate completion and competency certificate engines.
+- hybrid or additional credential kinds.
+- any change that lets the frontend assert course completion.
+
+## Exit criteria
+
+A completion certificate and a competency certificate can each be defined,
+evaluated and issued through the single existing deterministic pipeline, and a
+completion credential never implies demonstrated competency.
+
+---
+
+# 15c. Pre-MVP Legacy Architecture Assurance Audit
+
+Before the MVP Release Gate can pass, the repository must receive a
+comprehensive assurance audit of implementation that predates the current
+Claude Code verification workflow.
+
+**This is not authorization to rebuild earlier engines.** No engine is
+rewritten merely because it is old. The current repository is the authority,
+and only genuine findings become remediation work items.
+
+## Purpose
+
+Verify that earlier committed implementation still satisfies:
+
+- approved Feature Registry specifications.
+- current architecture and ownership boundaries.
+- authentication and authorization requirements.
+- server-side authority.
+- deterministic truth rules.
+- historical and version truth.
+- RLS and database security.
+- cross-user isolation.
+- fail-closed behaviour.
+- previous-wave invariants.
+- current repository conventions.
+
+## Scope
+
+As applicable: Platform Kernel · Authentication · Curriculum · Learning ·
+Assessment and Test-Out · Knowledge and Notes · Labs · Evidence · Search ·
+AI Gateway and AI Features · Analytics · Operations · and any other
+implementation completed before the stricter verification workflow became
+standard.
+
+## The audit must specifically look for
+
+- verifier checks that do not actually bite.
+- stale verifiers that inspect superseded implementations.
+- authorization bypasses.
+- client-side authority over deterministic facts.
+- migration or schema drift.
+- duplicated sources of truth.
+- fail-open behaviour.
+- incomplete negative tests.
+- hidden TODO, stub or placeholder behaviour.
+- undocumented architecture drift.
+- unfinished integration.
+- discrepancies between the Feature Registry, roadmap/status documents, and
+  code.
+
+## Exit criteria
+
+The audit has run across the applicable scope, and every release-blocking
+finding is either remediated or explicitly resolved with a recorded decision.
+
+---
+
 # 16. MVP Release Gate
 
 MVP release requires:
@@ -338,6 +429,7 @@ MVP release requires:
 - [ ] at least one practical lab.
 - [ ] evidence generated from assessment/lab.
 - [ ] evidence-backed certificate.
+- [ ] completion and competency credentials are distinct (DEC-029 to DEC-035).
 - [ ] private notes.
 - [ ] baseline search.
 - [ ] at least one approved AI-assisted workflow.
@@ -345,6 +437,8 @@ MVP release requires:
 - [ ] email/in-app notifications for required flows.
 - [ ] security/accessibility/reliability checks passed.
 - [ ] no critical unresolved architecture conflicts.
+- [ ] pre-Claude-Code / legacy implementation assurance audit passes, with all
+      release-blocking findings remediated or explicitly resolved (§15c).
 
 ---
 
