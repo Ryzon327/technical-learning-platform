@@ -919,6 +919,98 @@ CERT-002, CERT-003 and CERT-004 remain credential-kind agnostic except where an 
 
 ---
 
+## DEC-036
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Certificate Export Is Structured Text, Not a Document
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-007 provides:
+
+* an accessible on-screen representation of the export.
+* a browser-native JSON download.
+* a browser-native Markdown download.
+
+PDF is excluded from CERT-007.
+
+---
+
+## DEC-037
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+CERT-007 May Precede CERT-009
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-007 may proceed before CERT-009 for truthful structured portable representations.
+
+CERT-009 retains ownership of branded and presentation-grade credential treatment.
+
+---
+
+## DEC-038
+
+**Category**
+
+Security
+
+**Title**
+
+An Exported Certificate Carries Credential Truth, Not Learner Identity
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-007 exports credential truth, not learner identity.
+
+Student display name, email, user ID, internal learner UUID and other learner identity fields remain excluded from the export.
+
+---
+
+## DEC-039
+
+**Category**
+
+Security
+
+**Title**
+
+Share Links Are Designed, Not Minted
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-007 contains design-only share-link hooks.
+
+CERT-007 does not mint tokens, create live share URLs, persist share state, add anonymous or public sharing routes, or change RLS or public access.
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

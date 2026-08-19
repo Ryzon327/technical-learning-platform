@@ -52,6 +52,7 @@ import { issueStudentCertificate } from "./certificate-issuance";
 import { listStudentCertificateRecords } from "./certificate-lifecycle";
 import { verifyCertificateByReference } from "./certificate-verification";
 import { getStudentCertificatePortfolio } from "./certificate-portfolio";
+import { exportStudentCertificates } from "./certificate-export";
 import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
@@ -467,6 +468,29 @@ async function handleRequest(
         version: Number(body.version)
       });
       sendJson(response, issuance.alreadyIssued ? 200 : 201, issuance);
+      return;
+    }
+
+    // CERT-007 — the student's own certificate export.
+    //
+    // Composes the CERT-006 portfolio and returns a portable representation of
+    // certificates the caller already owns, scoped to the authenticated caller
+    // and reflecting current lifecycle status at the moment of export.
+    //
+    // It publishes nothing: no share link is minted here, no public route
+    // exists, and no branded or printable artifact is produced — CERT-009 owns
+    // presentation.
+    if (request.method === "POST" && pathname === "/certificates/export") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(response, 200, {
+        export: await exportStudentCertificates(trusted.identity.userId, {
+          filters: normalizeCertificatePortfolioFilters({
+            status: url.searchParams.get("status") ?? undefined,
+            certificateDefinitionStableId:
+              url.searchParams.get("certificateDefinitionStableId") ?? undefined
+          })
+        })
+      });
       return;
     }
 

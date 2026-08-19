@@ -40,6 +40,7 @@ export * from "./certificate-issuance";
 export * from "./certificate-lifecycle";
 export * from "./certificate-verification";
 export * from "./certificate-portfolio";
+export * from "./certificate-export";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";

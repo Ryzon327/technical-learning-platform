@@ -65,6 +65,16 @@ assert_status GET '/certificates/portfolio?status=revoked' 401
 assert_status POST /certificates/portfolio 404 '{"x":1}'
 assert_status DELETE /certificates/portfolio 404
 assert_status GET /admin/certificates/portfolio 404
+
+# CERT-007 — the export is authenticated, POST only, and has no admin, public
+# or share surface.
+assert_status POST /certificates/export 401 '{"x":1}'
+assert_status POST '/certificates/export?status=revoked' 401 '{"x":1}'
+assert_status GET /certificates/export 404
+assert_status DELETE /certificates/export 404
+assert_status GET /admin/certificates/export 404
+assert_status GET /certificates/export/public 404
+assert_status GET /share/certificates 404
 assert_status POST /certificates 404 '{"x":1}'
 assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
@@ -148,3 +158,5 @@ echo 'PASS: CERT-005 rejects a malformed verification reference before any looku
 echo 'PASS: CERT-005 exposes no verification mutation, listing or search route'
 echo 'PASS: CERT-006 private portfolio rejects unauthenticated requests'
 echo 'PASS: CERT-006 exposes no portfolio mutation or admin route'
+echo 'PASS: CERT-007 certificate export rejects unauthenticated requests'
+echo 'PASS: CERT-007 exposes no admin, public or share export route'

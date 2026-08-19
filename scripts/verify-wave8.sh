@@ -61,12 +61,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-verification\.ts$' \
   | grep -v 'certificate-verification\.test\.ts$' \
   | grep -v 'certificate-portfolio\.ts$' \
-  | grep -v 'certificate-portfolio\.test\.ts$' || true)"
+  | grep -v 'certificate-portfolio\.test\.ts$' \
+  | grep -v 'certificate-export\.ts$' \
+  | grep -v 'certificate-export\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio certificate-export; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -404,7 +406,7 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
   case "$route" in
-    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"'|'"/certificates/portfolio"') ;;
+    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"'|'"/certificates/portfolio"'|'"/certificates/export"') ;;
     *) fail "an unapproved student certificate route exists: $route" ;;
   esac
 done
@@ -1666,8 +1668,22 @@ fi
 PORT_VIEW_CODE="$(awk '/\{\/\*/{skip=1} !skip; /\*\/\}/{skip=0}' "$PORT_VIEW" \
   | grep -vE '^\s*(//|\*|/\*)' \
   | sed -E 's/export (function|const|interface|type|default)/\1/g' || true)"
-if echo "$PORT_VIEW_CODE" | grep -qiE '\b(export|share|download|pdf)\b'; then
+#
+# CERT-007 narrowing: the approved export panel is MOUNTED here and implemented
+# entirely in its own component. Only that exact token is exempted — every other
+# export, share or download wording in this view is still a failure, and the
+# view must still wire no export behaviour of its own.
+#
+# The exemption is by exact token rather than by relying on the word-boundary
+# accident that `CertificateExportPanel` contains no standalone "export".
+PORT_VIEW_EXPORT_SCAN="$(echo "$PORT_VIEW_CODE" | sed -E 's/CertificateExportPanel//g')"
+if echo "$PORT_VIEW_EXPORT_SCAN" | grep -qiE '\b(export|share|download|pdf)\b'; then
   fail "CERT-006 must not render or wire an export, share or download control"
+fi
+grep -Fq '<CertificateExportPanel filters={filters} />' "$PORT_VIEW" \
+  || fail "the approved CERT-007 export panel is not mounted in the portfolio"
+if grep -qE 'createObjectURL|new Blob|\.download =' "$PORT_VIEW"; then
+  fail "CERT-006 must not implement export behaviour; CERT-007 owns it"
 fi
 PORT_PRESENTATION_WORDS="$(grep -vE '^\s*(//|\*|/\*)' "$PORT_PRESENTATION" \
   | sed -E 's/export (function|const|interface|type|default)/\1/g' || true)"
@@ -1774,6 +1790,186 @@ grep -Fq 'aria-current' "$PORT_SHELL" \
 
 echo "PASS: the portfolio is accessible with labelled native filters"
 echo "PASS: the portfolio is reachable from the authenticated workspace"
+
+# ============================================================
+# CERT-007 — Certificate Export and Sharing (Batch 8)
+# ============================================================
+
+EXPORT_TYPES="packages/shared-types/src/certificate-export.ts"
+EXPORT_TYPE_TESTS="packages/shared-types/src/certificate-export.test.ts"
+EXPORT_SERVICE="services/api/src/certificate-export.ts"
+EXPORT_SERVICE_TESTS="services/api/src/certificate-export.test.ts"
+EXPORT_PANEL="apps/web/src/certificates/CertificateExportPanel.tsx"
+EXPORT_WEB_SERVICE="apps/web/src/certificates/certificate-export-service.ts"
+EXPORT_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_8_CERTIFICATE_EXPORT_AND_SHARING.md"
+
+for p in \
+  "$EXPORT_TYPES" "$EXPORT_TYPE_TESTS" "$EXPORT_SERVICE" \
+  "$EXPORT_SERVICE_TESTS" "$EXPORT_PANEL" "$EXPORT_WEB_SERVICE" "$EXPORT_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+EXPORT_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$EXPORT_SERVICE" || true)"
+EXPORT_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$EXPORT_TYPES" || true)"
+
+# --- 52. no migration, no new dependency ------------------------------------
+CERT_MIGRATIONS_AFTER_EXPORT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
+[ "$CERT_MIGRATIONS_AFTER_EXPORT" = "3" ] \
+  || fail "CERT-007 must add no migration; found $CERT_MIGRATIONS_AFTER_EXPORT"
+if ls supabase/migrations/*share*.sql >/dev/null 2>&1; then
+  fail "CERT-007 must not create a share-link schema"
+fi
+for manifest in apps/web/package.json services/api/package.json packages/shared-types/package.json; do
+  if grep -qiE '"(pdfkit|jspdf|puppeteer|playwright|qrcode|handlebars|ejs|pug)"' "$manifest"; then
+    fail "CERT-007 must not introduce a document or template dependency: $manifest"
+  fi
+done
+
+echo "PASS: CERT-007 adds no migration, no share schema and no new dependency"
+
+# --- 53. owner-only, no public or admin surface -----------------------------
+grep -Fq 'trusted.identity.userId' "$SERVER" \
+  || fail "the export route does not use the trusted identity"
+if grep -qE '/admin/certificates/export|/certificates/export/public|/share/' "$SERVER"; then
+  fail "CERT-007 must expose no admin, public or share route"
+fi
+if echo "$EXPORT_SERVICE_CODE" | grep -qE 'createUserScopedSupabaseClient|service_role'; then
+  fail "CERT-007 must not widen the certificate access path"
+fi
+grep -Fq 'export async function exportStudentCertificates' "$EXPORT_SERVICE" \
+  || fail "the export service entry point is missing"
+
+echo "PASS: the export is owner-only with no public or admin surface"
+
+# --- 54. source-of-truth boundaries -----------------------------------------
+grep -Fq 'getStudentCertificatePortfolio' "$EXPORT_SERVICE" \
+  || fail "CERT-007 must compose the CERT-006 portfolio rather than re-reading"
+for forbidden in '.from(' '.select(' '.insert(' '.update(' '.delete(' '.rpc('; do
+  if echo "$EXPORT_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-007 must own no query or write of its own: $forbidden"
+  fi
+done
+if echo "$EXPORT_SERVICE_CODE" | grep -qF 'resolveEffectiveCertificateStatus'; then
+  fail "CERT-007 must not resolve lifecycle status; CERT-004 owns it"
+fi
+grep -Fq 'export function isCurrentlyValidForExport' "$EXPORT_TYPES" \
+  || fail "current validity has no single fail-closed rule"
+grep -Fq 'return status === "active";' "$EXPORT_TYPES" \
+  || fail "current validity must fail closed to active only"
+
+echo "PASS: CERT-007 owns no certificate truth and writes nothing"
+
+# --- 55. privacy: the approved field list only ------------------------------
+grep -Fq 'CERTIFICATE_EXPORT_FORBIDDEN_FIELDS' "$EXPORT_TYPES" \
+  || fail "the export prohibition list is not held as data"
+grep -Fq 'CERTIFICATE_EXPORT_FORBIDDEN_FIELDS' "$EXPORT_TYPE_TESTS" \
+  || fail "the export prohibition list is not asserted by tests"
+for forbidden in 'holderName' 'displayName' 'user_profiles' 'certificateId:' 'userId:'; do
+  if echo "$EXPORT_TYPES_CODE" | grep -qF "$forbidden"; then
+    case "$forbidden" in
+      'holderName'|'displayName')
+        # Permitted only inside the forbidden-field list itself.
+        if echo "$EXPORT_TYPES_CODE" | grep -F "$forbidden" | grep -qvE '^\s*"'; then
+          fail "CERT-007 must not carry holder identity: $forbidden"
+        fi
+        ;;
+      *) fail "CERT-007 must not carry an internal identifier: $forbidden" ;;
+    esac
+  fi
+done
+if echo "$EXPORT_SERVICE_CODE" | grep -qiE 'user_profiles|holderName|displayName'; then
+  fail "CERT-007 must not read or carry the student's identity"
+fi
+
+echo "PASS: the export carries the approved fields and no identity"
+
+# --- 56. no CERT-008 or CERT-009 behaviour ----------------------------------
+if echo "$EXPORT_SERVICE_CODE" | grep -qiE 'revoke|restore|replacementCertificate'; then
+  fail "CERT-008 workflow leaked into CERT-007"
+fi
+# Judged on code, not commentary, and not on the prohibition list itself: this
+# batch's sources name the excluded CERT-009 fields precisely in order to
+# forbid them, so a naive scan would flag the exclusion notes.
+BRANDING_SCAN="$(cat "$EXPORT_TYPES" "$EXPORT_SERVICE" "$EXPORT_PANEL" \
+  | grep -vE '^\s*(//|\*|/\*)' \
+  | grep -vE '^\s*"[A-Za-z_]+",?$' || true)"
+if echo "$BRANDING_SCAN" | grep -qiE 'logo|brandAsset|typography|fontFamily|<img|data:image'; then
+  fail "CERT-009 branding leaked into CERT-007"
+fi
+if echo "$EXPORT_SERVICE_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the export path"
+fi
+
+echo "PASS: CERT-008 and CERT-009 remain unimplemented in the export"
+
+# --- 57. sharing is designed, never minted ----------------------------------
+grep -Fq 'CERTIFICATE_SHARE_PAYLOAD_VERSION' "$EXPORT_TYPES" \
+  || fail "the share payload model is missing"
+grep -Fq 'export function toCertificateSharePayload' "$EXPORT_TYPES" \
+  || fail "the share payload builder is missing"
+# Designed only: nothing may resolve, serve or mint a share link.
+if grep -rqE 'toCertificateSharePayload' "$EXPORT_SERVICE" "$SERVER" "$EXPORT_PANEL" "$EXPORT_WEB_SERVICE"; then
+  fail "the share payload must be designed, not resolved by anything"
+fi
+for forbidden in 'shareToken' 'share_link' 'shareUrl' 'randomBytes'; do
+  if echo "$EXPORT_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-007 must mint no share link: $forbidden"
+  fi
+  if grep -qF "$forbidden" "$EXPORT_PANEL" "$EXPORT_WEB_SERVICE"; then
+    fail "CERT-007 must mint no share link in the frontend: $forbidden"
+  fi
+done
+
+echo "PASS: the share model is designed and nothing mints a link"
+
+# --- 58. portable format and accessibility ----------------------------------
+grep -Fq 'export type CertificateExportFormat = "json" | "markdown";' "$EXPORT_TYPES" \
+  || fail "the approved portable formats are not exactly json and markdown"
+grep -Fq 'export function serializeCertificateExport' "$EXPORT_TYPES" \
+  || fail "the export cannot be serialized to a portable format"
+grep -Fq 'export function buildCertificateExportDownload' "$EXPORT_TYPES" \
+  || fail "the download bundle is not built by the tested pure module"
+# The artifact must be text, never image-only (CERT-007 section 9).
+if grep -qiE 'canvas|toDataURL|image/png|image/jpeg' "$EXPORT_TYPES" "$EXPORT_PANEL"; then
+  fail "the exported artifact must not be image-based"
+fi
+
+grep -Fq 'aria-live="polite"' "$EXPORT_PANEL" \
+  || fail "the export panel has no polite status region"
+grep -Fq 'role="alert"' "$EXPORT_PANEL" \
+  || fail "the export panel reports failure without an alert"
+grep -Fq '<h3 id="certificate-export-title">' "$EXPORT_PANEL" \
+  || fail "the export panel has no semantic heading"
+grep -Fq 'htmlFor="certificate-export-format"' "$EXPORT_PANEL" \
+  || fail "the export format control has no accessible label"
+grep -Fq '<caption>' "$EXPORT_PANEL" \
+  || fail "the exported table has no caption"
+grep -Fq 'scope="col"' "$EXPORT_PANEL" \
+  || fail "the exported table has no column scopes"
+grep -Fq 'describeCertificateExportContents' "$EXPORT_PANEL" \
+  || fail "the student is not told what the export contains"
+for custom in 'role="listbox"' 'role="combobox"' 'onKeyDown' 'tabIndex'; do
+  if grep -Fq "$custom" "$EXPORT_PANEL"; then
+    fail "the export panel must not build a custom control: $custom"
+  fi
+done
+if grep -qiE 'className="[^"]*(green|red|amber|success-status|danger)' "$EXPORT_PANEL"; then
+  fail "export status must not be conveyed by colour"
+fi
+
+echo "PASS: the export is text, portable and accessible"
+
+# --- 59. failure behaviour and partial results ------------------------------
+grep -Fq 'unavailableCertificates' "$EXPORT_TYPES" \
+  || fail "the export cannot represent a certificate it could not include"
+grep -Fq 'unavailableCertificates' "$EXPORT_SERVICE" \
+  || fail "the export service drops certificates it cannot resolve"
+grep -Fq 'describeUnavailableEntry' "$EXPORT_SERVICE" \
+  || fail "an unexportable certificate is described inconsistently"
+grep -Fq 'VALIDATION_ERROR' "$EXPORT_SERVICE" \
+  || fail "the export accepts a blank identifier"
+
+echo "PASS: an unexportable certificate is listed, never fabricated or dropped"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green

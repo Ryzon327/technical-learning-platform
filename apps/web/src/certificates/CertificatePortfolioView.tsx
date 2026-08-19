@@ -10,6 +10,7 @@ import {
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
+import { CertificateExportPanel } from "./CertificateExportPanel";
 import {
   buildCertificateVerificationHref,
   buildPortfolioDetailRegionId,
@@ -298,6 +299,13 @@ export function CertificatePortfolioView() {
           ))}
         </ul>
       )}
+
+      {/*
+        CERT-007 owns taking certificates out of the platform. The panel is
+        mounted here so it exports what the learner is currently looking at,
+        and it is implemented entirely in its own component.
+      */}
+      <CertificateExportPanel filters={filters} />
 
       {/*
         A certificate whose details could not be resolved is shown rather than
