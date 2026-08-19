@@ -410,7 +410,9 @@ describe("CERT-001 and Wave 7 surfaces are unchanged", () => {
       server.indexOf('pathname === "/admin/ping"')
     );
     const guards = adminBlock.match(/await founder\(request\)/g) ?? [];
-    expect(guards.length).toBe(9);
+    // Nine CERT-001 authoring routes plus the two CERT-008 correction routes.
+    // Every one of them still resolves the founder admin path.
+    expect(guards.length).toBe(11);
   });
 
   it("G2: no student route reaches Certificate Definition authoring", () => {

@@ -75,6 +75,15 @@ assert_status DELETE /certificates/export 404
 assert_status GET /admin/certificates/export 404
 assert_status GET /certificates/export/public 404
 assert_status GET /share/certificates 404
+
+# CERT-008 — corrections are privileged only, and no student surface exists.
+assert_status POST /admin/certificates/test-certificate/corrections 401 '{"action":"revoke","reason":"smoke test reason"}'
+assert_status GET /admin/certificates/test-certificate/corrections 401
+assert_status DELETE /admin/certificates/test-certificate/corrections 404
+assert_status POST /certificates/test-certificate/corrections 404 '{"action":"revoke"}'
+assert_status POST /certificates/revoke 404 '{"certificateId":"test"}'
+assert_status POST /certificates/restore 404 '{"certificateId":"test"}'
+assert_status POST /certificates/correct 404 '{"certificateId":"test"}'
 assert_status POST /certificates 404 '{"x":1}'
 assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
@@ -160,3 +169,5 @@ echo 'PASS: CERT-006 private portfolio rejects unauthenticated requests'
 echo 'PASS: CERT-006 exposes no portfolio mutation or admin route'
 echo 'PASS: CERT-007 certificate export rejects unauthenticated requests'
 echo 'PASS: CERT-007 exposes no admin, public or share export route'
+echo 'PASS: CERT-008 corrections require privileged authentication'
+echo 'PASS: CERT-008 exposes no student revoke, restore or correct route'

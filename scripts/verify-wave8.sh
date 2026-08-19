@@ -37,6 +37,21 @@ done
 CERT_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$CERT_SERVICE" || true)"
 CERT_MIGRATION_CODE="$(grep -vE '^\s*--' "$CERT_MIGRATION" || true)"
 
+# The complete, exact set of certificate migrations.
+#
+# CERT-008 narrowing: the certificate-migration guards were bare counts of 3,
+# which CERT-008's approved correction migration trips. They are now pinned to
+# this exact filename set, which is STRICTER than a count — a count is satisfied
+# by any three files, this is satisfied by exactly these four. Every earlier
+# batch still cannot add a migration.
+CERTIFICATE_MIGRATIONS_EXPECTED="20260813000700_certificate_definition_foundation.sql
+20260813000800_certificate_issuance_foundation.sql
+20260813000900_certificate_lifecycle_foundation.sql
+20260813001000_certificate_correction_foundation.sql"
+certificate_migration_set() {
+  ls supabase/migrations/*certificate*.sql 2>/dev/null | xargs -n1 basename | sort || true
+}
+
 # ------------------------------------------------------------
 # 1. One canonical Certificate Definition model, and only one
 # ------------------------------------------------------------
@@ -63,12 +78,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-portfolio\.ts$' \
   | grep -v 'certificate-portfolio\.test\.ts$' \
   | grep -v 'certificate-export\.ts$' \
-  | grep -v 'certificate-export\.test\.ts$' || true)"
+  | grep -v 'certificate-export\.test\.ts$' \
+  | grep -v 'certificate-correction\.ts$' \
+  | grep -v 'certificate-correction\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio certificate-export; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio certificate-export certificate-correction; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -1403,9 +1420,9 @@ VERIFY_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$VERIFY_TYPES" || true)"
 if ls supabase/migrations/*certificate*verification*.sql >/dev/null 2>&1; then
   fail "CERT-005 must add no certificate verification migration"
 fi
-CERTIFICATE_MIGRATION_COUNT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
-[ "$CERTIFICATE_MIGRATION_COUNT" = "3" ] \
-  || fail "expected 3 certificate migrations, found $CERTIFICATE_MIGRATION_COUNT"
+[ "$(certificate_migration_set)" = "$CERTIFICATE_MIGRATIONS_EXPECTED" ] \
+  || fail "unexpected certificate migration set:
+$(certificate_migration_set)"
 for migration in supabase/migrations/*certificate*.sql; do
   MIG_CODE="$(grep -vE '^\s*--' "$migration" || true)"
   if echo "$MIG_CODE" | grep -qE '\bto[[:space:]]+(anon|public)\b'; then
@@ -1552,9 +1569,14 @@ done
 PORT_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$PORT_SERVICE" || true)"
 
 # --- 45. no migration, read-only presentation -------------------------------
-CERT_MIGRATIONS_NOW="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
-[ "$CERT_MIGRATIONS_NOW" = "3" ] \
-  || fail "CERT-006 must add no migration; found $CERT_MIGRATIONS_NOW certificate migrations"
+# CERT-008 narrowing: the guard was a bare count of 3, which CERT-008's approved
+# correction migration would trip. It is now an EXACT filename set, so it is
+# stricter than before — a count could be satisfied by any three files, this
+# cannot. CERT-006 and CERT-007 still cannot add a migration, and no unexpected
+# certificate migration can appear.
+[ "$(certificate_migration_set)" = "$CERTIFICATE_MIGRATIONS_EXPECTED" ] \
+  || fail "CERT-006 must add no migration; unexpected set:
+$(certificate_migration_set)"
 
 for write in '.insert(' '.update(' '.delete(' '.upsert(' '.rpc('; do
   if echo "$PORT_SERVICE_CODE" | grep -Fq "$write"; then
@@ -1813,9 +1835,15 @@ EXPORT_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$EXPORT_SERVICE" || true)"
 EXPORT_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$EXPORT_TYPES" || true)"
 
 # --- 52. no migration, no new dependency ------------------------------------
-CERT_MIGRATIONS_AFTER_EXPORT="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | wc -l | tr -d ' ')"
-[ "$CERT_MIGRATIONS_AFTER_EXPORT" = "3" ] \
-  || fail "CERT-007 must add no migration; found $CERT_MIGRATIONS_AFTER_EXPORT"
+# Same exact-set narrowing as the CERT-006 section: CERT-007 still adds no
+# migration, and the set is pinned by name rather than counted.
+[ "$(certificate_migration_set)" = "$CERTIFICATE_MIGRATIONS_EXPECTED" ] \
+  || fail "CERT-007 must add no migration; unexpected set:
+$(certificate_migration_set)"
+if grep -rqE 'certificate_correction|applyCertificateCorrection' \
+  "$EXPORT_TYPES" "$EXPORT_SERVICE" "$EXPORT_PANEL" "$EXPORT_WEB_SERVICE"; then
+  fail "CERT-008 correction workflow leaked into CERT-007"
+fi
 if ls supabase/migrations/*share*.sql >/dev/null 2>&1; then
   fail "CERT-007 must not create a share-link schema"
 fi
@@ -1970,6 +1998,183 @@ grep -Fq 'VALIDATION_ERROR' "$EXPORT_SERVICE" \
   || fail "the export accepts a blank identifier"
 
 echo "PASS: an unexportable certificate is listed, never fabricated or dropped"
+
+# ============================================================
+# CERT-008 — Certificate Revocation and Correction (Batch 9)
+# ============================================================
+
+CORR_TYPES="packages/shared-types/src/certificate-correction.ts"
+CORR_TYPE_TESTS="packages/shared-types/src/certificate-correction.test.ts"
+CORR_SERVICE="services/api/src/certificate-correction.ts"
+CORR_SERVICE_TESTS="services/api/src/certificate-correction.test.ts"
+CORR_MIGRATION="supabase/migrations/20260813001000_certificate_correction_foundation.sql"
+CORR_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_9_CERTIFICATE_REVOCATION_AND_CORRECTION.md"
+
+for p in \
+  "$CORR_TYPES" "$CORR_TYPE_TESTS" "$CORR_SERVICE" "$CORR_SERVICE_TESTS" \
+  "$CORR_MIGRATION" "$CORR_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+CORR_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$CORR_SERVICE" || true)"
+CORR_MIGRATION_CODE="$(grep -vE '^\s*--' "$CORR_MIGRATION" || true)"
+CORR_POLICY_BLOCK="$(awk '/^create policy/{cap=1} /^create index/{cap=0} cap' "$CORR_MIGRATION" || true)"
+
+# --- 60. CERT-004 remains the sole lifecycle authority ----------------------
+grep -Fq 'public.certificate_record_lifecycle_event(' "$CORR_MIGRATION" \
+  || fail "CERT-008 does not delegate the transition to CERT-004"
+if echo "$CORR_SERVICE_CODE" | grep -qE 'certificate_lifecycle_events|certificate_record_lifecycle_event'; then
+  fail "CERT-008 must not write lifecycle history itself"
+fi
+for forbidden in isValidCertificateLifecycleTransition resolveEffectiveCertificateStatus; do
+  if echo "$CORR_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-008 must not evaluate lifecycle legality: $forbidden"
+  fi
+done
+if echo "$CORR_MIGRATION_CODE" | grep -qF "transition is not permitted"; then
+  fail "CERT-008 must not restate CERT-004 transition rules"
+fi
+# The load-bearing check: CERT-008 must reach lifecycle history ONLY through
+# CERT-004's RPC. A direct insert would bypass CERT-004's edge guard, its
+# contiguity rule and its serialization — the exact bypass this batch exists to
+# make impossible. Reading the recorded event and the foreign key are permitted.
+if echo "$CORR_MIGRATION_CODE" \
+  | grep -qE '(insert|update|delete)[[:space:]]+(into[[:space:]]+|from[[:space:]]+)?public\.certificate_lifecycle_events'; then
+  fail "CERT-008 must not write lifecycle history directly; CERT-004 owns it"
+fi
+if echo "$CORR_MIGRATION_CODE" \
+  | grep -qE '(insert|update|delete)[[:space:]]+(into[[:space:]]+|from[[:space:]]+)?public\.certificates\b'; then
+  fail "CERT-008 must not write certificate records; CERT-003 owns issuance"
+fi
+if echo "$CORR_MIGRATION_CODE" | grep -qE 'alter table public\.(certificates|certificate_lifecycle_events)'; then
+  fail "CERT-008 must not alter CERT-003 or CERT-004 tables"
+fi
+
+# CERT-004's own migration must remain free of CERT-008 workflow concepts. This
+# is the ORIGINAL protection, unchanged and still scoped to the CERT-004 file.
+for forbidden in reason actor_id replacement_certificate notification notify; do
+  if echo "$LIFE_MIGRATION_CODE" | grep -Fq "$forbidden"; then
+    fail "CERT-008 workflow concept leaked into CERT-004: $forbidden"
+  fi
+done
+grep -Fq 'revoke all on function public.certificate_record_lifecycle_event' "$LIFE_MIGRATION" \
+  || fail "the CERT-004 lifecycle RPC lost its grant revocation"
+
+echo "PASS: CERT-004 remains the sole lifecycle authority"
+
+# --- 61. privileged authorization only --------------------------------------
+grep -Fq 'revoke all on function public.certificate_apply_correction(' "$CORR_MIGRATION" \
+  || fail "the correction RPC does not revoke execute from client roles"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'security definer' \
+  || fail "the correction RPC is not security definer"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'set search_path = public' \
+  || fail "the correction RPC has no fixed search_path"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'for update' \
+  || fail "the correction RPC does not serialize concurrent corrections"
+if echo "$CORR_MIGRATION_CODE" | grep -Fq 'grant execute'; then
+  fail "CERT-008 must not grant execute on any function"
+fi
+
+CORR_POLICIES="$(grep -c '^create policy' "$CORR_MIGRATION" || true)"
+[ "$CORR_POLICIES" = "1" ] \
+  || fail "expected exactly 1 correction policy, found $CORR_POLICIES"
+echo "$CORR_POLICY_BLOCK" | grep -Fq 'for select to authenticated' \
+  || fail "the correction read policy is not authenticated-select"
+for write in 'for insert' 'for update' 'for delete' 'for all' 'to anon' 'to public'; do
+  if echo "$CORR_POLICY_BLOCK" | grep -Fq "$write"; then
+    fail "a forbidden correction policy grant exists: $write"
+  fi
+done
+
+# No student-facing lifecycle control may exist.
+for surface in '/certificates/revoke' '/certificates/restore' '/certificates/correct' \
+               '/certificates/corrections'; do
+  if grep -Fq "\"$surface\"" "$SERVER"; then
+    fail "CERT-008 must expose no student lifecycle control: $surface"
+  fi
+done
+grep -Fq '/^\/admin\/certificates\/([^/]+)\/corrections$/' "$SERVER" \
+  || fail "the privileged correction route is missing"
+
+echo "PASS: corrections are privileged, serialized and student-unreachable"
+
+# --- 62. a reason is mandatory ----------------------------------------------
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'reason text not null check' \
+  || fail "the database permits a reasonless correction"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'length(btrim(reason)) >= 8' \
+  || fail "the reason has no minimum length"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'A certificate correction requires a reason' \
+  || fail "the correction RPC does not require a reason"
+grep -Fq 'validateCertificateCorrectionReason' "$CORR_SERVICE" \
+  || fail "the service accepts a correction without validating the reason"
+
+echo "PASS: a correction can never be recorded without a reason"
+
+# --- 63. append-only history, no deletion -----------------------------------
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'before update or delete on public.certificate_correction_events' \
+  || fail "correction history is not append-only"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'append-only and cannot be updated' \
+  || fail "correction history permits update"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'append-only and cannot be deleted' \
+  || fail "correction history permits delete"
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'lifecycle_event_id uuid not null unique' \
+  || fail "a correction is not bound to exactly one lifecycle event"
+if echo "$CORR_SERVICE_CODE" | grep -qE '\.delete\(|\.update\('; then
+  fail "CERT-008 must never delete or rewrite certificate history"
+fi
+echo "$CORR_MIGRATION_CODE" | grep -Fq 'constraint certificate_correction_events_idempotency_key' \
+  || fail "a retried correction is not collapsed"
+
+echo "PASS: correction history is append-only and issuance is preserved"
+
+# --- 64. no duplicated downstream propagation -------------------------------
+for forbidden in verifyCertificate getStudentCertificatePortfolio \
+                 exportStudentCertificates verification_id; do
+  if echo "$CORR_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-008 must not reach into a downstream reader: $forbidden"
+  fi
+done
+for forbidden in propagation propagated current_status cached_status; do
+  if echo "$CORR_MIGRATION_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-008 must not cache or flag status: $forbidden"
+  fi
+done
+grep -Fq 'resolveEffectiveCertificateStatus' "$VERIFY_SERVICE" \
+  || fail "CERT-005 stopped deriving status from CERT-004"
+grep -Fq 'resolveEffectiveCertificateStatus' "$PORT_SERVICE" \
+  || fail "CERT-006 stopped deriving status from CERT-004"
+
+echo "PASS: downstream readers still derive status from CERT-004"
+
+# --- 65. audit and AI boundary ----------------------------------------------
+grep -Fq 'writeAuditEvent' "$CORR_SERVICE" \
+  || fail "a privileged correction is not audited"
+grep -Fq 'certificate.correction.applied' "$CORR_SERVICE" \
+  || fail "the correction audit event is not named"
+if echo "$CORR_SERVICE_CODE" | grep -qiE 'openai|anthropic|ollama|ai[-_ ]?gateway'; then
+  fail "an AI dependency exists in the correction path"
+fi
+if echo "$CORR_MIGRATION_CODE" | grep -qiE 'openai|anthropic|ollama'; then
+  fail "an AI dependency exists in the correction migration"
+fi
+
+echo "PASS: every privileged correction is audited with no AI in the path"
+
+# --- 66. no arbitrary deletion, no hidden revocation ------------------------
+if echo "$CORR_MIGRATION_CODE" | grep -qE 'delete from public\.(certificates|certificate_lifecycle_events|certificate_correction_events)'; then
+  fail "CERT-008 must never delete certificate data"
+fi
+grep -Fq 'export function toStudentCertificateCorrection' "$CORR_TYPES" \
+  || fail "the student-facing correction projection is missing"
+grep -Fq 'CERTIFICATE_CORRECTION_STUDENT_FORBIDDEN_FIELDS' "$CORR_TYPES" \
+  || fail "the student projection prohibition list is not held as data"
+grep -Fq 'CERTIFICATE_CORRECTION_STUDENT_FORBIDDEN_FIELDS' "$CORR_TYPE_TESTS" \
+  || fail "the student projection prohibition is not asserted by tests"
+# A revocation is never hidden: the student is told, in words, what happened.
+grep -Fq 'export function explainCertificateCorrection' "$CORR_TYPES" \
+  || fail "a student is given no explanation of a status change"
+
+echo "PASS: nothing is deleted and no revocation is hidden from the student"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green

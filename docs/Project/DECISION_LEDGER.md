@@ -1011,6 +1011,39 @@ CERT-007 does not mint tokens, create live share URLs, persist share state, add 
 
 ---
 
+## DEC-040
+
+**Category**
+
+Security
+
+**Title**
+
+A Learner May Read Their Own Correction History, and Nothing More
+
+**Status**
+
+Approved
+
+**Decision**
+
+The owner-scoped student `select` policy on `certificate_correction_events` is retained. CERT-008 requires transparent correction and revocation history, and the policy mirrors the established EVID-006 pattern. That no student interface consumes the policy yet does not make it invalid or dead architecture.
+
+The boundary is:
+
+* a student may `select` only their own correction history.
+* a student may not `insert`.
+* a student may not `update`.
+* a student may not `delete`.
+* a student may not execute the privileged correction RPC.
+* a student may not revoke, restore, correct or supersede a certificate.
+* no cross-user correction history is exposed.
+* the privileged workflow remains founder/admin controlled.
+
+A student interface must not be added to CERT-008 merely because the read policy exists.
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

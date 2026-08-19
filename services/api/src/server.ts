@@ -54,6 +54,10 @@ import { verifyCertificateByReference } from "./certificate-verification";
 import { getStudentCertificatePortfolio } from "./certificate-portfolio";
 import { exportStudentCertificates } from "./certificate-export";
 import {
+  applyCertificateCorrection,
+  listCertificateCorrections
+} from "./certificate-correction";
+import {
   getPublishedLearningPathTree,
   listPublishedLearningPaths
 } from "./curriculum";
@@ -1295,6 +1299,59 @@ async function handleRequest(
           { actorUserId: trusted.identity.userId },
           decodeURIComponent(certificateSupersedeMatch[1] ?? ""),
           String(body.supersededByDefinitionId ?? "")
+        )
+      });
+      return;
+    }
+
+    // CERT-008 — privileged certificate revocation and correction.
+    //
+    // Founder-administrator only. A reason is mandatory, the actor comes from
+    // the verified admin identity and never from the body, and the lifecycle
+    // transition itself is performed by CERT-004's machinery inside one
+    // transaction. There is deliberately no student-facing revoke, correct,
+    // supersede or restore route.
+    const certificateCorrectionsMatch = pathname.match(
+      /^\/admin\/certificates\/([^/]+)\/corrections$/
+    );
+    if (request.method === "POST" && certificateCorrectionsMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(
+        response,
+        201,
+        await applyCertificateCorrection(
+          { actorUserId: trusted.identity.userId },
+          {
+            certificateId: decodeURIComponent(
+              certificateCorrectionsMatch[1] ?? ""
+            ),
+            action: String(body.action ?? ""),
+            reason: String(body.reason ?? ""),
+            ...(body.replacementCertificateId
+              ? {
+                  replacementCertificateId: String(
+                    body.replacementCertificateId
+                  )
+                }
+              : {}),
+            ...(body.effectiveAt
+              ? { effectiveAt: String(body.effectiveAt) }
+              : {}),
+            ...(body.idempotencyKey
+              ? { idempotencyKey: String(body.idempotencyKey) }
+              : {})
+          }
+        )
+      );
+      return;
+    }
+
+    if (request.method === "GET" && certificateCorrectionsMatch) {
+      await founder(request);
+      sendJson(response, 200, {
+        corrections: await listCertificateCorrections(
+          decodeURIComponent(certificateCorrectionsMatch[1] ?? "")
         )
       });
       return;

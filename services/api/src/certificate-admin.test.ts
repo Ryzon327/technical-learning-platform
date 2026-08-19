@@ -60,7 +60,11 @@ describe("privileged authoring boundary", () => {
     const routeGuards = certificateRoutes.match(/await founder\(request\)/g) ?? [];
     const routeReturns = certificateRoutes.match(/\n\s+return;/g) ?? [];
 
-    expect(routeGuards.length).toBe(9);
+    // CERT-001 authored nine privileged routes; CERT-008 adds exactly two more
+    // (apply a correction, read a certificate's correction history). The
+    // invariant is unchanged and still exact: every privileged certificate
+    // route resolves the founder admin path, and none falls through.
+    expect(routeGuards.length).toBe(11);
     // One guard per route, and no route falls through without returning.
     expect(routeGuards.length).toBe(routeReturns.length);
   });
