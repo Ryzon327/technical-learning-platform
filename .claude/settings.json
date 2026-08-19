@@ -1,6 +1,31 @@
 {
   "permissions": {
-    "defaultMode": "default"
+    "defaultMode": "default",
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git fetch:*)",
+      "Bash(ls:*)",
+      "Bash(pwd)",
+      "Bash(wc:*)",
+      "Bash(diff:*)",
+      "Bash(sort:*)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm test:*)",
+      "Bash(npm audit:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(bash scripts/verify-wave7.sh)",
+      "Bash(bash scripts/verify-wave8.sh)",
+      "Bash(bash scripts/smoke-api.sh)",
+      "Bash(bash scripts/verify-evidence-engine-completion.sh)"
+    ]
   },
   "model": "opus"
 }
