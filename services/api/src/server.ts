@@ -53,6 +53,7 @@ import { listStudentCertificateRecords } from "./certificate-lifecycle";
 import { verifyCertificateByReference } from "./certificate-verification";
 import { getStudentCertificatePortfolio } from "./certificate-portfolio";
 import { exportStudentCertificates } from "./certificate-export";
+import { getStudentCertificatePresentation } from "./certificate-presentation";
 import {
   applyCertificateCorrection,
   listCertificateCorrections
@@ -451,6 +452,29 @@ async function handleRequest(
           })
         )
       });
+      return;
+    }
+
+    // CERT-009 — the owner's branded certificate presentation.
+    //
+    // Presentation only, scoped to the authenticated caller. It composes
+    // CERT-006's projection and adds CERT-001 presentation metadata plus the
+    // owner's own current display name. The display name is presentation data,
+    // never issuance truth, and never reaches CERT-005 or CERT-007.
+    if (request.method === "GET" && pathname === "/certificates/presentation") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(
+        response,
+        200,
+        await getStudentCertificatePresentation(
+          trusted.identity.userId,
+          normalizeCertificatePortfolioFilters({
+            status: url.searchParams.get("status") ?? undefined,
+            certificateDefinitionStableId:
+              url.searchParams.get("certificateDefinitionStableId") ?? undefined
+          })
+        )
+      );
       return;
     }
 

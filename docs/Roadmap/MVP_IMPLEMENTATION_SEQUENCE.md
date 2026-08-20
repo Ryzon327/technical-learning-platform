@@ -411,6 +411,24 @@ standard.
 - discrepancies between the Feature Registry, roadmap/status documents, and
   code.
 
+## Recorded items awaiting this audit
+
+Findings discovered during later build waves that are deliberately **not**
+repaired in the batch that found them, so the repair is not made silently
+inside an unrelated feature.
+
+- **CERT-006 and CERT-007 colour-class verifier matching.** Their
+  green/red/amber checks are unbounded, so they are less precise than the
+  word-bounded CERT-009 equivalent and could produce a false positive against a
+  class name that merely contains a colour word. They pass today only because
+  the affected views contain no colliding class. Discovered during CERT-009;
+  not a CERT-009 blocker; must not be silently repaired inside another batch.
+
+- **CERT-009 rendered colour contrast.** Contrast is not runtime or browser
+  proven, because the repository has no browser/DOM accessibility harness. No
+  WCAG contrast conformance is claimed. Explicit contrast validation belongs to
+  the pre-MVP accessibility and assurance work.
+
 ## Exit criteria
 
 The audit has run across the applicable scope, and every release-blocking

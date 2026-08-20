@@ -93,15 +93,17 @@ describe("privileged authoring boundary", () => {
       // read that feeds its selector); CERT-003 adds one approved student
       // write (issuance); CERT-004 adds the own-certificate status read;
       // CERT-006 adds the private portfolio; CERT-007 adds the student's own
-      // export, which composes the portfolio and publishes nothing. Every other
-      // certificate route must still be privileged authoring under
-      // /admin/certificates.
+      // export, which composes the portfolio and publishes nothing; CERT-009
+      // adds the owner's own branded presentation, which composes the portfolio
+      // and publishes nothing. Every other certificate route must still be
+      // privileged authoring under /admin/certificates.
       if (
         unescaped.includes('"/certificates/eligibility"') ||
         unescaped.includes('"/certificates/definitions"') ||
         unescaped.includes('"/certificates/issuance"') ||
         unescaped.includes('"/certificates/portfolio"') ||
         unescaped.includes('"/certificates/export"') ||
+        unescaped.includes('"/certificates/presentation"') ||
         unescaped.includes('pathname === "/certificates")')
       ) {
         continue;
@@ -139,7 +141,8 @@ describe("no student mutation surface", () => {
       'pathname === "/certificates/eligibility"',
       'pathname === "/certificates/export"',
       'pathname === "/certificates/issuance"',
-      'pathname === "/certificates/portfolio"'
+      'pathname === "/certificates/portfolio"',
+      'pathname === "/certificates/presentation"'
     ]);
 
     // The only permitted non-admin path-parameter certificate route is

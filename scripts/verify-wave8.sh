@@ -80,12 +80,14 @@ DUPLICATE_MODELS="$(ls packages/shared-types/src/certificate*.ts 2>/dev/null \
   | grep -v 'certificate-export\.ts$' \
   | grep -v 'certificate-export\.test\.ts$' \
   | grep -v 'certificate-correction\.ts$' \
-  | grep -v 'certificate-correction\.test\.ts$' || true)"
+  | grep -v 'certificate-correction\.test\.ts$' \
+  | grep -v 'certificate-presentation\.ts$' \
+  | grep -v 'certificate-presentation\.test\.ts$' || true)"
 [ -z "$DUPLICATE_MODELS" ] \
   || fail "a duplicate shared Certificate model exists: $DUPLICATE_MODELS"
 
 # Only certificate-definition.ts may declare the Certificate Definition model.
-for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio certificate-export certificate-correction; do
+for module in certificate-eligibility certificate-issuance certificate-lifecycle certificate-verification certificate-portfolio certificate-export certificate-correction certificate-presentation; do
   if grep -Fq 'export interface CertificateDefinition ' "packages/shared-types/src/$module.ts"; then
     fail "$module.ts must import the Certificate Definition model, not redeclare it"
   fi
@@ -423,7 +425,7 @@ grep -Fq "using (publication_state = 'published')" "$CERT_MIGRATION" \
 STUDENT_CERT_ROUTES="$(grep -oE 'pathname === "/certificates[^"]*"' "$SERVER" || true)"
 for route in $(echo "$STUDENT_CERT_ROUTES" | grep -oE '"/certificates[^"]*"' || true); do
   case "$route" in
-    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"'|'"/certificates/portfolio"'|'"/certificates/export"') ;;
+    '"/certificates"'|'"/certificates/eligibility"'|'"/certificates/definitions"'|'"/certificates/issuance"'|'"/certificates/portfolio"'|'"/certificates/export"'|'"/certificates/presentation"') ;;
     *) fail "an unapproved student certificate route exists: $route" ;;
   esac
 done
@@ -2175,6 +2177,165 @@ grep -Fq 'export function explainCertificateCorrection' "$CORR_TYPES" \
   || fail "a student is given no explanation of a status change"
 
 echo "PASS: nothing is deleted and no revocation is hidden from the student"
+
+# ============================================================
+# CERT-009 — Certificate Branding and Presentation (Batch 10)
+# ============================================================
+
+PRES_TYPES="packages/shared-types/src/certificate-presentation.ts"
+PRES_TYPE_TESTS="packages/shared-types/src/certificate-presentation.test.ts"
+PRES_SERVICE="services/api/src/certificate-presentation.ts"
+PRES_SERVICE_TESTS="services/api/src/certificate-presentation.test.ts"
+PRES_VIEW="apps/web/src/certificates/CertificatePresentationView.tsx"
+PRES_WEB_SERVICE="apps/web/src/certificates/certificate-presentation-service.ts"
+PRES_STYLES="apps/web/src/styles.css"
+PRES_DOC="docs/Engineering-OS/BUILD_WAVE_8_BATCH_10_CERTIFICATE_BRANDING_AND_PRESENTATION.md"
+
+for p in \
+  "$PRES_TYPES" "$PRES_TYPE_TESTS" "$PRES_SERVICE" "$PRES_SERVICE_TESTS" \
+  "$PRES_VIEW" "$PRES_WEB_SERVICE" "$PRES_STYLES" "$PRES_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+PRES_TYPES_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$PRES_TYPES" || true)"
+PRES_SERVICE_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$PRES_SERVICE" || true)"
+PRES_VIEW_CODE="$(awk '/\{\/\*/{skip=1} !skip; /\*\/\}/{skip=0}' "$PRES_VIEW" \
+  | grep -vE '^\s*(//|\*|/\*)' || true)"
+
+# --- 67. no migration, no schema, no dependency -----------------------------
+[ "$(certificate_migration_set)" = "$CERTIFICATE_MIGRATIONS_EXPECTED" ] \
+  || fail "CERT-009 must add no migration; unexpected set:
+$(certificate_migration_set)"
+for manifest in apps/web/package.json services/api/package.json packages/shared-types/package.json; do
+  if grep -qiE '"(pdfkit|jspdf|puppeteer|playwright|qrcode|qr-image|html2canvas|handlebars|ejs|pug)"' "$manifest"; then
+    fail "CERT-009 must not introduce a rendering dependency: $manifest"
+  fi
+done
+
+echo "PASS: CERT-009 adds no migration, no schema and no rendering dependency"
+
+# --- 68. presentation owns no credential truth ------------------------------
+grep -Fq 'getStudentCertificatePortfolio' "$PRES_SERVICE" \
+  || fail "CERT-009 must compose the CERT-006 portfolio rather than re-reading"
+for forbidden in resolveEffectiveCertificateStatus evaluateCertificateEligibility \
+                 issueStudentCertificate applyCertificateCorrection \
+                 isValidCertificateLifecycleTransition; do
+  if echo "$PRES_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "CERT-009 must not calculate credential truth: $forbidden"
+  fi
+done
+# It may read only the two presentation concerns it owns.
+PRES_READS="$(echo "$PRES_SERVICE_CODE" | grep -oE '\.from\("[a-z_]+"\)' | sort -u || true)"
+EXPECTED_PRES_READS='.from("certificate_definitions")
+.from("user_profiles")'
+[ "$PRES_READS" = "$EXPECTED_PRES_READS" ] \
+  || fail "CERT-009 reads outside its presentation concerns:
+$PRES_READS"
+for write in '.insert(' '.update(' '.upsert(' '.delete(' '.rpc('; do
+  if echo "$PRES_SERVICE_CODE" | grep -qF "$write"; then
+    fail "CERT-009 must write nothing: $write"
+  fi
+done
+grep -Fq 'export function presentationPreservesTruth' "$PRES_TYPES" \
+  || fail "there is no way to prove presentation preserves truth"
+grep -Fq 'presentationPreservesTruth' "$PRES_TYPE_TESTS" \
+  || fail "presentation truth preservation is not asserted by tests"
+
+echo "PASS: presentation composes existing authorities and alters no truth"
+
+# --- 69. holder identity stays owner-only -----------------------------------
+grep -Fq 'display_name' "$PRES_SERVICE" \
+  || fail "the owner's display name is not read by CERT-009"
+grep -Fq '.eq("user_id", userId)' "$PRES_SERVICE" \
+  || fail "the display name read is not scoped to the caller"
+# The identity boundary CERT-005 and CERT-007 established must hold.
+# Judged on comment-stripped code: these services document precisely that they
+# never touch user_profiles, so a full-text scan would flag their own exclusion
+# notes as violations.
+for guarded in "$VERIFY_SERVICE" "$EXPORT_SERVICE" "$PORT_SERVICE"; do
+  if grep -vE '^\s*(//|\*|/\*)' "$guarded" | grep -qE 'display_name|user_profiles'; then
+    fail "holder identity leaked into a non-CERT-009 service: $guarded"
+  fi
+done
+if grep -qE 'holderName|displayName|display_name' "$VERIFY_TYPES" "$EXPORT_TYPES"; then
+  # Permitted only inside a forbidden-field list, never as a carried field.
+  if grep -E 'holderName|displayName|display_name' "$VERIFY_TYPES" "$EXPORT_TYPES" \
+    | grep -qvE '^\S+:\s*"'; then
+    fail "holder identity became a public or exported field"
+  fi
+fi
+
+echo "PASS: the holder name is owner-only and never public or exported"
+
+# --- 70. no PDF, no QR, no second token, no binary asset --------------------
+if echo "$PRES_TYPES_CODE$PRES_SERVICE_CODE$PRES_VIEW_CODE" \
+  | grep -qiE '\bpdf\b|\bqr\b|canvas|toDataURL|jsPDF|data:image|<img'; then
+  fail "CERT-009 must not generate a PDF, a QR image or an image credential"
+fi
+# Quoted list entries are excluded: the prohibition list itself names these
+# fields in order to forbid them, and must not be read as using them.
+PRES_TOKEN_SCAN="$(printf '%s\n%s\n' "$PRES_TYPES_CODE" "$PRES_SERVICE_CODE" \
+  | grep -vE '^\s*"[A-Za-z_]+",?$' || true)"
+if echo "$PRES_TOKEN_SCAN" | grep -qE 'randomBytes|shareToken|verificationToken'; then
+  fail "CERT-009 must not mint a second verification token"
+fi
+# Matched on the CALL with the certificate's own reference, not the import: a
+# leftover import must not satisfy this while the link points somewhere else.
+grep -Fq 'href={buildCertificateVerificationHref(' "$PRES_VIEW" \
+  || fail "the presentation does not link to the official CERT-005 verification"
+grep -Fq 'certificate.verificationReference' "$PRES_VIEW" \
+  || fail "the verification link does not use the certificate's own reference"
+if echo "$PRES_TOKEN_SCAN" | grep -qE 'logoUrl|brandAssetId|accreditationSeal|storage\.'; then
+  fail "CERT-009 must not introduce a binary brand asset or seal"
+fi
+
+echo "PASS: no PDF, no QR image, no second token and no binary brand asset"
+
+# --- 71. accessible, printable, never image-only ----------------------------
+grep -Fq '@media print' "$PRES_STYLES" \
+  || fail "no browser-native print treatment exists"
+grep -Fq 'attr(href)' "$PRES_STYLES" \
+  || fail "the verification destination would be lost when printed"
+if grep -qE 'background-image|url\(|content: *"" *;' "$PRES_STYLES"; then
+  fail "the credential must not rely on an image"
+fi
+grep -Fq 'statusLabel' "$PRES_VIEW" \
+  || fail "certificate status is not rendered as text"
+grep -Fq 'logoTextAlternative' "$PRES_VIEW" \
+  || fail "the brand mark has no text alternative"
+grep -Fq 'aria-live="polite"' "$PRES_VIEW" \
+  || fail "the presentation has no polite status region"
+grep -Fq 'role="alert"' "$PRES_VIEW" \
+  || fail "the presentation reports failure without an alert"
+for custom in 'role="listbox"' 'role="combobox"' 'onKeyDown' 'tabIndex'; do
+  if grep -Fq "$custom" "$PRES_VIEW"; then
+    fail "the presentation must not build a custom control: $custom"
+  fi
+done
+# Word-bounded: "credential" contains "red", so an unbounded scan would flag
+# every credential class in this view as a colour signal.
+if grep -qiE 'className="[^"]*\b(green|red|amber|success-status|danger)\b' "$PRES_VIEW"; then
+  fail "credential validity must not be conveyed by colour"
+fi
+
+echo "PASS: the credential is accessible text and prints natively"
+
+# --- 72. graceful fallback, and revoked is never hidden ---------------------
+grep -Fq 'export function buildFallbackCertificatePresentation' "$PRES_TYPES" \
+  || fail "there is no accessible fallback presentation"
+# Matched on the CALL, not the import: an unused import would otherwise satisfy
+# this guard while the fallback was never actually reached.
+grep -Fq 'buildFallbackCertificatePresentation(entry, holderName)' "$PRES_SERVICE" \
+  || fail "the service never falls back when brand metadata is missing"
+grep -Fq 'isFallback' "$PRES_VIEW" \
+  || fail "the learner is not told when a simpler presentation was used"
+grep -Fq 'presentAsCurrentlyValid' "$PRES_VIEW" \
+  || fail "the presentation does not distinguish a non-current certificate"
+if echo "$PRES_TYPES_CODE" | grep -qE 'status *= *"active"|status: *"active"'; then
+  fail "CERT-009 must never assign a status"
+fi
+
+echo "PASS: presentation degrades gracefully and never hides a revoked status"
 
 # ------------------------------------------------------------
 # 12. Wave 7 must still be green before Wave 8 counts as green

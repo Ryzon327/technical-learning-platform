@@ -11,6 +11,7 @@ import {
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
 import { CertificateExportPanel } from "./CertificateExportPanel";
+import { CertificatePresentationView } from "./CertificatePresentationView";
 import {
   buildCertificateVerificationHref,
   buildPortfolioDetailRegionId,
@@ -306,6 +307,13 @@ export function CertificatePortfolioView() {
         and it is implemented entirely in its own component.
       */}
       <CertificateExportPanel filters={filters} />
+
+      {/*
+        CERT-009 owns how a certificate looks. It is mounted here so it presents
+        what the learner is currently looking at, and it is implemented entirely
+        in its own component.
+      */}
+      <CertificatePresentationView filters={filters} />
 
       {/*
         A certificate whose details could not be resolved is shown rather than

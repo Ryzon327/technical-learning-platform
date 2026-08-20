@@ -84,6 +84,15 @@ assert_status POST /certificates/test-certificate/corrections 404 '{"action":"re
 assert_status POST /certificates/revoke 404 '{"certificateId":"test"}'
 assert_status POST /certificates/restore 404 '{"certificateId":"test"}'
 assert_status POST /certificates/correct 404 '{"certificateId":"test"}'
+
+# CERT-009 — presentation is authenticated, owner-only, and has no public or
+# admin surface.
+assert_status GET /certificates/presentation 401
+assert_status GET '/certificates/presentation?status=revoked' 401
+assert_status POST /certificates/presentation 404 '{"x":1}'
+assert_status DELETE /certificates/presentation 404
+assert_status GET /admin/certificates/presentation 404
+assert_status GET /certificates/presentation/public 404
 assert_status POST /certificates 404 '{"x":1}'
 assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
@@ -171,3 +180,5 @@ echo 'PASS: CERT-007 certificate export rejects unauthenticated requests'
 echo 'PASS: CERT-007 exposes no admin, public or share export route'
 echo 'PASS: CERT-008 corrections require privileged authentication'
 echo 'PASS: CERT-008 exposes no student revoke, restore or correct route'
+echo 'PASS: CERT-009 presentation requires authentication'
+echo 'PASS: CERT-009 exposes no public or admin presentation route'

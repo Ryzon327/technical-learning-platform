@@ -1044,6 +1044,127 @@ A student interface must not be added to CERT-008 merely because the read policy
 
 ---
 
+## DEC-041
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+The Holder Name Is Presentation Data, Not Historical Issuance Truth
+
+**Status**
+
+Approved
+
+**Decision**
+
+The authenticated owner's current `display_name` may be shown in CERT-009. It is read-time presentation data, not historical issuance truth.
+
+A later display-name change may change how an older certificate renders. It must never change:
+
+* certificate identity.
+* issuance date.
+* definition or version.
+* competency snapshots.
+* verification reference.
+* lifecycle status.
+* correction history.
+* any other frozen certificate truth.
+
+Holder identity remains excluded from CERT-005 public verification and from CERT-007 JSON/Markdown export.
+
+---
+
+## DEC-042
+
+**Category**
+
+Security
+
+**Title**
+
+Certificate Presentation Stays Owner-Private Where Identity Is Present
+
+**Status**
+
+Approved
+
+**Decision**
+
+The student display name and the internal certificate id may appear in the authenticated owner's presentation only.
+
+Neither may be added to CERT-005's public payload.
+
+---
+
+## DEC-043
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+The Printable Certificate Is Semantic HTML, Not a Generated Document
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-009 uses semantic HTML and CSS plus browser-native `@media print` as the presentation-grade printable mechanism.
+
+PDF generation is not required for CERT-009, and no PDF dependency is authorized.
+
+---
+
+## DEC-044
+
+**Category**
+
+Security
+
+**Title**
+
+QR Encodes the Existing Verification Destination and Nothing Else
+
+**Status**
+
+Approved
+
+**Decision**
+
+QR is design-only in CERT-009. Any future QR must encode the existing official CERT-005 verification destination and reference.
+
+CERT-009 does not create a QR image, a QR dependency, another token, another verification mechanism, or another public route.
+
+---
+
+## DEC-045
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+Certificate Branding Is Text and CSS Until CURR-007 Exists
+
+**Status**
+
+Approved
+
+**Decision**
+
+CERT-009 may use the existing CERT-001 presentation metadata and a text and CSS brand treatment.
+
+Binary logo and brand-asset infrastructure remains deferred to CURR-007. CERT-009 must not create its own asset registry.
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

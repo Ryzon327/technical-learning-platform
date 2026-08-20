@@ -58,7 +58,7 @@ describe("authorization boundary", () => {
     }
   });
 
-  it("A4: exactly the six approved student certificate routes exist", () => {
+  it("A4: exactly the seven approved student certificate routes exist", () => {
     // CERT-002 owns an eligibility read and the discovery read that feeds its
     // selector; CERT-003 owns the issuance request; CERT-004 owns the
     // own-certificate status read. Any other student certificate route is
@@ -72,7 +72,8 @@ describe("authorization boundary", () => {
       'pathname === "/certificates/eligibility"',
       'pathname === "/certificates/export"',
       'pathname === "/certificates/issuance"',
-      'pathname === "/certificates/portfolio"'
+      'pathname === "/certificates/portfolio"',
+      'pathname === "/certificates/presentation"'
     ]);
   });
 

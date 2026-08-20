@@ -178,3 +178,103 @@ dd {
   background: #f1f5f9;
   border-radius: 8px;
 }
+
+/* CERT-009 — certificate branding and presentation.
+   Text and CSS only. The credential is never an image, never depends on colour
+   to convey validity, and carries no binary brand asset: CURR-007 will own
+   asset references. Status is always rendered as words by the component, so
+   these rules affect emphasis and layout only. */
+
+.credential-list {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+}
+
+.credential {
+  margin: 0 0 1.5rem;
+  padding: 1.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.credential-brand {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #475569;
+}
+
+.credential-title {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1.6rem;
+  line-height: 1.25;
+}
+
+.credential-summary {
+  margin: 0 0 1rem;
+  color: #334155;
+}
+
+.credential-holder {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.credential-status {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.credential-fallback {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  color: #334155;
+}
+
+/* Browser-native printing. No PDF library and no image rendering: the printed
+   certificate is the same semantic text a screen reader reads. */
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #000000;
+  }
+
+  nav,
+  button,
+  form {
+    display: none;
+  }
+
+  .card {
+    box-shadow: none;
+    border: none;
+    padding: 0;
+  }
+
+  .credential {
+    border: 1px solid #000000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 1.5rem;
+  }
+
+  .credential-title {
+    font-size: 1.4rem;
+  }
+
+  /* The verification destination must survive on paper, so the link target is
+     printed beside its text rather than lost. */
+
+  .credential a[href]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
+  }
+}
