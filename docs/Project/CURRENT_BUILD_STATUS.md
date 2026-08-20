@@ -367,3 +367,56 @@ Next implementation stage: **Build Wave 7 — Evidence Engine**.
 
 Next implementation stage: **Build Wave 8 — Certificates**.
 <!-- END WAVE 7 IMPLEMENTATION CLOSURE -->
+
+---
+
+# Wave 8 Implementation Closure — 2026-08-19
+
+- Build Wave 8 — Certificate Engine: **COMPLETE**
+- CERT-001 through CERT-009: implementation completion review passed
+  (`docs/Engineering-OS/BUILD_WAVE_8_CERTIFICATE_ENGINE_COMPLETION_REVIEW.md`).
+- Checkpoint: `dd7f239` — build: add certificate branding and presentation.
+
+Certificate Engine completion state:
+
+- Versioned Certificate Definitions exist, with material fields frozen on
+  publication and presentation metadata that stays editable without reissuing.
+- A published certificate can never require nothing (DEC-034).
+- Eligibility is deterministic, proven from exact pinned competency versions,
+  and resolves to eligible, ineligible or unknown, failing closed.
+- Issuance is deterministic and idempotent, confirming the exact Evidence it
+  relied upon rather than re-evaluating it.
+- CERT-004 is the single lifecycle authority: five states, exact permitted
+  edges, append-only history, and effective status derived at read time and
+  never cached.
+- Public verification is privacy-safe, carries no holder identity, and reports a
+  dependency failure as unavailable rather than as invalid or not-found.
+- The learner has a private portfolio, can focus one certificate and read its
+  detail, and can reach public verification of their own credential.
+- Export is portable and privacy-safe in JSON and Markdown, reflects current
+  lifecycle status, and mints no share link (DEC-036, DEC-039).
+- Revocation and correction are privileged, require a reason, preserve original
+  issuance, and delegate every transition to CERT-004.
+- Presentation is accessible semantic text with browser-native printing, and
+  cannot alter certificate truth.
+- The CERT-009 holder name is presentation data, not historical issuance truth
+  (DEC-041); it is excluded from public verification and from export.
+- No AI dependency exists anywhere in deterministic certificate truth.
+- Governing decisions recorded this wave: DEC-029 through DEC-045.
+
+Accepted limitations carried forward:
+
+- No live PostgreSQL/RLS integration harness; ownership is proven at the query
+  level rather than by live RLS.
+- No browser/DOM accessibility harness; print treatment is structurally
+  verified, and CERT-009 colour contrast remains unmeasured.
+- The CERT-008 correction migration is committed as source but **has not been
+  executed** against any database.
+- Two verifier-precision items are queued for the pre-MVP assurance audit
+  (`MVP_IMPLEMENTATION_SEQUENCE.md` §15c).
+
+§15b Cross-Engine Batch — Course Completion Credentials remains unimplemented at
+its documented roadmap position, after Wave 13 and before the MVP Release Gate.
+
+Next implementation stage: **Build Wave 9 — Search**.
+<!-- END WAVE 8 IMPLEMENTATION CLOSURE -->
