@@ -156,7 +156,7 @@ if echo "$SEARCH_TYPES_CODE$SEARCH_SERVICE_CODE" | grep -qiE '\b(rankResults|sco
   fail "SEARCH-008 ranking leaked into SEARCH-001"
 fi
 
-echo "PASS: SEARCH-003 through SEARCH-008 remain unimplemented"
+echo "PASS: SEARCH-004 through SEARCH-008 remain unimplemented"
 
 # ------------------------------------------------------------
 # 7. Stable identity and version discipline
@@ -413,6 +413,159 @@ grep -Fq 'CurriculumSearchView' apps/web/src/auth/AuthenticatedApp.tsx \
 
 echo "PASS: the learner search surface is accessible and reachable"
 
+# ============================================================
+# SEARCH-003 — Permission-Aware Search (Batch 3)
+# ============================================================
+
+SP_TYPES="packages/shared-types/src/search-permission.ts"
+SP_TYPE_TESTS="packages/shared-types/src/search-permission.test.ts"
+SP_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_3_PERMISSION_AWARE_SEARCH.md"
+
+for p in "$SP_TYPES" "$SP_TYPE_TESTS" "$SP_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+SP_TYPES_CODE="$(code_of "$SP_TYPES")"
+# Quoted single-token lines are the prohibition lists themselves, which name the
+# very fields they exist to forbid.
+SP_SCAN="$(echo "$SP_TYPES_CODE" | grep -vE '^\s*"[A-Za-z_]+",?$' || true)"
+
+# --- 21. The permission contract exists and is exhaustive -------------------
+grep -Fq 'export type SearchPermissionDecision =' "$SP_TYPES" \
+  || fail "the permission decision contract is missing"
+grep -Fq 'export const SEARCH_PERMISSION_OUTCOMES = [' "$SP_TYPES" \
+  || fail "the permission outcome vocabulary is missing"
+for outcome in authorized unauthorized unavailable; do
+  grep -Fq "  \"$outcome\"" "$SP_TYPES" \
+    || fail "a permission outcome is missing: $outcome"
+done
+# Discriminated union, not a boolean: `unavailable` must be impossible to
+# collapse into true/false by accident.
+grep -Fq '{ outcome: "authorized" }' "$SP_TYPES" \
+  || fail "the permission contract is not a discriminated union"
+# The EXACT signature is pinned, not just the name. A second parameter would let
+# access metadata become a bypass — `maySurface(decision, accessScope)` — while
+# the original return line survived untouched. That mutation was caught by
+# nothing until this check pinned the signature.
+grep -Fq 'export function maySurface(decision: SearchPermissionDecision): boolean {' "$SP_TYPES" \
+  || fail "maySurface does not take exactly one permission decision"
+grep -Fq 'return decision.outcome === "authorized";' "$SP_TYPES" \
+  || fail "maySurface does not fail closed to authorized only"
+# The gate must be a single expression: no early return may precede it.
+MAY_SURFACE_BODY="$(awk '/^export function maySurface\(/{cap=1} cap; /^}/{if(cap) exit}' "$SP_TYPES" || true)"
+MAY_SURFACE_RETURNS="$(echo "$MAY_SURFACE_BODY" | grep -c 'return ' || true)"
+[ "$MAY_SURFACE_RETURNS" = "1" ] \
+  || fail "maySurface has more than one return path; it must be a single gate"
+
+echo "PASS: the permission contract is exhaustive and fails closed"
+
+# --- 22. Unauthorized and missing collapse ----------------------------------
+grep -Fq 'export function decideFromAuthoritativeRead' "$SP_TYPES" \
+  || fail "decisions are not derived from an authoritative read"
+grep -Fq 'return input.found ? searchAuthorized() : searchUnauthorized();' "$SP_TYPES" \
+  || fail "a not-found row no longer collapses into unauthorized"
+grep -Fq 'export function collapseToObservable' "$SP_TYPES" \
+  || fail "there is no observable collapse for withheld results"
+# No learner-observable "missing" outcome may exist.
+if echo "$SP_SCAN" | grep -qE '"(missing|withheld|hidden|denied)"'; then
+  fail "a learner-observable withheld state was introduced"
+fi
+
+echo "PASS: unauthorized and missing are observably indistinguishable"
+
+# --- 23. internalReason is internal only ------------------------------------
+grep -Fq 'internalReason' "$SP_TYPES" \
+  || fail "the internal diagnostic reason is missing"
+# It may live only on the unavailable branch.
+grep -Fq '| { outcome: "unavailable"; internalReason?: string };' "$SP_TYPES" \
+  || fail "internalReason is not confined to the unavailable branch"
+# It must never reach a document, a response or the learner.
+# Judged on comment-stripped code: these files legitimately document that
+# internalReason must stay out of them, and a prose match is not a leak.
+for leaked in "$SEARCH_TYPES" "$CS_TYPES" "$CS_SERVICE" "$CS_VIEW" "$CS_WEB_SERVICE"; do
+  if code_of "$leaked" | grep -Fq 'internalReason'; then
+    fail "internalReason leaked into a learner-facing path: $leaked"
+  fi
+done
+
+echo "PASS: internalReason is internal-only and reaches no learner surface"
+
+# --- 24. Search owns no authorization policy --------------------------------
+# The contract must not know what any owning engine's policy means.
+for policy in publication_state published user_id auth.uid role enrollment note_ owner_id; do
+  if echo "$SP_SCAN" | grep -qF "$policy"; then
+    fail "owning-engine authorization policy leaked into Search: $policy"
+  fi
+done
+grep -Fq 'SEARCH_PERMISSION_FORBIDDEN_FIELDS' "$SP_TYPES" \
+  || fail "the ACL/identity prohibition list is not held as data"
+# No ACL or role schema may be introduced anywhere.
+if ls supabase/migrations/*acl*.sql supabase/migrations/*role*.sql \
+     supabase/migrations/*permission*.sql >/dev/null 2>&1; then
+  fail "SEARCH-003 must not introduce ACL, role or permission schema"
+fi
+
+echo "PASS: Search composes decisions and owns no authorization policy"
+
+# --- 25. SearchDocument never becomes an ACL document -----------------------
+for forbidden in userId user_id ownerId owner_id roleId roles acl aclEntries \
+                 permissions grants hiddenCount withheldCount; do
+  if echo "$SEARCH_TYPES_CODE" | grep -vE '^\s*"[A-Za-z_]+",?$' | grep -qF "$forbidden"; then
+    fail "an ACL or identity field entered SearchDocument: $forbidden"
+  fi
+done
+# The SEARCH-001 invariant must still hold.
+grep -Fq 'export function canServeSearchDocument(resolution: SearchSourceResolution): boolean' "$SEARCH_TYPES" \
+  || fail "canServeSearchDocument no longer requires a source resolution"
+
+echo "PASS: SearchDocument carries no ACL, identity or permission fields"
+
+# --- 26. Curriculum Search adopted the contract without a second system -----
+grep -Fq 'surfaceAuthorized(permissioned)' "$CS_SERVICE" \
+  || fail "curriculum search does not surface only authorized candidates"
+grep -Fq 'decideFromAuthoritativeRead' "$CS_SERVICE" \
+  || fail "curriculum search does not derive decisions from its authoritative read"
+# Adoption must not have introduced a duplicate authorization layer.
+if echo "$CS_SERVICE_CODE" | grep -qE 'auth\.uid|user_id ===|role ===|isOwner|hasPermission'; then
+  fail "a second authorization layer was created in curriculum search"
+fi
+# The SEARCH-002 guarantees must be intact.
+grep -Fq 'createUserScopedSupabaseClient(accessToken)' "$CS_SERVICE" \
+  || fail "curriculum search stopped using the caller's RLS-scoped client"
+if echo "$CS_SERVICE_CODE" | grep -qF 'createServerSupabaseClient'; then
+  fail "a service-role client entered a Search path"
+fi
+for forbidden in userId user_id studentId actorId; do
+  if echo "$CS_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "a caller-supplied identity drives Search authorization: $forbidden"
+  fi
+done
+for write in '.insert(' '.update(' '.upsert(' '.delete(' '.rpc('; do
+  if echo "$CS_SERVICE_CODE" | grep -qF "$write"; then
+    fail "Search writes source authorization or content state: $write"
+  fi
+done
+
+echo "PASS: curriculum search adopted the contract with no second authorization system"
+
+# --- 27. No cache, no index, no early notes ---------------------------------
+grep -Fq 'export const SEARCH_CACHE_SECURITY_CONTRACT' "$SP_TYPES" \
+  || fail "the cache security contract is missing"
+grep -Fq 're-authorized against source authority' "$SP_TYPES" \
+  || fail "the cache contract omits source re-authorization"
+# The contract is architecture only; nothing may build one.
+if echo "$SP_SCAN$CS_SERVICE_CODE" | grep -qiE 'new Map\(\)\.set|cacheStore|permissionCache|materiali|setInterval|cron|queue'; then
+  fail "SEARCH-003 must not build a cache, index or worker"
+fi
+# SEARCH-006 must not arrive early.
+for forbidden in student_notes searchStudentNotes noteId note_body; do
+  if echo "$SP_SCAN$CS_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "notes were implemented early: $forbidden"
+  fi
+done
+
+echo "PASS: no cache or index exists and notes remain unimplemented"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -425,9 +578,10 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 and Batch 2 verification passed."
+echo "Wave 9 Batch 1, Batch 2 and Batch 3 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
-echo "SEARCH-003 through SEARCH-008 remain unimplemented."
-echo "One authenticated search route, no materialized index, no migration, no AI."
+echo "SEARCH-003 Permission-Aware Search is implemented."
+echo "SEARCH-004 through SEARCH-008 remain unimplemented."
+echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "============================================================"

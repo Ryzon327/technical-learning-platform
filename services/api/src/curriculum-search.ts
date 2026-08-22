@@ -4,17 +4,21 @@ import type {
   CurriculumSearchResults,
   SearchDocument
 } from "@tlp/shared-types";
+import type { SearchPermissionedCandidate } from "@tlp/shared-types";
 import {
   AppError,
   buildCurriculumSearchResults,
   buildCurriculumSearchSnippet,
   buildCurriculumSourceReference,
   buildSearchDocument,
+  decideFromAuthoritativeRead,
   describeCurriculumSearchQueryError,
+  maySurface,
   escapeCurriculumSearchPattern,
   normalizeCurriculumSearchLimit,
   normalizeCurriculumSearchQuery,
   selectHighestPublishedVersion,
+  surfaceAuthorized,
   validateCurriculumSearchQuery
 } from "@tlp/shared-types";
 import { createUserScopedSupabaseClient } from "./supabase";
@@ -116,12 +120,22 @@ export function projectCurriculumDocument(
   });
 }
 
+/**
+ * Reads one curriculum type and pairs every row with the SEARCH-003 decision
+ * the owning Engine already made.
+ *
+ * The decision is derived, never invented: Curriculum's row level security
+ * decided what this caller can read, and `decideFromAuthoritativeRead` only
+ * records that outcome. A failed read becomes `unavailable`, which can never
+ * surface; rows that came back are `authorized`, because RLS returning them IS
+ * the authorization. No publication or ownership rule is re-implemented here.
+ */
 async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
   pattern: string,
   limit: number
-): Promise<CurriculumSearchCandidate[]> {
+): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
   const { data, error } = await supabase
     .from(SEARCHABLE_TABLES[contentType])
     .select("stable_id,version,title,description,publication_state,updated_at")
@@ -129,16 +143,28 @@ async function searchOneType(
     .or(`title.ilike.%${pattern}%,description.ilike.%${pattern}%`)
     .limit(limit * 4);
 
-  if (error) throw unavailable();
+  // A source that cannot be authorized fails closed. No diagnostic reason is
+  // constructed here: nothing in this path could carry one to the learner, so
+  // `internalReason` stays confined to the permission contract itself.
+  if (error) {
+    const decision = decideFromAuthoritativeRead({
+      readFailed: true,
+      found: false
+    });
+    if (!maySurface(decision)) throw unavailable();
+  }
 
   return ((data ?? []) as unknown as CurriculumRow[]).map((row) => ({
-    contentType,
-    stableId: row.stable_id,
-    version: row.version,
-    title: row.title,
-    ...(row.description ? { description: row.description } : {}),
-    publicationState: row.publication_state,
-    updatedAt: row.updated_at
+    decision: decideFromAuthoritativeRead({ readFailed: false, found: true }),
+    value: {
+      contentType,
+      stableId: row.stable_id,
+      version: row.version,
+      title: row.title,
+      ...(row.description ? { description: row.description } : {}),
+      publicationState: row.publication_state,
+      updatedAt: row.updated_at
+    }
   }));
 }
 
@@ -182,14 +208,19 @@ export async function searchCurriculum(
 
   const supabase = createUserScopedSupabaseClient(accessToken);
 
-  const candidates: CurriculumSearchCandidate[] = [];
+  const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
+    [];
   for (const contentType of Object.keys(
     SEARCHABLE_TABLES
   ) as CurriculumSearchContentType[]) {
-    candidates.push(
+    permissioned.push(
       ...(await searchOneType(supabase, contentType, pattern, limit))
     );
   }
+
+  // SEARCH-003: only an explicit authorized decision may surface. Anything else
+  // is dropped silently — no placeholder, no marker, no contribution to count.
+  const candidates = surfaceAuthorized(permissioned);
 
   // Read resolution only. This selects which published version a learner is
   // shown; it asserts nothing about supersession and writes nothing.
