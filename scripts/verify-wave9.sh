@@ -118,17 +118,30 @@ fi
 echo "PASS: baseline Search requires no AI"
 
 # ------------------------------------------------------------
-# 6. SEARCH-002 through SEARCH-008 remain unimplemented
+# 6. Later Search features remain unimplemented in the SEARCH-001 module
 # ------------------------------------------------------------
-# No search route: SEARCH-001's acceptance criteria are all "Platform can ...".
-for route in '"/search"' '"/search/curriculum"' '"/curriculum/search"'; do
+# NARROWED for SEARCH-002, not removed.
+#
+# SEARCH-001 forbade every search route because it had no learner surface.
+# SEARCH-002 is the feature authorized to introduce exactly one. The boundary is
+# preserved and is now EXACT: that route and no other.
+SEARCH_ROUTES="$(grep -oE 'pathname === "/search[^"]*"' "$SERVER" | sort -u || true)"
+[ "$SEARCH_ROUTES" = 'pathname === "/search/curriculum"' ] \
+  || fail "the search route set changed; expected only the curriculum search:
+$SEARCH_ROUTES"
+for route in '"/search"' '"/curriculum/search"' '"/admin/search"' '"/search/public"' '"/search/notes"'; do
   if grep -Fq "pathname === $route" "$SERVER"; then
-    fail "SEARCH-002 search route leaked into SEARCH-001: $route"
+    fail "an unapproved search route exists: $route"
   fi
 done
+
+# SEARCH-001's own module still owns no surface. Only SEARCH-002's service is
+# wired into the router.
 if grep -Fq 'from "./search-document"' "$SERVER"; then
-  fail "the Search service is wired into the router; SEARCH-002 owns the surface"
+  fail "the SEARCH-001 module is wired into the router; it owns no surface"
 fi
+grep -Fq 'from "./curriculum-search"' "$SERVER" \
+  || fail "the SEARCH-002 service is not wired into the router"
 
 # No query, ranking, faceting, typo tolerance or indexing pipeline.
 for forbidden in ilike textSearch synonym typo fuzzy levenshtein facet \
@@ -143,7 +156,7 @@ if echo "$SEARCH_TYPES_CODE$SEARCH_SERVICE_CODE" | grep -qiE '\b(rankResults|sco
   fail "SEARCH-008 ranking leaked into SEARCH-001"
 fi
 
-echo "PASS: SEARCH-002 through SEARCH-008 remain unimplemented"
+echo "PASS: SEARCH-003 through SEARCH-008 remain unimplemented"
 
 # ------------------------------------------------------------
 # 7. Stable identity and version discipline
@@ -216,6 +229,190 @@ fi
 
 echo "PASS: no learner query is persisted or logged"
 
+# ============================================================
+# SEARCH-002 — Curriculum Search (Batch 2)
+# ============================================================
+
+CS_TYPES="packages/shared-types/src/curriculum-search.ts"
+CS_TYPE_TESTS="packages/shared-types/src/curriculum-search.test.ts"
+CS_SERVICE="services/api/src/curriculum-search.ts"
+CS_SERVICE_TESTS="services/api/src/curriculum-search.test.ts"
+CS_VIEW="apps/web/src/search/CurriculumSearchView.tsx"
+CS_WEB_SERVICE="apps/web/src/search/curriculum-search-service.ts"
+CS_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_2_CURRICULUM_SEARCH.md"
+
+for p in "$CS_TYPES" "$CS_TYPE_TESTS" "$CS_SERVICE" "$CS_SERVICE_TESTS" \
+         "$CS_VIEW" "$CS_WEB_SERVICE" "$CS_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+CS_TYPES_CODE="$(code_of "$CS_TYPES")"
+CS_SERVICE_CODE="$(code_of "$CS_SERVICE")"
+CS_VIEW_CODE="$(awk '/\{\/\*/{skip=1} !skip; /\*\/\}/{skip=0}' "$CS_VIEW" \
+  | grep -vE '^\s*(//|\*|/\*)' || true)"
+
+# --- 12. The route boundary -------------------------------------------------
+grep -Fq 'pathname === "/search/curriculum"' "$SERVER" \
+  || fail "the approved curriculum search route is missing"
+SEARCH_ROUTE_BLOCK="$(awk '/\/\/ SEARCH-002 — curriculum search\./{cap=1} cap; /pathname === "\/bookmarks"/{cap=0}' "$SERVER" || true)"
+echo "$SEARCH_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity(request)' \
+  || fail "the curriculum search route does not require trusted authentication"
+echo "$SEARCH_ROUTE_BLOCK" | grep -Fq 'request.method === "GET"' \
+  || fail "the curriculum search route is not a GET read"
+for method in POST PATCH PUT DELETE; do
+  if echo "$SEARCH_ROUTE_BLOCK" | grep -Fq "request.method === \"$method\""; then
+    fail "the curriculum search route accepts a mutation method: $method"
+  fi
+done
+
+echo "PASS: exactly one authenticated curriculum search route exists"
+
+# --- 13. Authorization ------------------------------------------------------
+grep -Fq 'createUserScopedSupabaseClient(accessToken)' "$CS_SERVICE" \
+  || fail "curriculum search does not read through the caller's RLS-scoped client"
+if echo "$CS_SERVICE_CODE" | grep -qF 'createServerSupabaseClient'; then
+  fail "curriculum search must not bypass row level security"
+fi
+for forbidden in userId user_id studentId actorId; do
+  if echo "$CS_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "a caller-supplied identity reached curriculum search: $forbidden"
+  fi
+done
+echo "$CS_SERVICE_CODE" | grep -Fq '.eq("publication_state", "published")' \
+  || fail "curriculum search does not constrain reads to published rows"
+
+echo "PASS: curriculum search is caller-scoped and published-only"
+
+# --- 14. Exactly four searchable types, no notes ----------------------------
+grep -Fq 'learning_path: "learning_paths"' "$CS_SERVICE" || fail "learning_path is not searchable"
+grep -Fq 'course: "courses"' "$CS_SERVICE" || fail "course is not searchable"
+grep -Fq 'mission: "missions"' "$CS_SERVICE" || fail "mission is not searchable"
+grep -Fq 'competency: "competencies"' "$CS_SERVICE" || fail "competency is not searchable"
+for forbidden in learning_modules curriculum_assets lab_definitions student_notes; do
+  if echo "$CS_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "an unapproved source became searchable: $forbidden"
+  fi
+done
+grep -Fq 'export const CURRICULUM_SEARCH_CONTENT_TYPES = [' "$CS_TYPES" \
+  || fail "the searchable type vocabulary is missing"
+
+echo "PASS: exactly the four approved curriculum types are searchable"
+
+# --- 15. Search owns no storage and writes no Curriculum truth --------------
+for write in '.insert(' '.update(' '.upsert(' '.delete(' '.rpc('; do
+  if echo "$CS_SERVICE_CODE" | grep -qF "$write"; then
+    fail "curriculum search must write nothing: $write"
+  fi
+done
+if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qiE 'search_documents|materialized|tsvector|to_tsquery|pg_trgm'; then
+  fail "curriculum search must not create an index or FTS infrastructure"
+fi
+if echo "$CS_SERVICE_CODE" | grep -qiE 'setinterval|cron|queue|worker|cache'; then
+  fail "curriculum search must not introduce a pipeline or cache"
+fi
+SEARCH_MIGRATIONS_NOW="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$SEARCH_MIGRATIONS_NOW" = "0" ] || fail "SEARCH-002 must add no migration"
+
+echo "PASS: curriculum search owns no storage and writes no Curriculum truth"
+
+# --- 16. Bounded query, limit and candidate over-fetch ----------------------
+grep -Fq 'export const CURRICULUM_SEARCH_QUERY_MAX_LENGTH = 200;' "$CS_TYPES" \
+  || fail "the query length bound is missing"
+grep -Fq 'export const CURRICULUM_SEARCH_MAX_LIMIT = 100;' "$CS_TYPES" \
+  || fail "the result limit bound is missing"
+# Matched on the CALL, not the import, in both cases below: a leftover import
+# would otherwise satisfy these guards while the bound was gone.
+grep -Fq 'validateCurriculumSearchQuery(input.query)' "$CS_SERVICE" \
+  || fail "the service does not validate the query"
+grep -Fq 'normalizeCurriculumSearchLimit(input.limit)' "$CS_SERVICE" \
+  || fail "the service does not bound the result limit"
+# The candidate over-fetch exists so version collapse cannot starve results.
+# It must remain bounded and must never become unbounded.
+grep -Fq '.limit(limit * 4)' "$CS_SERVICE" \
+  || fail "the candidate over-fetch is missing or no longer bounded"
+grep -Fq 'buildCurriculumSearchResults(documents, limit)' "$CS_SERVICE" \
+  || fail "the returned results are not bounded by the requested limit"
+
+echo "PASS: query, limit and candidate over-fetch are all bounded"
+
+# --- 17. Escaped literal matching, no later Search behaviour ----------------
+# Matched on the CALL, not the import: a leftover import would otherwise satisfy
+# this guard while the raw query went straight into the ILIKE pattern.
+grep -Fq 'escapeCurriculumSearchPattern(query)' "$CS_SERVICE" \
+  || fail "the query is not escaped before ILIKE matching"
+grep -Fq "s\\\\\\\\%_" "$CS_TYPES" >/dev/null 2>&1 || true
+grep -Fq 'replace(/[\\%_]/g' "$CS_TYPES" \
+  || fail "the LIKE control characters are not escaped"
+for forbidden in fuzzy synonym typo levenshtein soundex stemming; do
+  if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-005 behaviour leaked into SEARCH-002: $forbidden"
+  fi
+done
+for forbidden in relevance boost popularity rankResults scoreResult; do
+  if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-008 ranking leaked into SEARCH-002: $forbidden"
+  fi
+done
+if echo "$CS_TYPES_CODE$CS_SERVICE_CODE$CS_VIEW_CODE" | grep -qiE 'facet|openai|anthropic|ollama|embedding'; then
+  fail "a later Search feature or AI dependency leaked into SEARCH-002"
+fi
+
+echo "PASS: matching is escaped and literal, with no later Search behaviour"
+
+# --- 18. Read resolution, not supersession ---------------------------------
+grep -Fq 'export function selectHighestPublishedVersion' "$CS_TYPES" \
+  || fail "the highest-published-version read resolution is missing"
+# Matched on the CALL, not the import: a leftover import would otherwise satisfy
+# this guard while every published version reached the learner.
+grep -Fq 'selectHighestPublishedVersion(candidates)' "$CS_SERVICE" \
+  || fail "the service does not collapse multiple published versions"
+# Search must never claim Curriculum lifecycle authority.
+for forbidden in supersede retire canonicalVersion determineCurrentTruth resolveLifecycle; do
+  if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-002 asserted Curriculum lifecycle authority: $forbidden"
+  fi
+done
+
+echo "PASS: version collapse is read resolution and asserts no supersession"
+
+# --- 19. Result contract and privacy ---------------------------------------
+grep -Fq 'export interface CurriculumSearchResults {' "$CS_TYPES" \
+  || fail "the result contract is missing"
+for forbidden in totalCount resultSources hiddenCount cursor offset; do
+  if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "a hidden total or pagination contract exists: $forbidden"
+  fi
+done
+if echo "$CS_SERVICE_CODE" | grep -qE 'search_history|query_log|console\.'; then
+  fail "a learner query may be persisted or logged"
+fi
+
+echo "PASS: count means returned results, with no hidden total and no query logging"
+
+# --- 20. Accessible learner surface ----------------------------------------
+grep -Fq 'htmlFor="curriculum-search-query"' "$CS_VIEW" \
+  || fail "the search input has no associated label"
+grep -Fq '<form' "$CS_VIEW" || fail "the search surface is not a semantic form"
+grep -Fq 'type="submit"' "$CS_VIEW" || fail "the search form has no submit control"
+grep -Fq 'aria-live="polite"' "$CS_VIEW" || fail "the result count is not announced"
+grep -Fq 'describeCurriculumSearchCount' "$CS_VIEW" \
+  || fail "the returned result count is not exposed"
+grep -Fq 'describeCurriculumContentType' "$CS_VIEW" \
+  || fail "the content type is not expressed in text"
+grep -Fq 'role="alert"' "$CS_VIEW" || fail "search failure is not announced"
+for custom in 'role="listbox"' 'role="combobox"' 'onKeyDown' 'tabIndex'; do
+  if grep -Fq "$custom" "$CS_VIEW"; then
+    fail "the search surface must not build a custom control: $custom"
+  fi
+done
+if grep -qiE 'className="[^"]*\b(green|red|amber|danger)\b' "$CS_VIEW"; then
+  fail "search status must not be conveyed by colour"
+fi
+grep -Fq 'CurriculumSearchView' apps/web/src/auth/AuthenticatedApp.tsx \
+  || fail "curriculum search is not reachable from the workspace"
+
+echo "PASS: the learner search surface is accessible and reachable"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -228,8 +425,9 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 verification passed."
+echo "Wave 9 Batch 1 and Batch 2 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
-echo "SEARCH-002 through SEARCH-008 remain unimplemented."
-echo "No search route, no materialized index, no migration, no AI dependency."
+echo "SEARCH-002 Curriculum Search is implemented."
+echo "SEARCH-003 through SEARCH-008 remain unimplemented."
+echo "One authenticated search route, no materialized index, no migration, no AI."
 echo "============================================================"

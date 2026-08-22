@@ -93,6 +93,16 @@ assert_status POST /certificates/presentation 404 '{"x":1}'
 assert_status DELETE /certificates/presentation 404
 assert_status GET /admin/certificates/presentation 404
 assert_status GET /certificates/presentation/public 404
+
+# SEARCH-002 — curriculum search is authenticated, GET only, and has no public
+# or admin surface.
+assert_status GET '/search/curriculum?q=vlan' 401
+assert_status GET '/search/curriculum?q=vlan&limit=5' 401
+assert_status POST /search/curriculum 404 '{"q":"vlan"}'
+assert_status DELETE /search/curriculum 404
+assert_status GET /admin/search 404
+assert_status GET /search 404
+assert_status GET '/search/notes?q=x' 404
 assert_status POST /certificates 404 '{"x":1}'
 assert_status DELETE /certificates 404
 assert_status GET /certificates/test-certificate 404
@@ -182,3 +192,5 @@ echo 'PASS: CERT-008 corrections require privileged authentication'
 echo 'PASS: CERT-008 exposes no student revoke, restore or correct route'
 echo 'PASS: CERT-009 presentation requires authentication'
 echo 'PASS: CERT-009 exposes no public or admin presentation route'
+echo 'PASS: SEARCH-002 curriculum search requires authentication'
+echo 'PASS: SEARCH-002 exposes no public or admin search route'

@@ -3,6 +3,7 @@ import { AuthUiError } from "./auth-service";
 import { useAuth } from "./AuthProvider";
 import { CertificateEligibilityView } from "../certificates/CertificateEligibilityView";
 import { CertificatePortfolioView } from "../certificates/CertificatePortfolioView";
+import { CurriculumSearchView } from "../search/CurriculumSearchView";
 import { EvidencePortfolioView } from "../evidence/EvidencePortfolioView";
 import { FounderMfaGate } from "./FounderMfaGate";
 
@@ -10,7 +11,8 @@ type WorkspaceView =
   | "overview"
   | "evidence"
   | "certificates"
-  | "certificate-portfolio";
+  | "certificate-portfolio"
+  | "search";
 
 function Workspace() {
   const { user, profile, authState, signOut } = useAuth();
@@ -83,6 +85,15 @@ function Workspace() {
                 Certificate eligibility
               </button>
             </li>
+            <li>
+              <button
+                type="button"
+                aria-current={view === "search" ? "page" : undefined}
+                onClick={() => setView("search")}
+              >
+                Search
+              </button>
+            </li>
           </ul>
         </nav>
 
@@ -108,6 +119,7 @@ function Workspace() {
         {view === "evidence" && <EvidencePortfolioView />}
 
         {view === "certificate-portfolio" && <CertificatePortfolioView />}
+        {view === "search" && <CurriculumSearchView />}
 
         {view === "certificates" && <CertificateEligibilityView />}
 

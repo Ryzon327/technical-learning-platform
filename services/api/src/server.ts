@@ -100,6 +100,7 @@ import {
   getStudentEvidenceCorrectionHistory
 } from "./evidence-correction";
 import { getStudentEvidencePortfolio } from "./evidence-portfolio";
+import { searchCurriculum } from "./curriculum-search";
 import { exportStudentEvidence } from "./evidence-export";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
@@ -647,6 +648,27 @@ async function handleRequest(
       const tagIds = url.searchParams.getAll("tagId");
       const pinnedValue = url.searchParams.get("pinned");
       sendJson(response, 200, { results: await searchStudentNotes(trusted.accessToken, { query: url.searchParams.get("q") ?? "", tagIds, contextType: url.searchParams.get("contextType") ?? undefined, contextStableId: url.searchParams.get("contextStableId") ?? undefined, pinned: pinnedValue == null ? undefined : pinnedValue === "true", limit: Number(url.searchParams.get("limit") ?? 25) }) });
+      return;
+    }
+
+    // SEARCH-002 — curriculum search.
+    //
+    // Authenticated, caller-scoped. Curriculum remains authoritative: this
+    // reads published curriculum through the caller's own RLS-scoped client and
+    // projects it, holding no index of its own. `count` is the number of
+    // authorized results actually returned — there is deliberately no global
+    // total, which would become a result-count side channel once SEARCH-003
+    // adds private sources.
+    if (request.method === "GET" && pathname === "/search/curriculum") {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      sendJson(
+        response,
+        200,
+        await searchCurriculum(trusted.accessToken, {
+          query: url.searchParams.get("q") ?? "",
+          limit: url.searchParams.get("limit") ?? undefined
+        })
+      );
       return;
     }
 

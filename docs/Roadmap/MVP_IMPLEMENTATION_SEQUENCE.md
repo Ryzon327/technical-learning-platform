@@ -429,6 +429,27 @@ inside an unrelated feature.
   WCAG contrast conformance is claimed. Explicit contrast validation belongs to
   the pre-MVP accessibility and assurance work.
 
+- **Curriculum published-version reader inconsistency.** Multiple
+  simultaneously published versions of one curriculum `stable_id` are
+  structurally possible: the only constraint is `unique (stable_id, version)`,
+  and `curriculum_publish_learning_path_tree` never retires a predecessor. The
+  two existing readers then disagree — `getPublishedLearningPathTree(stableId)`
+  resolves to the highest published version, while `listPublishedLearningPaths()`
+  returns every published version. **CURR-006 owns authoritative supersession
+  and lineage behaviour and is specified but not implemented**; no service code
+  references `curriculum_version_lineage`.
+
+  SEARCH-002 temporarily mirrors the detail-reader behaviour for learner-facing
+  search by selecting the highest published version. That is **read resolution
+  only** — it establishes no supersession truth, retires nothing and writes
+  nothing. **Curriculum itself was not changed**: neither reader was modified,
+  and no publication schema or migration was touched.
+
+  Discovered during SEARCH-002; not a SEARCH-002 blocker. The Curriculum reader
+  inconsistency must be reconciled during the pre-MVP Curriculum and
+  architecture assurance work, and Search must defer to CURR-006 once
+  authoritative current-version semantics exist.
+
 ## Exit criteria
 
 The audit has run across the applicable scope, and every release-blocking

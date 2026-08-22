@@ -137,10 +137,30 @@ describe("A: SEARCH-001 owns no source truth", () => {
 });
 
 describe("B: SEARCH-002 was not implemented early", () => {
-  it("B: exposes no search route", () => {
-    expect(server).not.toContain('pathname === "/search"');
-    expect(server).not.toContain('pathname === "/search/curriculum"');
-    expect(server).not.toContain("/curriculum/search");
+  /**
+   * NARROWED for SEARCH-002, not removed.
+   *
+   * SEARCH-001 forbade every search route because it had no learner surface.
+   * SEARCH-002 is the feature authorized to introduce exactly one: the
+   * authenticated curriculum search. The boundary is preserved and now exact —
+   * that route and no other, and still nothing owned by SEARCH-001 itself.
+   */
+  it("B: exposes only the approved SEARCH-002 curriculum search route", () => {
+    const searchRoutes = (
+      server.match(/pathname === "\/search[^"]*"/g) ?? []
+    ).sort();
+
+    expect(searchRoutes).toEqual(['pathname === "/search/curriculum"']);
+
+    for (const forbidden of [
+      'pathname === "/search"',
+      'pathname === "/admin/search"',
+      'pathname === "/search/notes"',
+      'pathname === "/search/public"',
+      "/curriculum/search"
+    ]) {
+      expect(server).not.toContain(forbidden);
+    }
   });
 
   it("B2: the service is not imported by the router", () => {

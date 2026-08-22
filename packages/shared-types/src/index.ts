@@ -44,6 +44,7 @@ export * from "./certificate-export";
 export * from "./certificate-correction";
 export * from "./certificate-presentation";
 export * from "./search-document";
+export * from "./curriculum-search";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";
