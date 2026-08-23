@@ -6,8 +6,9 @@ cd "$ROOT"
 # ============================================================
 # Build Wave 9 — Search Engine.
 #
-# SEARCH-001 ONLY at this stage. This verifier evolves narrowly as SEARCH-002
-# through SEARCH-008 are implemented; it must not be widened speculatively.
+# SEARCH-001 through SEARCH-004 at this stage. This verifier evolves narrowly as
+# SEARCH-005 through SEARCH-008 are implemented; it must not be widened
+# speculatively.
 #
 # The Search Engine completion gate (scripts/verify-search-engine-completion.sh)
 # belongs at Search Engine closure and does not exist yet.
@@ -27,6 +28,14 @@ SERVER="services/api/src/server.ts"
 
 fail() { echo "FAIL: $1"; exit 1; }
 code_of() { grep -vE '^\s*(//|\*|/\*)' "$1" || true; }
+# Code with double-quoted string literals removed.
+#
+# Several of these modules hold their own prohibitions AS DATA — the reason
+# strings in CURRICULUM_SEARCH_FILTER_DISPOSITIONS name "UUID", "draft" and
+# "retired" precisely to record that those are excluded. A naive absence scan
+# would flag a module for documenting what it refuses to do, so absence checks
+# that could collide with a prohibition list run against this instead.
+code_no_strings() { code_of "$1" | sed 's/"[^"]*"//g'; }
 
 for p in "$SEARCH_TYPES" "$SEARCH_TYPE_TESTS" "$SEARCH_SERVICE" \
          "$SEARCH_SERVICE_TESTS" "$SEARCH_DOC"; do
@@ -156,7 +165,7 @@ if echo "$SEARCH_TYPES_CODE$SEARCH_SERVICE_CODE" | grep -qiE '\b(rankResults|sco
   fail "SEARCH-008 ranking leaked into SEARCH-001"
 fi
 
-echo "PASS: SEARCH-004 through SEARCH-008 remain unimplemented"
+echo "PASS: no later Search behaviour leaked into the SEARCH-001 module"
 
 # ------------------------------------------------------------
 # 7. Stable identity and version discipline
@@ -353,8 +362,11 @@ for forbidden in relevance boost popularity rankResults scoreResult; do
     fail "SEARCH-008 ranking leaked into SEARCH-002: $forbidden"
   fi
 done
-if echo "$CS_TYPES_CODE$CS_SERVICE_CODE$CS_VIEW_CODE" | grep -qiE 'facet|openai|anthropic|ollama|embedding'; then
-  fail "a later Search feature or AI dependency leaked into SEARCH-002"
+# `facet` was forbidden here while SEARCH-004 was unimplemented. Faceting is now
+# the approved SEARCH-004 deliverable and is verified by sections 28-37 below;
+# everything SEARCH-008 owns is still forbidden by the two loops above.
+if echo "$CS_TYPES_CODE$CS_SERVICE_CODE$CS_VIEW_CODE" | grep -qiE 'openai|anthropic|ollama|embedding'; then
+  fail "an AI dependency leaked into Curriculum Search"
 fi
 
 echo "PASS: matching is escaped and literal, with no later Search behaviour"
@@ -566,6 +578,242 @@ done
 
 echo "PASS: no cache or index exists and notes remain unimplemented"
 
+# ============================================================
+# SEARCH-004 — Search Filters and Facets (Batch 4)
+# ============================================================
+
+SF_TYPES="packages/shared-types/src/curriculum-search-filters.ts"
+SF_TYPE_TESTS="packages/shared-types/src/curriculum-search-filters.test.ts"
+SF_WEB_TESTS="apps/web/src/search/curriculum-search-service.test.ts"
+SF_API_CLIENT="apps/web/src/lib/api-client.ts"
+SF_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_4_SEARCH_FILTERS_AND_FACETS.md"
+
+for p in "$SF_TYPES" "$SF_TYPE_TESTS" "$SF_WEB_TESTS" "$SF_API_CLIENT" "$SF_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+SF_TYPES_CODE="$(code_of "$SF_TYPES")"
+SF_TYPES_BARE="$(code_no_strings "$SF_TYPES")"
+SF_SERVICE_BARE="$(code_no_strings "$CS_SERVICE")"
+# The service composition with all whitespace removed, so a guard can pin an
+# expression that legitimately spans several lines.
+CS_SERVICE_FLAT="$(echo "$CS_SERVICE_CODE" | tr -d ' \n')"
+
+# --- 28. SEARCH-004 exists and is approved ----------------------------------
+SEARCH_004="$(find "$REGISTRY" -maxdepth 1 -name 'SEARCH-004_*.md' | head -1)"
+[ -n "$SEARCH_004" ] || fail "SEARCH-004 specification is missing from the Feature Registry"
+grep -Fq '[x] Approved' "$SEARCH_004" || fail "SEARCH-004 does not record Founder approval"
+grep -Fq 'export * from "./curriculum-search-filters";' packages/shared-types/src/index.ts \
+  || fail "the filter model is not exported from shared-types"
+
+echo "PASS: SEARCH-004 exists and records Founder approval"
+
+# --- 29. Exactly one filter dimension, over exactly the searchable types -----
+grep -Fq 'export const CURRICULUM_SEARCH_FILTER_DIMENSIONS = ["contentType"] as const;' "$SF_TYPES" \
+  || fail "SEARCH-004 must expose exactly one filter dimension: contentType"
+# DERIVED from the searchable set, never restated. A restated list could name a
+# type search cannot return, or drift from the set SEARCH-002 actually reads.
+echo "$SF_TYPES_CODE" | tr -d ' \n' \
+  | grep -Fq 'CURRICULUM_SEARCH_FILTERABLE_CONTENT_TYPES=CURRICULUM_SEARCH_CONTENT_TYPES;' \
+  || fail "the filter vocabulary is not derived from the searchable content types"
+# No second vocabulary may be declared in this module.
+if echo "$SF_TYPES_CODE" | grep -qE '^\s*"(learning_path|course|mission|competency)"'; then
+  fail "the filter module declares its own content-type vocabulary"
+fi
+
+echo "PASS: one filter dimension, derived from exactly the four searchable types"
+
+# --- 30. No unsupported filter dimension is exposed -------------------------
+# Each of these is recorded as deferred, not applicable or not exposed. None may
+# become a filter, a facet or a request parameter.
+for forbidden in learningPathStableId courseStableId moduleStableId missionStableId \
+                 competencyStableId tagId labId noteId publicationStateFilter \
+                 accessScopeFilter; do
+  if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qF "$forbidden"; then
+    fail "an unapproved filter dimension was exposed: $forbidden"
+  fi
+done
+# The route accepts the approved parameter and nothing else.
+echo "$SEARCH_ROUTE_BLOCK" | grep -Fq 'url.searchParams.getAll("contentType")' \
+  || fail "the route does not read repeated contentType values"
+for forbidden in 'JSON.parse' '"filters"' '"filter"' '"publicationState"' \
+                 '"accessScope"' '"tag"' '"learningPath"' '"sort"' '"order"'; do
+  if echo "$SEARCH_ROUTE_BLOCK" | grep -Fq "$forbidden"; then
+    fail "the search route accepts an unapproved filter input: $forbidden"
+  fi
+done
+# No internal identifier may become a filter or facet value.
+if echo "$SF_TYPES_BARE" | grep -qiE 'uuid|\.id\b|internalId'; then
+  fail "an internal identifier reached the filter or facet model"
+fi
+
+echo "PASS: no hierarchy, tag, lab, scope, publication-state or UUID filter exists"
+
+# --- 31. Filtering runs AFTER authorization, never before -------------------
+# Pinned on the CALL, matched against the flattened service because the call
+# wraps across lines. The import line ends in a comma, not "(", so a leftover
+# import cannot satisfy this guard while the validation was gone.
+echo "$CS_SERVICE_FLAT" \
+  | grep -Fq 'validateCurriculumSearchContentTypeFilter(input.contentTypes)' \
+  || fail "the service does not validate the content-type filter"
+grep -Fq 'applyCurriculumSearchFilter(selected, filter)' "$CS_SERVICE" \
+  || fail "the service does not apply the filter to the resolved result set"
+# EXACTLY ONCE, and only to the resolved set. Pinning the position of the first
+# call is not enough on its own: an ADDITIONAL application against the
+# permissioned or pre-resolution candidate list would sit earlier in the
+# pipeline and still leave the pinned call in place. Counting the call sites
+# closes that, and naming the forbidden arguments makes the failure legible.
+FILTER_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'applyCurriculumSearchFilter(' || true)"
+[ "$FILTER_CALLS" = "1" ] \
+  || fail "the content-type filter is applied $FILTER_CALLS times; it may be applied exactly once, to the resolved result set"
+for premature in 'applyCurriculumSearchFilter(permissioned' 'applyCurriculumSearchFilter(candidates' \
+                 'applyCurriculumSearchFilter(documents'; do
+  if echo "$CS_SERVICE_CODE" | grep -Fq "$premature"; then
+    fail "the filter is applied before authorization or version resolution: $premature"
+  fi
+done
+# ORDER IS THE SECURITY PROPERTY. Row level security, then the SEARCH-003
+# decision, then version resolution, and only then the filter. A filter that ran
+# earlier could influence which rows were authorized.
+SURFACE_LINE="$(grep -n 'surfaceAuthorized(permissioned)' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+RESOLVE_LINE="$(grep -n 'selectHighestPublishedVersion(candidates)' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+FILTER_LINE="$(grep -n 'applyCurriculumSearchFilter(selected, filter)' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+[ -n "$SURFACE_LINE" ] && [ -n "$RESOLVE_LINE" ] && [ -n "$FILTER_LINE" ] \
+  || fail "the authorization, resolution and filter steps are not all present"
+[ "$SURFACE_LINE" -lt "$RESOLVE_LINE" ] \
+  || fail "version resolution runs before SEARCH-003 surfacing"
+[ "$RESOLVE_LINE" -lt "$FILTER_LINE" ] \
+  || fail "the SEARCH-004 filter runs before version resolution or authorization"
+# The filter must not become an authorization decision of its own.
+if echo "$SF_TYPES_BARE" | grep -qiE 'authoriz|permission|maySurface|accessToken|supabase'; then
+  fail "the filter model reaches into authorization"
+fi
+
+echo "PASS: filtering runs strictly after authorization and cannot influence it"
+
+# --- 32. Facets are computed from the returned authorized results only ------
+grep -Fq 'export function buildCurriculumSearchFacets' "$SF_TYPES" \
+  || fail "the facet builder is missing"
+# Pinned on the exact composition: facets are built from the BOUNDED, ORDERED
+# result set the learner receives. Anything else — the candidate list, the
+# permissioned list, the over-fetch window — would be a hidden-record channel.
+echo "$CS_SERVICE_FLAT" \
+  | grep -Fq 'returnwithCurriculumSearchFacets(buildCurriculumSearchResults(documents,limit));' \
+  || fail "facets are not computed from the bounded returned result set"
+# Only the approved vocabulary may become a facet value.
+grep -Fq 'if (!isCurriculumSearchContentType(contentType)) continue;' "$SF_TYPES" \
+  || fail "the facet builder does not restrict values to the approved vocabulary"
+# A type with no returned result is omitted, never reported as zero.
+grep -Fq '(counts.get(contentType) ?? 0) > 0' "$SF_TYPES" \
+  || fail "the facet builder reports a type with no returned result"
+# Section 11: a facet failure omits facets and preserves the search.
+grep -Fq 'export function buildCurriculumSearchFacetsSafely' "$SF_TYPES" \
+  || fail "facet failure does not degrade safely"
+grep -Fq 'withCurriculumSearchFacets' "$CS_SERVICE" \
+  || fail "the service does not attach facets through the safe path"
+
+echo "PASS: facets count only the returned authorized results"
+
+# --- 33. No hidden, global or over-fetch total is expressible ---------------
+grep -Fq 'export const CURRICULUM_SEARCH_FORBIDDEN_COUNT_FIELDS' "$SF_TYPES" \
+  || fail "the forbidden-total prohibition is not held as data"
+for forbidden in candidateCount totalCount globalTotal hiddenCount \
+                 unauthorizedCount withheldCount overFetchCount; do
+  grep -Fq "\"$forbidden\"" "$SF_TYPES" \
+    || fail "a hidden total is missing from the prohibition list: $forbidden"
+  # Prose and the prohibition list itself are excluded, so this judges real code.
+  if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qF "$forbidden"; then
+    fail "a hidden or global total entered the response: $forbidden"
+  fi
+done
+grep -Fq 'CURRICULUM_SEARCH_FORBIDDEN_COUNT_FIELDS' "$SF_TYPE_TESTS" \
+  || fail "the forbidden-total prohibition is not asserted by tests"
+# The sum invariant must exist and be asserted.
+grep -Fq 'export function curriculumSearchFacetCountsMatchResults' "$SF_TYPES" \
+  || fail "the facet-count invariant is missing"
+grep -Fq 'curriculumSearchFacetCountsMatchResults' "$SF_TYPE_TESTS" \
+  || fail "the facet-count invariant is not asserted by tests"
+grep -Fq 'expect(total).toBe(results.count);' "$CS_SERVICE_TESTS" \
+  || fail "the service tests do not assert that facet counts sum to the response count"
+
+echo "PASS: facet counts sum to the returned count, with no hidden or global total"
+
+# --- 34. Hidden-content leakage is covered by executable tests --------------
+grep -Fq 'the bounded over-fetch window never reaches a facet count' "$CS_SERVICE_TESTS" \
+  || fail "no test proves the over-fetch window cannot reach a facet count"
+grep -Fq 'a collapsed older version does not raise a count' "$CS_SERVICE_TESTS" \
+  || fail "no test proves a resolved-away version cannot raise a facet count"
+grep -Fq 'filtering does not change which sources are read' "$CS_SERVICE_TESTS" \
+  || fail "no test proves the filter cannot influence which sources are read"
+grep -Fq 'a withheld candidate cannot raise a count' "$SF_TYPE_TESTS" \
+  || fail "no test proves a withheld candidate cannot raise a facet count"
+
+echo "PASS: hidden-content leakage is covered by executable tests"
+
+# --- 35. SearchDocument gained nothing -------------------------------------
+if echo "$SEARCH_TYPES_CODE" | grep -qiE 'facet|filterValue|hierarchyLabel|parentTitle'; then
+  fail "SEARCH-004 expanded the SEARCH-001 Search Document contract"
+fi
+if echo "$SF_TYPES_BARE" | grep -qiE 'acl|roleId|ownerId|userId'; then
+  fail "identity or ACL metadata entered the filter model"
+fi
+
+echo "PASS: SEARCH-001's Search Document contract is unchanged"
+
+# --- 36. Accessible native filter controls ----------------------------------
+grep -Fq '<fieldset>' "$CS_VIEW" || fail "the filters are not grouped in a fieldset"
+grep -Fq '<legend>' "$CS_VIEW" || fail "the filter group has no legend"
+grep -Fq 'type="checkbox"' "$CS_VIEW" || fail "the filters are not native checkboxes"
+grep -Fq 'htmlFor={inputId}' "$CS_VIEW" || fail "a filter control has no associated label"
+grep -Fq 'describeCurriculumSearchClearFilters' "$CS_VIEW" \
+  || fail "there is no clear-all control"
+grep -Fq 'type="button"' "$CS_VIEW" || fail "the clear control is not a real button"
+# Counts must be words, and must never claim a platform-wide total.
+grep -Fq 'describeCurriculumSearchFacetCount' "$CS_VIEW" \
+  || fail "facet counts are not expressed in text"
+grep -Fq 'in these results' "$SF_TYPES" \
+  || fail "facet count wording does not scope the count to the returned results"
+if echo "$SF_TYPES_CODE" | grep -qiE 'in the platform|found overall|in total|available overall'; then
+  fail "facet wording implies a corpus-wide total"
+fi
+for custom in 'role="checkbox"' 'role="listbox"' 'draggable' 'onDragStart' 'onKeyDown'; do
+  if grep -Fq "$custom" "$CS_VIEW"; then
+    fail "the filter surface must not build a custom or drag control: $custom"
+  fi
+done
+
+echo "PASS: filters are accessible native controls with text counts"
+
+# --- 37. SEARCH-005 through SEARCH-008 remain unimplemented -----------------
+for forbidden in fuzzy synonym typo levenshtein soundex stemming semantic; do
+  if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-005 behaviour leaked into SEARCH-004: $forbidden"
+  fi
+done
+for forbidden in relevance boost popularity rankResults scoreResult weighting; do
+  if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-008 ranking leaked into SEARCH-004: $forbidden"
+  fi
+done
+for forbidden in student_notes searchStudentNotes noteId note_body; do
+  if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qF "$forbidden"; then
+    fail "SEARCH-006 notes leaked into SEARCH-004: $forbidden"
+  fi
+done
+if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qiE 'materiali|tsvector|to_tsquery|pg_trgm|setInterval|cron|queue|facetCache'; then
+  fail "SEARCH-007 indexing or caching leaked into SEARCH-004"
+fi
+if echo "$SF_TYPES_BARE" | grep -qiE 'openai|anthropic|ollama|embedding'; then
+  fail "an AI dependency entered the filter model"
+fi
+# No migration and no dependency.
+SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$SEARCH_MIGRATIONS_AFTER" = "0" ] || fail "SEARCH-004 must add no migration"
+FILTER_MIGRATIONS="$(ls supabase/migrations/*facet*.sql supabase/migrations/*filter*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$FILTER_MIGRATIONS" = "0" ] || fail "SEARCH-004 must add no filter or facet migration"
+
+echo "PASS: SEARCH-005 through SEARCH-008 remain unimplemented"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -578,10 +826,12 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1, Batch 2 and Batch 3 verification passed."
+echo "Wave 9 Batch 1 through Batch 4 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
-echo "SEARCH-004 through SEARCH-008 remain unimplemented."
+echo "SEARCH-004 Search Filters and Facets is implemented."
+echo "SEARCH-005 through SEARCH-008 remain unimplemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
+echo "Facet counts describe the returned authorized results and nothing else."
 echo "============================================================"

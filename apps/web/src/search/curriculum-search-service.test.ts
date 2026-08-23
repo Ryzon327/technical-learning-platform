@@ -241,3 +241,228 @@ describe("response interpretation", () => {
     expect(requests).toHaveLength(0);
   });
 });
+
+/**
+ * SEARCH-004 — filter encoding and facet interpretation.
+ *
+ * These prove the wire contract: which values are sent, in what form, and what
+ * the browser does with the response. They do NOT prove markup — see the scope
+ * note at the top of this file. Every string and decision the filter UI renders
+ * is unit tested in
+ * `packages/shared-types/src/curriculum-search-filters.test.ts`, and the control
+ * structure is asserted in `scripts/verify-wave9.sh`.
+ */
+describe("content-type filter encoding", () => {
+  it("sends no contentType when none is selected", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "vlan" });
+
+    expect(requests[0]?.url).not.toContain("contentType");
+  });
+
+  it("sends no contentType for an empty selection", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "vlan", contentTypes: [] });
+
+    expect(requests[0]?.url).not.toContain("contentType");
+  });
+
+  it("sends a single selection", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "vlan",
+      contentTypes: ["course"]
+    });
+
+    expect(
+      new URL(requests[0]!.url).searchParams.getAll("contentType")
+    ).toEqual(["course"]);
+  });
+
+  /**
+   * The multi-select wire form. A repeated parameter, never one comma-joined
+   * value — the API reads it with `URLSearchParams.getAll`.
+   */
+  it("repeats the parameter for a multi-select", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "vlan",
+      contentTypes: ["course", "mission"]
+    });
+
+    const url = requests[0]?.url ?? "";
+    expect(new URL(url).searchParams.getAll("contentType")).toEqual([
+      "course",
+      "mission"
+    ]);
+    expect(url).not.toContain("course%2Cmission");
+    expect(url).not.toContain("course,mission");
+  });
+
+  it("sends all four when every type is selected", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "vlan",
+      contentTypes: ["learning_path", "course", "mission", "competency"]
+    });
+
+    expect(
+      new URL(requests[0]!.url).searchParams.getAll("contentType")
+    ).toEqual(["learning_path", "course", "mission", "competency"]);
+  });
+
+  it("keeps the query alongside the filter", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "show vlan brief",
+      contentTypes: ["mission"]
+    });
+
+    const params = new URL(requests[0]!.url).searchParams;
+    expect(params.get("q")).toBe("show vlan brief");
+    expect(params.getAll("contentType")).toEqual(["mission"]);
+  });
+
+  /**
+   * Clearing filters is a search with no selection — byte-identical to a search
+   * that never had one. There is no "cleared" marker on the wire.
+   */
+  it("clearing filters produces the same request as an unfiltered search", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "vlan",
+      contentTypes: ["course"]
+    });
+    const filtered = requests[0]?.url ?? "";
+
+    requests = [];
+    await searchCurriculum(ACCESS_TOKEN, { query: "vlan", contentTypes: [] });
+    const cleared = requests[0]?.url ?? "";
+
+    requests = [];
+    await searchCurriculum(ACCESS_TOKEN, { query: "vlan" });
+    const never = requests[0]?.url ?? "";
+
+    expect(cleared).toBe(never);
+    expect(cleared).not.toBe(filtered);
+  });
+
+  it("sends no other filter dimension", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, {
+      query: "vlan",
+      contentTypes: ["course"]
+    });
+
+    const url = requests[0]?.url ?? "";
+    for (const forbidden of [
+      "publicationState",
+      "publication_state",
+      "accessScope",
+      "tag",
+      "tagId",
+      "learningPath",
+      "moduleStableId",
+      "labId",
+      "filters=",
+      "sort",
+      "order"
+    ]) {
+      expect(url).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("facet interpretation", () => {
+  const facetedDocument = {
+    modelVersion: "search-document-v1",
+    documentId: "curriculum:course:course.networking@2",
+    sourceEngine: "curriculum",
+    sourceRecordStableId: "course.networking",
+    sourceVersion: 2,
+    contentType: "course",
+    title: "Networking Basics",
+    searchableText: "Run show vlan brief to inspect VLANs.",
+    keywords: [],
+    sourceReference: "/courses/course.networking",
+    publicationState: "published",
+    accessScope: "shared",
+    sourceUpdatedAt: "2026-08-01T10:00:00.000Z",
+    indexedAt: "2026-08-21T09:00:00.000Z"
+  };
+
+  it("reads facets from the response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({
+        results: [facetedDocument],
+        count: 1,
+        facets: {
+          contentTypes: [{ value: "course", label: "Course", count: 1 }]
+        }
+      })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "vlan" });
+
+    expect(outcome.facets?.contentTypes).toEqual([
+      { value: "course", label: "Course", count: 1 }
+    ]);
+  });
+
+  /**
+   * SEARCH-004 section 11: if facet calculation fails the core search stays
+   * usable and the filters are simply omitted.
+   */
+  it("still returns results when the server omits facets", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({ results: [facetedDocument], count: 1 })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "vlan" });
+
+    expect(outcome.count).toBe(1);
+    expect(outcome.results).toHaveLength(1);
+    expect(outcome.facets).toBeUndefined();
+  });
+
+  it("treats empty facets as a result, not a failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({ results: [], count: 0, facets: { contentTypes: [] } })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "nothing" });
+
+    expect(outcome.count).toBe(0);
+    expect(outcome.facets).toEqual({ contentTypes: [] });
+  });
+
+  it("invents no facet the server did not send", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({
+        results: [facetedDocument],
+        count: 1,
+        facets: {
+          contentTypes: [{ value: "course", label: "Course", count: 1 }]
+        }
+      })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "vlan" });
+
+    expect(outcome.facets?.contentTypes.map((facet) => facet.value)).toEqual([
+      "course"
+    ]);
+  });
+});

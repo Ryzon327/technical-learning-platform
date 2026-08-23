@@ -1,17 +1,20 @@
 import type {
   CurriculumSearchCandidate,
   CurriculumSearchContentType,
-  CurriculumSearchResults,
+  CurriculumSearchFacetedResults,
   SearchDocument
 } from "@tlp/shared-types";
 import type { SearchPermissionedCandidate } from "@tlp/shared-types";
 import {
   AppError,
+  applyCurriculumSearchFilter,
+  buildCurriculumSearchFilter,
   buildCurriculumSearchResults,
   buildCurriculumSearchSnippet,
   buildCurriculumSourceReference,
   buildSearchDocument,
   decideFromAuthoritativeRead,
+  describeCurriculumSearchFilterError,
   describeCurriculumSearchQueryError,
   maySurface,
   escapeCurriculumSearchPattern,
@@ -19,7 +22,9 @@ import {
   normalizeCurriculumSearchQuery,
   selectHighestPublishedVersion,
   surfaceAuthorized,
-  validateCurriculumSearchQuery
+  validateCurriculumSearchContentTypeFilter,
+  validateCurriculumSearchQuery,
+  withCurriculumSearchFacets
 } from "@tlp/shared-types";
 import { createUserScopedSupabaseClient } from "./supabase";
 
@@ -50,10 +55,17 @@ import { createUserScopedSupabaseClient } from "./supabase";
  *
  * ## Deliberately not implemented
  *
- * SEARCH-003 generalized permission-aware scoping · SEARCH-004 filters and
- * facets · SEARCH-005 typo tolerance, synonyms and acronym aliases ·
- * SEARCH-006 note results · SEARCH-007 indexing pipeline · SEARCH-008
- * relevance ranking. Matching is literal substring; ordering is neutral.
+ * SEARCH-005 typo tolerance, synonyms and acronym aliases · SEARCH-006 note
+ * results · SEARCH-007 indexing pipeline · SEARCH-008 relevance ranking.
+ * Matching is literal substring; ordering is neutral.
+ *
+ * ## SEARCH-004 filters and facets
+ *
+ * A content-type filter narrows the results, and content-type facets count
+ * them. Both run AFTER authorization, after SEARCH-003 surfacing and after
+ * version resolution, on the final result set — so a filter can only ever
+ * remove a result the caller was already entitled to see, and a facet can only
+ * ever count one. Nothing about a withheld candidate is reachable from either.
  *
  * ## Privacy
  *
@@ -171,6 +183,8 @@ async function searchOneType(
 export interface CurriculumSearchInput {
   query: unknown;
   limit?: unknown;
+  /** SEARCH-004: repeated `contentType` values, or nothing. */
+  contentTypes?: unknown;
 }
 
 /**
@@ -183,7 +197,7 @@ export interface CurriculumSearchInput {
 export async function searchCurriculum(
   accessToken: string,
   input: CurriculumSearchInput
-): Promise<CurriculumSearchResults> {
+): Promise<CurriculumSearchFacetedResults> {
   if (typeof accessToken !== "string" || accessToken.trim() === "") {
     throw new AppError({
       code: "UNAUTHORIZED",
@@ -201,8 +215,23 @@ export async function searchCurriculum(
     });
   }
 
+  // SEARCH-004: an unsupported filter value is rejected rather than ignored, so
+  // a learner is never told a filter applied when it did not, and a client
+  // cannot probe for filter dimensions by watching which values change results.
+  const filterError = validateCurriculumSearchContentTypeFilter(
+    input.contentTypes
+  );
+  if (filterError) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: describeCurriculumSearchFilterError(filterError),
+      retryable: false
+    });
+  }
+
   const query = normalizeCurriculumSearchQuery(input.query);
   const limit = normalizeCurriculumSearchLimit(input.limit);
+  const filter = buildCurriculumSearchFilter(input.contentTypes);
   const pattern = escapeCurriculumSearchPattern(query);
   const indexedAt = new Date().toISOString();
 
@@ -226,8 +255,15 @@ export async function searchCurriculum(
   // shown; it asserts nothing about supersession and writes nothing.
   const selected = selectHighestPublishedVersion(candidates);
 
+  // SEARCH-004 filtering happens HERE — after row level security, after the
+  // permission decision and after version resolution. Every source is still
+  // read exactly as an unfiltered search reads it, so the authorized candidate
+  // set is identical whether or not a filter was supplied: the filter narrows
+  // presentation and can never widen, redirect or influence authorization.
+  const filtered = applyCurriculumSearchFilter(selected, filter);
+
   const documents: SearchDocument[] = [];
-  for (const entry of selected) {
+  for (const entry of filtered) {
     const document = projectCurriculumDocument(
       entry.contentType,
       entry,
@@ -237,5 +273,12 @@ export async function searchCurriculum(
     if (document) documents.push(document);
   }
 
-  return buildCurriculumSearchResults(documents, limit);
+  // Facets are computed from the built, ordered, bounded result set — the exact
+  // documents the learner receives. A withheld candidate is not in that input,
+  // and neither is the bounded over-fetch window, so no count can describe a
+  // record the learner did not get. If facet computation fails, `facets` is
+  // omitted and the results still return (SEARCH-004 section 11).
+  return withCurriculumSearchFacets(
+    buildCurriculumSearchResults(documents, limit)
+  );
 }

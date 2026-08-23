@@ -68,20 +68,41 @@ export function resolveApiBaseUrl(
   return base.replace(/\/+$/, "");
 }
 
+/**
+ * One query parameter value.
+ *
+ * An array becomes a repeated parameter — `["course", "mission"]` is sent as
+ * `?key=course&key=mission`, the multi-select convention the API already reads
+ * with `URLSearchParams.getAll`. It is never joined into one comma-separated
+ * value, which would make the wire format ambiguous for any value containing a
+ * comma.
+ */
+export type ApiQueryValue = string | number | readonly string[] | undefined;
+
 /** Builds a request URL, dropping empty query values rather than sending them. */
 export function buildApiUrl(
   baseUrl: string,
   path: string,
-  query?: Record<string, string | number | undefined>
+  query?: Record<string, ApiQueryValue>
 ): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const search = new URLSearchParams();
 
+  const appendValue = (key: string, value: string | number) => {
+    const asString = String(value).trim();
+    if (asString === "") return;
+    search.append(key, asString);
+  };
+
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined) continue;
-    const asString = String(value).trim();
-    if (asString === "") continue;
-    search.set(key, asString);
+
+    if (Array.isArray(value)) {
+      for (const entry of value) appendValue(key, entry);
+      continue;
+    }
+
+    appendValue(key, value as string | number);
   }
 
   const queryString = search.toString();
@@ -134,7 +155,7 @@ export function normalizeApiError(
 
 export interface ApiRequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  query?: Record<string, string | number | undefined>;
+  query?: Record<string, ApiQueryValue>;
   body?: unknown;
   signal?: AbortSignal;
   baseUrl?: string;

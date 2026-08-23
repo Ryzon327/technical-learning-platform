@@ -64,6 +64,52 @@ describe("url building", () => {
       "https://api.example.test/evidence/portfolio"
     );
   });
+
+  /**
+   * Multi-select parameters are sent as a repeated key, matching what the API
+   * reads with `URLSearchParams.getAll`. Joining them into one comma-separated
+   * value would be ambiguous for any value containing a comma.
+   */
+  it("repeats an array value rather than joining it", () => {
+    const url = buildApiUrl("https://api.example.test", "/search/curriculum", {
+      q: "vlan",
+      contentType: ["course", "mission"]
+    });
+
+    expect(new URL(url).searchParams.getAll("contentType")).toEqual([
+      "course",
+      "mission"
+    ]);
+    expect(url).not.toContain("course%2Cmission");
+    expect(url).not.toContain("course,mission");
+  });
+
+  it("omits an empty array entirely", () => {
+    expect(
+      buildApiUrl("https://api.example.test", "/search/curriculum", {
+        q: "vlan",
+        contentType: []
+      })
+    ).toBe("https://api.example.test/search/curriculum?q=vlan");
+  });
+
+  it("drops blank entries inside an array", () => {
+    const url = buildApiUrl("https://api.example.test", "/search/curriculum", {
+      contentType: ["course", "   ", ""]
+    });
+
+    expect(new URL(url).searchParams.getAll("contentType")).toEqual(["course"]);
+  });
+
+  it("still sends a scalar value exactly once", () => {
+    const url = buildApiUrl("https://api.example.test", "/search/curriculum", {
+      q: "vlan",
+      limit: 5
+    });
+
+    expect(new URL(url).searchParams.getAll("q")).toEqual(["vlan"]);
+    expect(new URL(url).searchParams.getAll("limit")).toEqual(["5"]);
+  });
 });
 
 describe("error normalization", () => {

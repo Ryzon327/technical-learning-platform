@@ -237,8 +237,13 @@ describe("D: later Search features are not implemented", () => {
     }
   });
 
-  it("D2: no ranking, scoring or faceting", () => {
-    for (const forbidden of ["relevance", "score", "facet", "boost", "weight"]) {
+  /**
+   * Faceting was forbidden here under SEARCH-002 and is the approved SEARCH-004
+   * deliverable, so it is no longer listed. Everything SEARCH-008 owns still is:
+   * a facet counts results, it never orders or weights them.
+   */
+  it("D2: no ranking, scoring or weighting", () => {
+    for (const forbidden of ["relevance", "score", "boost", "weight", "rank"]) {
       expect(serviceCode.toLowerCase()).not.toContain(forbidden);
     }
   });
@@ -412,10 +417,10 @@ describe("E: executable search behaviour", () => {
     expect(results.count).toBe(0);
   });
 
-  it("E15: the response carries exactly results and count", async () => {
+  it("E15: the response carries exactly results, count and facets", async () => {
     const { results } = await search({ courses: [row()] });
 
-    expect(Object.keys(results).sort()).toEqual(["count", "results"]);
+    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
   });
 
   it("E16: preserves the source text representation in the snippet", async () => {
@@ -432,5 +437,395 @@ describe("E: executable search behaviour", () => {
     );
 
     expect(results.results[0]?.searchableText).toContain("Get-ADUser");
+  });
+});
+
+/**
+ * SEARCH-004 — filters and facets.
+ *
+ * The security claim under test is narrow and provable: filtering runs on the
+ * already-authorized result set, so it cannot change which sources are read,
+ * and facets count the documents actually returned, so no count can describe a
+ * record the caller did not receive.
+ */
+describe("F: SEARCH-004 content-type filtering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  const everyType = {
+    learning_paths: [row({ stable_id: "path.a" })],
+    courses: [row({ stable_id: "course.a" }), row({ stable_id: "course.b" })],
+    missions: [row({ stable_id: "mission.a" })],
+    competencies: [row({ stable_id: "competency.a" })]
+  };
+
+  /**
+   * Everything about a response that a filter can affect. `indexedAt` is a
+   * wall-clock stamp taken per request, so comparing whole responses across two
+   * searches would compare the clock rather than the filter.
+   */
+  function shape(results: {
+    results: { documentId: string }[];
+    count: number;
+    facets?: unknown;
+  }) {
+    return {
+      documentIds: results.results.map((entry) => entry.documentId),
+      count: results.count,
+      facets: results.facets
+    };
+  }
+
+  it("F1: no filter preserves the unfiltered result set", async () => {
+    const unfiltered = await search(everyType);
+    const absent = await search(everyType, { contentTypes: undefined });
+    const empty = await search(everyType, { contentTypes: [] });
+
+    expect(unfiltered.results.count).toBe(5);
+    expect(shape(absent.results)).toEqual(shape(unfiltered.results));
+    expect(shape(empty.results)).toEqual(shape(unfiltered.results));
+  });
+
+  it("F2: narrows to a single content type", async () => {
+    const { results } = await search(everyType, { contentTypes: ["course"] });
+
+    expect(results.count).toBe(2);
+    expect(
+      new Set(results.results.map((entry) => entry.contentType))
+    ).toEqual(new Set(["course"]));
+  });
+
+  it("F3: combines several content types", async () => {
+    const { results } = await search(everyType, {
+      contentTypes: ["mission", "course"]
+    });
+
+    expect(results.results.map((entry) => entry.contentType)).toEqual([
+      "course",
+      "course",
+      "mission"
+    ]);
+  });
+
+  it("F4: selecting all four is the same as no filter", async () => {
+    const all = await search(everyType, {
+      contentTypes: ["learning_path", "course", "mission", "competency"]
+    });
+    const none = await search(everyType);
+
+    expect(shape(all.results)).toEqual(shape(none.results));
+  });
+
+  it("F5: normalizes duplicate values", async () => {
+    const duplicated = await search(everyType, {
+      contentTypes: ["course", "course", "course"]
+    });
+    const once = await search(everyType, { contentTypes: ["course"] });
+
+    expect(shape(duplicated.results)).toEqual(shape(once.results));
+  });
+
+  it("F6: request order does not change the response", async () => {
+    const forward = await search(everyType, {
+      contentTypes: ["course", "mission"]
+    });
+    const reversed = await search(everyType, {
+      contentTypes: ["mission", "course"]
+    });
+
+    expect(shape(forward.results)).toEqual(shape(reversed.results));
+  });
+
+  it("F7: an empty repeated value is ignored, not treated as a filter", async () => {
+    const withEmpty = await search(everyType, { contentTypes: [""] });
+    const none = await search(everyType);
+
+    expect(shape(withEmpty.results)).toEqual(shape(none.results));
+  });
+
+  it("F8: rejects an unknown value before any read", async () => {
+    const { createUserScopedSupabaseClient } = await import("./supabase");
+    vi.mocked(createUserScopedSupabaseClient).mockClear();
+
+    const { searchCurriculum } = await import("./curriculum-search");
+
+    await expect(
+      searchCurriculum(ACCESS_TOKEN, {
+        query: "vlan",
+        contentTypes: ["everything"]
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(createUserScopedSupabaseClient).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Each of these names a source SEARCH-004 must not make searchable, or a
+   * dimension it must not expose. Rejecting rather than ignoring means a client
+   * cannot probe for them by watching which values change the result set.
+   */
+  it("F9: rejects an unsearchable source, a publication state and a scope", async () => {
+    const { searchCurriculum } = await import("./curriculum-search");
+
+    for (const rejected of [
+      "module",
+      "learning_module",
+      "lab",
+      "lab_definition",
+      "note",
+      "draft",
+      "review",
+      "retired",
+      "published",
+      "private",
+      "shared",
+      "11111111-1111-4111-8111-111111111111"
+    ]) {
+      await expect(
+        searchCurriculum(ACCESS_TOKEN, {
+          query: "vlan",
+          contentTypes: [rejected]
+        })
+      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    }
+  });
+
+  it("F10: rejects one bad value inside an otherwise valid selection", async () => {
+    const { searchCurriculum } = await import("./curriculum-search");
+
+    await expect(
+      searchCurriculum(ACCESS_TOKEN, {
+        query: "vlan",
+        contentTypes: ["course", "lab"]
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  /**
+   * The filter is not an authorization step. Every source is read exactly as an
+   * unfiltered search reads it, so no filter value can change which rows the
+   * caller's row level security was asked to authorize.
+   */
+  it("F11: filtering does not change which sources are read", async () => {
+    const filtered = await search(everyType, { contentTypes: ["course"] });
+    const unfiltered = await search(everyType);
+
+    expect(filtered.harness.tables).toEqual(unfiltered.harness.tables);
+    expect(filtered.harness.eqCalls).toEqual(unfiltered.harness.eqCalls);
+    expect(filtered.harness.limits).toEqual(unfiltered.harness.limits);
+    expect(filtered.harness.orPatterns).toEqual(unfiltered.harness.orPatterns);
+  });
+
+  it("F12: filtering never reorders the surviving results", async () => {
+    const unfiltered = await search(everyType);
+    const filtered = await search(everyType, {
+      contentTypes: ["learning_path", "competency"]
+    });
+
+    const expected = unfiltered.results.results
+      .filter((entry) =>
+        ["learning_path", "competency"].includes(entry.contentType)
+      )
+      .map((entry) => entry.documentId);
+
+    expect(filtered.results.results.map((entry) => entry.documentId)).toEqual(
+      expected
+    );
+  });
+
+  it("F13: filtering can only ever remove results", async () => {
+    const unfiltered = await search(everyType);
+    const filtered = await search(everyType, { contentTypes: ["mission"] });
+
+    expect(filtered.results.count).toBeLessThanOrEqual(
+      unfiltered.results.count
+    );
+    const visible = new Set(
+      unfiltered.results.results.map((entry) => entry.documentId)
+    );
+    for (const entry of filtered.results.results) {
+      expect(visible.has(entry.documentId)).toBe(true);
+    }
+  });
+});
+
+describe("G: SEARCH-004 facet counts describe the returned results", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  const everyType = {
+    learning_paths: [row({ stable_id: "path.a" })],
+    courses: [row({ stable_id: "course.a" }), row({ stable_id: "course.b" })],
+    missions: [row({ stable_id: "mission.a" })],
+    competencies: [row({ stable_id: "competency.a" })]
+  };
+
+  it("G1: counts each returned content type", async () => {
+    const { results } = await search(everyType);
+
+    expect(results.facets?.contentTypes).toEqual([
+      { value: "learning_path", label: "Learning path", count: 1 },
+      { value: "course", label: "Course", count: 2 },
+      { value: "mission", label: "Mission", count: 1 },
+      { value: "competency", label: "Competency", count: 1 }
+    ]);
+  });
+
+  it("G2: facet counts sum exactly to the response count", async () => {
+    for (const contentTypes of [
+      undefined,
+      ["course"],
+      ["course", "mission"],
+      ["learning_path", "course", "mission", "competency"]
+    ]) {
+      const { results } = await search(
+        everyType,
+        contentTypes ? { contentTypes } : {}
+      );
+
+      const total = (results.facets?.contentTypes ?? []).reduce(
+        (sum, facet) => sum + facet.count,
+        0
+      );
+
+      expect(total).toBe(results.count);
+      expect(results.count).toBe(results.results.length);
+    }
+  });
+
+  it("G3: facets describe the filtered results, not the wider set", async () => {
+    const { results } = await search(everyType, { contentTypes: ["course"] });
+
+    expect(results.facets?.contentTypes).toEqual([
+      { value: "course", label: "Course", count: 2 }
+    ]);
+  });
+
+  /**
+   * The hidden-record test. The bounded over-fetch reads up to `limit * 4` rows
+   * per type; only `limit` are returned. If a facet count ever exceeded the
+   * returned results it would be describing the candidate window — records the
+   * learner did not receive.
+   */
+  it("G4: the bounded over-fetch window never reaches a facet count", async () => {
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      row({ stable_id: `course.${index}` })
+    );
+
+    const { results, harness } = await search({ courses: rows }, { limit: 5 });
+
+    expect(harness.limits).toEqual([20, 20, 20, 20]);
+    expect(results.count).toBe(5);
+    expect(results.facets?.contentTypes).toEqual([
+      { value: "course", label: "Course", count: 5 }
+    ]);
+  });
+
+  /**
+   * An older published version is dropped by read resolution before faceting,
+   * so it contributes to no count — the facet sees one document, not two rows.
+   */
+  it("G5: a collapsed older version does not raise a count", async () => {
+    const { results } = await search({
+      courses: [
+        row({ stable_id: "course.example", version: 1 }),
+        row({ stable_id: "course.example", version: 2 })
+      ]
+    });
+
+    expect(results.count).toBe(1);
+    expect(results.facets?.contentTypes).toEqual([
+      { value: "course", label: "Course", count: 1 }
+    ]);
+  });
+
+  it("G6: an empty result set produces empty facets, not a zero for each type", async () => {
+    const { results } = await search({});
+
+    expect(results.count).toBe(0);
+    expect(results.facets).toEqual({ contentTypes: [] });
+  });
+
+  it("G7: omits a type with no returned result rather than reporting zero", async () => {
+    const { results } = await search({ courses: [row()] });
+
+    expect(results.facets?.contentTypes.map((facet) => facet.value)).toEqual([
+      "course"
+    ]);
+  });
+
+  it("G8: a facet value is always an approved content type", async () => {
+    const { results } = await search(everyType);
+
+    for (const facet of results.facets?.contentTypes ?? []) {
+      expect(["learning_path", "course", "mission", "competency"]).toContain(
+        facet.value
+      );
+      expect(Object.keys(facet).sort()).toEqual(["count", "label", "value"]);
+    }
+  });
+
+  it("G9: exposes no hidden, global or candidate total", async () => {
+    const { results } = await search(everyType, { limit: 2 });
+    const serialized = JSON.stringify(results);
+
+    for (const forbidden of [
+      "candidateCount",
+      "totalCount",
+      "globalTotal",
+      "hiddenCount",
+      "unauthorizedCount",
+      "withheldCount",
+      "overFetchCount",
+      "corpusTotal",
+      "matchedTotal"
+    ]) {
+      expect(results).not.toHaveProperty(forbidden);
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("G10: no facet count exceeds the requested limit", async () => {
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      row({ stable_id: `course.${index}` })
+    );
+
+    const { results } = await search({ courses: rows }, { limit: 3 });
+
+    for (const facet of results.facets?.contentTypes ?? []) {
+      expect(facet.count).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("G11: facets carry no internal identifier", async () => {
+    const { results } = await search({
+      courses: [row({ id: "11111111-1111-4111-8111-111111111111" })]
+    });
+
+    expect(JSON.stringify(results.facets)).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+    );
+  });
+
+  it("G12: the route reads repeated contentType values", () => {
+    expect(searchRoute).toContain('url.searchParams.getAll("contentType")');
+  });
+
+  it("G13: the route accepts no other filter input", () => {
+    for (const forbidden of [
+      '"filters"',
+      '"filter"',
+      '"facet"',
+      '"publicationState"',
+      '"accessScope"',
+      '"tag"',
+      '"learningPath"'
+    ]) {
+      expect(searchRoute).not.toContain(forbidden);
+    }
+    expect(searchRoute).not.toContain("JSON.parse");
   });
 });

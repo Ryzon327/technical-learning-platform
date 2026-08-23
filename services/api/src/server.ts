@@ -651,14 +651,19 @@ async function handleRequest(
       return;
     }
 
-    // SEARCH-002 — curriculum search.
+    // SEARCH-002 — curriculum search. SEARCH-004 — filters and facets.
     //
     // Authenticated, caller-scoped. Curriculum remains authoritative: this
     // reads published curriculum through the caller's own RLS-scoped client and
     // projects it, holding no index of its own. `count` is the number of
-    // authorized results actually returned — there is deliberately no global
-    // total, which would become a result-count side channel once SEARCH-003
-    // adds private sources.
+    // authorized results actually returned, and each facet count is the number
+    // of those returned results of one content type — there is deliberately no
+    // global total, no candidate total and no hidden count, any of which would
+    // become a result-count side channel.
+    //
+    // `contentType` may be repeated for multi-select, following the same
+    // `getAll` convention `/notes/search` uses for `tagId`. Nothing else is
+    // accepted: there is no free-form filter object and no arbitrary field.
     if (request.method === "GET" && pathname === "/search/curriculum") {
       const trusted = await resolveTrustedRequestIdentity(request);
       sendJson(
@@ -666,7 +671,8 @@ async function handleRequest(
         200,
         await searchCurriculum(trusted.accessToken, {
           query: url.searchParams.get("q") ?? "",
-          limit: url.searchParams.get("limit") ?? undefined
+          limit: url.searchParams.get("limit") ?? undefined,
+          contentTypes: url.searchParams.getAll("contentType")
         })
       );
       return;
