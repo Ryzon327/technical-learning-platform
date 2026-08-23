@@ -76,7 +76,27 @@ Fallback may include:
 - SEARCH-002
 - SEARCH-003
 - SEARCH-005
-- SEARCH-007
+
+## Integrates With
+
+- SEARCH-007 — Indexing and Freshness Pipeline
+
+SEARCH-005 is retained as a genuine prerequisite: section 5 names *exact
+technical token match* as a ranking signal, and section 10 refers to announcing a
+corrected query. Both consume SEARCH-005 match and query-adjustment metadata,
+which SEARCH-008 must reuse rather than reimplement as an independent correction
+system.
+
+SEARCH-007 was previously recorded under **Depends On**. No SEARCH-008
+acceptance criterion (section 13) or Definition of Done item (section 14)
+requires the indexing and freshness pipeline for correctness: every baseline
+ranking signal is computable at query time from the returned Search Documents,
+`sourceUpdatedAt` already carries freshness, and SEARCH-007 section 6 explicitly
+excludes search provider infrastructure administration — so SEARCH-007 is not the
+"preferred search provider" referenced in section 12. Indexing may later
+**optimize** ranking at scale; it is not required for it.
+
+See `DECISION_LEDGER.md` DEC-046.
 
 ---
 
@@ -189,6 +209,7 @@ SEARCH-008 is complete when:
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-10 | Initial Feature specification |
+| 1.1 | 2026-08-23 | Reclassified SEARCH-007 from Depends On to Integrates With; indexing optimizes ranking but is not required for its correctness. SEARCH-005 retained as a genuine prerequisite. Scope, security, acceptance criteria and Definition of Done unchanged. See DEC-046. |
 
 ---
 

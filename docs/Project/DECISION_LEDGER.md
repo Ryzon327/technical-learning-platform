@@ -1165,6 +1165,118 @@ Binary logo and brand-asset infrastructure remains deferred to CURR-007. CERT-00
 
 ---
 
+## DEC-046
+
+**Category**
+
+Product Architecture
+
+**Title**
+
+SEARCH-005 Does Not Depend On SEARCH-008, and SEARCH-008 Does Not Depend On SEARCH-007
+
+**Status**
+
+Approved
+
+**Decision**
+
+The circular dependency between SEARCH-005 and SEARCH-008 was a Feature Registry
+classification defect, not a real architectural constraint. It is corrected as
+follows.
+
+SEARCH-005 no longer lists SEARCH-008 under **Depends On**. SEARCH-008 moves to
+**Integrates With**, matching the treatment SEARCH-002 already gives SEARCH-005
+and SEARCH-008.
+
+SEARCH-008 retains SEARCH-005 under **Depends On**, because tolerance-aware
+ranking consumes SEARCH-005 match and query-adjustment metadata.
+
+SEARCH-008 no longer lists SEARCH-007 under **Depends On**. SEARCH-007 moves to
+**Integrates With**. Indexing may later optimize ranking at scale but is not
+required for its correctness.
+
+Approved sequencing: dependency correction, then SEARCH-005, then SEARCH-008.
+
+SEARCH-005 is split into milestones within the existing approved Feature.
+SEARCH-M5A delivers normalization, technical-token and punctuation preservation,
+a curated alias and acronym structure, bounded alias expansion, original-query
+preservation and fallback, query-adjustment transparency, and exact-before-adjusted
+match-class tiering. SEARCH-M5B delivers free-form typo recovery and requires a
+separate mechanism ruling. SEARCH-005 is not complete while SEARCH-M5B is
+outstanding.
+
+SEARCH-005 is authorized to implement one narrow ordering invariant: exact and
+literal matches surface before query-adjusted matches, with the existing
+deterministic neutral ordering preserved within each tier. This is match-class
+tiering, not relevance ranking. Relevance scores, weights, boosts, popularity,
+freshness, competency, Course/Mission context, engagement, click history, AI
+ranking, persisted ranking signals and ranking configuration remain SEARCH-008.
+
+SEARCH-005 owns query-adjustment transparency: the original query, the effective
+query, the adjustment kind, a learner-visible statement that an adjustment
+occurred, and the ability to return to the original literal query. Internal edit
+distances, diagnostics, candidate counts, hidden alternatives and algorithm
+internals are never exposed. SEARCH-008 later owns empty-result recovery,
+refinement suggestions, fallback navigation and provider degradation, and must
+consume SEARCH-005 metadata rather than build a second correction system.
+
+SEARCH-003 remains the authorization boundary. Query-side normalization and
+curated aliases may run before retrieval, but all expanded candidate retrieval
+executes through the caller's RLS-scoped source query, and only authorized
+surfaced records may contribute to match classification, ranking, facets, counts,
+suggestions or any learner-visible metadata. No alias, correction or suggestion
+vocabulary may derive from unauthorized source records.
+
+Per-query match state must not enter `SearchDocument`, which remains
+source-derived state. Its existing `keywords` field may not be used as a shortcut
+for per-query alias state.
+
+**Rationale**
+
+`FEATURE_REGISTRY_SPEC.md` section 12 prohibits circular dependencies unless
+reviewed and justified. Review established that the cycle was a recording error:
+the entire body of SEARCH-005 contains no occurrence of rank, relevance, order,
+score, weight or sort — the only reference to SEARCH-008 anywhere in the file was
+the dependency line itself. The registry already provides the correct vocabulary,
+and SEARCH-002 applies it to these same two Features.
+
+For SEARCH-007, no SEARCH-008 acceptance criterion or Definition of Done item
+requires an index. Every baseline ranking signal is computable at query time,
+`sourceUpdatedAt` already carries freshness, and SEARCH-007 section 6 excludes
+search provider administration, so it is not the failing provider described in
+SEARCH-008 section 12.
+
+Typo recovery is separated because it affects candidate generation rather than
+comparison. A post-filter over a literal `ILIKE` result set can only remove rows
+that already matched, so it can never recover a misspelling; implementing it
+honestly requires a retrieval-mechanism decision that may carry a migration.
+
+**Alternatives Considered**
+
+Implementing SEARCH-008 first was rejected: it declares two dependencies, one of
+which was unimplemented, and section 12 forbids entering Building with an
+incomplete required dependency absent an approved mock or adapter. Implementing
+both as one coordinated batch was rejected as contrary to section 13's
+milestone-sizing requirement, and because it would leave the prohibited cycle
+recorded rather than resolved.
+
+**Impact**
+
+Documentation and sequencing only. No implementation code, schema, migration or
+dependency changes from this decision.
+
+**Related Documents**
+
+`docs/Feature-Registry/FEATURE_REGISTRY_SPEC.md` sections 12, 13 and 15 ·
+`docs/Feature-Registry/Search-Engine/SEARCH-005_TECHNICAL_QUERY_NORMALIZATION_AND_TYPO_TOLERANCE.md` ·
+`docs/Feature-Registry/Search-Engine/SEARCH-008_SEARCH_RESULT_RANKING_AND_FALLBACK.md` ·
+`docs/Feature-Registry/Search-Engine/SEARCH-007_INDEXING_AND_FRESHNESS_PIPELINE.md` ·
+`docs/Engineering-OS/BUILD_WAVE_9_BATCH_3_PERMISSION_AWARE_SEARCH.md` ·
+`docs/Engineering-OS/BUILD_WAVE_9_BATCH_4_SEARCH_FILTERS_AND_FACETS.md`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.
