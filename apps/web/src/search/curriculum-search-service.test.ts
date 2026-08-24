@@ -466,3 +466,77 @@ describe("facet interpretation", () => {
     ]);
   });
 });
+
+/**
+ * SEARCH-005A — the browser sends no adjustment control and interprets the
+ * server's adjustment without inventing one.
+ */
+describe("query adjustment interpretation", () => {
+  it("sends no exact, literal or alias-disabling parameter", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "AD" });
+
+    const url = requests[0]?.url ?? "";
+    for (const forbidden of [
+      "exact",
+      "literal",
+      "disableAliases",
+      "mode=",
+      "alias",
+      "normalize",
+      "fuzz",
+      "editDistance",
+      "variant"
+    ]) {
+      expect(url).not.toContain(forbidden);
+    }
+  });
+
+  it("sends the learner's query unchanged and adjusts nothing locally", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "AD" });
+
+    expect(new URL(requests[0]!.url).searchParams.get("q")).toBe("AD");
+  });
+
+  it("reads the adjustment from the response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({
+        results: [],
+        count: 0,
+        queryAdjustment: {
+          originalQuery: "AD",
+          effectiveQuery: "Active Directory",
+          adjustmentKind: "alias"
+        }
+      })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "AD" });
+
+    expect(outcome.queryAdjustment).toEqual({
+      originalQuery: "AD",
+      effectiveQuery: "Active Directory",
+      adjustmentKind: "alias"
+    });
+  });
+
+  it("treats an absent adjustment as no adjustment", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "kubectl" });
+
+    expect(outcome.queryAdjustment).toBeUndefined();
+  });
+
+  it("invents no adjustment the server did not send", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "AD" });
+
+    expect(outcome).not.toHaveProperty("queryAdjustment");
+  });
+});

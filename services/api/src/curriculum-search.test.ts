@@ -829,3 +829,223 @@ describe("G: SEARCH-004 facet counts describe the returned results", () => {
     expect(searchRoute).not.toContain("JSON.parse");
   });
 });
+
+/**
+ * SEARCH-005A — technical query normalization and curated aliases.
+ *
+ * The security claims under test: expansion changes which authorized rows match
+ * but never which rows are authorized, every variant is escaped, retrieval stays
+ * at one read per source, and classification runs only on already-authorized
+ * text.
+ */
+describe("H: SEARCH-005A query normalization and aliases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  const adRows = {
+    courses: [
+      row({
+        stable_id: "course.zz",
+        title: "AD Basics",
+        description: "Learn the fundamentals."
+      }),
+      row({
+        stable_id: "course.aa",
+        title: "Active Directory Deep Dive",
+        description: "Domain services."
+      })
+    ]
+  };
+
+  it("H1: a query with no adjustment behaves exactly as SEARCH-002 did", async () => {
+    const { results, harness } = await search({ courses: [row()] });
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%vlan%,description.ilike.%vlan%"
+    );
+    expect(results).not.toHaveProperty("queryAdjustment");
+  });
+
+  it("H2: an approved acronym adds its canonical term to the same read", async () => {
+    const { harness } = await search({}, { query: "AD" });
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%AD%,description.ilike.%AD%," +
+        "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
+    );
+  });
+
+  /**
+   * Broadening must not multiply source queries. One read per searchable type,
+   * with the bounded over-fetch unchanged.
+   */
+  it("H3: expansion never adds a source query or changes the over-fetch", async () => {
+    const plain = await search({}, { query: "vlan", limit: 5 });
+    const expanded = await search({}, { query: "AD", limit: 5 });
+
+    expect(expanded.harness.tables).toEqual(plain.harness.tables);
+    expect(expanded.harness.tables).toHaveLength(4);
+    expect(expanded.harness.limits).toEqual([20, 20, 20, 20]);
+    expect(expanded.harness.eqCalls).toEqual(plain.harness.eqCalls);
+  });
+
+  it("H4: every variant is escaped before matching", async () => {
+    const { harness } = await search({}, { query: "100% _x" });
+
+    expect(harness.orPatterns[0]).toContain("100\\%");
+    expect(harness.orPatterns[0]).toContain("\\_x");
+  });
+
+  it("H5: a trailing question mark adds a normalized variant", async () => {
+    const { harness, results } = await search({}, { query: "kubectl?" });
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%kubectl?%,description.ilike.%kubectl?%," +
+        "title.ilike.%kubectl%,description.ilike.%kubectl%"
+    );
+    expect(results.queryAdjustment).toMatchObject({
+      adjustmentKind: "normalized"
+    });
+  });
+
+  /**
+   * The substring pathology this rule exists to prevent. A two-character alias
+   * would match "administration", "advanced", "upload", "read" and "broadcast".
+   */
+  it("H6: the canonical term never emits the short alias as a pattern", async () => {
+    const { harness } = await search({}, { query: "Active Directory" });
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
+    );
+    expect(harness.orPatterns[0]).not.toContain("%AD%");
+  });
+
+  it("H7: a protected technical token never triggers the acronym", async () => {
+    for (const query of ["Get-ADUser", "ADD", "upload"]) {
+      const { harness } = await search({}, { query });
+
+      expect(harness.orPatterns[0]).not.toContain("Active Directory");
+    }
+  });
+
+  it("H8: protected technical tokens reach the source unchanged", async () => {
+    for (const query of [
+      "Get-ADUser",
+      "index=botsv3",
+      "terraform plan",
+      "show vlan brief"
+    ]) {
+      const { harness } = await search({}, { query });
+
+      expect(harness.orPatterns[0]).toContain(`title.ilike.%${query}%`);
+    }
+  });
+
+  it("H9: exact matches are tiered above alias matches", async () => {
+    const { results } = await search(adRows, { query: "AD" });
+
+    // Neutral order alone would put course.aa first; tiering must not let an
+    // alias match outrank an exact one.
+    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
+      "course.zz",
+      "course.aa"
+    ]);
+  });
+
+  it("H10: tiering runs before the bound, so an exact match is not truncated", async () => {
+    const { results } = await search(adRows, { query: "AD", limit: 1 });
+
+    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
+      "course.zz"
+    ]);
+  });
+
+  it("H11: reports the adjustment without exposing internals", async () => {
+    const { results } = await search(adRows, { query: "AD" });
+
+    expect(results.queryAdjustment).toEqual({
+      originalQuery: "AD",
+      effectiveQuery: "Active Directory",
+      adjustmentKind: "alias"
+    });
+
+    const serialized = JSON.stringify(results.queryAdjustment);
+    for (const forbidden of [
+      "ilike",
+      "pattern",
+      "variant",
+      "editDistance",
+      "candidateCount",
+      "matchKind",
+      "%"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("H12: no result carries a match kind", async () => {
+    const { results } = await search(adRows, { query: "AD" });
+
+    expect(JSON.stringify(results.results)).not.toContain("matchKind");
+    for (const entry of results.results) {
+      expect(entry).not.toHaveProperty("matchKind");
+    }
+  });
+
+  it("H13: the response carries results, count, facets and the adjustment", async () => {
+    const { results } = await search(adRows, { query: "AD" });
+
+    expect(Object.keys(results).sort()).toEqual([
+      "count",
+      "facets",
+      "queryAdjustment",
+      "results"
+    ]);
+  });
+
+  it("H14: facet counts still sum to the response count after tiering", async () => {
+    const { results } = await search(adRows, { query: "AD" });
+
+    const total = (results.facets?.contentTypes ?? []).reduce(
+      (sum, facet) => sum + facet.count,
+      0
+    );
+
+    expect(total).toBe(results.count);
+    expect(results.count).toBe(results.results.length);
+  });
+
+  it("H15: exposes no hidden or candidate total", async () => {
+    const { results } = await search(adRows, { query: "AD", limit: 1 });
+    const serialized = JSON.stringify(results);
+
+    for (const forbidden of [
+      "candidateCount",
+      "totalCount",
+      "hiddenCount",
+      "withheldCount",
+      "overFetchCount"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("H16: expansion does not change which sources are authorized", async () => {
+    const plain = await search(adRows, { query: "vlan" });
+    const expanded = await search(adRows, { query: "AD" });
+
+    expect(expanded.harness.tables).toEqual(plain.harness.tables);
+    expect(expanded.harness.eqCalls).toEqual(plain.harness.eqCalls);
+  });
+
+  it("H17: no SEARCH-005B typo behaviour reaches the source", async () => {
+    const { harness } = await search({}, { query: "kubctl" });
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%kubctl%,description.ilike.%kubctl%"
+    );
+  });
+});

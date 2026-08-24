@@ -1,16 +1,22 @@
 import type {
+  ClassifiedSearchDocument,
+  CurriculumAdjustedSearchResults,
   CurriculumSearchCandidate,
   CurriculumSearchContentType,
   CurriculumSearchFacetedResults,
+  CurriculumQueryVariant,
   SearchDocument
 } from "@tlp/shared-types";
 import type { SearchPermissionedCandidate } from "@tlp/shared-types";
 import {
   AppError,
   applyCurriculumSearchFilter,
+  buildCurriculumQueryAdjustment,
+  buildCurriculumQueryVariants,
   buildCurriculumSearchFilter,
-  buildCurriculumSearchResults,
   buildCurriculumSearchSnippet,
+  buildTieredCurriculumSearchResults,
+  classifyCurriculumMatch,
   buildCurriculumSourceReference,
   buildSearchDocument,
   decideFromAuthoritativeRead,
@@ -24,6 +30,7 @@ import {
   surfaceAuthorized,
   validateCurriculumSearchContentTypeFilter,
   validateCurriculumSearchQuery,
+  withCurriculumQueryAdjustment,
   withCurriculumSearchFacets
 } from "@tlp/shared-types";
 import { createUserScopedSupabaseClient } from "./supabase";
@@ -145,14 +152,24 @@ export function projectCurriculumDocument(
 async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
-  pattern: string,
+  patterns: readonly string[],
   limit: number
 ): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
+  // SEARCH-005A: every approved variant is matched in ONE read, so broadening
+  // the query never multiplies the number of source queries and never changes
+  // the bounded over-fetch. Each pattern arrives already escaped.
+  const matchConditions = patterns
+    .flatMap((pattern) => [
+      `title.ilike.%${pattern}%`,
+      `description.ilike.%${pattern}%`
+    ])
+    .join(",");
+
   const { data, error } = await supabase
     .from(SEARCHABLE_TABLES[contentType])
     .select("stable_id,version,title,description,publication_state,updated_at")
     .eq("publication_state", "published")
-    .or(`title.ilike.%${pattern}%,description.ilike.%${pattern}%`)
+    .or(matchConditions)
     .limit(limit * 4);
 
   // A source that cannot be authorized fails closed. No diagnostic reason is
@@ -197,7 +214,7 @@ export interface CurriculumSearchInput {
 export async function searchCurriculum(
   accessToken: string,
   input: CurriculumSearchInput
-): Promise<CurriculumSearchFacetedResults> {
+): Promise<CurriculumSearchFacetedResults & CurriculumAdjustedSearchResults> {
   if (typeof accessToken !== "string" || accessToken.trim() === "") {
     throw new AppError({
       code: "UNAUTHORIZED",
@@ -232,7 +249,29 @@ export async function searchCurriculum(
   const query = normalizeCurriculumSearchQuery(input.query);
   const limit = normalizeCurriculumSearchLimit(input.limit);
   const filter = buildCurriculumSearchFilter(input.contentTypes);
-  const pattern = escapeCurriculumSearchPattern(query);
+
+  // SEARCH-005A: the original query is ALWAYS variant 1 and is never displaced.
+  // If variant construction fails for any reason, retrieval falls back to the
+  // original escaped literal query alone — never to an empty result, never to a
+  // substituted meaning, and never to a widened authorization scope.
+  let variants: CurriculumQueryVariant[];
+  let adjustment = undefined as
+    | ReturnType<typeof buildCurriculumQueryAdjustment>
+    | undefined;
+  try {
+    variants = buildCurriculumQueryVariants(query);
+    adjustment = buildCurriculumQueryAdjustment(query, variants);
+  } catch {
+    variants = [{ value: query, matchKind: "exact" }];
+    adjustment = undefined;
+  }
+  if (variants.length === 0) {
+    variants = [{ value: query, matchKind: "exact" }];
+  }
+
+  const patterns = variants.map((variant) =>
+    escapeCurriculumSearchPattern(variant.value)
+  );
   const indexedAt = new Date().toISOString();
 
   const supabase = createUserScopedSupabaseClient(accessToken);
@@ -243,7 +282,7 @@ export async function searchCurriculum(
     SEARCHABLE_TABLES
   ) as CurriculumSearchContentType[]) {
     permissioned.push(
-      ...(await searchOneType(supabase, contentType, pattern, limit))
+      ...(await searchOneType(supabase, contentType, patterns, limit))
     );
   }
 
@@ -262,7 +301,11 @@ export async function searchCurriculum(
   // presentation and can never widen, redirect or influence authorization.
   const filtered = applyCurriculumSearchFilter(selected, filter);
 
-  const documents: SearchDocument[] = [];
+  // SEARCH-005A match classification. It runs HERE — after row level security,
+  // after the SEARCH-003 decision, after version resolution and after SEARCH-004
+  // filtering — so it only ever reads text the caller is already entitled to
+  // see, and no unauthorized candidate can influence a tier.
+  const classified: ClassifiedSearchDocument[] = [];
   for (const entry of filtered) {
     const document = projectCurriculumDocument(
       entry.contentType,
@@ -270,7 +313,15 @@ export async function searchCurriculum(
       query,
       indexedAt
     );
-    if (document) documents.push(document);
+    if (!document) continue;
+
+    classified.push({
+      document,
+      matchKind: classifyCurriculumMatch(
+        `${entry.title} ${entry.description ?? ""}`,
+        variants
+      )
+    });
   }
 
   // Facets are computed from the built, ordered, bounded result set — the exact
@@ -278,7 +329,15 @@ export async function searchCurriculum(
   // and neither is the bounded over-fetch window, so no count can describe a
   // record the learner did not get. If facet computation fails, `facets` is
   // omitted and the results still return (SEARCH-004 section 11).
-  return withCurriculumSearchFacets(
-    buildCurriculumSearchResults(documents, limit)
+  // Tiering applies SEARCH-002's neutral order first and preserves it WITHIN
+  // each match class, then bounds — so an exact match can never be truncated in
+  // favour of an alias match. Facets are still computed from the final bounded
+  // result set, so the SEARCH-004 count guarantee is unchanged. The adjustment
+  // is attached last and omitted entirely when nothing meaningful changed.
+  return withCurriculumQueryAdjustment(
+    withCurriculumSearchFacets(
+      buildTieredCurriculumSearchResults(classified, limit)
+    ),
+    adjustment
   );
 }

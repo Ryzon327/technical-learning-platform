@@ -339,7 +339,11 @@ grep -Fq 'normalizeCurriculumSearchLimit(input.limit)' "$CS_SERVICE" \
 # It must remain bounded and must never become unbounded.
 grep -Fq '.limit(limit * 4)' "$CS_SERVICE" \
   || fail "the candidate over-fetch is missing or no longer bounded"
-grep -Fq 'buildCurriculumSearchResults(documents, limit)' "$CS_SERVICE" \
+# NARROWED FOR SEARCH-005A. The bound is unchanged; the function applying it
+# moved, because match-class tiering must run between neutral ordering and the
+# limit slice or an exact match could be truncated in favour of an alias match.
+# Re-pinned just as strictly on the new call.
+grep -Fq 'buildTieredCurriculumSearchResults(classified, limit)' "$CS_SERVICE" \
   || fail "the returned results are not bounded by the requested limit"
 
 echo "PASS: query, limit and candidate over-fetch are all bounded"
@@ -347,8 +351,19 @@ echo "PASS: query, limit and candidate over-fetch are all bounded"
 # --- 17. Escaped literal matching, no later Search behaviour ----------------
 # Matched on the CALL, not the import: a leftover import would otherwise satisfy
 # this guard while the raw query went straight into the ILIKE pattern.
-grep -Fq 'escapeCurriculumSearchPattern(query)' "$CS_SERVICE" \
-  || fail "the query is not escaped before ILIKE matching"
+# NARROWED FOR SEARCH-005A. SEARCH-002 escaped one pattern; SEARCH-005A escapes
+# EVERY approved variant, so the guard follows the escaping to its new call site
+# and additionally proves no unescaped value can reach the matcher.
+grep -Fq 'escapeCurriculumSearchPattern(variant.value)' "$CS_SERVICE" \
+  || fail "the retrieval variants are not escaped before ILIKE matching"
+ESCAPE_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'escapeCurriculumSearchPattern(' || true)"
+[ "$ESCAPE_CALLS" = "1" ] \
+  || fail "escaping happens at $ESCAPE_CALLS call sites; exactly one escaping path may exist"
+echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq '.or(matchConditions)' \
+  || fail "the matcher no longer consumes the escaped variant patterns"
+if echo "$CS_SERVICE_CODE" | grep -qE '\.or\(`[^`]*\$\{query\}'; then
+  fail "an unescaped raw query reaches the ILIKE matcher"
+fi
 grep -Fq "s\\\\\\\\%_" "$CS_TYPES" >/dev/null 2>&1 || true
 grep -Fq 'replace(/[\\%_]/g' "$CS_TYPES" \
   || fail "the LIKE control characters are not escaped"
@@ -697,8 +712,12 @@ grep -Fq 'export function buildCurriculumSearchFacets' "$SF_TYPES" \
 # Pinned on the exact composition: facets are built from the BOUNDED, ORDERED
 # result set the learner receives. Anything else — the candidate list, the
 # permissioned list, the over-fetch window — would be a hidden-record channel.
+# NARROWED FOR SEARCH-005A. The SECURITY PROPERTY IS UNCHANGED: facets are still
+# computed from the final bounded authorized result set. Only the builder that
+# produces that set changed, and the adjustment wrapper is attached outside the
+# facet call so it cannot influence any count.
 echo "$CS_SERVICE_FLAT" \
-  | grep -Fq 'returnwithCurriculumSearchFacets(buildCurriculumSearchResults(documents,limit));' \
+  | grep -Fq 'withCurriculumSearchFacets(buildTieredCurriculumSearchResults(classified,limit))' \
   || fail "facets are not computed from the bounded returned result set"
 # Only the approved vocabulary may become a facet value.
 grep -Fq 'if (!isCurriculumSearchContentType(contentType)) continue;' "$SF_TYPES" \
@@ -812,7 +831,256 @@ SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc 
 FILTER_MIGRATIONS="$(ls supabase/migrations/*facet*.sql supabase/migrations/*filter*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$FILTER_MIGRATIONS" = "0" ] || fail "SEARCH-004 must add no filter or facet migration"
 
-echo "PASS: SEARCH-005 through SEARCH-008 remain unimplemented"
+echo "PASS: no later Search behaviour leaked into SEARCH-004"
+
+# ============================================================
+# SEARCH-005A — Technical Query Normalization and Curated Aliases (Batch 5)
+# ============================================================
+
+ST_TYPES="packages/shared-types/src/search-terms.ts"
+ST_TYPE_TESTS="packages/shared-types/src/search-terms.test.ts"
+ST_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_5_TECHNICAL_QUERY_NORMALIZATION.md"
+
+for p in "$ST_TYPES" "$ST_TYPE_TESTS" "$ST_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+ST_TYPES_CODE="$(code_of "$ST_TYPES")"
+ST_TYPES_BARE="$(code_no_strings "$ST_TYPES")"
+
+# --- 38. SEARCH-005 exists, is approved, and its dependency defect is fixed ---
+SEARCH_005="$(find "$REGISTRY" -maxdepth 1 -name 'SEARCH-005_*.md' | head -1)"
+[ -n "$SEARCH_005" ] || fail "SEARCH-005 specification is missing from the Feature Registry"
+grep -Fq '[x] Approved' "$SEARCH_005" || fail "SEARCH-005 does not record Founder approval"
+grep -Fq 'export * from "./search-terms";' packages/shared-types/src/index.ts \
+  || fail "the search-terms model is not exported from shared-types"
+# DEC-046: the prohibited cycle must stay resolved.
+SEARCH_005_DEPENDS="$(awk '/^## Depends On/{f=1;next} /^## /{f=0} f' "$SEARCH_005" | grep -E '^- ' || true)"
+if echo "$SEARCH_005_DEPENDS" | grep -qF 'SEARCH-008'; then
+  fail "the SEARCH-005 to SEARCH-008 circular dependency was reintroduced"
+fi
+
+echo "PASS: SEARCH-005 is approved and free of the SEARCH-008 dependency cycle"
+
+# --- 39. The curated vocabulary is small, attested and static ----------------
+grep -Fq 'export const CURATED_CURRICULUM_TERM_ALIASES' "$ST_TYPES" \
+  || fail "the curated alias vocabulary is missing"
+# Counts VALUES, not the interface field declaration: `canonical: string;` in
+# CurriculumTermAlias is a type, not an alias entry.
+ALIAS_ENTRIES="$(grep -c 'canonical: "' "$ST_TYPES" || true)"
+[ "$ALIAS_ENTRIES" = "1" ] \
+  || fail "the curated vocabulary holds $ALIAS_ENTRIES aliases; exactly one is approved for SEARCH-005A"
+grep -Fq 'canonical: "Active Directory"' "$ST_TYPES" \
+  || fail "the approved Active Directory alias is missing"
+# Deferred expansions must NOT be live vocabulary.
+for deferred in 'canonical: "Recovery Time Objective"' 'canonical: "Recovery Point Objective"' \
+                'canonical: "Identity and Access Management"'; do
+  if grep -Fq "$deferred" "$ST_TYPES"; then
+    fail "a deferred expansion entered the curated vocabulary: $deferred"
+  fi
+done
+grep -Fq 'export const DEFERRED_TERM_ALIAS_CANDIDATES' "$ST_TYPES" \
+  || fail "the deferred alias candidates are not recorded"
+# ZERO DATABASE ACCESS. The vocabulary is why adjustment metadata cannot leak.
+if echo "$ST_TYPES_BARE" | grep -qiE 'supabase|createUserScoped|createServer|accessToken|\.from\(|select\(|await|async|fetch\('; then
+  fail "the alias vocabulary acquired a database or network dependency"
+fi
+# EXPORT ALLOW-LIST. A dependency scan alone is NOT sufficient: a function that
+# ACCEPTS candidate rows as an argument rather than fetching them itself needs no
+# client, no await and no import, yet would let corpus-derived vocabulary in.
+# Pinning the exact export surface means any new way to produce vocabulary — or
+# to leak per-query state — has to pass through this review checkpoint.
+ST_EXPORTS="$(grep -oE '^export (const|function|interface|type) [A-Za-z_]+' "$ST_TYPES" \
+  | awk '{print $3}' | sort | tr '\n' ' ')"
+ST_EXPECTED="buildCurriculumQueryAdjustment buildCurriculumQueryVariants buildTieredCurriculumSearchResults ClassifiedSearchDocument classifyCurriculumMatch containsTokenSequence CURATED_CURRICULUM_TERM_ALIASES CURRICULUM_MATCH_KINDS CurriculumAdjustedSearchResults CurriculumMatchKind CurriculumQueryAdjustment CurriculumQueryVariant CurriculumTermAlias DEFERRED_TERM_ALIAS_CANDIDATES describeCurriculumQueryAdjustment MAX_CURRICULUM_QUERY_VARIANTS MIN_ALIAS_RETRIEVAL_LENGTH normalizeTerminalPunctuation PROTECTED_TECHNICAL_TERMS REMOVABLE_TERMINAL_PUNCTUATION SEARCH_TERM_FORBIDDEN_FIELDS SEARCH_TERM_MODEL_VERSION withCurriculumQueryAdjustment "
+[ "$ST_EXPORTS" = "$ST_EXPECTED" ] \
+  || fail "the search-terms export surface changed; every addition must be reviewed:
+  expected: $ST_EXPECTED
+  actual:   $ST_EXPORTS"
+# The vocabulary must be a compile-time constant fed only by its own literal.
+grep -Fq 'for (const entry of CURATED_CURRICULUM_TERM_ALIASES) {' "$ST_TYPES" \
+  || fail "variant generation no longer reads the curated constant directly"
+
+echo "PASS: the alias vocabulary is one attested entry and needs no database"
+
+# --- 40. Normalization preserves technical representation -------------------
+grep -Fq 'export const PROTECTED_TECHNICAL_TERMS' "$ST_TYPES" \
+  || fail "the protected technical terms are not held as data"
+for term in 'Get-ADUser' 'kubectl' 'index=botsv3' 'terraform plan' 'show vlan brief'; do
+  grep -Fq "\"$term\"" "$ST_TYPES" \
+    || fail "a SEARCH-005 section 8 protected term is missing: $term"
+done
+grep -Fq 'export const REMOVABLE_TERMINAL_PUNCTUATION' "$ST_TYPES" \
+  || fail "the removable punctuation set is not held as data"
+# Technical punctuation must never be removable.
+for technical in '"="' '"-"' '"_"' '"/"' '"."'; do
+  if echo "$ST_TYPES_CODE" | sed -n '/REMOVABLE_TERMINAL_PUNCTUATION/,/\]/p' | grep -qF "$technical"; then
+    fail "technical punctuation became removable: $technical"
+  fi
+done
+grep -Fq 'PROTECTED_TECHNICAL_TERMS' "$ST_TYPE_TESTS" \
+  || fail "the protected terms are not asserted by tests"
+
+echo "PASS: technical tokens and punctuation survive normalization"
+
+# --- 41. Expansion is bounded, deterministic and token-based ----------------
+grep -Fq 'export const MAX_CURRICULUM_QUERY_VARIANTS = 4;' "$ST_TYPES" \
+  || fail "the variant cap is missing or is not 4"
+grep -Fq 'export const MIN_ALIAS_RETRIEVAL_LENGTH = 3;' "$ST_TYPES" \
+  || fail "the short-alias retrieval guard is missing"
+grep -Fq 'if (variants.length >= MAX_CURRICULUM_QUERY_VARIANTS) return;' "$ST_TYPES" \
+  || fail "the variant cap is not enforced"
+# The original query must be variant 1, unconditionally.
+echo "$ST_TYPES_CODE" | tr -d ' \n' \
+  | grep -Fq '{value:original,matchKind:"exact"}' \
+  || fail "the original query is not retained as the first retrieval variant"
+# Alias detection must be token-based; substring detection would read the
+# acronym inside Get-ADUser, ADD, upload, read and broadcast.
+grep -Fq 'export function containsTokenSequence' "$ST_TYPES" \
+  || fail "token-based alias detection is missing"
+# BOTH detection call sites pinned. Substring detection would read the acronym
+# inside Get-ADUser, ADD, upload, read and broadcast. Classification may still
+# use substring matching — that is a different step, on already-authorized text.
+for detection in 'containsTokenSequence(detectionSource, entry.alias)' \
+                 'containsTokenSequence(detectionSource, entry.canonical)'; do
+  grep -Fq "$detection" "$ST_TYPES" \
+    || fail "alias detection is not token-based: $detection"
+done
+if echo "$ST_TYPES_BARE" | grep -qE 'detectionSource[^;]*\.includes\('; then
+  fail "alias detection uses substring matching instead of tokens"
+fi
+if echo "$ST_TYPES_BARE" | grep -qiE 'Math\.random|shuffle'; then
+  fail "variant generation is random"
+fi
+# NO COMBINATORIAL EXPANSION. The vocabulary may be traversed exactly once — the
+# declaration plus one loop. A nested traversal would let aliases compound into a
+# Cartesian product, which the cap alone would not prevent from being meaningless.
+VOCAB_USES="$(echo "$ST_TYPES_CODE" | grep -c 'CURATED_CURRICULUM_TERM_ALIASES' || true)"
+[ "$VOCAB_USES" = "2" ] \
+  || fail "the alias vocabulary is referenced $VOCAB_USES times; exactly one declaration and one traversal are allowed"
+# Each variant is a vocabulary term, never a constructed combination of terms.
+if echo "$ST_TYPES_CODE" | grep -qE 'add\(`'; then
+  fail "a retrieval variant is built by combining terms rather than using one"
+fi
+grep -Fq 'add(entry.canonical, "alias");' "$ST_TYPES" \
+  || fail "the canonical expansion is missing"
+grep -Fq 'add(entry.alias, "alias");' "$ST_TYPES" \
+  || fail "the alias side of the relationship is missing"
+
+echo "PASS: variant expansion is capped at 4, deterministic and token-based"
+
+# --- 42. Match-class tiering is NOT relevance ranking -----------------------
+grep -Fq 'export const CURRICULUM_MATCH_KINDS = ["exact", "normalized", "alias"] as const;' "$ST_TYPES" \
+  || fail "the approved match-kind vocabulary changed"
+if echo "$ST_TYPES_CODE" | grep -qF '"typo"'; then
+  fail "SEARCH-005B typo behaviour entered SEARCH-005A"
+fi
+# Tiering must reuse SEARCH-002 neutral ordering, not replace it.
+grep -Fq 'orderCurriculumSearchResults' "$ST_TYPES" \
+  || fail "tiering does not reuse the existing neutral deterministic ordering"
+grep -Fq 'tierOf(a) - tierOf(b)' "$ST_TYPES" \
+  || fail "the tier comparator changed; it must subtract vocabulary indices only"
+# NO NUMERIC RANKING ANYWHERE. This is the SEARCH-008 boundary.
+if echo "$ST_TYPES_BARE" | grep -qiE 'relevance|boost|popularity|freshness|clickH|engagement|scoreOf|weightOf|\* *[0-9]+\.[0-9]'; then
+  fail "SEARCH-008 relevance ranking leaked into SEARCH-005A"
+fi
+if echo "$ST_TYPES_BARE" | grep -qE 'sourceUpdatedAt|competency|missionStableId|courseStableId'; then
+  fail "a SEARCH-008 ranking signal entered SEARCH-005A tiering"
+fi
+
+echo "PASS: match-class tiering introduces no relevance ranking"
+
+# --- 43. Adjustment metadata leaks nothing ----------------------------------
+grep -Fq 'export interface CurriculumQueryAdjustment' "$ST_TYPES" \
+  || fail "the query-adjustment contract is missing"
+grep -Fq 'export const SEARCH_TERM_FORBIDDEN_FIELDS' "$ST_TYPES" \
+  || fail "the adjustment prohibition is not held as data"
+for forbidden in editDistance variants patterns candidateCount hiddenAlternatives matchKind; do
+  grep -Fq "\"$forbidden\"" "$ST_TYPES" \
+    || fail "an internal field is missing from the adjustment prohibition list: $forbidden"
+done
+# EXACTLY three fields and nothing else.
+#
+# A flattened substring pin is NOT enough: inserting a field BEFORE the pinned
+# text leaves the pinned substring intact, so the guard would prove an expected
+# line survived while permitting a leak beside it. The interface body is
+# extracted and its fields counted instead.
+ST_ADJ_BODY="$(awk '/^export interface CurriculumQueryAdjustment \{/{f=1;next} f&&/^\}/{f=0} f' "$ST_TYPES")"
+# Field NAMES only — the leak scan must not read a type annotation. Checking
+# text would flag `adjustmentKind: Exclude<CurriculumMatchKind, "exact">` for
+# containing "MatchKind", which is the annotation, not a leaked field.
+ST_ADJ_NAMES="$(echo "$ST_ADJ_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' \
+  | tr -d ' ' | sort | tr '\n' ' ')"
+[ "$ST_ADJ_NAMES" = "adjustmentKind effectiveQuery originalQuery " ] \
+  || fail "the adjustment contract fields changed; exactly three are approved:
+  expected: adjustmentKind effectiveQuery originalQuery
+  actual:   $ST_ADJ_NAMES"
+for required in 'originalQuery: string;' 'effectiveQuery: string;' \
+                'adjustmentKind: Exclude<CurriculumMatchKind, "exact">;'; do
+  echo "$ST_ADJ_BODY" | grep -Fq "$required" \
+    || fail "the adjustment contract is missing an approved field: $required"
+done
+
+# No per-result match kind may reach a learner or a Search Document.
+if echo "$SEARCH_TYPES_CODE" | grep -qiE 'matchKind|adjustmentKind|effectiveQuery'; then
+  fail "SEARCH-005A per-query state entered the SEARCH-001 Search Document"
+fi
+if grep -Fq 'matchKind' "$CS_VIEW"; then
+  fail "a per-result match kind reached the learner surface"
+fi
+grep -Fq 'describeCurriculumQueryAdjustment' "$CS_VIEW" \
+  || fail "the learner is never told the query was adjusted"
+
+# CLASSIFICATION RUNS EXACTLY ONCE, AND ONLY AFTER AUTHORIZATION.
+#
+# Pinning the correct call site is NOT enough on its own: an ADDITIONAL earlier
+# classification against the permissioned or pre-resolution list would sit before
+# SEARCH-003 surfacing and still leave the correct call in place. Counting the
+# call sites closes that, and naming the forbidden arguments makes it legible.
+CLASSIFY_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'classifyCurriculumMatch(' || true)"
+[ "$CLASSIFY_CALLS" = "1" ] \
+  || fail "match classification runs at $CLASSIFY_CALLS call sites; exactly one is allowed, after authorization"
+for premature in 'classifyCurriculumMatch(permissioned' 'classifyCurriculumMatch(candidates' \
+                 'classifyCurriculumMatch(selected' 'classifyCurriculumMatch(c.value' \
+                 'classifyCurriculumMatch(row'; do
+  if echo "$CS_SERVICE_CODE" | grep -Fq "$premature"; then
+    fail "match classification runs before authorization or filtering: $premature"
+  fi
+done
+ST_SURFACE_LINE="$(grep -n 'surfaceAuthorized(permissioned)' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+ST_CLASSIFY_LINE="$(grep -n 'classifyCurriculumMatch(' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+[ -n "$ST_SURFACE_LINE" ] && [ -n "$ST_CLASSIFY_LINE" ] \
+  || fail "the surfacing and classification steps are not both present"
+[ "$ST_SURFACE_LINE" -lt "$ST_CLASSIFY_LINE" ] \
+  || fail "match classification runs before SEARCH-003 surfacing"
+
+echo "PASS: adjustment metadata exposes no internal detail"
+
+# --- 44. No API mode, no SEARCH-005B, no migration, no dependency -----------
+# Ruling 3: the original query is always variant 1, so no undo mode exists.
+for forbidden in 'exact=' 'literal=' 'disableAliases' 'mode=exact' '"exact"' '"literal"'; do
+  if echo "$SEARCH_ROUTE_BLOCK" | grep -Fq "$forbidden"; then
+    fail "an adjustment-suppression API mode was added: $forbidden"
+  fi
+done
+if grep -Fq 'searchParams' "$ST_TYPES"; then
+  fail "the pure term model reaches into request parsing"
+fi
+for forbidden in levenshtein damerau soundex trgm pg_trgm fuzzy spelling; do
+  if echo "$ST_TYPES_BARE$CS_SERVICE_CODE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-005B behaviour leaked into SEARCH-005A: $forbidden"
+  fi
+done
+# Named text-search extensions only. A bare `create extension` scan is a false
+# positive: `pgcrypto` is a pre-existing Wave 1 platform foundation extension and
+# has nothing to do with Search.
+if grep -rqiE 'pg_trgm|fuzzystrmatch|unaccent|pg_search' supabase/migrations/ 2>/dev/null; then
+  fail "SEARCH-005A must add no text-matching database extension"
+fi
+TERM_MIGRATIONS="$(ls supabase/migrations/*alias*.sql supabase/migrations/*term*.sql supabase/migrations/*normali*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$TERM_MIGRATIONS" = "0" ] || fail "SEARCH-005A must add no migration"
+
+echo "PASS: no suppression mode, no SEARCH-005B, no migration or extension"
 
 # ------------------------------------------------------------
 # 11. Repository toolchain
@@ -826,12 +1094,13 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 through Batch 4 verification passed."
+echo "Wave 9 Batch 1 through Batch 5 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
 echo "SEARCH-004 Search Filters and Facets is implemented."
-echo "SEARCH-005 through SEARCH-008 remain unimplemented."
+echo "SEARCH-005A Technical Query Normalization and Curated Aliases is implemented."
+echo "SEARCH-005B typo recovery and SEARCH-006 through SEARCH-008 remain unimplemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
 echo "============================================================"

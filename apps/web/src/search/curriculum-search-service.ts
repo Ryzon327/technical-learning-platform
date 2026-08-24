@@ -1,8 +1,12 @@
 import type {
+  CurriculumAdjustedSearchResults,
   CurriculumSearchContentType,
   CurriculumSearchFacetedResults
 } from "@tlp/shared-types";
 import { apiRequest } from "../lib/api-client";
+
+export type CurriculumSearchResponse = CurriculumSearchFacetedResults &
+  CurriculumAdjustedSearchResults;
 
 /**
  * SEARCH-002 — curriculum search feature service.
@@ -18,6 +22,12 @@ import { apiRequest } from "../lib/api-client";
  * The filter is sent as repeated `contentType` values and nothing else — no
  * free-form filter object, no arbitrary field name, no internal identifier. The
  * server validates the vocabulary; the browser is not trusted to enforce it.
+ *
+ * SEARCH-005A adds no request parameter. Query normalization and approved alias
+ * expansion happen entirely on the server, and the response may carry a
+ * `queryAdjustment` describing the single meaningful adjustment. There is no
+ * exact, literal or disable-aliases mode: the learner's original query is always
+ * searched, so there is nothing to undo.
  */
 export async function searchCurriculum(
   accessToken: string,
@@ -27,8 +37,8 @@ export async function searchCurriculum(
     contentTypes?: readonly CurriculumSearchContentType[];
     signal?: AbortSignal;
   }
-): Promise<CurriculumSearchFacetedResults> {
-  return apiRequest<CurriculumSearchFacetedResults>(
+): Promise<CurriculumSearchResponse> {
+  return apiRequest<CurriculumSearchResponse>(
     accessToken,
     "/search/curriculum",
     {

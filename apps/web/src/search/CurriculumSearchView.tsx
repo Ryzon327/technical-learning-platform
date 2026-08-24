@@ -9,14 +9,17 @@ import {
   describeCurriculumSearchFallback,
   describeCurriculumSearchFilterLegend,
   describeCurriculumSearchQueryError,
+  describeCurriculumQueryAdjustment,
   validateCurriculumSearchQuery,
   type CurriculumSearchContentType,
-  type CurriculumSearchFacetedResults,
   type SearchDocument
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
-import { searchCurriculum } from "./curriculum-search-service";
+import {
+  searchCurriculum,
+  type CurriculumSearchResponse
+} from "./curriculum-search-service";
 
 /**
  * SEARCH-002 — learner-facing curriculum search.
@@ -84,9 +87,7 @@ export function CurriculumSearchView() {
   const [contentTypes, setContentTypes] = useState<CurriculumSearchContentType[]>(
     []
   );
-  const [results, setResults] = useState<CurriculumSearchFacetedResults | null>(
-    null
-  );
+  const [results, setResults] = useState<CurriculumSearchResponse | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
 
@@ -216,6 +217,18 @@ export function CurriculumSearchView() {
             {describeCurriculumSearchClearFilters()}
           </button>
         </fieldset>
+      )}
+
+      {/* SEARCH-005A transparency. States the one meaningful adjustment in
+          words, naming the learner's own query first. It exposes no retrieval
+          pattern, variant list, candidate count or algorithm internal, and it
+          appears only when something meaningful actually changed. No control is
+          offered to suppress the adjustment because none is needed: the
+          original query is always searched and exact matches are shown first. */}
+      {results?.queryAdjustment && !error && (
+        <p aria-live="polite">
+          {describeCurriculumQueryAdjustment(results.queryAdjustment)}
+        </p>
       )}
 
       <p aria-live="polite">
