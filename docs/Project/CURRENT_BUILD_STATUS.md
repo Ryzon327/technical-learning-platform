@@ -420,3 +420,89 @@ its documented roadmap position, after Wave 13 and before the MVP Release Gate.
 
 Next implementation stage: **Build Wave 9 — Search**.
 <!-- END WAVE 8 IMPLEMENTATION CLOSURE -->
+
+---
+
+# Wave 9 Implementation Progress — 2026-08-25
+
+- Build Wave 9 — Search Engine: **IN PROGRESS**
+- Checkpoint: `ab17257` — chore: enable safe autonomous agent workflow.
+
+Search Feature state:
+
+- SEARCH-001 Search Document and Index Model — **implemented**
+- SEARCH-002 Curriculum Search — **implemented**
+- SEARCH-003 Permission-Aware Search — **implemented**
+- SEARCH-004 Search Filters and Facets — **implemented**
+- SEARCH-005 Technical Query Normalization and Typo Tolerance —
+  **IMPLEMENTATION COMPLETE**
+- SEARCH-006 Personal Notes Search Integration — **unimplemented**
+- SEARCH-007 Indexing and Freshness Pipeline — **unimplemented**
+- SEARCH-008 Search Result Ranking and Fallback — **unimplemented**
+
+## SEARCH-005 — implementation complete, product acceptance pending
+
+**IMPLEMENTATION COMPLETE** and **FINAL PRODUCT ACCEPTANCE PENDING** are
+different states and must not be conflated.
+
+Every SEARCH-005 acceptance criterion (§13) and Definition of Done item (§14)
+is satisfied by committed implementation and executed automated evidence:
+
+- SEARCH-005A — technical query normalization and curated aliases implemented
+  (`6671b55` is preceded by `0d2b8de` — build: add technical query
+  normalization). Whitespace and terminal-punctuation normalization, protected
+  technical tokens, the curated alias structure, bounded alias expansion,
+  original-query preservation, query-adjustment transparency, and
+  exact-before-adjusted match-class tiering.
+- SEARCH-005B — bounded typo recovery implemented (`6671b55` — build: add
+  bounded typo recovery). One edit, one corrected token, one recovered variant,
+  one recovery pass, attempted only after zero authorized results, against a
+  closed static vocabulary derived from already-approved terms.
+- Recovery reuses one shared authorized pass, so the caller-scoped RLS client,
+  the SEARCH-003 decision, version resolution and SEARCH-004 filtering are
+  identical for the original and recovered queries.
+- Match-class tiering is `exact → normalized → alias → typo`, with `typo` last.
+  It introduces no relevance score, weight, boost or ranking signal; SEARCH-008
+  remains unimplemented.
+
+**Final Search product acceptance is not granted here.** It remains governed by
+DEC-047 and `MVP_IMPLEMENTATION_SEQUENCE.md` §11 and §15d, which require the
+automated Search Engine completion gate **and** the Founder Search Human UAT,
+with blocking findings resolved, before Search receives final product
+acceptance. None of those has occurred.
+
+## Automated verification state
+
+Wave 9 Batches 1 through 6 verification is green (`scripts/verify-wave9.sh`,
+50 sections). Full suite 1,593 tests passing; typecheck, build, security scan,
+`npm audit`, Wave 7 and Wave 8 verifiers, the Certificate Engine completion gate
+and the API smoke test all pass.
+
+## Limitations carried forward
+
+These are recorded conditions, not newly discovered defects:
+
+- No live PostgreSQL/RLS integration harness. Search authorization evidence
+  remains **query-level and structural**, not live-database proof.
+- **Search Human UAT has not been performed** and is not marked complete.
+- No repository-seeded curriculum currently exists, so meaningful Search UAT
+  cannot yet be performed. This is a recorded deferred prerequisite for the
+  DEC-047 Search UAT gate.
+- The curated alias and typo-target vocabulary is intentionally small, static
+  and bounded, and grows only through approved terminology.
+- ESLint 9 flat configuration remains absent; **lint does not currently pass**.
+  The condition pre-dates Wave 9 and was not introduced by Search.
+- The CERT-008 correction migration remains committed as source and **has not
+  been executed** against any database.
+
+## Not yet done
+
+Wave 9 is **not complete**. The Search Engine is **not complete**. Search
+product acceptance is **not granted**. SEARCH-006, SEARCH-007 and SEARCH-008
+have not begun, and no Search Engine automated completion gate script exists yet.
+
+Feature Registry lifecycle states are unchanged; this repository records
+implementation state here rather than by advancing Feature Registry status.
+
+Next implementation stage: **SEARCH-006 — Personal Notes Search Integration**.
+<!-- END WAVE 9 IMPLEMENTATION PROGRESS -->
