@@ -1290,6 +1290,162 @@ done
 
 echo "PASS: SEARCH-005B added no extension, migration, dependency or AI"
 
+# ============================================================
+# SEARCH-006 — Personal Notes Search Integration (Batch 7)
+# ============================================================
+
+NOTE_TYPES="packages/shared-types/src/note-retrieval.ts"
+NOTE_SERVICE="services/api/src/note-retrieval.ts"
+NOTE_SERVICE_TESTS="services/api/src/note-retrieval.test.ts"
+NOTE_WEB="apps/web/src/search/note-search-service.ts"
+NOTE_WEB_TESTS="apps/web/src/search/note-search-service.test.ts"
+NOTE_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_7_PERSONAL_NOTES_SEARCH.md"
+
+for p in "$NOTE_TYPES" "$NOTE_SERVICE" "$NOTE_SERVICE_TESTS" "$NOTE_WEB" \
+         "$NOTE_WEB_TESTS" "$NOTE_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+NOTE_SERVICE_CODE="$(code_of "$NOTE_SERVICE")"
+NOTE_TYPES_BARE="$(code_no_strings "$NOTE_TYPES")"
+NOTE_WEB_CODE="$(code_of "$NOTE_WEB")"
+
+# --- 52. SEARCH-006 exists and reuses the Notes authority -------------------
+SEARCH_006="$(find "$REGISTRY" -maxdepth 1 -name 'SEARCH-006_*.md' | head -1)"
+[ -n "$SEARCH_006" ] || fail "SEARCH-006 specification is missing from the Feature Registry"
+grep -Fq '[x] Approved' "$SEARCH_006" || fail "SEARCH-006 does not record Founder approval"
+# ONE private-notes search authority. A second would be a parallel ownership
+# system beside row level security.
+grep -Fq 'export async function searchStudentNotes' "$NOTE_SERVICE" \
+  || fail "the existing notes-search authority is missing"
+# Test files are excluded: a test may legitimately NAME the implementation in a
+# source-slice bound without being a second implementation of it.
+NOTE_SEARCH_IMPLS="$(grep -rlF --include='*.ts' --exclude='*.test.ts' 'export async function searchStudentNotes' services/api/src/ | wc -l | tr -d ' ' || true)"
+[ "$NOTE_SEARCH_IMPLS" = "1" ] \
+  || fail "$NOTE_SEARCH_IMPLS private-notes search implementations exist; exactly one is allowed"
+grep -Fq 'pathname === "/notes/search"' "$SERVER" \
+  || fail "the authenticated notes-search route is missing"
+for forbidden in '"/search/notes"' '"/admin/notes/search"' '"/public/notes"'; do
+  if grep -Fq "pathname === $forbidden" "$SERVER"; then
+    fail "a second or public notes-search route exists: $forbidden"
+  fi
+done
+
+echo "PASS: one private notes-search authority, reused rather than duplicated"
+
+# --- 53. Ownership stays with the database ---------------------------------
+grep -Fq 'createUserScopedSupabaseClient(accessToken)' "$NOTE_SERVICE" \
+  || fail "notes search does not read through the caller's RLS-scoped client"
+if echo "$NOTE_SERVICE_CODE" | grep -qF 'createServerSupabaseClient'; then
+  fail "a service-role client entered the private notes path"
+fi
+# NO SECOND OWNERSHIP MECHANISM. The service must not build an owner predicate,
+# because that could drift from the policy that actually protects the rows.
+for forbidden in user_id userId ownerId studentId learnerId; do
+  if echo "$NOTE_SERVICE_CODE" | grep -qF "$forbidden"; then
+    fail "notes search built its own owner predicate: $forbidden"
+  fi
+done
+# The route may never accept an identity naming whose notes to search.
+# The route spans several lines: the method/path guard, then the trusted
+# identity resolution, then the call. Capture the whole block, not one line.
+NOTES_ROUTE_BLOCK="$(awk '/pathname === "\/notes\/search"/{c=6} c&&c-->0' "$SERVER" || true)"
+for forbidden in userId ownerId studentId learnerId; do
+  if echo "$NOTES_ROUTE_BLOCK" | grep -qF "$forbidden"; then
+    fail "the notes-search route accepts a caller-supplied identity: $forbidden"
+  fi
+done
+echo "$NOTES_ROUTE_BLOCK" | grep -Fq 'resolveTrustedRequestIdentity(request)' \
+  || fail "the notes-search route does not require trusted authentication"
+grep -Fq 'NOTE_SEARCH_FORBIDDEN_REQUEST_FIELDS' "$NOTE_TYPES" \
+  || fail "the forbidden identity-parameter prohibition is not held as data"
+
+echo "PASS: note ownership is decided by the database and nothing else"
+
+# --- 54. Private notes stay out of the shared Search foundation ------------
+grep -Fq 'export const SEARCH_INDEXED_SOURCE_ENGINES = ["curriculum"] as const;' "$SEARCH_TYPES" \
+  || fail "notes were added to the indexed source engine set"
+if echo "$NOTE_SERVICE_CODE" | grep -qiE 'SearchDocument|buildSearchDocument|search_documents'; then
+  fail "private notes entered the shared Search Document model"
+fi
+if echo "$NOTE_SERVICE_CODE" | grep -qiE 'materialized|tsvector|to_tsquery|pg_trgm|setInterval|cron|queue|worker|cacheStore|noteIndex'; then
+  fail "SEARCH-007 infrastructure or a private-note cache entered SEARCH-006"
+fi
+NOTE_MIGRATIONS="$(ls supabase/migrations/*note*search*.sql supabase/migrations/*note*index*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$NOTE_MIGRATIONS" = "0" ] || fail "SEARCH-006 must add no migration"
+grep -Fq 'NOTE_SEARCH_FORBIDDEN_FIELDS' "$NOTE_TYPES" \
+  || fail "the forbidden note-result field prohibition is not held as data"
+for forbidden in hiddenCount withheldCount unauthorizedCount otherUserCount; do
+  grep -Fq "\"$forbidden\"" "$NOTE_TYPES" \
+    || fail "a hidden count is missing from the note prohibition list: $forbidden"
+  if echo "$NOTE_TYPES_BARE" | grep -qF "$forbidden"; then
+    fail "a hidden count entered the note result contract: $forbidden"
+  fi
+done
+
+echo "PASS: private notes stay out of shared indexing, caching and totals"
+
+# --- 55. Vocabulary is static; notes never teach the query -----------------
+# SEARCH-005 normalization and approved aliases compose; SEARCH-005B typo
+# recovery deliberately does not (Founder ruling: its zero-result trigger is a
+# cross-source policy this Feature must not establish).
+grep -Fq 'buildCurriculumQueryVariants' "$NOTE_SERVICE" \
+  || fail "notes search does not compose the approved static query variants"
+grep -Fq 'variant.matchKind !== "typo"' "$NOTE_SERVICE" \
+  || fail "SEARCH-005B typo recovery is no longer excluded from notes"
+if echo "$NOTE_SERVICE_CODE" | grep -qF 'buildCurriculumTypoRecovery'; then
+  fail "SEARCH-005B typo recovery was composed into private notes search"
+fi
+# Vocabulary must never be learned from note content.
+if echo "$NOTE_SERVICE_CODE" | grep -qiE 'alias.*=.*note|note.*\.push\(.*alias|vocabulary|dictionaryFrom|learnFrom'; then
+  fail "note content was used to build query vocabulary"
+fi
+# Every variant must be escaped before it reaches ILIKE.
+grep -Fq 'escapeLike(variant)' "$NOTE_SERVICE" \
+  || fail "note query variants are not escaped before ILIKE matching"
+
+echo "PASS: note query vocabulary is static and never learned from note content"
+
+# --- 56. Two labelled groups, independent failure --------------------------
+# Pinned on the HEADINGS, not merely on the label functions appearing somewhere:
+# the label is also used on each result card, so a bare presence check survives
+# a heading being renamed to something that no longer distinguishes the group.
+# BOTH note-group headings (results and unavailable) must carry the label. A
+# presence check passes while one of two identical headings is renamed, so the
+# count is the property that actually holds.
+NOTE_GROUP_LABELLED="$(grep -cF '<h3 id="note-results-heading">{describeNoteResultGroup()}</h3>' "$CS_VIEW" || true)"
+[ "$NOTE_GROUP_LABELLED" = "2" ] \
+  || fail "expected both note-group headings to be labelled with the learner-facing name; found $NOTE_GROUP_LABELLED"
+grep -Fq '<h3 id="curriculum-results-heading">' "$CS_VIEW" \
+  || fail "the curriculum result group heading is missing"
+grep -Fq 'describeCurriculumResultGroup()' "$CS_VIEW" \
+  || fail "the curriculum result group is not labelled"
+NOTE_GROUP_HEADINGS="$(grep -c 'id="note-results-heading"' "$CS_VIEW" || true)"
+[ "$NOTE_GROUP_HEADINGS" = "2" ] \
+  || fail "expected exactly two note-group headings (results and unavailable); found $NOTE_GROUP_HEADINGS"
+grep -Fq 'Promise.allSettled' "$CS_VIEW" \
+  || fail "the two sources are not settled independently; one failure could erase the other"
+grep -Fq 'describeNoteSearchUnavailable' "$CS_VIEW" \
+  || fail "a failed notes search has no honest unavailable state"
+# A failure must never be rendered as a successful empty result.
+grep -Fq 'could not be searched' "$NOTE_TYPES" \
+  || fail "the notes-unavailable wording no longer distinguishes failure from empty"
+# No internal engine name may reach the learner.
+if echo "$NOTE_TYPES_BARE" | grep -qiE 'sourceEngine|student_notes|supabase|rls'; then
+  fail "an internal name entered the learner-facing note wording"
+fi
+# Notes must not join the curriculum facet contract.
+if echo "$CS_VIEW_CODE" | grep -qF 'contentTypes: notes'; then
+  fail "notes joined the SEARCH-004 curriculum facet"
+fi
+grep -Fq 'searchMyNotes' "$NOTE_WEB" \
+  || fail "the browser notes-search service is missing"
+if echo "$NOTE_WEB_CODE" | grep -qiE 'userId|ownerId|studentId|learnerId'; then
+  fail "the browser notes service sends a caller-supplied identity"
+fi
+
+echo "PASS: curriculum and notes are labelled, independent result groups"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -1302,14 +1458,15 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 through Batch 6 verification passed."
+echo "Wave 9 Batch 1 through Batch 7 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
 echo "SEARCH-004 Search Filters and Facets is implemented."
 echo "SEARCH-005A Technical Query Normalization and Curated Aliases is implemented."
 echo "SEARCH-005B Bounded Typo Recovery is implemented."
-echo "SEARCH-006 through SEARCH-008 remain unimplemented."
+echo "SEARCH-006 Personal Notes Search Integration is implemented."
+echo "SEARCH-007 and SEARCH-008 remain unimplemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
 echo "============================================================"

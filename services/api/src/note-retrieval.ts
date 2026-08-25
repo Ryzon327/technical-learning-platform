@@ -1,5 +1,6 @@
 import {
   AppError,
+  buildCurriculumQueryVariants,
   normalizeNoteSearchQuery,
   normalizeSearchLimit,
   type BookmarkTargetType,
@@ -30,6 +31,35 @@ const bookmarkTargets = new Set<BookmarkTargetType>([
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/**
+ * SEARCH-006: the query forms a private note search matches against.
+ *
+ * SEARCH-005's static normalization and approved aliases are composed here, so
+ * a learner searching `AD` also matches their own note about Active Directory.
+ *
+ * SEARCH-005B typo recovery is deliberately absent — its trigger is a
+ * zero-result condition, and that becomes a cross-source policy question once
+ * Search reads both curriculum and notes. This Feature does not establish it.
+ *
+ * CRITICAL: every variant comes from static repository-approved vocabulary. No
+ * note is read to build this list, so one learner's private note text can never
+ * influence another learner's query interpretation.
+ */
+function noteSearchVariants(query: string): string[] {
+  if (!query) return [];
+
+  return buildCurriculumQueryVariants(query)
+    .filter((variant) => variant.matchKind !== "typo")
+    .map((variant) => variant.value);
+}
+
+/** ILIKE conditions for one column across every approved variant. */
+function ilikeConditions(column: string, variants: readonly string[]): string {
+  return variants
+    .map((variant) => `${column}.ilike.%${escapeLike(variant)}%`)
+    .join(",");
 }
 
 function excerpt(text: string, query: string): string {
@@ -74,9 +104,15 @@ export async function searchStudentNotes(
     notesQuery = notesQuery.eq("pinned", input.pinned);
   }
 
+  const variants = noteSearchVariants(query);
+
   if (query) {
-    const safe = escapeLike(query);
-    notesQuery = notesQuery.or(`title.ilike.%${safe}%,body.ilike.%${safe}%`);
+    notesQuery = notesQuery.or(
+      [
+        ilikeConditions("title", variants),
+        ilikeConditions("body", variants)
+      ].join(",")
+    );
   }
 
   const { data: notes, error: noteError } = await notesQuery;
@@ -130,12 +166,11 @@ export async function searchStudentNotes(
   let blockMatches = new Map<string, string>();
   if (query && candidateNotes.length) {
     const ids = candidateNotes.map((note) => String(note.id));
-    const safe = escapeLike(query);
     const { data: blocks, error } = await supabase
       .from("student_note_blocks")
       .select("note_id,text")
       .in("note_id", ids)
-      .ilike("text", `%${safe}%`);
+      .or(ilikeConditions("text", variants));
 
     if (error) throw dependency("Unable to search private technical note blocks");
 
@@ -147,7 +182,9 @@ export async function searchStudentNotes(
     }
   }
 
-  const lowered = query.toLowerCase();
+  const lowered = variants.map((variant) => variant.toLowerCase());
+  const hits = (text: string): boolean =>
+    lowered.some((variant) => text.toLowerCase().includes(variant));
 
   return candidateNotes
     .map((note) => {
@@ -156,8 +193,8 @@ export async function searchStudentNotes(
       const blockText = blockMatches.get(String(note.id)) ?? "";
       const matchedIn: Array<"title" | "body" | "block"> = [];
 
-      if (!query || title.toLowerCase().includes(lowered)) matchedIn.push("title");
-      if (!query || body.toLowerCase().includes(lowered)) matchedIn.push("body");
+      if (!query || hits(title)) matchedIn.push("title");
+      if (!query || hits(body)) matchedIn.push("body");
       if (blockText) matchedIn.push("block");
 
       if (query && matchedIn.length === 0) return null;

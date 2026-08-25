@@ -100,6 +100,19 @@ assert_status GET '/search/curriculum?q=vlan' 401
 assert_status GET '/search/curriculum?q=vlan&limit=5' 401
 assert_status POST /search/curriculum 404 '{"q":"vlan"}'
 assert_status DELETE /search/curriculum 404
+
+# SEARCH-006 — the private notes source must never become publicly reachable.
+# This proves the route is authenticated; it does NOT and cannot prove
+# cross-user row level security, which needs a live database.
+assert_status GET '/notes/search?q=vlan' 401
+assert_status GET '/notes/search?q=vlan&limit=5' 401
+assert_status POST /notes/search 404 '{"q":"vlan"}'
+# DELETE matches the parameterised /notes/:id route with the id "search" and is
+# authenticated and ownership-scoped, so 401 is correct. Note ids are UUIDs, so
+# no real note is shadowed. What matters is that it is never reachable
+# unauthenticated.
+assert_status DELETE /notes/search 401
+assert_status GET '/search/notes?q=vlan' 404
 assert_status GET /admin/search 404
 assert_status GET /search 404
 assert_status GET '/search/notes?q=x' 404
@@ -192,5 +205,7 @@ echo 'PASS: CERT-008 corrections require privileged authentication'
 echo 'PASS: CERT-008 exposes no student revoke, restore or correct route'
 echo 'PASS: CERT-009 presentation requires authentication'
 echo 'PASS: CERT-009 exposes no public or admin presentation route'
+echo 'PASS: SEARCH-006 private notes search requires authentication'
+echo 'PASS: SEARCH-006 exposes no second or public notes-search route'
 echo 'PASS: SEARCH-002 curriculum search requires authentication'
 echo 'PASS: SEARCH-002 exposes no public or admin search route'

@@ -13,8 +13,13 @@ import {
   describeCurriculumOriginalQueryAction,
   describeCurriculumOriginalQueryEmptyState,
   describeCurriculumTypoRecovery,
+  describeCurriculumResultGroup,
+  describeNoteResultGroup,
+  describeNoteSearchCount,
+  describeNoteSearchUnavailable,
   validateCurriculumSearchQuery,
   type CurriculumSearchContentType,
+  type NoteSearchResult,
   type SearchDocument
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
@@ -23,6 +28,7 @@ import {
   searchCurriculum,
   type CurriculumSearchResponse
 } from "./curriculum-search-service";
+import { searchMyNotes } from "./note-search-service";
 
 /**
  * SEARCH-002 — learner-facing curriculum search.
@@ -82,6 +88,31 @@ function SearchResult({ result }: { result: SearchDocument }) {
   );
 }
 
+/**
+ * One of the learner's own notes.
+ *
+ * Renders only fields the note's own owner may already see. There is no owner
+ * identity, no permission state and no authorization diagnostic — the learner
+ * receives a note only because the database returned it to them.
+ */
+function NoteResult({ note }: { note: NoteSearchResult }) {
+  const headingId = `note-${note.noteId}-title`;
+
+  return (
+    <li className="card" aria-labelledby={headingId}>
+      {/* The group is private; say so in words, not by colour or icon alone. */}
+      <p className="eyebrow">{describeNoteResultGroup()}</p>
+      <h4 id={headingId}>{note.title}</h4>
+
+      {note.excerpt && <p>{note.excerpt}</p>}
+
+      <p>
+        <a href={`/notes/${note.noteId}`}>Open {note.title}</a>
+      </p>
+    </li>
+  );
+}
+
 export function CurriculumSearchView() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? "";
@@ -101,6 +132,13 @@ export function CurriculumSearchView() {
    * guess. Re-submitting the form re-runs the original query normally.
    */
   const [showingOriginal, setShowingOriginal] = useState(false);
+  /**
+   * SEARCH-006: the learner's own notes, held separately from curriculum so
+   * either source can succeed or fail without affecting the other. `null` means
+   * "not searched or unavailable" and is never rendered as an empty result.
+   */
+  const [notes, setNotes] = useState<NoteSearchResult[] | null>(null);
+  const [noteError, setNoteError] = useState("");
 
   /**
    * The selection is passed in rather than read from state, so a filter change
@@ -119,24 +157,40 @@ export function CurriculumSearchView() {
     setSearching(true);
     setError("");
     setShowingOriginal(false);
+    setNoteError("");
 
-    try {
-      setResults(
-        await searchCurriculum(accessToken, { query, contentTypes: selected })
-      );
-    } catch (caught) {
+    // SEARCH-006: the two sources are searched INDEPENDENTLY and settled
+    // separately, so a failure in one can never erase valid results from the
+    // other. Curriculum keeps its own error state; notes keep theirs.
+    const [curriculumOutcome, noteOutcome] = await Promise.allSettled([
+      searchCurriculum(accessToken, { query, contentTypes: selected }),
+      searchMyNotes(accessToken, { query })
+    ]);
+
+    if (curriculumOutcome.status === "fulfilled") {
+      setResults(curriculumOutcome.value);
+    } else {
       // Honest failure. SEARCH-002 section 12 assumes structured curriculum
       // navigation exists to fall back to; it does not exist in this
       // application yet, so the message does not claim it does.
+      const caught = curriculumOutcome.reason;
       setError(
         caught instanceof ApiRequestError
           ? caught.message
           : describeCurriculumSearchFallback()
       );
       setResults(null);
-    } finally {
-      setSearching(false);
     }
+
+    if (noteOutcome.status === "fulfilled") {
+      setNotes(noteOutcome.value);
+    } else {
+      // A failed notes search must never be shown as "you have no notes".
+      setNotes(null);
+      setNoteError(describeNoteSearchUnavailable());
+    }
+
+    setSearching(false);
   }
 
   function toggleContentType(contentType: CurriculumSearchContentType): void {
@@ -295,11 +349,44 @@ export function CurriculumSearchView() {
       )}
 
       {results && !error && !showingOriginal && results.results.length > 0 && (
-        <ul aria-labelledby="curriculum-search-title">
-          {results.results.map((result) => (
-            <SearchResult key={result.documentId} result={result} />
-          ))}
-        </ul>
+        <section aria-labelledby="curriculum-results-heading">
+          <h3 id="curriculum-results-heading">
+            {describeCurriculumResultGroup()}
+          </h3>
+          <ul aria-labelledby="curriculum-results-heading">
+            {results.results.map((result) => (
+              <SearchResult key={result.documentId} result={result} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* SEARCH-006 — the learner's own private notes, in their own section.
+          It renders independently of curriculum: a failure in either source
+          leaves the other intact. A failed notes search shows an honest
+          unavailable message and is NEVER shown as "no notes". */}
+      {noteError && !showingOriginal && (
+        <section aria-labelledby="note-results-heading">
+          <h3 id="note-results-heading">{describeNoteResultGroup()}</h3>
+          <p className="form-message" role="status">
+            {noteError}
+          </p>
+        </section>
+      )}
+
+      {notes && !noteError && !showingOriginal && (
+        <section aria-labelledby="note-results-heading">
+          <h3 id="note-results-heading">{describeNoteResultGroup()}</h3>
+          <p aria-live="polite">{describeNoteSearchCount(notes.length)}</p>
+
+          {notes.length > 0 && (
+            <ul aria-labelledby="note-results-heading">
+              {notes.map((note) => (
+                <NoteResult key={note.noteId} note={note} />
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </section>
   );
