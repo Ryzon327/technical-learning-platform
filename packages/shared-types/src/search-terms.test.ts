@@ -316,16 +316,30 @@ describe("match classification", () => {
 
   /** Failing to classify must never promote a result to the top tier. */
   it("falls to the last tier when nothing matches", () => {
-    expect(classifyCurriculumMatch("unrelated text", variants)).toBe("alias");
+    const lastTier = CURRICULUM_MATCH_KINDS[CURRICULUM_MATCH_KINDS.length - 1];
+
+    expect(classifyCurriculumMatch("unrelated text", variants)).toBe(lastTier);
+    expect(lastTier).toBe("typo");
   });
 
-  it("names exactly the three approved match kinds", () => {
-    expect(CURRICULUM_MATCH_KINDS).toEqual(["exact", "normalized", "alias"]);
+  /**
+   * SEARCH-005B added `typo` as the LAST tier. Order is the contract: a
+   * recovered match can never outrank an exact, normalized or alias match.
+   */
+  it("names exactly the four approved match kinds, typo last", () => {
+    expect(CURRICULUM_MATCH_KINDS).toEqual([
+      "exact",
+      "normalized",
+      "alias",
+      "typo"
+    ]);
+    expect(CURRICULUM_MATCH_KINDS[CURRICULUM_MATCH_KINDS.length - 1]).toBe(
+      "typo"
+    );
   });
 
-  it("reserves typo for SEARCH-005B", () => {
-    expect(CURRICULUM_MATCH_KINDS).not.toContain("typo");
-    const future = "typo" as unknown as CurriculumMatchKind;
+  it("admits no match kind beyond the four approved", () => {
+    const future = "semantic" as unknown as CurriculumMatchKind;
     expect(CURRICULUM_MATCH_KINDS.indexOf(future)).toBe(-1);
   });
 });

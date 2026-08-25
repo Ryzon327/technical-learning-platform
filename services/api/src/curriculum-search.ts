@@ -13,6 +13,7 @@ import {
   applyCurriculumSearchFilter,
   buildCurriculumQueryAdjustment,
   buildCurriculumQueryVariants,
+  buildCurriculumTypoRecovery,
   buildCurriculumSearchFilter,
   buildCurriculumSearchSnippet,
   buildTieredCurriculumSearchResults,
@@ -269,59 +270,97 @@ export async function searchCurriculum(
     variants = [{ value: query, matchKind: "exact" }];
   }
 
-  const patterns = variants.map((variant) =>
-    escapeCurriculumSearchPattern(variant.value)
-  );
   const indexedAt = new Date().toISOString();
 
   const supabase = createUserScopedSupabaseClient(accessToken);
 
-  const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
-    [];
-  for (const contentType of Object.keys(
-    SEARCHABLE_TABLES
-  ) as CurriculumSearchContentType[]) {
-    permissioned.push(
-      ...(await searchOneType(supabase, contentType, patterns, limit))
+  /**
+   * One complete authorized pass.
+   *
+   * EVERY pass — the original and any SEARCH-005B recovery — goes through the
+   * identical boundaries in the identical order: escaped patterns, the caller's
+   * own RLS-scoped client, the SEARCH-003 decision, version resolution, then
+   * SEARCH-004 filtering. Recovery changes which query is interpreted; it can
+   * never change who is authorized to see a record, and it has no alternate
+   * client or authorization path.
+   */
+  const runAuthorizedPass = async (
+    passVariants: readonly CurriculumQueryVariant[]
+  ): Promise<ClassifiedSearchDocument[]> => {
+    const patterns = passVariants.map((variant) =>
+      escapeCurriculumSearchPattern(variant.value)
     );
-  }
 
-  // SEARCH-003: only an explicit authorized decision may surface. Anything else
-  // is dropped silently — no placeholder, no marker, no contribution to count.
-  const candidates = surfaceAuthorized(permissioned);
+    const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
+      [];
+    for (const contentType of Object.keys(
+      SEARCHABLE_TABLES
+    ) as CurriculumSearchContentType[]) {
+      permissioned.push(
+        ...(await searchOneType(supabase, contentType, patterns, limit))
+      );
+    }
 
-  // Read resolution only. This selects which published version a learner is
-  // shown; it asserts nothing about supersession and writes nothing.
-  const selected = selectHighestPublishedVersion(candidates);
+    // SEARCH-003: only an explicit authorized decision may surface. Anything
+    // else is dropped silently — no placeholder, no marker, no count.
+    const candidates = surfaceAuthorized(permissioned);
 
-  // SEARCH-004 filtering happens HERE — after row level security, after the
-  // permission decision and after version resolution. Every source is still
-  // read exactly as an unfiltered search reads it, so the authorized candidate
-  // set is identical whether or not a filter was supplied: the filter narrows
-  // presentation and can never widen, redirect or influence authorization.
-  const filtered = applyCurriculumSearchFilter(selected, filter);
+    // Read resolution only. This selects which published version a learner is
+    // shown; it asserts nothing about supersession and writes nothing.
+    const selected = selectHighestPublishedVersion(candidates);
 
-  // SEARCH-005A match classification. It runs HERE — after row level security,
-  // after the SEARCH-003 decision, after version resolution and after SEARCH-004
-  // filtering — so it only ever reads text the caller is already entitled to
-  // see, and no unauthorized candidate can influence a tier.
-  const classified: ClassifiedSearchDocument[] = [];
-  for (const entry of filtered) {
-    const document = projectCurriculumDocument(
-      entry.contentType,
-      entry,
-      query,
-      indexedAt
-    );
-    if (!document) continue;
+    // SEARCH-004 filtering happens HERE — after row level security, after the
+    // permission decision and after version resolution.
+    const filtered = applyCurriculumSearchFilter(selected, filter);
 
-    classified.push({
-      document,
-      matchKind: classifyCurriculumMatch(
-        `${entry.title} ${entry.description ?? ""}`,
-        variants
-      )
-    });
+    // Match classification runs only on text the caller is already entitled to
+    // see, so no unauthorized candidate can influence a tier.
+    const passClassified: ClassifiedSearchDocument[] = [];
+    for (const entry of filtered) {
+      const document = projectCurriculumDocument(
+        entry.contentType,
+        entry,
+        query,
+        indexedAt
+      );
+      if (!document) continue;
+
+      passClassified.push({
+        document,
+        matchKind: classifyCurriculumMatch(
+          `${entry.title} ${entry.description ?? ""}`,
+          passVariants
+        )
+      });
+    }
+
+    return passClassified;
+  };
+
+  let classified = await runAuthorizedPass(variants);
+
+  // SEARCH-005B: bounded typo recovery, attempted ONLY when the normal path
+  // produced zero final usable results. One pass, one corrected token, one
+  // recovered variant, one edit — and only toward a term this repository has
+  // already approved. If recovery finds nothing, the learner keeps the honest
+  // empty result and is told nothing about the attempt.
+  if (classified.length === 0) {
+    const recovery = buildCurriculumTypoRecovery(query);
+
+    if (recovery) {
+      const recovered = await runAuthorizedPass([
+        { value: recovery.correctedQuery, matchKind: "typo" }
+      ]);
+
+      if (recovered.length > 0) {
+        classified = recovered;
+        adjustment = {
+          originalQuery: recovery.originalQuery,
+          effectiveQuery: recovery.correctedQuery,
+          adjustmentKind: "typo"
+        };
+      }
+    }
   }
 
   // Facets are computed from the built, ordered, bounded result set — the exact

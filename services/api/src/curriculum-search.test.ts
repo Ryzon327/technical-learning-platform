@@ -61,23 +61,47 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
   const limits: number[] = [];
   let tokenSeen = "";
 
+  /** Undoes the LIKE escaping so the stand-in matches literal text. */
+  const literalTermsOf = (pattern: string): string[] =>
+    [...pattern.matchAll(/ilike\.%(.*?)%(?:,|$)/g)]
+      .map((match) => (match[1] ?? "").replace(/\\([\\%_])/g, "$1"))
+      .filter((term) => term !== "");
+
+  /**
+   * Approximates ILIKE. Without this the stand-in returns rows regardless of
+   * the query, so a pass could never produce zero results and SEARCH-005B
+   * recovery could never be exercised.
+   */
+  const matchesPattern = (candidate: unknown, pattern: string): boolean => {
+    const record = candidate as { title?: string; description?: string };
+    const haystack = `${record.title ?? ""} ${record.description ?? ""}`.toLowerCase();
+    return literalTermsOf(pattern).some((term) =>
+      haystack.includes(term.toLowerCase())
+    );
+  };
+
   const client = {
     from: (name: string) => {
       tables.push(name);
       const builder: Record<string, unknown> = {};
+      let pattern = "";
       builder.select = () => builder;
       builder.eq = (column: string, value: unknown) => {
         eqCalls.push([column, value]);
         return builder;
       };
-      builder.or = (pattern: string) => {
-        orPatterns.push(pattern);
+      builder.or = (value: string) => {
+        pattern = value;
+        orPatterns.push(value);
         return builder;
       };
       builder.limit = (value: number) => {
         limits.push(value);
+        const rows = (byTable[name] ?? []).filter((candidate) =>
+          matchesPattern(candidate, pattern)
+        );
         return Promise.resolve(
-          error ? { data: null, error } : { data: byTable[name] ?? [], error: null }
+          error ? { data: null, error } : { data: rows, error: null }
         );
       };
       return builder;
@@ -231,8 +255,25 @@ describe("C: exactly four curriculum types, no notes", () => {
 });
 
 describe("D: later Search features are not implemented", () => {
-  it("D: no fuzzy, synonym or typo behaviour", () => {
-    for (const forbidden of ["fuzzy", "synonym", "typo", "levenshtein", "soundex"]) {
+  /**
+   * NARROWED FOR SEARCH-005B, not weakened. Bounded typo recovery against a
+   * closed approved vocabulary is now the approved deliverable, so `typo` is no
+   * longer forbidden. Every UNBOUNDED matching technique still is — and the
+   * list grew to cover the mechanisms SEARCH-005B deliberately did not use.
+   */
+  it("D: no fuzzy or unbounded similarity behaviour", () => {
+    for (const forbidden of [
+      "fuzzy",
+      "synonym",
+      "levenshtein",
+      "damerau",
+      "soundex",
+      "stemming",
+      "semantic",
+      "trgm",
+      "spelling",
+      "similarity"
+    ]) {
       expect(serviceCode.toLowerCase()).not.toContain(forbidden);
     }
   });
@@ -1047,5 +1088,273 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     expect(harness.orPatterns[0]).toBe(
       "title.ilike.%kubctl%,description.ilike.%kubctl%"
     );
+  });
+});
+
+/**
+ * SEARCH-005B — bounded typo recovery.
+ *
+ * The security claims: recovery runs ONLY on zero authorized results, uses the
+ * same RLS-scoped client and the same authorization boundaries, and can happen
+ * at most once.
+ */
+describe("I: SEARCH-005B bounded typo recovery", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  const kubectlRow = row({
+    stable_id: "course.k8s",
+    title: "kubectl Fundamentals",
+    description: "Operate clusters."
+  });
+
+  it("I1: does not run when the original query already has results", async () => {
+    const { results, harness } = await search(
+      { courses: [row()] },
+      { query: "vlan" }
+    );
+
+    // Exactly one pass: four source reads, not eight.
+    expect(harness.tables).toHaveLength(4);
+    expect(results.count).toBe(1);
+    expect(results).not.toHaveProperty("queryAdjustment");
+  });
+
+  /**
+   * Even a typo-SHAPED query must not trigger recovery if it already matched
+   * something the learner is authorized to see. Recovery is for empty results,
+   * not for queries that merely look misspelled.
+   */
+  it("I2: does not run when a typo-shaped query already has results", async () => {
+    const { harness, results } = await search(
+      {
+        courses: [
+          row({ stable_id: "course.typo", title: "kubctl troubleshooting" })
+        ]
+      },
+      { query: "kubctl" }
+    );
+
+    expect(results.count).toBe(1);
+    expect(harness.tables).toHaveLength(4);
+    expect(harness.orPatterns).toHaveLength(4);
+    expect(results).not.toHaveProperty("queryAdjustment");
+  });
+
+  it("I3: recovers only after zero authorized results", async () => {
+    const { results, harness } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    // Two passes: the original found nothing, recovery found the row.
+    expect(harness.tables).toHaveLength(8);
+    expect(results.count).toBe(1);
+    expect(results.results[0]?.title).toBe("kubectl Fundamentals");
+  });
+
+  it("I4: the original query is always attempted first", async () => {
+    const { harness } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    expect(harness.orPatterns[0]).toBe(
+      "title.ilike.%kubctl%,description.ilike.%kubctl%"
+    );
+    expect(harness.orPatterns[4]).toBe(
+      "title.ilike.%kubectl%,description.ilike.%kubectl%"
+    );
+  });
+
+  it("I5: at most one recovery pass occurs", async () => {
+    const { harness } = await search({}, { query: "kubctl" });
+
+    // Original pass plus at most one recovery pass — never a third.
+    expect(harness.tables).toHaveLength(8);
+  });
+
+  it("I6: reports the recovery without exposing internals", async () => {
+    const { results } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    expect(results.queryAdjustment).toEqual({
+      originalQuery: "kubctl",
+      effectiveQuery: "kubectl",
+      adjustmentKind: "typo"
+    });
+
+    const serialized = JSON.stringify(results.queryAdjustment);
+    for (const forbidden of [
+      "editDistance",
+      "distance",
+      "candidate",
+      "confidence",
+      "similarity",
+      "matchKind",
+      "ilike",
+      "%"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("I7: says nothing when recovery also finds nothing", async () => {
+    const { results } = await search({}, { query: "kubctl" });
+
+    expect(results.count).toBe(0);
+    expect(results).not.toHaveProperty("queryAdjustment");
+  });
+
+  it("I8: never recovers a protected technical term", async () => {
+    for (const query of [
+      "Get-ADUser",
+      "kubectl",
+      "index=botsv3",
+      "terraform plan",
+      "show vlan brief"
+    ]) {
+      const { harness } = await search({}, { query });
+
+      // Four reads only: the original pass, with no recovery attempted.
+      expect(harness.tables).toHaveLength(4);
+    }
+  });
+
+  it("I9: never recovers technical syntax", async () => {
+    for (const query of [
+      "index=botsv",
+      "10.0.0.1",
+      "10.0.0.0/24",
+      "443",
+      "v1.29",
+      "--namespace",
+      "resource_group",
+      "AD",
+      "RTO",
+      "IAM"
+    ]) {
+      const { harness } = await search({}, { query });
+
+      expect(harness.tables).toHaveLength(4);
+    }
+  });
+
+  it("I10: recovery reads through the caller's own token", async () => {
+    const { harness } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    expect(harness.token()).toBe(ACCESS_TOKEN);
+  });
+
+  it("I11: the recovery pass keeps every authorization constraint", async () => {
+    const { harness } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    // Published-only enforced on all eight reads, not just the first four.
+    expect(harness.eqCalls).toHaveLength(8);
+    for (const call of harness.eqCalls) {
+      expect(call).toEqual(["publication_state", "published"]);
+    }
+  });
+
+  it("I12: the recovery pass keeps the bounded over-fetch", async () => {
+    const { harness } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl", limit: 5 }
+    );
+
+    expect(harness.limits).toEqual([20, 20, 20, 20, 20, 20, 20, 20]);
+  });
+
+  it("I13: SEARCH-004 filtering still applies to recovered results", async () => {
+    const { results } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl", contentTypes: ["mission"] }
+    );
+
+    expect(results.count).toBe(0);
+    expect(results).not.toHaveProperty("queryAdjustment");
+  });
+
+  it("I14: facets describe only the recovered surfaced results", async () => {
+    const { results } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    expect(results.facets?.contentTypes).toEqual([
+      { value: "course", label: "Course", count: 1 }
+    ]);
+    const total = (results.facets?.contentTypes ?? []).reduce(
+      (sum, facet) => sum + facet.count,
+      0
+    );
+    expect(total).toBe(results.count);
+  });
+
+  it("I15: the failed original pass leaks no count", async () => {
+    const { results } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+    const serialized = JSON.stringify(results);
+
+    for (const forbidden of [
+      "candidateCount",
+      "totalCount",
+      "hiddenCount",
+      "withheldCount",
+      "overFetchCount",
+      "alternativeCount",
+      "recoveryCount"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("I16: no result carries a match kind", async () => {
+    const { results } = await search(
+      { courses: [kubectlRow] },
+      { query: "kubctl" }
+    );
+
+    expect(JSON.stringify(results.results)).not.toContain("matchKind");
+  });
+
+  it("I17: a two-token typo is not recovered", async () => {
+    const { harness } = await search({}, { query: "kubctl terrafom" });
+
+    expect(harness.tables).toHaveLength(4);
+  });
+
+  it("I18: an ambiguous candidate is not recovered", async () => {
+    const { harness } = await search({}, { query: "blan" });
+
+    expect(harness.tables).toHaveLength(4);
+  });
+
+  it("I19: a distance-two typo is not recovered", async () => {
+    const { harness } = await search({}, { query: "kbctl" });
+
+    expect(harness.tables).toHaveLength(4);
+  });
+
+  it("I20: recovery is deterministic", async () => {
+    const first = await search({ courses: [kubectlRow] }, { query: "kubctl" });
+    const second = await search({ courses: [kubectlRow] }, { query: "kubctl" });
+
+    expect(first.results.queryAdjustment).toEqual(
+      second.results.queryAdjustment
+    );
+    expect(first.harness.orPatterns).toEqual(second.harness.orPatterns);
   });
 });

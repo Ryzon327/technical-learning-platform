@@ -540,3 +540,84 @@ describe("query adjustment interpretation", () => {
     expect(outcome).not.toHaveProperty("queryAdjustment");
   });
 });
+
+/**
+ * SEARCH-005B — the browser sends no recovery control and invents no correction.
+ */
+describe("typo recovery interpretation", () => {
+  it("sends no recovery, mode or fuzzy parameter", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+
+    const url = requests[0]?.url ?? "";
+    for (const forbidden of [
+      "mode=",
+      "searchMode",
+      "fuzzy",
+      "disableTypo",
+      "disableAliases",
+      "literal",
+      "exact",
+      "typo",
+      "recover",
+      "editDistance",
+      "correct"
+    ]) {
+      expect(url).not.toContain(forbidden);
+    }
+  });
+
+  it("sends the learner's misspelling unchanged", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+
+    expect(new URL(requests[0]!.url).searchParams.get("q")).toBe("kubctl");
+  });
+
+  it("reads a typo adjustment from the response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      respondWith({
+        results: [],
+        count: 0,
+        queryAdjustment: {
+          originalQuery: "kubctl",
+          effectiveQuery: "kubectl",
+          adjustmentKind: "typo"
+        }
+      })
+    );
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+
+    expect(outcome.queryAdjustment).toEqual({
+      originalQuery: "kubctl",
+      effectiveQuery: "kubectl",
+      adjustmentKind: "typo"
+    });
+  });
+
+  it("invents no correction when the server sent none", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+
+    const outcome = await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+
+    expect(outcome.queryAdjustment).toBeUndefined();
+    expect(outcome.count).toBe(0);
+  });
+
+  /** Returning to the original query must not become a second request shape. */
+  it("issues one request shape regardless of adjustment", async () => {
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+    await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+    const first = requests[0]?.url ?? "";
+
+    requests = [];
+    vi.stubGlobal("fetch", respondWith({ results: [], count: 0 }));
+    await searchCurriculum(ACCESS_TOKEN, { query: "kubctl" });
+
+    expect(requests[0]?.url).toBe(first);
+  });
+});

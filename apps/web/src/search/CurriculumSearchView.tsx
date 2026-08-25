@@ -10,6 +10,9 @@ import {
   describeCurriculumSearchFilterLegend,
   describeCurriculumSearchQueryError,
   describeCurriculumQueryAdjustment,
+  describeCurriculumOriginalQueryAction,
+  describeCurriculumOriginalQueryEmptyState,
+  describeCurriculumTypoRecovery,
   validateCurriculumSearchQuery,
   type CurriculumSearchContentType,
   type SearchDocument
@@ -90,6 +93,14 @@ export function CurriculumSearchView() {
   const [results, setResults] = useState<CurriculumSearchResponse | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
+  /**
+   * SEARCH-005B: the learner asked to see their own words instead of the
+   * recovered query. No request is needed — recovery only ever runs when the
+   * server already executed the original query and it returned nothing, so the
+   * empty state shown here is a result the server actually produced, not a
+   * guess. Re-submitting the form re-runs the original query normally.
+   */
+  const [showingOriginal, setShowingOriginal] = useState(false);
 
   /**
    * The selection is passed in rather than read from state, so a filter change
@@ -107,6 +118,7 @@ export function CurriculumSearchView() {
 
     setSearching(true);
     setError("");
+    setShowingOriginal(false);
 
     try {
       setResults(
@@ -219,24 +231,61 @@ export function CurriculumSearchView() {
         </fieldset>
       )}
 
-      {/* SEARCH-005A transparency. States the one meaningful adjustment in
+      {/* SEARCH-005A/005B transparency. States the one meaningful adjustment in
           words, naming the learner's own query first. It exposes no retrieval
-          pattern, variant list, candidate count or algorithm internal, and it
-          appears only when something meaningful actually changed. No control is
-          offered to suppress the adjustment because none is needed: the
-          original query is always searched and exact matches are shown first. */}
-      {results?.queryAdjustment && !error && (
+          pattern, variant list, candidate count, edit distance or other
+          algorithm internal, and appears only when something actually changed.
+
+          For a NORMALIZED or ALIAS adjustment no suppression control is offered
+          and none is needed: the original query was searched too, and exact
+          matches are shown first.
+
+          For a TYPO recovery the original query returned nothing, so SEARCH-005
+          section 10's "return to the original query" is a real affordance. It
+          needs no request: the server already executed the original query and
+          it produced zero authorized results, so the empty state below is a
+          result the server actually produced. */}
+      {results?.queryAdjustment && !error && !showingOriginal && (
         <p aria-live="polite">
-          {describeCurriculumQueryAdjustment(results.queryAdjustment)}
+          {results.queryAdjustment.adjustmentKind === "typo"
+            ? describeCurriculumTypoRecovery({
+                originalQuery: results.queryAdjustment.originalQuery,
+                correctedQuery: results.queryAdjustment.effectiveQuery
+              })
+            : describeCurriculumQueryAdjustment(results.queryAdjustment)}
         </p>
       )}
+
+      {results?.queryAdjustment?.adjustmentKind === "typo" &&
+        !error &&
+        !showingOriginal && (
+          <p>
+            <button type="button" onClick={() => setShowingOriginal(true)}>
+              {describeCurriculumOriginalQueryAction(
+                results.queryAdjustment.originalQuery
+              )}
+            </button>
+          </p>
+        )}
+
+      {results?.queryAdjustment?.adjustmentKind === "typo" &&
+        !error &&
+        showingOriginal && (
+          <p aria-live="polite">
+            {describeCurriculumOriginalQueryEmptyState(
+              results.queryAdjustment.originalQuery
+            )}
+          </p>
+        )}
 
       <p aria-live="polite">
         {searching
           ? "Searching curriculum…"
-          : results
-            ? describeCurriculumSearchCount(results.count)
-            : ""}
+          : showingOriginal
+            ? ""
+            : results
+              ? describeCurriculumSearchCount(results.count)
+              : ""}
       </p>
 
       {error && (
@@ -245,7 +294,7 @@ export function CurriculumSearchView() {
         </p>
       )}
 
-      {results && !error && results.results.length > 0 && (
+      {results && !error && !showingOriginal && results.results.length > 0 && (
         <ul aria-labelledby="curriculum-search-title">
           {results.results.map((result) => (
             <SearchResult key={result.documentId} result={result} />

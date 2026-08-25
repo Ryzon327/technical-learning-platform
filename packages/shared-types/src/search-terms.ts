@@ -184,9 +184,17 @@ export const MAX_CURRICULUM_QUERY_VARIANTS = 4;
  * Never learner-visible per result, never written to a `SearchDocument`. The
  * array order IS the tier order.
  *
- * `typo` is deliberately absent: it belongs to SEARCH-005B.
+ * `typo` was added by SEARCH-005B and is the LAST tier: a recovered match can
+ * never outrank an exact, normalized or alias match. Extending this array is
+ * what extends `CurriculumQueryAdjustment.adjustmentKind`, so the adjustment
+ * contract gained a value without changing shape.
  */
-export const CURRICULUM_MATCH_KINDS = ["exact", "normalized", "alias"] as const;
+export const CURRICULUM_MATCH_KINDS = [
+  "exact",
+  "normalized",
+  "alias",
+  "typo"
+] as const;
 
 export type CurriculumMatchKind = (typeof CURRICULUM_MATCH_KINDS)[number];
 

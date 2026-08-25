@@ -367,9 +367,14 @@ fi
 grep -Fq "s\\\\\\\\%_" "$CS_TYPES" >/dev/null 2>&1 || true
 grep -Fq 'replace(/[\\%_]/g' "$CS_TYPES" \
   || fail "the LIKE control characters are not escaped"
-for forbidden in fuzzy synonym typo levenshtein soundex stemming; do
+# NARROWED FOR SEARCH-005B, not weakened. Bounded typo recovery against a closed
+# approved vocabulary is now the approved deliverable, so `typo` is no longer
+# forbidden here. Every UNBOUNDED matching technique still is, and the list grew
+# to name the mechanisms SEARCH-005B deliberately did not use.
+for forbidden in fuzzy synonym levenshtein damerau soundex stemming semantic \
+                 trgm spelling similarity; do
   if echo "$CS_TYPES_CODE$CS_SERVICE_CODE" | grep -qiF "$forbidden"; then
-    fail "SEARCH-005 behaviour leaked into SEARCH-002: $forbidden"
+    fail "unbounded matching leaked into Curriculum Search: $forbidden"
   fi
 done
 for forbidden in relevance boost popularity rankResults scoreResult; do
@@ -804,9 +809,11 @@ done
 echo "PASS: filters are accessible native controls with text counts"
 
 # --- 37. SEARCH-005 through SEARCH-008 remain unimplemented -----------------
-for forbidden in fuzzy synonym typo levenshtein soundex stemming semantic; do
+# NARROWED FOR SEARCH-005B on the same basis as section 17.
+for forbidden in fuzzy synonym levenshtein damerau soundex stemming semantic \
+                 trgm spelling similarity; do
   if echo "$SF_TYPES_BARE$SF_SERVICE_BARE" | grep -qiF "$forbidden"; then
-    fail "SEARCH-005 behaviour leaked into SEARCH-004: $forbidden"
+    fail "unbounded matching leaked into SEARCH-004: $forbidden"
   fi
 done
 for forbidden in relevance boost popularity rankResults scoreResult weighting; do
@@ -970,11 +977,16 @@ grep -Fq 'add(entry.alias, "alias");' "$ST_TYPES" \
 echo "PASS: variant expansion is capped at 4, deterministic and token-based"
 
 # --- 42. Match-class tiering is NOT relevance ranking -----------------------
-grep -Fq 'export const CURRICULUM_MATCH_KINDS = ["exact", "normalized", "alias"] as const;' "$ST_TYPES" \
+# NARROWED FOR SEARCH-005B. `typo` is now an approved match class and is
+# DELIBERATELY LAST: a recovered match can never outrank an exact, normalized or
+# alias match. The vocabulary is re-pinned exactly, so a fifth kind still fails.
+echo "$ST_TYPES_CODE" | tr -d ' \n' \
+  | grep -Fq 'CURRICULUM_MATCH_KINDS=["exact","normalized","alias","typo"]asconst;' \
   || fail "the approved match-kind vocabulary changed"
-if echo "$ST_TYPES_CODE" | grep -qF '"typo"'; then
-  fail "SEARCH-005B typo behaviour entered SEARCH-005A"
-fi
+ST_LAST_KIND="$(echo "$ST_TYPES_CODE" | tr -d ' \n' \
+  | grep -oE 'CURRICULUM_MATCH_KINDS=\[[^]]*\]' | grep -oE '"[a-z]+"\]$' || true)"
+[ "$ST_LAST_KIND" = '"typo"]' ] \
+  || fail "typo is not the last match class; a recovered match must never outrank an exact one"
 # Tiering must reuse SEARCH-002 neutral ordering, not replace it.
 grep -Fq 'orderCurriculumSearchResults' "$ST_TYPES" \
   || fail "tiering does not reuse the existing neutral deterministic ordering"
@@ -1022,8 +1034,8 @@ for required in 'originalQuery: string;' 'effectiveQuery: string;' \
 done
 
 # No per-result match kind may reach a learner or a Search Document.
-if echo "$SEARCH_TYPES_CODE" | grep -qiE 'matchKind|adjustmentKind|effectiveQuery'; then
-  fail "SEARCH-005A per-query state entered the SEARCH-001 Search Document"
+if echo "$SEARCH_TYPES_CODE" | grep -qiE 'matchKind|adjustmentKind|effectiveQuery|originalQuery|typo|corrected|recovery'; then
+  fail "SEARCH-005 per-query state entered the SEARCH-001 Search Document"
 fi
 if grep -Fq 'matchKind' "$CS_VIEW"; then
   fail "a per-result match kind reached the learner surface"
@@ -1080,7 +1092,203 @@ fi
 TERM_MIGRATIONS="$(ls supabase/migrations/*alias*.sql supabase/migrations/*term*.sql supabase/migrations/*normali*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$TERM_MIGRATIONS" = "0" ] || fail "SEARCH-005A must add no migration"
 
-echo "PASS: no suppression mode, no SEARCH-005B, no migration or extension"
+echo "PASS: SEARCH-005A added no suppression mode, migration or extension"
+
+# ============================================================
+# SEARCH-005B — Bounded Typo Recovery (Batch 6)
+# ============================================================
+
+TY_TYPES="packages/shared-types/src/search-typo.ts"
+TY_TYPE_TESTS="packages/shared-types/src/search-typo.test.ts"
+TY_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_6_BOUNDED_TYPO_RECOVERY.md"
+
+for p in "$TY_TYPES" "$TY_TYPE_TESTS" "$TY_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+TY_TYPES_CODE="$(code_of "$TY_TYPES")"
+TY_TYPES_BARE="$(code_no_strings "$TY_TYPES")"
+
+# --- 45. The target vocabulary is closed, derived and needs no database ------
+grep -Fq 'export * from "./search-typo";' packages/shared-types/src/index.ts \
+  || fail "the typo model is not exported from shared-types"
+# DERIVED from already-approved vocabulary, never restated.
+grep -Fq '...PROTECTED_TECHNICAL_TERMS,' "$TY_TYPES" \
+  || fail "typo targets are not derived from the approved protected terms"
+grep -Fq 'CURATED_CURRICULUM_TERM_ALIASES.flatMap' "$TY_TYPES" \
+  || fail "typo targets are not derived from the curated alias vocabulary"
+# No second vocabulary may be declared here.
+if echo "$TY_TYPES_CODE" | grep -qE '^\s*"(kubectl|Terraform|Proxmox|Splunk|PowerShell|Active Directory)"'; then
+  fail "the typo module declares its own target vocabulary"
+fi
+# ZERO DATABASE ACCESS, ZERO CORPUS. This is why a correction cannot leak.
+if echo "$TY_TYPES_BARE" | grep -qiE 'supabase|createUserScoped|createServer|accessToken|\.from\(|await|async|fetch\(|rows|candidateRow|document'; then
+  fail "the typo vocabulary acquired a database, corpus or network dependency"
+fi
+# EXPORT ALLOW-LIST. A dependency scan alone is insufficient: a function that
+# ACCEPTS candidate rows needs no client, no await and no import.
+TY_EXPORTS="$(grep -oE '^export (const|function|interface|type) [A-Za-z_]+' "$TY_TYPES" \
+  | awk '{print $3}' | sort | tr '\n' ' ')"
+TY_EXPECTED="buildCurriculumTypoRecovery buildTypoTargets CurriculumTypoRecovery describeCurriculumOriginalQueryAction describeCurriculumOriginalQueryEmptyState describeCurriculumTypoRecovery findSingleTypoTarget isTypoEligibleToken isWithinOneEdit SEARCH_TYPO_FORBIDDEN_FIELDS SEARCH_TYPO_MODEL_VERSION TYPO_EXCLUDED_INPUT_SHAPES TYPO_MAX_CORRECTED_TOKENS TYPO_MAX_EDIT_DISTANCE TYPO_MAX_RECOVERED_VARIANTS TYPO_MIN_TOKEN_LENGTH TYPO_RECOVERY_TARGETS TYPO_SHORT_TOKEN_LENGTH "
+[ "$TY_EXPORTS" = "$TY_EXPECTED" ] \
+  || fail "the search-typo export surface changed; every addition must be reviewed:
+  expected: $TY_EXPECTED
+  actual:   $TY_EXPORTS"
+
+echo "PASS: typo targets are a closed derived vocabulary needing no database"
+
+# --- 46. Every bound is pinned ---------------------------------------------
+grep -Fq 'export const TYPO_MAX_EDIT_DISTANCE = 1;' "$TY_TYPES" \
+  || fail "the edit-distance bound is missing or is not 1"
+grep -Fq 'export const TYPO_MIN_TOKEN_LENGTH = 4;' "$TY_TYPES" \
+  || fail "the minimum token length is missing or is not 4"
+grep -Fq 'export const TYPO_SHORT_TOKEN_LENGTH = 3;' "$TY_TYPES" \
+  || fail "the narrow short-token exception is missing or is not 3"
+grep -Fq 'export const TYPO_MAX_CORRECTED_TOKENS = 1;' "$TY_TYPES" \
+  || fail "the corrected-token bound is missing or is not 1"
+grep -Fq 'export const TYPO_MAX_RECOVERED_VARIANTS = 1;' "$TY_TYPES" \
+  || fail "the recovered-variant bound is missing or is not 1"
+grep -Fq 'if (correctedCount > TYPO_MAX_CORRECTED_TOKENS) return undefined;' "$TY_TYPES" \
+  || fail "the corrected-token bound is not enforced"
+# The three-character exception must NOT become general short-token matching.
+# EVERY input exclusion pinned individually. These protect shapes whose
+# characters carry technical meaning, and each removal must fail on its own.
+grep -Fq 'if (token.startsWith("-")) return false;' "$TY_TYPES" \
+  || fail "flags are no longer excluded from typo recovery"
+grep -Fq 'if (token.includes("=")) return false;' "$TY_TYPES" \
+  || fail "key=value expressions are no longer excluded from typo recovery"
+grep -Fq 'if (/\d/.test(token)) return false;' "$TY_TYPES" \
+  || fail "digit-bearing tokens (IP, CIDR, port, version) are no longer excluded"
+grep -Fq 'if (token === token.toUpperCase() && /[A-Z]/.test(token)) return false;' "$TY_TYPES" \
+  || fail "uppercase acronyms are no longer excluded from typo recovery"
+grep -Fq 'if (token.length >= TYPO_MIN_TOKEN_LENGTH) return true;' "$TY_TYPES" \
+  || fail "the minimum token length is not enforced against the bound"
+grep -Fq 'token.length === TYPO_SHORT_TOKEN_LENGTH && /^[a-z]+$/.test(token)' "$TY_TYPES" \
+  || fail "the short-token exception is no longer restricted to lowercase letters"
+grep -Fq 'target.length < TYPO_MIN_TOKEN_LENGTH' "$TY_TYPES" \
+  || fail "the short-token exception may reach an under-length target"
+# Ambiguity fails safely, never by iteration order.
+grep -Fq 'if (matches.length > 1) return undefined;' "$TY_TYPES" \
+  || fail "an ambiguous correction is resolved instead of refused"
+if echo "$TY_TYPES_BARE" | grep -qiE 'matches\[0\] \|\||sort\(|frequency|popularity|first\(\)'; then
+  fail "an ambiguous candidate is resolved by ordering or frequency"
+fi
+# A token that IS an approved term is never corrected.
+grep -Fq 'targets.some((target) => target.toLowerCase() === lowered)' "$TY_TYPES" \
+  || fail "an already-correct approved term can be corrected into another"
+
+echo "PASS: edit distance, token length, correction and variant counts are bounded"
+
+# --- 47. Recovery runs ONLY after zero authorized results -------------------
+grep -Fq 'if (classified.length === 0) {' "$CS_SERVICE" \
+  || fail "typo recovery is not gated on an empty authorized result set"
+RECOVERY_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'buildCurriculumTypoRecovery(' || true)"
+[ "$RECOVERY_CALLS" = "1" ] \
+  || fail "typo recovery is built at $RECOVERY_CALLS call sites; exactly one is allowed"
+# ORDER: the gate must come after the first pass, never before it.
+TY_PASS_LINE="$(grep -n 'let classified = await runAuthorizedPass(variants);' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+TY_GATE_LINE="$(grep -n 'if (classified.length === 0) {' "$CS_SERVICE" | head -1 | cut -d: -f1)"
+[ -n "$TY_PASS_LINE" ] && [ -n "$TY_GATE_LINE" ] \
+  || fail "the original pass and the recovery gate are not both present"
+[ "$TY_PASS_LINE" -lt "$TY_GATE_LINE" ] \
+  || fail "typo recovery is evaluated before the original query pass"
+
+echo "PASS: typo recovery runs only after zero authorized results"
+
+# --- 48. Recovery reuses the identical authorized pipeline ------------------
+grep -Fq 'const runAuthorizedPass = async (' "$CS_SERVICE" \
+  || fail "the shared authorized pass is missing"
+PASS_DEFS="$(echo "$CS_SERVICE_CODE" | grep -c 'const runAuthorizedPass = async (' || true)"
+[ "$PASS_DEFS" = "1" ] \
+  || fail "the authorized pass is defined $PASS_DEFS times; exactly one definition may exist"
+PASS_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'await runAuthorizedPass(' || true)"
+[ "$PASS_CALLS" = "2" ] \
+  || fail "the authorized pass runs $PASS_CALLS times; exactly the original and one recovery are allowed"
+# The recovery pass may not acquire its own client or authorization path.
+if echo "$CS_SERVICE_CODE" | grep -qF 'createServerSupabaseClient'; then
+  fail "a service-role client entered the recovery path"
+fi
+CLIENT_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'createUserScopedSupabaseClient(' || true)"
+[ "$CLIENT_CALLS" = "1" ] \
+  || fail "the search creates $CLIENT_CALLS clients; recovery must reuse the caller's own"
+
+echo "PASS: recovery reuses one authorized pipeline and one caller-scoped client"
+
+# --- 49. Recovery leaks nothing --------------------------------------------
+grep -Fq 'export const SEARCH_TYPO_FORBIDDEN_FIELDS' "$TY_TYPES" \
+  || fail "the typo prohibition is not held as data"
+for forbidden in editDistance distance candidates candidateCount alternatives \
+                 confidence similarity; do
+  grep -Fq "\"$forbidden\"" "$TY_TYPES" \
+    || fail "an internal field is missing from the typo prohibition list: $forbidden"
+done
+# Prose and the prohibition list itself are excluded, so this judges real code.
+TY_SERVICE_BARE="$(code_no_strings "$CS_SERVICE")"
+for leaked in editDistance candidateCount confidence similarity; do
+  if echo "$TY_SERVICE_BARE" | grep -qF "$leaked"; then
+    fail "a typo internal entered the response: $leaked"
+  fi
+done
+# The adjustment contract shape is UNCHANGED — still exactly three fields.
+grep -Fq 'CurriculumTypoRecovery' "$TY_TYPE_TESTS" \
+  || fail "the recovery contract is not asserted by tests"
+# EXACTLY two fields. A substring pin would survive a field inserted BEFORE it,
+# so the interface body is extracted and its field NAMES compared — text
+# matching would also misread a type annotation.
+TY_REC_BODY="$(awk '/^export interface CurriculumTypoRecovery \{/{f=1;next} f&&/^\}/{f=0} f' "$TY_TYPES")"
+TY_REC_NAMES="$(echo "$TY_REC_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | sort | tr '\n' ' ')"
+[ "$TY_REC_NAMES" = "correctedQuery originalQuery " ] \
+  || fail "the recovery contract fields changed; exactly two are approved:
+  expected: correctedQuery originalQuery
+  actual:   $TY_REC_NAMES"
+# ONE recovered variant reaches retrieval, never a list.
+echo "$CS_SERVICE_CODE" | tr -d ' \n' \
+  | grep -Fq 'awaitrunAuthorizedPass([{value:recovery.correctedQuery,matchKind:"typo"}]);' \
+  || fail "the recovery pass no longer runs exactly one recovered variant"
+if grep -Fq 'matchKind' "$CS_VIEW"; then
+  fail "a per-result match kind reached the learner surface"
+fi
+
+echo "PASS: typo recovery exposes no algorithm internal"
+
+# --- 50. Return-to-original is not a general search mode -------------------
+# Ruling 9: the affordance needs no request, because recovery only runs when the
+# server already executed the original query and it returned nothing.
+for forbidden in 'mode=' 'searchMode' 'disableTypo' 'disableAliases' 'fuzzy=' \
+                 '"exact"' '"literal"' 'noTypo' 'skipRecovery'; do
+  if echo "$SEARCH_ROUTE_BLOCK" | grep -Fq "$forbidden"; then
+    fail "a general search mode was added to the route: $forbidden"
+  fi
+done
+ROUTE_PARAMS="$(echo "$SEARCH_ROUTE_BLOCK" | grep -oE 'searchParams\.(get|getAll)\("[a-zA-Z]+"\)' | sort -u | tr '\n' ' ')"
+[ "$ROUTE_PARAMS" = 'searchParams.get("limit") searchParams.get("q") searchParams.getAll("contentType") ' ] \
+  || fail "the search route accepts an unapproved parameter set: $ROUTE_PARAMS"
+grep -Fq 'describeCurriculumOriginalQueryAction' "$CS_VIEW" \
+  || fail "the learner cannot return to their original query"
+grep -Fq 'describeCurriculumOriginalQueryEmptyState' "$CS_VIEW" \
+  || fail "returning to the original query shows no honest empty state"
+
+echo "PASS: returning to the original query added no API mode"
+
+# --- 51. SEARCH-005B added no infrastructure -------------------------------
+for forbidden in levenshtein damerau soundex trgm pg_trgm spelling embedding \
+                 openai anthropic ollama; do
+  if echo "$TY_TYPES_BARE" | grep -qiF "$forbidden"; then
+    fail "an unapproved matching mechanism or AI dependency entered SEARCH-005B: $forbidden"
+  fi
+done
+if grep -rqiE 'pg_trgm|fuzzystrmatch|unaccent|pg_search' supabase/migrations/ 2>/dev/null; then
+  fail "SEARCH-005B must add no text-matching database extension"
+fi
+TYPO_MIGRATIONS="$(ls supabase/migrations/*typo*.sql supabase/migrations/*spell*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$TYPO_MIGRATIONS" = "0" ] || fail "SEARCH-005B must add no migration"
+for dependency in fuse.js fastest-levenshtein leven didyoumean natural; do
+  if grep -Fq "\"$dependency\"" package.json apps/web/package.json packages/shared-types/package.json services/api/package.json 2>/dev/null; then
+    fail "a typo-correction dependency was added: $dependency"
+  fi
+done
+
+echo "PASS: SEARCH-005B added no extension, migration, dependency or AI"
 
 # ------------------------------------------------------------
 # 11. Repository toolchain
@@ -1094,13 +1302,14 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 through Batch 5 verification passed."
+echo "Wave 9 Batch 1 through Batch 6 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
 echo "SEARCH-004 Search Filters and Facets is implemented."
 echo "SEARCH-005A Technical Query Normalization and Curated Aliases is implemented."
-echo "SEARCH-005B typo recovery and SEARCH-006 through SEARCH-008 remain unimplemented."
+echo "SEARCH-005B Bounded Typo Recovery is implemented."
+echo "SEARCH-006 through SEARCH-008 remain unimplemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
 echo "============================================================"
