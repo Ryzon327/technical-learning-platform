@@ -11,7 +11,10 @@ cd "$ROOT"
 # speculatively.
 #
 # The Search Engine completion gate (scripts/verify-search-engine-completion.sh)
-# belongs at Search Engine closure and does not exist yet.
+# now exists and runs this script last. That gate asks the engine-level question
+# — is the implementation complete as a subsystem — which this per-batch script
+# deliberately does not answer. Neither establishes Human UAT or final product
+# acceptance, both of which remain pending.
 #
 # Absence checks judge COMMENT-STRIPPED code. These sources document precisely
 # what they exclude, so a naive full-text scan would flag their own exclusion
@@ -1990,5 +1993,6 @@ echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
 echo "Ranking is deterministic, carries no score, and runs only after authorization."
 echo "A failed search is never presented as an empty result."
-echo "The Search Engine completion gate does not exist yet; Search is NOT complete."
+echo "The Search Engine completion gate exists: scripts/verify-search-engine-completion.sh."
+echo "Founder Search Human UAT remains PENDING; final Search product acceptance is NOT granted."
 echo "============================================================"
