@@ -1465,6 +1465,167 @@ and Change Control · `docs/Project/DECISION_LEDGER.md` DEC-047 ·
 
 ---
 
+## DEC-049
+
+**Category**
+
+Product
+
+**Title**
+
+Learn By Doing Is Platform-Wide, and the MVP Proves One Connected Learning Experience
+
+**Status**
+
+Approved
+
+**Decision**
+
+Learning by doing is the platform's **default** instructional model, not an
+enhancement. Video, reading, demonstration and explanation remain available where
+they genuinely help, but must never become the default merely because they are
+easiest to produce. Every learning experience is designed by asking what the
+learner can **do**, not what they have consumed.
+
+The instructional lifecycle is `Learn → Practice → Demonstrate → Reuse → Connect
+→ Troubleshoot → Retain`. The first three occur within one experience; reuse,
+connection and troubleshooting occur in later experiences using competencies
+already demonstrated. **Course completion alone is not evidence of durable
+learning.**
+
+Previously demonstrated competencies must intentionally recur in later
+experiences rather than lapsing. **Cross-course competency reinforcement is MVP
+scope**, not a future extension. Reinforcement is **contextual** — expressed as
+part of the new task rather than as a repeated quiz — and the platform does not
+reteach an earlier lesson unless the learner needs help. Reinforcement never
+becomes pressure: no streaks, no guilt, no inactivity penalties, no forced
+repetition of mastered material.
+
+Cross-domain integration is intentional. Networking, operating systems, security,
+cloud, databases, applications and infrastructure must not become isolated silos.
+
+The AI tutor supports this model. It may explain differently, give examples,
+detect struggle with a previously demonstrated competency, offer graduated hints,
+give a short refresher, connect current work to prior learning, help interpret
+deterministic lab failures, and ask reflective questions. It may **not** silently
+complete the learner's work, replace deterministic validation, manufacture
+competency evidence, or decide a lab passed on conversational judgement.
+
+Labs are a core instructional mechanism for subjects that benefit from hands-on
+work. The Lab Engine stays provider-neutral; an infrastructure provider such as
+Proxmox sits beneath that abstraction, exposes only what the Lab Engine requires,
+is never the learning domain model, and never grants students hypervisor or
+provider administrative access. Educational continuity does not require
+environment continuity: deterministic environments may be recreated from
+templates, snapshots or fixtures. What persists is competency evidence,
+instructional continuity, reinforcement history where appropriate, and the
+conceptual relationship between prior and current work.
+
+A failed lab must return an actionable fact. The validator owns the factual
+pass/fail state; the tutor may explain it. Those roles never merge.
+
+The MVP learning product is one **connected** experience, working title
+**IT & Cybersecurity Foundations**:
+
+```text
+01 Router-on-a-Stick / Build the Network   (substantive networking course)
+02 Linux Fundamentals                      (focused, reuses networking)
+03 Windows Fundamentals                    (focused, reinforces networking)
+04 Security Fundamentals                   (integrates prior learning)
+05 Integrated Challenge                    (combines competencies, unannounced)
+```
+
+Detailed lesson plans, module breakdowns and completion-time estimates are **not**
+approved by this decision and require separate authorization.
+
+**Rationale**
+
+The engines were built before the educational product they exist to serve was
+described in this much detail. Without this decision the repository could
+reasonably be read as a video LMS with four unrelated courses, labs as optional
+extras, Proxmox as the domain model, or course completion as equivalent to
+competency. Each of those readings is wrong, and none was previously excluded in
+writing.
+
+Recording the connected path also closes a real gap: the MVP Release Gate
+(`MVP_IMPLEMENTATION_SEQUENCE.md` §16) requires at least one publishable course
+and one practical lab, but no build wave produced curriculum content.
+
+**Alternatives Considered**
+
+Leaving philosophy implicit in the engine contracts was rejected: general
+contracts permit this model but do not require it, and a future builder following
+the letter of the specifications could deliver a passive content platform without
+violating anything.
+
+Expanding the MVP catalog was rejected. Proving one connected experience well is
+the point; breadth is the failure mode this decision guards against.
+
+**Impact**
+
+Documentation and product scope only. No implementation code, schema, migration,
+dependency or Feature acceptance criterion changed by this decision.
+
+**Cross-course competency reinforcement is MVP scope.** `LEARN-008 — Review and
+Reinforcement State` previously recorded it under Future Extensions as "Not part
+of the initial MVP." The Founder has ruled that a competency demonstrated in one
+experience must be capable of intentionally reappearing in a later one, so the
+deferral was removed and the Feature now records the accurate position in its
+section 8.1. What remains deferred there is *automatic and adaptive*
+reinforcement scheduling, which the MVP does not require.
+
+That correction changed no acceptance criterion, no Definition of Done and no
+implementation. The completed Wave 3 Learning Engine is **not** reopened.
+
+Verification established that the substrate is already course-agnostic:
+`student_review_state` and `student_competency_state` are keyed on the competency
+stable id with no course or path column, the retrieval services return every
+competency a learner holds regardless of origin, and `mission_competencies`
+already permits a later mission to reference an earlier competency.
+
+Three implementation gaps are recorded honestly rather than assumed away, and
+each requires its own authorization:
+
+1. `mission_competencies` carries only `required` and cannot yet distinguish a
+   mission that **teaches** a competency from one that **reuses** it. Adding that
+   distinction requires a migration.
+2. The already-approved "curriculum-defined reinforcement checkpoint" trigger has
+   no writer; review state is currently written only from the readiness path.
+3. No learner-facing surface tells a learner that current work draws on a
+   competency they already proved.
+
+One further item was examined and deliberately not changed:
+
+- `PLATFORM_BLUEPRINT.md` §6.1 illustrates a nine-step long-horizon progression
+  ending in Ethical Hacking. It is an example of dependency ordering, not an MVP
+  declaration, and was left unchanged. `Product-OS.md` is the authority for MVP
+  path scope.
+
+`CURR-002` §18 defers "cross-domain paths". Read alongside the neighbouring
+entries — multiple role-based paths, elective branches, employer-specific
+variants — that defers path *variants*, not a single path spanning domains. §5
+already includes "future extensibility across technical domains" and ordered
+course references, so the connected MVP path needs no CURR-002 change. Examined,
+no conflict.
+
+`Product-OS.md` previously recorded a different six-course MVP progression that
+included a student-facing Proxmox course and Windows Domain work. That record
+contradicted this decision and was corrected.
+
+Search Engine acceptance boundaries are unchanged: Human Search UAT remains
+pending and final Search product acceptance is not granted.
+
+**Related Documents**
+
+`docs/Learning-OS/Learning-OS.md` sections 3, 4.1, 9.1, 9.2, 15.1–15.3 and 21 ·
+`docs/Product-OS/Product-OS.md` Learning Philosophy and MVP Learning Paths ·
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` §15e and §16 ·
+`docs/Project/NOT_NOW.md` ·
+`docs/Feature-Registry/Learning-Engine/LEARN-008_REVIEW_AND_REINFORCEMENT_STATE.md` ·
+`docs/Feature-Registry/Lab-Engine/LAB-012_PROXMOX_LAB_PROVIDER.md`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

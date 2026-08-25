@@ -102,7 +102,7 @@ Students should never wonder why they are learning something.
 
 Learning progresses through competency rather than content consumption.
 
-Preferred flow:
+Preferred flow within a single learning experience:
 
 ```text
 Understand
@@ -114,7 +114,20 @@ Understand
 → Demonstrate Competency
 ```
 
-Watching videos alone is never the objective.
+Watching videos alone is never the objective. Learning by doing is the default
+instructional model, not an enhancement layered on top of content.
+
+Across learning experiences, demonstrated competencies are deliberately reused
+and combined rather than left behind:
+
+```text
+Learn → Practice → Demonstrate → Reuse → Connect → Troubleshoot → Retain
+```
+
+Course completion alone is not evidence of durable learning.
+
+The authoritative treatment of this lifecycle, of reinforcement through reuse and
+of cross-domain integration is `docs/Learning-OS/Learning-OS.md`.
 
 ---
 
@@ -142,18 +155,43 @@ Every level exists to prepare the student for meaningful technical work.
 
 # MVP Learning Paths
 
-The first release focuses on one complete technical foundation.
+The first release proves **one connected technical-foundations experience**, not a
+catalog of separate courses.
 
-Initial progression:
+Working learning path: **IT & Cybersecurity Foundations**
 
-1. Computer Foundations
-2. Networking Foundations
-3. Windows Foundations
-4. Linux Foundations
-5. Proxmox Foundations
-6. Windows Domain Foundations
+| # | Experience | Role in the path |
+|---|---|---|
+| 01 | **Router-on-a-Stick / Build the Network** | the substantive foundational networking course |
+| 02 | **Linux Fundamentals** | focused hands-on experience; **reuses** networking |
+| 03 | **Windows Fundamentals** | focused hands-on experience; reinforces networking, compares with Linux |
+| 04 | **Security Fundamentals / Secure the Environment** | intentionally integrates networking, Linux and Windows |
+| 05 | **Integrated Challenge** | a fresh deterministic environment combining prior competencies |
 
-Future pathways are intentionally deferred.
+The point of this sequence is the **connection between the experiences**, not the
+count of courses.
+
+* Router-on-a-Stick covers addressing and subnetting as the course requires,
+  VLANs, access versus trunk behaviour, 802.1Q, inter-VLAN routing,
+  connectivity verification and practical troubleshooting, with hands-on labs
+  proving configuration and troubleshooting capability.
+* Linux and Windows are focused hands-on experiences rather than long survey
+  courses. Each **requires** the networking competency already demonstrated
+  instead of treating it as forgotten history.
+* Security Fundamentals is not a collection of definition videos. It introduces
+  foundational security concepts and requires learners to apply prior
+  networking, Linux and Windows knowledge.
+* The Integrated Challenge presents a realistic problem **without telling the
+  learner which technology is being tested**.
+
+Detailed lesson plans, module breakdowns and completion-time estimates are
+deliberately **not** specified here. They require separate Founder approval.
+
+Proxmox may execute applicable labs as an infrastructure provider beneath the Lab
+Engine abstraction. **It is not a student course, not the learning domain model,
+and students never receive hypervisor administrative access.**
+
+Future pathways are intentionally deferred; see `docs/Project/NOT_NOW.md`.
 
 ---
 

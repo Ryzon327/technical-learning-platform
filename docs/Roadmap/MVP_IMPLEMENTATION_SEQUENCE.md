@@ -575,12 +575,101 @@ limitation carries an A, B or C disposition.
 
 ---
 
+# 15e. MVP Connected Learning Experience
+
+Approved by DEC-049.
+
+The build waves deliver **engines**. No wave delivers the educational product
+those engines exist to serve, yet section 16 requires at least one publishable
+course and at least one practical lab. This section records that work.
+
+## What the MVP must prove
+
+One **connected** learning experience — not a catalog:
+
+```text
+01 Router-on-a-Stick / Build the Network
+02 Linux Fundamentals
+03 Windows Fundamentals
+04 Security Fundamentals / Secure the Environment
+05 Integrated Challenge
+```
+
+Router-on-a-Stick is the substantive networking course. Linux and Windows are
+focused hands-on experiences. Security intentionally integrates the earlier
+domains. The Integrated Challenge combines competencies without announcing which
+technology is being exercised.
+
+**The connection between experiences is the deliverable.** Later experiences must
+require reuse of competencies already demonstrated rather than allowing them to
+lapse, and must reinforce contextually rather than by quiz (`Learning-OS.md` §21).
+
+Proxmox may execute applicable labs as an infrastructure provider beneath the Lab
+Engine abstraction. It is not a student course and grants no student
+administrative access.
+
+## Boundaries
+
+- Detailed lesson plans, module breakdowns and completion-time estimates are
+  **not** approved here and require separate Founder authorization.
+- No catalog padding. Content exists because the connected experience needs it.
+- Deferred scope in `NOT_NOW.md` is binding and is not reopened by this section.
+
+## This work unblocks Search UAT
+
+Founder Search Human UAT (§15d) cannot produce meaningful findings against an
+empty corpus. `CURRENT_BUILD_STATUS.md` records the outstanding prerequisite:
+no repository-seeded curriculum exists, so Search UAT cannot yet be performed.
+
+Publishing enough of the connected experience to search — real learning paths,
+courses, missions and competencies with genuine technical titles and
+descriptions — satisfies that prerequisite. **Search UAT remains pending until
+then, and this section does not grant it.**
+
+## Reuse is a build requirement, not only a content requirement
+
+Per DEC-049, cross-course competency reinforcement is MVP scope. `LEARN-008`
+section 8.1 records that the competency and review-state substrate is already
+course-agnostic, and that three gaps remain: curriculum cannot yet express
+whether a mission **teaches** or **reuses** a competency, the approved
+curriculum-defined reinforcement checkpoint trigger has no writer, and no learner
+surface communicates reuse. Each needs its own authorization; none reopens the
+completed Wave 3 Learning Engine.
+
+## Sequencing note — not a binding requirement
+
+The next recommended build is the **Router-on-a-Stick end-to-end vertical slice**,
+because every engine it needs already exists and it is the first time the core
+loop runs together.
+
+Beyond that, sequencing is deliberately **left open**:
+
+- AI Gateway and tutor sequencing is reconsidered once a functional
+  learning-and-lab loop exists.
+- Introducing the tutor **before** Linux and Windows are complete may be
+  valuable, so the MVP can test AI-assisted active learning early.
+- Nothing in this section makes the tutor a prerequisite for, or a successor to,
+  any particular experience.
+
+**Deterministic validation remains independent of AI under every sequencing
+choice.** The validator owns factual pass/fail; the tutor may only explain it.
+
+## Exit criteria
+
+At least one experience in the connected path is publishable and searchable, has
+at least one practical lab with deterministic validation, produces evidence
+against approved competencies, and demonstrates at least one instance of a later
+experience requiring reuse of an earlier competency.
+
+---
+
 # 16. MVP Release Gate
 
 MVP release requires:
 
 - [ ] secure student account flow.
-- [ ] at least one publishable course.
+- [ ] at least one publishable course, authored as part of the connected
+      learning experience approved in §15e (DEC-049).
 - [ ] durable progress.
 - [ ] deterministic assessment.
 - [ ] at least one practical lab.

@@ -22,3 +22,19 @@ the current MVP:
 - Mobile application
 - Course marketplace
 - Multi-tenant enterprise organizations
+
+Additionally deferred by the platform learning-philosophy decision (DEC-049).
+These are future possibilities, not approved MVP scope:
+
+- AWS or Azure course/pathway
+- SOC Analyst pathway
+- Penetration testing pathway
+- Active Directory enterprise forest complexity
+- Splunk clusters
+- Commercial EDR platforms
+- Enterprise firewalls
+- Large cloud-provider integrations
+- Social or gamification expansion
+- Unrelated catalog expansion
+
+The MVP stays focused on proving one connected learning experience well.

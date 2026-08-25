@@ -46,6 +46,23 @@ Learning follows these principles:
 * Reward demonstrated capability.
 * Promote independent problem solving.
 * Make every activity meaningful.
+* Prefer doing over consuming.
+* Bring prior learning forward rather than letting it lapse.
+* Teach how technologies connect, not only how they work in isolation.
+
+**Learning by doing is the default, not an enhancement.**
+
+Video, reading, demonstration and explanation remain available wherever they
+genuinely help. They must never become the default instructional model merely
+because they are the easiest thing to produce.
+
+Every learning experience is designed by asking:
+
+> What can the learner actually **do**?
+
+rather than:
+
+> What content has the learner **consumed**?
 
 ---
 
@@ -69,6 +86,32 @@ Curiosity
 The objective is not simply knowledge.
 
 The objective is independent professional capability.
+
+## 4.1 The instructional lifecycle across experiences
+
+The progression above describes a single learning experience. Durable capability
+is built **across** experiences, and the platform's instructional lifecycle is:
+
+```text
+Learn
+→ Practice
+→ Demonstrate
+→ Reuse
+→ Connect
+→ Troubleshoot
+→ Retain
+```
+
+`Learn → Practice → Demonstrate` happens within one experience.
+
+`Reuse → Connect → Troubleshoot` happens in **later** experiences, using
+competencies the learner has already demonstrated.
+
+`Retain` is the outcome, not a separate activity.
+
+**Course completion alone is not evidence of durable learning.** A learner who
+completed a course months ago and can still apply it in an unfamiliar context has
+learned it. A learner who finished the content has not yet proven that.
 
 ---
 
@@ -174,6 +217,30 @@ The mentor should:
 
 The AI Mentor is a coach—not a replacement for learning.
 
+## 9.1 Supporting reuse and connection
+
+Because prior competencies recur in later work, the mentor may also:
+
+* Notice that a learner appears to be struggling with a competency they
+  previously demonstrated.
+* Offer graduated hints rather than answers.
+* Provide a short, targeted refresher instead of reteaching a whole topic.
+* Connect the current task to what the learner already proved.
+* Help the learner interpret a deterministic lab failure.
+* Ask reflective or practice questions.
+
+## 9.2 What the mentor may never do
+
+The mentor must **not**:
+
+* Silently complete the learner's work.
+* Replace deterministic validation.
+* Manufacture competency evidence.
+* Decide that a learner passed a lab based on conversational judgement.
+
+Competency truth is deterministic and is owned by validation and evidence. AI may
+explain a result; it may never author one.
+
 ---
 
 # 10. Student Goals
@@ -276,6 +343,38 @@ Labs should:
 * Support safe failure.
 * Validate competency objectively.
 
+## 15.1 Labs are a core instructional mechanism
+
+For subjects that benefit from hands-on work, a lab is **how the subject is
+taught**, not an optional appendix bolted onto a lesson.
+
+The Lab Engine remains provider-neutral. An infrastructure provider is an
+implementation detail beneath that abstraction, never the learning domain model,
+and it exposes only the capabilities the Lab Engine requires. **Students never
+receive hypervisor or provider administrative access.**
+
+## 15.2 Educational continuity does not require environment continuity
+
+Deterministic environments may be recreated from templates, snapshots, fixtures
+or other reproducible definitions. A learner does not need to keep the same
+machine for months.
+
+What must persist is:
+
+* competency evidence,
+* instructional continuity,
+* reinforcement history where appropriate,
+* and the conceptual relationship between prior and current work.
+
+## 15.3 Failure should teach
+
+A failed lab must return a useful, actionable fact — for example an unreachable
+gateway, a service that is not running, incorrect VLAN placement, wrong
+permissions, or a missing required user.
+
+The validator determines the factual pass/fail state. The mentor may explain that
+result and help the learner reason about it. The two roles never merge.
+
 ---
 
 # 16. Certificates
@@ -360,7 +459,62 @@ Learning does **not** determine:
 
 ---
 
-# 21. Revision Policy
+# 21. Reinforcement Through Reuse
+
+## 21.1 Prior knowledge must reappear
+
+Competencies a learner has already demonstrated should intentionally recur in
+later learning experiences. A subject does not become historical the moment its
+course ends.
+
+Example. A learner completes Router-on-a-Stick and demonstrates addressing, VLANs,
+trunking, inter-VLAN routing, connectivity verification and troubleshooting.
+
+When that learner later reaches Linux Fundamentals, networking does not disappear.
+The Linux work may require them to configure or verify an address, identify the
+default gateway, test connectivity, place the host correctly in the network, or
+diagnose a connectivity failure.
+
+**The platform does not reteach the earlier lesson unless the learner needs help.**
+It requires practical reuse, and offers support only on demand.
+
+## 21.2 Reinforcement is contextual, not quiz-shaped
+
+Reinforcement should feel like part of the new task rather than a repetitive quiz.
+
+Instead of asking:
+
+> What is a default gateway?
+
+a Linux task asks:
+
+> Verify that this server can reach its default gateway, and diagnose the problem
+> if it cannot.
+
+The second reinforces networking **through application**, which is the only form
+of reinforcement this platform treats as evidence of retention.
+
+This is reinforcement, never punishment. It remains bound by the existing
+principles: no streaks, no guilt, no inactivity penalties, and no forced repetition
+of material the learner has already mastered.
+
+## 21.3 Cross-domain learning is intentional
+
+Networking, operating systems, security, cloud, databases, applications,
+infrastructure and future disciplines must not become isolated educational silos.
+
+Real environments are integrated, so later learning experiences should combine
+competencies from multiple prior domains wherever it is pedagogically appropriate.
+
+An integrated experience presents a realistic problem **without announcing which
+previously learned technology is being exercised**. The learner has to work that
+out, which is itself the skill being taught.
+
+The objective is applied systems understanding, not command memorisation.
+
+---
+
+# 22. Revision Policy
 
 The Learning Company Operating System is a living manual.
 
