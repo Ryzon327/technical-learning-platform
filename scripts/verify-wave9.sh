@@ -1446,6 +1446,193 @@ fi
 
 echo "PASS: curriculum and notes are labelled, independent result groups"
 
+# ============================================================
+# SEARCH-007 — Indexing and Freshness Pipeline (Batch 8)
+# ============================================================
+
+FR_TYPES="packages/shared-types/src/search-freshness.ts"
+FR_TYPE_TESTS="packages/shared-types/src/search-freshness.test.ts"
+FR_SERVICE="services/api/src/search-freshness.ts"
+FR_SERVICE_TESTS="services/api/src/search-freshness.test.ts"
+FR_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_8_SEARCH_INDEXING_FRESHNESS.md"
+
+for p in "$FR_TYPES" "$FR_TYPE_TESTS" "$FR_SERVICE" "$FR_SERVICE_TESTS" "$FR_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+FR_TYPES_CODE="$(code_of "$FR_TYPES")"
+FR_TYPES_BARE="$(code_no_strings "$FR_TYPES")"
+FR_SERVICE_CODE="$(code_of "$FR_SERVICE")"
+FR_SERVICE_BARE="$(code_no_strings "$FR_SERVICE")"
+FR_ROUTE_BLOCK="$(awk '/pathname === "\/admin\/search\/freshness"/{c=18} c&&c-->0' "$SERVER" || true)"
+
+# --- 57. SEARCH-007 exists and stays source-authoritative -------------------
+SEARCH_007="$(find "$REGISTRY" -maxdepth 1 -name 'SEARCH-007_*.md' | head -1)"
+[ -n "$SEARCH_007" ] || fail "SEARCH-007 specification is missing from the Feature Registry"
+grep -Fq '[x] Approved' "$SEARCH_007" || fail "SEARCH-007 does not record Founder approval"
+grep -Fq 'export * from "./search-freshness";' packages/shared-types/src/index.ts \
+  || fail "the freshness model is not exported from shared-types"
+# Reconciliation COMPOSES the SEARCH-001 resolver; it never reimplements one.
+grep -Fq 'resolveSearchDocument(accessToken, document)' "$FR_SERVICE" \
+  || fail "reconciliation does not compose the SEARCH-001 source resolver"
+# A document may never authorize itself: serving is decided from a RESOLUTION.
+grep -Fq 'canServeSearchDocument(resolution)' "$FR_TYPES" \
+  || fail "serving is no longer decided from a source resolution"
+
+echo "PASS: SEARCH-007 is approved and remains source-authoritative"
+
+# --- 58. NO PERSISTED INDEX WAS INTRODUCED ----------------------------------
+# The central architectural ruling: SEARCH-007 adds reconciliation and health,
+# never a second stored representation.
+# Scans STRING-BEARING code, not the string-stripped form: a table name is a
+# string literal, so stripping strings would hide exactly the mutation that
+# introduces one. These modules carry no prohibition prose naming a table.
+if echo "$FR_TYPES_CODE$FR_SERVICE_CODE" | grep -qiE 'search_documents|search_index|create table|materialized|tsvector|to_tsquery|pg_trgm|elasticsearch|opensearch|algolia|meilisearch|redis|vectorStore'; then
+  fail "SEARCH-007 introduced a persisted index or external search provider"
+fi
+if grep -rqiE 'tsvector|to_tsquery|pg_trgm|create materialized view' supabase/migrations/ 2>/dev/null; then
+  fail "a full-text or materialized search index entered the migrations"
+fi
+FRESHNESS_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*index*.sql supabase/migrations/*freshness*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$FRESHNESS_MIGRATIONS" = "0" ] || fail "SEARCH-007 must add no migration"
+# No worker, queue, scheduler, cron or trigger.
+if echo "$FR_TYPES_BARE$FR_SERVICE_BARE" | grep -qiE 'setInterval|setTimeout|cron|queue|worker|scheduler|schedule\(|webhook'; then
+  fail "SEARCH-007 introduced background processing infrastructure"
+fi
+# The run writes nothing at all.
+for write in '.insert(' '.update(' '.upsert(' '.delete(' '.rpc('; do
+  if echo "$FR_SERVICE_CODE" | grep -qF "$write"; then
+    fail "the reconciliation run writes to a source: $write"
+  fi
+done
+# No new dependency may appear for search infrastructure.
+for dependency in elasticsearch "@elastic" opensearch algolia meilisearch ioredis "@upstash"; do
+  if grep -Fq "\"$dependency" package.json services/api/package.json packages/shared-types/package.json apps/web/package.json 2>/dev/null; then
+    fail "a search-provider dependency was added: $dependency"
+  fi
+done
+
+echo "PASS: no persisted index, provider, worker, migration or dependency exists"
+
+# --- 59. Reconciliation and retry are explicitly bounded --------------------
+grep -Fq 'export const SEARCH_RECONCILIATION_MAX_DOCUMENTS = 100;' "$FR_TYPES" \
+  || fail "the reconciliation document bound is missing or is not 100"
+grep -Fq 'export const SEARCH_RECONCILIATION_MAX_ATTEMPTS = 2;' "$FR_TYPES" \
+  || fail "the retry attempt bound is missing or is not 2"
+# The bound must be ENFORCED, not merely declared.
+grep -Fq 'Math.min(' "$FR_TYPES" \
+  || fail "the reconciliation limit is not clamped"
+grep -Fq 'input.documents.slice(0, limit)' "$FR_SERVICE" \
+  || fail "the reconciliation run is not bounded before any read"
+grep -Fq 'attempt < SEARCH_RECONCILIATION_MAX_ATTEMPTS' "$FR_SERVICE" \
+  || fail "the retry loop is not bounded by the approved attempt limit"
+# No unbounded or recursive retry.
+if echo "$FR_SERVICE_BARE" | grep -qE 'while *\(true\)|for *\( *; *; *\)'; then
+  fail "an unbounded retry loop exists"
+fi
+if echo "$FR_SERVICE_BARE" | grep -qE 'reconcileSearchDocument\([^)]*\).*reconcileSearchDocument'; then
+  fail "retry is recursive rather than bounded"
+fi
+RECONCILE_DEFS="$(echo "$FR_SERVICE_CODE" | grep -c 'export async function reconcileSearchDocument' || true)"
+[ "$RECONCILE_DEFS" = "1" ] \
+  || fail "expected exactly one reconciliation entry point; found $RECONCILE_DEFS"
+# Only a transient unreachable source may be retried.
+grep -Fq 'export const SEARCH_RETRYABLE_OUTCOMES: readonly SearchSourceOutcome[] = [' "$FR_TYPES" \
+  || fail "the retryable-outcome set is not held as data"
+FR_RETRYABLE="$(echo "$FR_TYPES_CODE" | tr -d ' \n' | grep -oE 'SEARCH_RETRYABLE_OUTCOMES:readonlySearchSourceOutcome\[\]=\[[^]]*\]' || true)"
+[ "$FR_RETRYABLE" = 'SEARCH_RETRYABLE_OUTCOMES:readonlySearchSourceOutcome[]=["unavailable"]' ] \
+  || fail "the retryable-outcome set changed; only a transient unavailable source may retry"
+
+echo "PASS: reconciliation and retry are explicitly and enforceably bounded"
+
+# --- 60. Non-current source can never serve --------------------------------
+# Fail closed: only `resolved` may serve, and an unknown version is stale.
+grep -Fq 'return resolution.outcome === "resolved";' "$SEARCH_TYPES" \
+  || fail "serving is no longer restricted to a resolved source"
+grep -Fq 'if (currentSourceVersion === null || currentSourceVersion === undefined) return true;' "$SEARCH_TYPES" \
+  || fail "an unknown source version no longer fails closed as stale"
+# The version comparison itself, not merely the unknown-version guard.
+grep -Fq 'return document.sourceVersion !== currentSourceVersion;' "$SEARCH_TYPES" \
+  || fail "the sourceVersion stale comparison was removed"
+# Only published rows may ever be projected into a run.
+grep -Fq '.eq("publication_state", "published")' "$FR_SERVICE" \
+  || fail "reconciliation no longer restricts projection to published rows"
+grep -Fq 'export function isFreshEnoughToServe' "$FR_TYPES" \
+  || fail "the freshness serving gate is missing"
+# The health verdict must treat stale and unreachable as needing attention.
+grep -Fq 'outcomes.stale === 0 && outcomes.unavailable === 0 && exhaustedRetries === 0' "$FR_TYPES" \
+  || fail "the health verdict no longer accounts for stale, unreachable or exhausted state"
+# Every outcome has an accessible label, so no raw code is rendered.
+grep -Fq 'export function describeFreshnessOutcomeLabel' "$FR_TYPES" \
+  || fail "operational outcomes have no accessible text labels"
+
+echo "PASS: stale, missing, unpublished, unauthorized and unreachable all fail closed"
+
+# --- 61. Health output is aggregate-only ------------------------------------
+grep -Fq 'export const SEARCH_FRESHNESS_FORBIDDEN_FIELDS' "$FR_TYPES" \
+  || fail "the freshness output prohibition is not held as data"
+for forbidden in documents documentIds titles snippets records userId ownerId query hiddenCount; do
+  grep -Fq "\"$forbidden\"" "$FR_TYPES" \
+    || fail "a record-bearing field is missing from the freshness prohibition list: $forbidden"
+done
+# The report shape is pinned by FIELD NAMES, so a leak cannot be added beside it.
+FR_REPORT_BODY="$(awk '/^export interface SearchFreshnessReport \{/{f=1;next} f&&/^\}/{f=0} f' "$FR_TYPES")"
+FR_REPORT_FIELDS="$(echo "$FR_REPORT_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | sort | tr '\n' ' ')"
+[ "$FR_REPORT_FIELDS" = "examined exhaustedRetries healthy modelVersion outcomes servable unservable " ] \
+  || fail "the freshness report fields changed; only aggregate state is approved:
+  actual: $FR_REPORT_FIELDS"
+# The route returns the report and status text and nothing else.
+echo "$FR_ROUTE_BLOCK" | tr -d ' \n' \
+  | grep -Fq 'sendJson(response,200,{report,status:describeSearchFreshnessStatus(report)});' \
+  || fail "the freshness route no longer returns aggregate report and status only"
+
+echo "PASS: freshness health exposes aggregate state and no records"
+
+# --- 62. The freshness route is founder-guarded and read-only --------------
+grep -Fq 'pathname === "/admin/search/freshness"' "$SERVER" \
+  || fail "the founder freshness route is missing"
+echo "$FR_ROUTE_BLOCK" | grep -Fq 'await founder(request)' \
+  || fail "the freshness route is not founder-guarded"
+echo "$FR_ROUTE_BLOCK" | grep -Fq 'request.method === "GET"' \
+  || fail "the freshness route is not a GET read"
+for method in POST PUT PATCH DELETE; do
+  if echo "$FR_ROUTE_BLOCK" | grep -Fq "request.method === \"$method\""; then
+    fail "the freshness route accepts a mutation method: $method"
+  fi
+done
+for forbidden in userId ownerId studentId learnerId accessToken=; do
+  if echo "$FR_ROUTE_BLOCK" | grep -Fq "$forbidden"; then
+    fail "the freshness route accepts a caller-supplied identity: $forbidden"
+  fi
+done
+# No service-role client anywhere in the Search freshness path.
+if echo "$FR_SERVICE_CODE" | grep -qF 'createServerSupabaseClient'; then
+  fail "a service-role client entered the Search freshness path"
+fi
+FR_CLIENTS="$(echo "$FR_SERVICE_CODE" | grep -c 'createUserScopedSupabaseClient(' || true)"
+[ "$FR_CLIENTS" = "1" ] \
+  || fail "the freshness path creates $FR_CLIENTS clients; exactly one caller-scoped client is allowed"
+
+echo "PASS: the freshness route is founder-guarded, read-only and caller-scoped"
+
+# --- 63. Private content and SEARCH-008 stay out ---------------------------
+grep -Fq 'export const SEARCH_INDEXED_SOURCE_ENGINES = ["curriculum"] as const;' "$SEARCH_TYPES" \
+  || fail "the indexed source engine set changed; notes must never be indexed"
+grep -Fq 'isSharedIndexEligible(document)' "$FR_SERVICE" \
+  || fail "private or non-shared content is no longer excluded from reconciliation"
+for forbidden in student_notes searchStudentNotes noteId note_body; do
+  if echo "$FR_TYPES_BARE$FR_SERVICE_BARE" | grep -qF "$forbidden"; then
+    fail "a private note source entered SEARCH-007: $forbidden"
+  fi
+done
+for forbidden in relevance boost popularity rankResults scoreResult weighting; do
+  if echo "$FR_TYPES_BARE$FR_SERVICE_BARE" | grep -qiF "$forbidden"; then
+    fail "SEARCH-008 ranking leaked into SEARCH-007: $forbidden"
+  fi
+done
+
+echo "PASS: private notes stay excluded and SEARCH-008 ranking remains absent"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -1458,7 +1645,7 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 through Batch 7 verification passed."
+echo "Wave 9 Batch 1 through Batch 8 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
@@ -1466,7 +1653,8 @@ echo "SEARCH-004 Search Filters and Facets is implemented."
 echo "SEARCH-005A Technical Query Normalization and Curated Aliases is implemented."
 echo "SEARCH-005B Bounded Typo Recovery is implemented."
 echo "SEARCH-006 Personal Notes Search Integration is implemented."
-echo "SEARCH-007 and SEARCH-008 remain unimplemented."
+echo "SEARCH-007 Indexing and Freshness Pipeline is implemented."
+echo "SEARCH-008 remains unimplemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
 echo "============================================================"

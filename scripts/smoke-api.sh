@@ -113,6 +113,12 @@ assert_status POST /notes/search 404 '{"q":"vlan"}'
 # unauthenticated.
 assert_status DELETE /notes/search 401
 assert_status GET '/search/notes?q=vlan' 404
+
+# SEARCH-007 — the Founder freshness/health route must never be public.
+assert_status GET /admin/search/freshness 401
+assert_status GET '/admin/search/freshness?limit=5' 401
+assert_status POST /admin/search/freshness 404 '{}'
+assert_status DELETE /admin/search/freshness 404
 assert_status GET /admin/search 404
 assert_status GET /search 404
 assert_status GET '/search/notes?q=x' 404
@@ -205,6 +211,8 @@ echo 'PASS: CERT-008 corrections require privileged authentication'
 echo 'PASS: CERT-008 exposes no student revoke, restore or correct route'
 echo 'PASS: CERT-009 presentation requires authentication'
 echo 'PASS: CERT-009 exposes no public or admin presentation route'
+echo 'PASS: SEARCH-007 freshness health requires founder authentication'
+echo 'PASS: SEARCH-007 exposes no public or mutating freshness route'
 echo 'PASS: SEARCH-006 private notes search requires authentication'
 echo 'PASS: SEARCH-006 exposes no second or public notes-search route'
 echo 'PASS: SEARCH-002 curriculum search requires authentication'

@@ -101,6 +101,11 @@ import {
 } from "./evidence-correction";
 import { getStudentEvidencePortfolio } from "./evidence-portfolio";
 import { searchCurriculum } from "./curriculum-search";
+import {
+  projectCurriculumFreshnessDocuments,
+  runSearchFreshnessReconciliation
+} from "./search-freshness";
+import { describeSearchFreshnessStatus } from "@tlp/shared-types";
 import { exportStudentEvidence } from "./evidence-export";
 
 const config = validateRuntimeConfig(loadRuntimeConfig());
@@ -1195,6 +1200,36 @@ async function handleRequest(
             estimatedMinutes: body.estimatedMinutes === undefined ? undefined : body.estimatedMinutes === null ? null : Number(body.estimatedMinutes)
           }
         )
+      });
+      return;
+    }
+
+    // SEARCH-007 — Founder-facing Search freshness health.
+    //
+    // Founder-guarded and fail-closed. Returns AGGREGATE OPERATIONAL STATE ONLY:
+    // counts per resolution outcome plus accessible status text. It never
+    // returns a Search Document body, a private note, a record identity, a
+    // hidden candidate total, a credential or any authorization detail — a
+    // report naming records would leak exactly the record existence SEARCH-003
+    // protects.
+    //
+    // Reconciliation reads through the caller's own token. There is no
+    // service-role path, no persisted index, no worker and no schedule.
+    if (request.method === "GET" && pathname === "/admin/search/freshness") {
+      const trusted = await founder(request);
+      const report = await runSearchFreshnessReconciliation(
+        trusted.accessToken,
+        {
+          documents: await projectCurriculumFreshnessDocuments(
+            trusted.accessToken,
+            url.searchParams.get("limit") ?? undefined
+          ),
+          limit: url.searchParams.get("limit") ?? undefined
+        }
+      );
+      sendJson(response, 200, {
+        report,
+        status: describeSearchFreshnessStatus(report)
       });
       return;
     }
