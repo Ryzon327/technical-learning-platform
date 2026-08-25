@@ -1,8 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CURRICULUM_SEARCH_FILTERABLE_CONTENT_TYPES,
+  buildCurriculumFallbackGuidance,
   buildCurriculumSearchSnippet,
   describeCurriculumContentType,
+  describeCurriculumFallbackHeading,
+  describeCurriculumNavigationEmpty,
+  describeCurriculumNavigationHeading,
+  describeCurriculumNavigationIntro,
+  describeCurriculumNavigationLoading,
+  describeCurriculumNavigationUnavailable,
+  describeCurriculumRankingOrder,
   describeCurriculumSearchClearFilters,
   describeCurriculumSearchCount,
   describeCurriculumSearchFacetCount,
@@ -18,9 +26,11 @@ import {
   describeNoteSearchCount,
   describeNoteSearchUnavailable,
   validateCurriculumSearchQuery,
+  type CurriculumNavigationEntry,
   type CurriculumSearchContentType,
   type NoteSearchResult,
-  type SearchDocument
+  type SearchDocument,
+  type SearchFallbackReason
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
@@ -28,6 +38,7 @@ import {
   searchCurriculum,
   type CurriculumSearchResponse
 } from "./curriculum-search-service";
+import { listCurriculumNavigation } from "./curriculum-navigation-service";
 import { searchMyNotes } from "./note-search-service";
 
 /**
@@ -63,10 +74,106 @@ import { searchMyNotes } from "./note-search-service";
  * If the server omits `facets`, the filters still work and the counts simply do
  * not appear (SEARCH-004 section 11).
  *
- * Deliberately absent: typo suggestions or "did you mean" (SEARCH-005), note
- * results (SEARCH-006), ranking explanations or sort controls (SEARCH-008), and
- * any AI search experience.
+ * ## SEARCH-008 — ranking and fallback
+ *
+ * Curriculum results are rendered as an ORDERED list, because after SEARCH-008
+ * their order carries meaning, and the ordering rule is stated in plain text
+ * above them. No per-result ranking annotation, position number, score or
+ * internal ordering value is rendered, and no sort control exists — the order is
+ * deterministic and is not the learner's to configure.
+ *
+ * Two failure states are kept strictly apart. `degraded` means the curriculum
+ * search could not run; a zero `count` means it ran, was authorized, and matched
+ * nothing. They produce different wording, and a dependency failure is never
+ * shown as an empty result.
+ *
+ * Structured navigation is offered in both states by composing the existing
+ * authenticated published-paths read. It never carries an identity parameter,
+ * and a failed navigation read is shown as a failure rather than as an empty
+ * curriculum.
+ *
+ * Deliberately absent: any AI search experience.
  */
+
+/**
+ * Structured curriculum navigation (SEARCH-008 section 12.4).
+ *
+ * Loads once per mount through the caller's own session. It renders three
+ * mutually exclusive honest states — loading, unavailable, and the entries the
+ * caller may actually see — so "we could not load this" is never displayed as
+ * "there is nothing here".
+ *
+ * The list is UNORDERED: unlike search results, published learning paths carry
+ * no ranking, and presenting them as ranked would imply a judgement Search did
+ * not make.
+ */
+function CurriculumNavigationPanel({
+  reason,
+  accessToken
+}: {
+  reason: SearchFallbackReason;
+  accessToken: string;
+}) {
+  const [entries, setEntries] = useState<CurriculumNavigationEntry[] | null>(
+    null
+  );
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntries(null);
+    setUnavailable(false);
+
+    listCurriculumNavigation(accessToken)
+      .then((loaded) => {
+        if (!cancelled) setEntries(loaded);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // A failed read is a failure. It must never become an empty list.
+        setEntries(null);
+        setUnavailable(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  return (
+    <section aria-labelledby="curriculum-navigation-heading">
+      <h4 id="curriculum-navigation-heading">
+        {describeCurriculumNavigationHeading()}
+      </h4>
+      <p>{describeCurriculumNavigationIntro(reason)}</p>
+
+      {unavailable && (
+        <p className="form-message" role="status">
+          {describeCurriculumNavigationUnavailable()}
+        </p>
+      )}
+
+      {!unavailable && entries === null && (
+        <p aria-live="polite">{describeCurriculumNavigationLoading()}</p>
+      )}
+
+      {!unavailable && entries !== null && entries.length === 0 && (
+        <p role="status">{describeCurriculumNavigationEmpty()}</p>
+      )}
+
+      {!unavailable && entries !== null && entries.length > 0 && (
+        <ul aria-labelledby="curriculum-navigation-heading">
+          {entries.map((entry) => (
+            <li key={entry.stableId}>
+              <a href={entry.reference}>{entry.title}</a>
+              {entry.description ? <span> — {entry.description}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
 
 function SearchResult({ result }: { result: SearchDocument }) {
   const headingId = `result-${result.documentId}-title`;
@@ -125,6 +232,22 @@ export function CurriculumSearchView() {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
   /**
+   * SEARCH-008: the query the SERVER was actually asked, captured when the
+   * search ran. The input box may have been edited since, and fallback wording
+   * naming a query the learner never submitted would be a false statement about
+   * what was searched.
+   */
+  const [searchedQuery, setSearchedQuery] = useState("");
+  /**
+   * SEARCH-008 ruling 7: TRUE only when curriculum search could not run.
+   *
+   * `error` alone cannot carry this — it also holds ordinary validation messages
+   * such as an empty query, and those are neither a dependency failure nor an
+   * empty result. This flag is what keeps "search failed" from ever being
+   * rendered as "0 results".
+   */
+  const [degraded, setDegraded] = useState(false);
+  /**
    * SEARCH-005B: the learner asked to see their own words instead of the
    * recovered query. No request is needed — recovery only ever runs when the
    * server already executed the original query and it returned nothing, so the
@@ -149,13 +272,17 @@ export function CurriculumSearchView() {
   ): Promise<void> {
     const queryError = validateCurriculumSearchQuery(query);
     if (queryError) {
+      // A rejected query is neither a dependency failure nor an empty result.
       setError(describeCurriculumSearchQueryError(queryError));
       setResults(null);
+      setDegraded(false);
       return;
     }
 
     setSearching(true);
     setError("");
+    setDegraded(false);
+    setSearchedQuery(query);
     setShowingOriginal(false);
     setNoteError("");
 
@@ -180,6 +307,8 @@ export function CurriculumSearchView() {
           : describeCurriculumSearchFallback()
       );
       setResults(null);
+      // SEARCH-008: this, and only this, is the degraded state.
+      setDegraded(true);
     }
 
     if (noteOutcome.status === "fulfilled") {
@@ -215,6 +344,34 @@ export function CurriculumSearchView() {
       (facet) => facet.value === contentType
     )?.count;
   }
+
+  /**
+   * SEARCH-008: which fallback state, if either, the learner is in.
+   *
+   * The two are mutually exclusive and are derived from different facts. The
+   * degraded state comes from a rejected request; the empty state comes from a
+   * SUCCESSFUL response whose returned count is zero. `count` is the number of
+   * authorized results actually returned — there is no candidate, withheld or
+   * global total in the response, so no hidden record can reach this decision.
+   */
+  const fallbackReason: SearchFallbackReason | undefined = degraded
+    ? "search_unavailable"
+    : results && !error && results.count === 0
+      ? "no_results"
+      : undefined;
+
+  /**
+   * Guidance is built from the learner's own submitted query and whether a
+   * filter is currently active. No result, document, count or note is passed in,
+   * and the function has no parameter that could carry one.
+   */
+  const fallbackGuidance = fallbackReason
+    ? buildCurriculumFallbackGuidance({
+        reason: fallbackReason,
+        query: searchedQuery,
+        filterActive: contentTypes.length > 0
+      })
+    : undefined;
 
   return (
     <section className="card" aria-labelledby="curriculum-search-title">
@@ -353,11 +510,60 @@ export function CurriculumSearchView() {
           <h3 id="curriculum-results-heading">
             {describeCurriculumResultGroup()}
           </h3>
-          <ul aria-labelledby="curriculum-results-heading">
+
+          {/* SEARCH-008 section 10 — the ordering rule stated as ordinary text,
+              so the order is understandable without seeing the page. It
+              describes the RULE and never an individual result: no per-result
+              annotation, position number or internal ordering value is
+              rendered anywhere below. */}
+          {results.results.length > 1 && <p>{describeCurriculumRankingOrder()}</p>}
+
+          {/* ORDERED, because after SEARCH-008 the sequence carries meaning. */}
+          <ol aria-labelledby="curriculum-results-heading">
             {results.results.map((result) => (
               <SearchResult key={result.documentId} result={result} />
             ))}
+          </ol>
+        </section>
+      )}
+
+      {/* SEARCH-008 fallback. Reached from exactly two states, which are never
+          conflated: a SUCCESSFUL search that returned nothing, and a curriculum
+          search that could not run. Each states its own fact, and structured
+          navigation is offered in both.
+
+          Every suggestion is an offer the learner may take. Nothing here
+          broadens the query, generates a term, alters a filter or re-runs a
+          search on its own — SEARCH-005 owns query interpretation and this is
+          not a second correction system. */}
+      {fallbackGuidance && !showingOriginal && (
+        <section aria-labelledby="search-fallback-heading">
+          <h3 id="search-fallback-heading">
+            {describeCurriculumFallbackHeading()}
+          </h3>
+
+          <p role="status">{fallbackGuidance.headline}</p>
+
+          <ul aria-labelledby="search-fallback-heading">
+            {fallbackGuidance.suggestions.map((suggestion) => (
+              <li key={suggestion.action}>
+                {suggestion.action === "clear_filters" ? (
+                  // The learner chooses. This reuses the existing clear-all
+                  // control rather than relaxing the filter automatically.
+                  <button type="button" onClick={clearFilters} disabled={searching}>
+                    {suggestion.label}
+                  </button>
+                ) : (
+                  suggestion.label
+                )}
+              </li>
+            ))}
           </ul>
+
+          <CurriculumNavigationPanel
+            reason={fallbackGuidance.reason}
+            accessToken={accessToken}
+          />
         </section>
       )}
 

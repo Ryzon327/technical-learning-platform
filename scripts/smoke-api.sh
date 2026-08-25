@@ -114,6 +114,16 @@ assert_status POST /notes/search 404 '{"q":"vlan"}'
 assert_status DELETE /notes/search 401
 assert_status GET '/search/notes?q=vlan' 404
 
+# SEARCH-008 — structured navigation fallback composes the EXISTING published
+# curriculum route. SEARCH-008 adds no route of its own, so what must be proven
+# is that the route it reuses is authenticated and exposes no mutation.
+assert_status GET /curriculum/paths 401
+assert_status POST /curriculum/paths 404 '{"stableId":"x"}'
+assert_status DELETE /curriculum/paths 404
+assert_status GET /search/fallback 404
+assert_status GET /search/navigation 404
+assert_status GET /search/ranking 404
+
 # SEARCH-007 — the Founder freshness/health route must never be public.
 assert_status GET /admin/search/freshness 401
 assert_status GET '/admin/search/freshness?limit=5' 401
@@ -217,3 +227,5 @@ echo 'PASS: SEARCH-006 private notes search requires authentication'
 echo 'PASS: SEARCH-006 exposes no second or public notes-search route'
 echo 'PASS: SEARCH-002 curriculum search requires authentication'
 echo 'PASS: SEARCH-002 exposes no public or admin search route'
+echo 'PASS: SEARCH-008 navigation fallback reuses the authenticated curriculum route'
+echo 'PASS: SEARCH-008 adds no ranking, fallback or navigation route'

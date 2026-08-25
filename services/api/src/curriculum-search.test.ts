@@ -280,11 +280,30 @@ describe("D: later Search features are not implemented", () => {
 
   /**
    * Faceting was forbidden here under SEARCH-002 and is the approved SEARCH-004
-   * deliverable, so it is no longer listed. Everything SEARCH-008 owns still is:
-   * a facet counts results, it never orders or weights them.
+   * deliverable, so it is no longer listed.
+   *
+   * NARROWED FOR SEARCH-008, not weakened. Deterministic ranking is now the
+   * approved deliverable and the service composes its builder, so the bare
+   * substring `rank` can no longer be prohibited — it appears in the approved
+   * builder's own name.
+   *
+   * Everything ruling 3 actually prohibits is still forbidden, and the list GREW
+   * to name the specific scoring forms that must never appear. A ranking that
+   * scores, weights or boosts would still fail here; the approved lexicographic
+   * comparator carries no such term.
    */
-  it("D2: no ranking, scoring or weighting", () => {
-    for (const forbidden of ["relevance", "score", "boost", "weight", "rank"]) {
+  it("D2: no numeric relevance, scoring or weighting", () => {
+    for (const forbidden of [
+      "relevance",
+      "score",
+      "boost",
+      "weight",
+      "rankscore",
+      "ranking configuration",
+      "popularity",
+      "engagement",
+      "clickhistory"
+    ]) {
       expect(serviceCode.toLowerCase()).not.toContain(forbidden);
     }
   });
@@ -1356,5 +1375,232 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
       second.results.queryAdjustment
     );
     expect(first.harness.orPatterns).toEqual(second.harness.orPatterns);
+  });
+});
+
+/**
+ * SEARCH-008 — Search Result Ranking and Fallback, in the service.
+ *
+ * The shared comparator is unit tested in `packages/shared-types`. What can only
+ * be proven here is WHERE it runs: downstream of the caller's RLS-scoped read,
+ * the SEARCH-003 decision, version resolution and SEARCH-004 filtering, and
+ * upstream of the requested limit and the facet computation.
+ */
+describe("J: SEARCH-008 ranking", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  /** A description-only match that sorts FIRST under the neutral order. */
+  const descriptionMatch = row({
+    stable_id: "course.aaa",
+    title: "Networking Basics",
+    description: "Run show vlan brief to inspect VLANs."
+  });
+
+  /** A whole-title match that sorts LAST under the neutral order. */
+  const titleMatch = row({
+    stable_id: "course.zzz",
+    title: "vlan",
+    description: "Segmentation."
+  });
+
+  it("J1: a whole-title match outranks a description-only match", async () => {
+    const { results } = await search(
+      { courses: [descriptionMatch, titleMatch] },
+      { query: "vlan" }
+    );
+
+    expect(results.results.map((result) => result.title)).toEqual([
+      "vlan",
+      "Networking Basics"
+    ]);
+  });
+
+  it("J2: the neutral order still decides when the title precision ties", async () => {
+    const { results } = await search(
+      {
+        courses: [
+          row({ stable_id: "course.zulu", title: "vlan" }),
+          row({ stable_id: "course.alpha", title: "vlan" })
+        ]
+      },
+      { query: "vlan" }
+    );
+
+    expect(
+      results.results.map((result) => result.sourceRecordStableId)
+    ).toEqual(["course.alpha", "course.zulu"]);
+  });
+
+  /**
+   * The reason ranking cannot be a post-limit step. Under the neutral order the
+   * description match arrives first, so bounding before ranking would return it
+   * and silently discard the exact title match.
+   */
+  it("J3: ranking runs BEFORE the requested limit", async () => {
+    const { results } = await search(
+      { courses: [descriptionMatch, titleMatch] },
+      { query: "vlan", limit: 1 }
+    );
+
+    expect(results.count).toBe(1);
+    expect(results.results[0]?.title).toBe("vlan");
+  });
+
+  it("J4: the approved ranking builder bounds the returned results", () => {
+    expect(serviceCode).toContain(
+      "buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)"
+    );
+    expect(serviceCode).not.toContain("buildTieredCurriculumSearchResults");
+  });
+
+  /** Ruling 8: ranking may only ever see what SEARCH-003 already surfaced. */
+  it("J5: ranking is composed after authorization in the service", () => {
+    const authorized = serviceCode.lastIndexOf("surfaceAuthorized(permissioned)");
+    const filtered = serviceCode.lastIndexOf("applyCurriculumSearchFilter(");
+    const ranked = serviceCode.indexOf("buildRankedCurriculumSearchResults(");
+
+    expect(authorized).toBeGreaterThan(-1);
+    expect(ranked).toBeGreaterThan(filtered);
+    expect(filtered).toBeGreaterThan(authorized);
+  });
+
+  it("J6: ranking receives no identity, token or client", () => {
+    const call = serviceCode.slice(
+      serviceCode.indexOf("buildRankedCurriculumSearchResults("),
+      serviceCode.indexOf("buildRankedCurriculumSearchResults(") + 200
+    );
+
+    for (const forbidden of [
+      "accessToken",
+      "supabase",
+      "userId",
+      "ownerId",
+      "studentId",
+      "learnerId"
+    ]) {
+      expect(call).not.toContain(forbidden);
+    }
+  });
+
+  it("J7: a filtered-out type cannot be resurrected by ranking", async () => {
+    const { results } = await search(
+      {
+        courses: [titleMatch],
+        competencies: [row({ stable_id: "comp.vlan", title: "vlan" })]
+      },
+      { query: "vlan", contentTypes: ["competency"] }
+    );
+
+    expect(results.results.map((result) => result.contentType)).toEqual([
+      "competency"
+    ]);
+  });
+
+  it("J8: facets still count exactly the ranked, bounded result set", async () => {
+    const { results } = await search(
+      { courses: [descriptionMatch, titleMatch] },
+      { query: "vlan", limit: 1 }
+    );
+
+    const total = (results.facets?.contentTypes ?? []).reduce(
+      (sum, facet) => sum + facet.count,
+      0
+    );
+
+    expect(total).toBe(results.count);
+    expect(total).toBe(1);
+  });
+
+  it("J9: the response shape is unchanged", async () => {
+    const { results } = await search(
+      { courses: [titleMatch] },
+      { query: "vlan" }
+    );
+
+    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
+    for (const forbidden of [
+      "ranking",
+      "rankedBy",
+      "titlePrecision",
+      "matchKind",
+      "score",
+      "relevance",
+      "candidateCount",
+      "hiddenCount"
+    ]) {
+      expect(JSON.stringify(results)).not.toContain(forbidden);
+    }
+  });
+
+  /**
+   * A recovered result is ranked against the query that actually FOUND it, not
+   * against the learner's misspelling — otherwise every recovered result would
+   * collapse into the weakest precision class.
+   */
+  it("J10: a recovery pass ranks against the recovered variants", async () => {
+    const { results } = await search(
+      {
+        courses: [
+          row({
+            stable_id: "course.aaa",
+            title: "Container operations",
+            description: "Covers kubectl in depth."
+          }),
+          row({
+            stable_id: "course.zzz",
+            title: "kubectl",
+            description: "Reference."
+          })
+        ]
+      },
+      { query: "kubctl" }
+    );
+
+    expect(results.queryAdjustment?.adjustmentKind).toBe("typo");
+    expect(results.results.map((result) => result.title)).toEqual([
+      "kubectl",
+      "Container operations"
+    ]);
+  });
+
+  it("J11: ranking introduces no service-role path and no note source", () => {
+    expect(serviceCode).not.toContain("createServerSupabaseClient");
+    for (const forbidden of [
+      "student_notes",
+      "searchStudentNotes",
+      "noteId",
+      "note_body"
+    ]) {
+      expect(serviceCode).not.toContain(forbidden);
+    }
+  });
+
+  it("J12: ranking introduces no numeric relevance and no behavioural signal", () => {
+    for (const forbidden of [
+      "relevance",
+      "boost",
+      "popularity",
+      "engagement",
+      "clickHistory",
+      "scoreResult",
+      "weighting",
+      "embedding",
+      "semantic"
+    ]) {
+      expect(serviceCode.toLowerCase()).not.toContain(forbidden.toLowerCase());
+    }
+  });
+
+  it("J13: ranking does not change how many source reads occur", async () => {
+    const { harness } = await search(
+      { courses: [descriptionMatch, titleMatch] },
+      { query: "vlan" }
+    );
+
+    expect(harness.tables).toHaveLength(4);
+    expect(harness.limits.every((value) => value === 100)).toBe(true);
   });
 });

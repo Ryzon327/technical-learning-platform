@@ -49,6 +49,8 @@ export * from "./curriculum-search-filters";
 export * from "./search-terms";
 export * from "./search-typo";
 export * from "./search-freshness";
+export * from "./search-ranking";
+export * from "./search-fallback";
 export * from "./search-permission";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";

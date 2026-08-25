@@ -339,12 +339,19 @@ grep -Fq 'normalizeCurriculumSearchLimit(input.limit)' "$CS_SERVICE" \
 # It must remain bounded and must never become unbounded.
 grep -Fq '.limit(limit * 4)' "$CS_SERVICE" \
   || fail "the candidate over-fetch is missing or no longer bounded"
-# NARROWED FOR SEARCH-005A. The bound is unchanged; the function applying it
-# moved, because match-class tiering must run between neutral ordering and the
-# limit slice or an exact match could be truncated in favour of an alias match.
-# Re-pinned just as strictly on the new call.
-grep -Fq 'buildTieredCurriculumSearchResults(classified, limit)' "$CS_SERVICE" \
+# NARROWED FOR SEARCH-005A, then for SEARCH-008. The bound is unchanged; the
+# function applying it moved twice, because match-class tiering and then title
+# precision must run between neutral ordering and the limit slice, or an exact
+# match could be truncated in favour of a weaker one. Re-pinned just as strictly
+# on the new call, INCLUDING the limit argument.
+grep -Fq 'buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)' "$CS_SERVICE" \
   || fail "the returned results are not bounded by the requested limit"
+# The approved ranking builder must COMPOSE the SEARCH-005 match classes and the
+# SEARCH-002 neutral order rather than re-deriving either of them.
+grep -Fq 'CURRICULUM_MATCH_KINDS' packages/shared-types/src/search-ranking.ts \
+  || fail "ranking does not reuse the SEARCH-005 match-class vocabulary"
+grep -Fq 'orderCurriculumSearchResults' packages/shared-types/src/search-ranking.ts \
+  || fail "ranking does not reuse the SEARCH-002 neutral deterministic ordering"
 
 echo "PASS: query, limit and candidate over-fetch are all bounded"
 
@@ -717,12 +724,14 @@ grep -Fq 'export function buildCurriculumSearchFacets' "$SF_TYPES" \
 # Pinned on the exact composition: facets are built from the BOUNDED, ORDERED
 # result set the learner receives. Anything else — the candidate list, the
 # permissioned list, the over-fetch window — would be a hidden-record channel.
-# NARROWED FOR SEARCH-005A. The SECURITY PROPERTY IS UNCHANGED: facets are still
-# computed from the final bounded authorized result set. Only the builder that
-# produces that set changed, and the adjustment wrapper is attached outside the
-# facet call so it cannot influence any count.
+# NARROWED FOR SEARCH-005A, then for SEARCH-008. The SECURITY PROPERTY IS
+# UNCHANGED: facets are still computed from the final bounded authorized result
+# set, and the facet call still wraps the bounding builder DIRECTLY with nothing
+# between them. Only the builder that produces that set changed, and the
+# adjustment wrapper is still attached outside the facet call so it cannot
+# influence any count.
 echo "$CS_SERVICE_FLAT" \
-  | grep -Fq 'withCurriculumSearchFacets(buildTieredCurriculumSearchResults(classified,limit))' \
+  | grep -Fq 'withCurriculumSearchFacets(buildRankedCurriculumSearchResults(classified,effectiveVariants,limit))' \
   || fail "facets are not computed from the bounded returned result set"
 # Only the approved vocabulary may become a facet value.
 grep -Fq 'if (!isCurriculumSearchContentType(contentType)) continue;' "$SF_TYPES" \
@@ -1633,6 +1642,328 @@ done
 
 echo "PASS: private notes stay excluded and SEARCH-008 ranking remains absent"
 
+# ============================================================
+# SEARCH-008 — Search Result Ranking and Fallback (Batch 9)
+# ============================================================
+
+RK_TYPES="packages/shared-types/src/search-ranking.ts"
+RK_TYPE_TESTS="packages/shared-types/src/search-ranking.test.ts"
+FB_TYPES="packages/shared-types/src/search-fallback.ts"
+FB_TYPE_TESTS="packages/shared-types/src/search-fallback.test.ts"
+NAV_SERVICE="apps/web/src/search/curriculum-navigation-service.ts"
+NAV_TESTS="apps/web/src/search/curriculum-navigation-service.test.ts"
+RK_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_9_SEARCH_RANKING_FALLBACK.md"
+
+for p in "$RK_TYPES" "$RK_TYPE_TESTS" "$FB_TYPES" "$FB_TYPE_TESTS" \
+         "$NAV_SERVICE" "$NAV_TESTS" "$RK_DOC"; do
+  [ -e "$p" ] || fail "MISSING: $p"
+done
+
+RK_TYPES_CODE="$(code_of "$RK_TYPES")"
+RK_TYPES_BARE="$(code_no_strings "$RK_TYPES")"
+RK_TYPES_FLAT="$(echo "$RK_TYPES_CODE" | tr -d ' \n')"
+FB_TYPES_CODE="$(code_of "$FB_TYPES")"
+FB_TYPES_BARE="$(code_no_strings "$FB_TYPES")"
+NAV_CODE="$(code_of "$NAV_SERVICE")"
+RK_VIEW_FLAT="$(echo "$CS_VIEW_CODE" | tr -d ' \n')"
+
+# --- 64. SEARCH-008 exists, is approved, and is wired in --------------------
+SEARCH_008="$(find "$REGISTRY" -maxdepth 1 -name 'SEARCH-008_*.md' | head -1)"
+[ -n "$SEARCH_008" ] || fail "SEARCH-008 specification is missing from the Feature Registry"
+grep -Fq '[x] Approved' "$SEARCH_008" || fail "SEARCH-008 does not record Founder approval"
+# DEC-046: SEARCH-008 must not depend on the indexing pipeline.
+SEARCH_008_DEPENDS="$(awk '/^## Depends On/{f=1;next} /^## /{f=0} f' "$SEARCH_008" | grep -E '^- ' || true)"
+if echo "$SEARCH_008_DEPENDS" | grep -qF 'SEARCH-007'; then
+  fail "the SEARCH-008 dependency on SEARCH-007 was reintroduced"
+fi
+echo "$SEARCH_008_DEPENDS" | grep -qF 'SEARCH-005' \
+  || fail "SEARCH-008 no longer records its genuine SEARCH-005 prerequisite"
+grep -Fq 'export * from "./search-ranking";' packages/shared-types/src/index.ts \
+  || fail "the ranking model is not exported from shared-types"
+grep -Fq 'export * from "./search-fallback";' packages/shared-types/src/index.ts \
+  || fail "the fallback model is not exported from shared-types"
+
+echo "PASS: SEARCH-008 is approved, dependency-correct and wired in"
+
+# --- 65. The approved precedence, pinned exactly ----------------------------
+echo "$RK_TYPES_FLAT" \
+  | grep -Fq 'CURRICULUM_TITLE_PRECISIONS=["whole_title","title_token","title_substring","description_only"]asconst;' \
+  || fail "the approved title-precision vocabulary changed"
+# description_only must stay LAST: an unclassifiable result must never reach the
+# top of a list by failing to classify.
+RK_LAST_PRECISION="$(echo "$RK_TYPES_FLAT" \
+  | grep -oE 'CURRICULUM_TITLE_PRECISIONS=\[[^]]*\]' | grep -oE '"[a-z_]+"\]$' || true)"
+[ "$RK_LAST_PRECISION" = '"description_only"]' ] \
+  || fail "description_only is not the weakest title precision"
+# The comparator itself. R1 MUST be evaluated before R2, or a query-adjusted
+# result could displace one that matched the learner's actual words.
+echo "$RK_TYPES_FLAT" \
+  | grep -Fq 'constmatchDelta=matchTierOf(a)-matchTierOf(b);if(matchDelta!==0)returnmatchDelta;returntitleTierOf(a)-titleTierOf(b);' \
+  || fail "the ranking comparator changed; match class must dominate title precision"
+# Every precision branch must exist, in the approved strength order.
+RK_BRANCHES="$(echo "$RK_TYPES_CODE" | grep -oE 'precision = "[a-z_]+"' | tr '\n' ' ')"
+[ "$RK_BRANCHES" = 'precision = "whole_title" precision = "title_token" precision = "title_substring" ' ] \
+  || fail "the title-precision classification branches changed: $RK_BRANCHES"
+# Token comparison must REUSE SEARCH-005 rather than implement a second rule.
+grep -Fq 'containsTokenSequence(normalizedTitle, value)' "$RK_TYPES" \
+  || fail "title token matching no longer reuses the SEARCH-005 token comparison"
+
+echo "PASS: the approved ranking precedence is pinned exactly"
+
+# --- 66. Ranking runs before the limit, and is deterministic ----------------
+grep -Fq 'const bounded = ranked.slice(0, limit);' "$RK_TYPES" \
+  || fail "the ranked results are not bounded by the requested limit"
+RK_SORT_AT="$(echo "$RK_TYPES_FLAT" | grep -bo 'constranked=\[...neutral\].sort' | head -1 | cut -d: -f1 || true)"
+RK_SLICE_AT="$(echo "$RK_TYPES_FLAT" | grep -bo 'constbounded=ranked.slice(0,limit);' | head -1 | cut -d: -f1 || true)"
+[ -n "$RK_SORT_AT" ] || fail "the ranking sort is missing"
+[ -n "$RK_SLICE_AT" ] || fail "the ranking bound is missing"
+[ "$RK_SORT_AT" -lt "$RK_SLICE_AT" ] \
+  || fail "the limit is applied before ranking; an exact title match could be truncated"
+# The neutral SEARCH-002 order must be established BEFORE the ranking sort, so a
+# tie always falls back to the existing total order rather than input order.
+RK_NEUTRAL_AT="$(echo "$RK_TYPES_FLAT" | grep -bo 'constneutral=orderCurriculumSearchResults' | head -1 | cut -d: -f1 || true)"
+[ -n "$RK_NEUTRAL_AT" ] || fail "the neutral pre-pass is missing"
+[ "$RK_NEUTRAL_AT" -lt "$RK_SORT_AT" ] \
+  || fail "the neutral order no longer precedes ranking"
+# No randomness anywhere.
+if echo "$RK_TYPES_BARE" | grep -qiE 'math\.random|shuffle|randomize|crypto\.getRandom'; then
+  fail "randomness entered the ranking order"
+fi
+
+echo "PASS: ranking is deterministic and bounds only after ordering"
+
+# --- 67. No numeric relevance and no forbidden ranking signal ---------------
+grep -Fq 'export const SEARCH_RANKING_FORBIDDEN_SIGNALS' "$RK_TYPES" \
+  || fail "the forbidden-ranking-signal prohibition is not held as data"
+grep -Fq 'SEARCH_RANKING_FORBIDDEN_SIGNALS' "$RK_TYPE_TESTS" \
+  || fail "the forbidden-ranking-signal prohibition is not asserted by tests"
+for forbidden in relevanceScore rankScore boost popularity clickHistory \
+                 engagement analytics learnerProgress sourceUpdatedAt \
+                 freshness embedding vector; do
+  grep -Fq "\"$forbidden\"" "$RK_TYPES" \
+    || fail "a forbidden ranking signal is missing from the prohibition list: $forbidden"
+done
+# Prose and the prohibition list are excluded, so this judges real code.
+if echo "$RK_TYPES_BARE" | grep -qiE 'relevance|boost|popularity|engagement|clickH|scoreOf|weightOf|sourceUpdatedAt|freshness|embedding|semantic|vector'; then
+  fail "a prohibited ranking signal entered the SEARCH-008 comparator"
+fi
+# Ruling 3: a lexicographic named-rule comparator, never arithmetic on values.
+if echo "$RK_TYPES_BARE" | grep -qE '\* *[0-9]+\.[0-9]|\*\* *[0-9]|Math\.(pow|log|sqrt|exp)'; then
+  fail "numeric scoring arithmetic entered the SEARCH-008 comparator"
+fi
+# Ruling 6: no note source may reach ranking.
+for forbidden in student_notes searchStudentNotes noteId note_body; do
+  if echo "$RK_TYPES_BARE" | grep -qF "$forbidden"; then
+    fail "a private note source entered SEARCH-008 ranking: $forbidden"
+  fi
+done
+# Ruling 8: no identity, no client, no read.
+for forbidden in accessToken supabase createUserScopedSupabaseClient \
+                 createServerSupabaseClient userId ownerId studentId learnerId; do
+  if echo "$RK_TYPES_BARE" | grep -qF "$forbidden"; then
+    fail "an identity or client reached the SEARCH-008 comparator: $forbidden"
+  fi
+done
+# The signature admits exactly the three approved parameters.
+echo "$RK_TYPES_FLAT" \
+  | grep -Fq 'exportfunctionbuildRankedCurriculumSearchResults(classified:readonlyClassifiedSearchDocument[],variants:readonlyCurriculumQueryVariant[],limit:number):CurriculumSearchResults{' \
+  || fail "the ranking signature changed; it must accept only classified results, variants and the limit"
+
+echo "PASS: ranking carries no score, identity, behaviour or freshness signal"
+
+# --- 68. Ranking is composed strictly after authorization -------------------
+grep -Fq 'const candidates = surfaceAuthorized(permissioned);' "$CS_SERVICE" \
+  || fail "the SEARCH-003 surfacing gate is missing from the search pass"
+CS_AUTH_AT="$(echo "$CS_SERVICE_FLAT" | grep -bo 'constcandidates=surfaceAuthorized(permissioned);' | head -1 | cut -d: -f1 || true)"
+CS_FILTER_AT="$(echo "$CS_SERVICE_FLAT" | grep -bo 'constfiltered=applyCurriculumSearchFilter(selected,filter);' | head -1 | cut -d: -f1 || true)"
+CS_RANK_AT="$(echo "$CS_SERVICE_FLAT" | grep -bo 'buildRankedCurriculumSearchResults(classified,effectiveVariants,limit)' | head -1 | cut -d: -f1 || true)"
+[ -n "$CS_AUTH_AT" ] || fail "the authorization gate is missing"
+[ -n "$CS_FILTER_AT" ] || fail "the SEARCH-004 filter step is missing"
+[ -n "$CS_RANK_AT" ] || fail "the SEARCH-008 ranking step is missing"
+[ "$CS_AUTH_AT" -lt "$CS_FILTER_AT" ] \
+  || fail "filtering no longer runs after authorization"
+[ "$CS_FILTER_AT" -lt "$CS_RANK_AT" ] \
+  || fail "ranking no longer runs after authorization and filtering"
+# Ranking must receive the classified, authorized value and nothing else.
+if echo "$CS_SERVICE_CODE" | grep -qE 'buildRankedCurriculumSearchResults\([^)]*(permissioned|accessToken|supabase|data)'; then
+  fail "an unauthorized or raw value reached the ranking call"
+fi
+# Classification — and therefore ranking — must iterate the FILTERED, surfaced
+# set. Iterating the permissioned list instead would let a candidate the caller
+# was never entitled to see enter a tier, a count and the response.
+grep -Fq 'for (const entry of filtered) {' "$CS_SERVICE" \
+  || fail "match classification no longer iterates the authorized, filtered set"
+
+echo "PASS: ranking runs only on authorized, filtered, classified results"
+
+# --- 69. Fallback keeps failure and emptiness apart -------------------------
+echo "$(echo "$FB_TYPES_CODE" | tr -d ' \n')" \
+  | grep -Fq 'SEARCH_FALLBACK_REASONS=["no_results","search_unavailable"]asconst;' \
+  || fail "the approved fallback reason vocabulary changed"
+grep -Fq 'export function describeCurriculumFallbackHeadline' "$FB_TYPES" \
+  || fail "the fallback headline is missing"
+# The degraded headline must say it is NOT an empty result.
+grep -Fq 'This is a search problem, not an empty result.' "$FB_TYPES" \
+  || fail "the degraded state no longer denies being an empty result"
+# The view must derive the two states from DIFFERENT facts and never conflate
+# them. Pinned exactly: degradation comes from a rejected request, emptiness
+# from a successful response whose RETURNED count is zero.
+echo "$RK_VIEW_FLAT" \
+  | grep -Fq 'constfallbackReason:SearchFallbackReason|undefined=degraded?"search_unavailable":results&&!error&&results.count===0?"no_results":undefined;' \
+  || fail "the fallback state machine changed; failure and emptiness must stay distinct"
+grep -Fq 'setDegraded(true);' "$CS_VIEW" \
+  || fail "the degraded state is never entered"
+CS_DEGRADED_SET="$(echo "$CS_VIEW_CODE" | grep -c 'setDegraded(true)' || true)"
+[ "$CS_DEGRADED_SET" = "1" ] \
+  || fail "the degraded state is set at $CS_DEGRADED_SET sites; exactly one may exist"
+# A validation error is neither state.
+grep -Fq 'setDegraded(false);' "$CS_VIEW" \
+  || fail "the degraded state is never cleared"
+
+echo "PASS: a failed search is never rendered as an empty result"
+
+# --- 70. Suggestions are bounded learner actions ----------------------------
+echo "$(echo "$FB_TYPES_CODE" | tr -d ' \n')" \
+  | grep -Fq 'CURRICULUM_FALLBACK_ACTIONS=["clear_filters","browse_curriculum"]asconst;' \
+  || fail "the approved fallback action vocabulary changed"
+grep -Fq 'export const SEARCH_FALLBACK_FORBIDDEN_FIELDS' "$FB_TYPES" \
+  || fail "the fallback prohibition is not held as data"
+grep -Fq 'SEARCH_FALLBACK_FORBIDDEN_FIELDS' "$FB_TYPE_TESTS" \
+  || fail "the fallback prohibition is not asserted by tests"
+for forbidden in candidateCount totalCount globalTotal hiddenCount \
+                 withheldCount unauthorizedCount suggestedTerms \
+                 relatedQueries synonyms noteId noteBody userId ownerId; do
+  grep -Fq "\"$forbidden\"" "$FB_TYPES" \
+    || fail "a forbidden field is missing from the fallback prohibition list: $forbidden"
+  if echo "$FB_TYPES_BARE" | grep -qF "$forbidden"; then
+    fail "a forbidden channel entered fallback guidance: $forbidden"
+  fi
+done
+# Ruling 5: SEARCH-008 must not become a second query-interpretation engine.
+if echo "$FB_TYPES_BARE" | grep -qiE 'synonym|alias|typo|levenshtein|editDistance|broaden|expandQuery|didYouMean|stemming|trgm|semantic|embedding'; then
+  fail "a second query-interpretation mechanism entered SEARCH-008 fallback"
+fi
+# The guidance function may read nothing but its three declared inputs.
+echo "$(echo "$FB_TYPES_CODE" | tr -d ' \n')" \
+  | grep -Fq 'exportfunctionbuildCurriculumFallbackGuidance(input:{reason:SearchFallbackReason;query:string;filterActive:boolean;}):CurriculumFallbackGuidance{' \
+  || fail "the fallback guidance signature changed; it must accept no result, count or client"
+# Ruling 5: the fallback must never alter a filter or re-run a search itself.
+CS_FALLBACK_BLOCK="$(awk '/fallbackGuidance && !showingOriginal/{cap=1} cap; /^      \)\}$/{if(cap)exit}' "$CS_VIEW" || true)"
+for forbidden in 'runSearch(' 'setContentTypes(' 'searchCurriculum(' 'searchMyNotes('; do
+  if echo "$CS_FALLBACK_BLOCK" | grep -qF "$forbidden"; then
+    fail "the fallback surface performs a search or filter change itself: $forbidden"
+  fi
+done
+if echo "$CS_VIEW_CODE" | grep -qE '^\s*clearFilters\(\);'; then
+  fail "filters are cleared automatically rather than by the learner"
+fi
+
+echo "PASS: fallback suggestions are learner actions with no hidden channel"
+
+# --- 71. Structured navigation reuses the existing authorized route ---------
+grep -Fq '"/curriculum/paths"' "$NAV_SERVICE" \
+  || fail "the navigation fallback does not use the existing published-paths route"
+# Counts CALL sites, not the import: a leftover import would otherwise satisfy
+# this guard while a second request was added beside it.
+NAV_ROUTES="$(echo "$NAV_CODE" | grep -c 'apiRequest<' || true)"
+[ "$NAV_ROUTES" = "1" ] \
+  || fail "the navigation service makes $NAV_ROUTES requests; exactly one may exist"
+NAV_PATHS="$(echo "$NAV_CODE" | grep -oE '"/[a-z/-]+"' | sort -u | tr '\n' ' ')"
+[ "$NAV_PATHS" = '"/curriculum/paths" ' ] \
+  || fail "the navigation service reaches an unapproved route: $NAV_PATHS"
+grep -Fq 'buildCurriculumNavigationEntries(payload.learningPaths ?? [])' "$NAV_SERVICE" \
+  || fail "the navigation response is not projected through the approved builder"
+# The read must go out as the CALLER. An anonymous or substituted token would be
+# a second authorization path beside the session the learner actually holds.
+grep -Fq '>(accessToken, "/curriculum/paths", {' "$NAV_SERVICE" \
+  || fail "the navigation read no longer goes through the caller's own session"
+# SEARCH-008 adds NO route. The server must gain nothing.
+for forbidden in '/search/ranking' '/search/fallback' '/search/navigation' \
+                 '/curriculum/browse' '/admin/search/ranking'; do
+  if grep -qF "$forbidden" "$SERVER"; then
+    fail "SEARCH-008 added an API route: $forbidden"
+  fi
+done
+# No identity selector, no service role, no direct transport.
+for forbidden in userId user_id ownerId owner_id studentId learnerId \
+                 createServerSupabaseClient; do
+  if echo "$NAV_CODE" | grep -qF "$forbidden"; then
+    fail "the navigation service carries an identity or privileged path: $forbidden"
+  fi
+done
+if echo "$NAV_CODE" | grep -qE 'fetch\(|XMLHttpRequest|Authorization'; then
+  fail "the navigation service builds its own transport or auth header"
+fi
+# The projection must not carry an internal identifier.
+grep -Fq 'export function buildCurriculumNavigationEntries' "$FB_TYPES" \
+  || fail "the navigation projection is missing"
+grep -Fq 'reference: buildCurriculumSourceReference("learning_path", stableId)' "$FB_TYPES" \
+  || fail "navigation no longer preserves the SEARCH-002 source-of-truth link"
+if echo "$FB_TYPES_BARE" | grep -qE '\.\.\.path|Object\.assign\(|JSON\.parse'; then
+  fail "the navigation projection copies source fields wholesale"
+fi
+grep -Fq 'export const CURRICULUM_NAVIGATION_MAX_ENTRIES' "$FB_TYPES" \
+  || fail "the navigation list is unbounded"
+# A failed navigation read must stay a failure.
+grep -Fq 'export function describeCurriculumNavigationUnavailable' "$FB_TYPES" \
+  || fail "a failed navigation read has no honest message"
+grep -Fq 'describeCurriculumNavigationUnavailable()' "$CS_VIEW" \
+  || fail "the view never renders the navigation failure state"
+grep -Fq 'describeCurriculumNavigationEmpty()' "$CS_VIEW" \
+  || fail "the view never distinguishes an empty curriculum from a failed read"
+echo "$RK_VIEW_FLAT" | grep -Fq 'setEntries(null);setUnavailable(true);' \
+  || fail "a failed navigation read is not kept distinct from an empty list"
+
+echo "PASS: navigation reuses one authenticated route and leaks no identity"
+
+# --- 72. The learner surface: ordered, explained, and leak-free ------------
+# Order now carries meaning, so the list is ORDERED markup.
+echo "$RK_VIEW_FLAT" \
+  | grep -Fq '<olaria-labelledby="curriculum-results-heading">{results.results.map(' \
+  || fail "ranked curriculum results are not rendered as an ordered list of the returned results"
+grep -Fq 'describeCurriculumRankingOrder()' "$CS_VIEW" \
+  || fail "the ordering rule is not explained to the learner in text"
+# Ruling 3: no per-result ranking diagnostic may reach the learner.
+for forbidden in matchKind titlePrecision relevance rankScore scoreOf \
+                 CURRICULUM_TITLE_PRECISIONS SEARCH_RANKING_FORBIDDEN_SIGNALS; do
+  if grep -qF "$forbidden" "$CS_VIEW"; then
+    fail "an internal ranking value reached the learner surface: $forbidden"
+  fi
+done
+# Ruling 6: the two sources stay separately grouped and are never interleaved.
+if echo "$RK_VIEW_FLAT" | grep -qE '<olaria-labelledby="curriculum-results-heading">[^<]*notes'; then
+  fail "private notes were interleaved into ranked curriculum results"
+fi
+# Section 10: text, never colour, icon, hover or animation alone.
+if grep -qiE 'onMouseOver|onMouseEnter|animation:|@keyframes|title="rank' "$CS_VIEW"; then
+  fail "ordering or fallback meaning depends on hover or animation"
+fi
+if grep -qiE 'className="[^"]*\b(green|red|amber|danger)\b' "$CS_VIEW"; then
+  fail "colour became a status signal on the search surface"
+fi
+
+echo "PASS: ranked results are ordered markup with a text explanation and no internals"
+
+# --- 73. SEARCH-008 adds no migration, dependency, provider or AI -----------
+SEARCH_008_MIGRATIONS="$(ls supabase/migrations/*rank*.sql supabase/migrations/*fallback*.sql supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+[ "$SEARCH_008_MIGRATIONS" = "0" ] || fail "SEARCH-008 must add no migration"
+for forbidden in elasticsearch opensearch algolia meilisearch redis \
+                 pinecone weaviate qdrant openai anthropic ollama; do
+  if grep -qi "$forbidden" package.json packages/shared-types/package.json \
+       services/api/package.json apps/web/package.json; then
+    fail "SEARCH-008 introduced a search provider or AI dependency: $forbidden"
+  fi
+done
+if echo "$RK_TYPES_BARE$FB_TYPES_BARE$NAV_CODE" | grep -qiE 'openai|anthropic|ollama|embedding|vectorStore|setInterval|cron|queue|localStorage|sessionStorage|indexedDB'; then
+  fail "AI, scheduling, caching or client storage entered SEARCH-008"
+fi
+grep -Fq 'SEARCH-008' "$RK_DOC" \
+  || fail "the Batch 9 implementation document does not record SEARCH-008"
+grep -Fq '12.1' "$RK_DOC" \
+  || fail "the Batch 9 document does not record the approved section 12.1 interpretation"
+
+echo "PASS: SEARCH-008 adds no migration, provider, dependency, cache or AI"
+
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
@@ -1645,7 +1976,7 @@ bash scripts/security-scan.sh
 
 echo ""
 echo "============================================================"
-echo "Wave 9 Batch 1 through Batch 8 verification passed."
+echo "Wave 9 Batch 1 through Batch 9 verification passed."
 echo "SEARCH-001 Search Document and Index Model is implemented."
 echo "SEARCH-002 Curriculum Search is implemented."
 echo "SEARCH-003 Permission-Aware Search is implemented."
@@ -1654,7 +1985,10 @@ echo "SEARCH-005A Technical Query Normalization and Curated Aliases is implement
 echo "SEARCH-005B Bounded Typo Recovery is implemented."
 echo "SEARCH-006 Personal Notes Search Integration is implemented."
 echo "SEARCH-007 Indexing and Freshness Pipeline is implemented."
-echo "SEARCH-008 remains unimplemented."
+echo "SEARCH-008 Search Result Ranking and Fallback is implemented."
 echo "One authenticated search route, no cache or index, no migration, no AI."
 echo "Facet counts describe the returned authorized results and nothing else."
+echo "Ranking is deterministic, carries no score, and runs only after authorization."
+echo "A failed search is never presented as an empty result."
+echo "The Search Engine completion gate does not exist yet; Search is NOT complete."
 echo "============================================================"

@@ -16,7 +16,7 @@ import {
   buildCurriculumTypoRecovery,
   buildCurriculumSearchFilter,
   buildCurriculumSearchSnippet,
-  buildTieredCurriculumSearchResults,
+  buildRankedCurriculumSearchResults,
   classifyCurriculumMatch,
   buildCurriculumSourceReference,
   buildSearchDocument,
@@ -61,11 +61,15 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * No service-role client. No caller-supplied user id. No notes or private
  * source of any kind.
  *
- * ## Deliberately not implemented
+ * ## SEARCH-008 ranking
  *
- * SEARCH-005 typo tolerance, synonyms and acronym aliases · SEARCH-006 note
- * results · SEARCH-007 indexing pipeline · SEARCH-008 relevance ranking.
- * Matching is literal substring; ordering is neutral.
+ * The returned results are ordered by match class, then by how precisely the
+ * title carries the search, then by SEARCH-002's existing neutral order. The
+ * ordering runs on already-authorized, already-filtered documents and is bounded
+ * afterwards. There is no numeric value in it, no learner identity, no
+ * behavioural signal and no freshness key. Matching itself is still literal
+ * escaped substring matching — ranking reorders what was found; it never widens
+ * what is findable.
  *
  * ## SEARCH-004 filters and facets
  *
@@ -368,14 +372,30 @@ export async function searchCurriculum(
   // and neither is the bounded over-fetch window, so no count can describe a
   // record the learner did not get. If facet computation fails, `facets` is
   // omitted and the results still return (SEARCH-004 section 11).
-  // Tiering applies SEARCH-002's neutral order first and preserves it WITHIN
-  // each match class, then bounds — so an exact match can never be truncated in
-  // favour of an alias match. Facets are still computed from the final bounded
-  // result set, so the SEARCH-004 count guarantee is unchanged. The adjustment
-  // is attached last and omitted entirely when nothing meaningful changed.
+  // SEARCH-008 ranks against the query that ACTUALLY produced the results in
+  // hand, derived from the adjustment already recorded above rather than from a
+  // second copy of the recovery literal. When a typo recovery won, that is the
+  // corrected query — the same one the learner is told was searched — so a
+  // recovered result is judged by the words that found it instead of collapsing
+  // into the weakest precision class. In every other case the approved variant
+  // set is unchanged.
+  const effectiveVariants: readonly CurriculumQueryVariant[] =
+    adjustment?.adjustmentKind === "typo"
+      ? [{ value: adjustment.effectiveQuery, matchKind: "typo" }]
+      : variants;
+
+  // SEARCH-008 ranking applies SEARCH-002's neutral order first, then match
+  // class, then title precision, and only THEN bounds — so a whole-title exact
+  // match can never be truncated in favour of a description-only match. It runs
+  // here, on `classified`, which exists only downstream of the caller's
+  // RLS-scoped read, the SEARCH-003 decision, version resolution and SEARCH-004
+  // filtering: a withheld record is not in its input and cannot influence an
+  // order, a tie-break or a count. Facets are still computed from the final
+  // bounded result set, so the SEARCH-004 count guarantee is unchanged. The
+  // adjustment is attached last and omitted when nothing meaningful changed.
   return withCurriculumQueryAdjustment(
     withCurriculumSearchFacets(
-      buildTieredCurriculumSearchResults(classified, limit)
+      buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)
     ),
     adjustment
   );
