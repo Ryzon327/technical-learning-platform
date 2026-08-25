@@ -1362,6 +1362,109 @@ migration or feature status changed. No feature was marked complete.
 
 ---
 
+## DEC-048
+
+**Category**
+
+Engineering
+
+**Title**
+
+Autonomous Execution Within an Approved Objective
+
+**Status**
+
+Approved
+
+**Decision**
+
+Command-by-command approval of routine Claude Code shell operations is
+discontinued. Once the Founder approves an implementation objective, the ordinary
+non-destructive engineering work required to accomplish it is pre-authorized, and
+the AI must not repeatedly ask whether to proceed with it.
+
+The control model becomes: approved objective, autonomous implementation,
+automated verification, fail-closed inventory review, architecture review, commit
+authorization, designated Human UAT.
+
+Approval remains mandatory for consequential actions: executing migrations or
+mutating persistent data; dependency and toolchain changes; secrets, credentials
+and anything weakening a security control; destructive file or database
+operations; force push, history rewriting or amending an approved commit;
+deployment and production infrastructure; and material architecture or product
+scope change. CERT-008's migration remains unexecuted unless separately
+authorized.
+
+Commit and push remain boundaries. The default is implement, verify, report, stop
+before commit. When commit and push are authorized, the entire safe sequence —
+inventory verification, explicit staging, commit, author/committer/attribution
+verification, push and synchronization verification — is authorized as one
+operation. Force push is never permitted.
+
+An obviously required existing file omitted from an initial inventory may be
+included without interrupting the Founder, provided it does not materially expand
+architecture or scope, weaken security, add a dependency or execute a migration,
+and the final report records it. Material scope expansion still stops.
+
+Mutation testing is pre-authorized to prove test and verifier effectiveness,
+subject to controlled application, verified byte-identical restoration, and honest
+reporting of any surviving mutation.
+
+Human UAT remains mandatory at the DEC-047 checkpoints. The AI may prepare
+runtime instructions, scenarios, fixture requirements and evidence templates, but
+may never mark Human UAT passed.
+
+The detailed standard is recorded in `docs/Engineering-OS/Engineering-OS.md`
+section 7, which CLAUDE.md references as binding.
+
+**Rationale**
+
+The Founder cannot remain at the workstation approving routine shell commands one
+at a time, and repetitive approval was consuming attention without adding
+assurance — approving `grep` a hundred times does not make a migration safer. The
+assurance that matters is verification evidence, inventory review, architecture
+review and Human UAT, all of which are strengthened rather than relaxed here.
+This changes who confirms mechanism, not who decides consequence.
+
+**Alternatives Considered**
+
+Blanket permission bypass was rejected: it removes the consequential-action
+boundary entirely. A new approval-tracking subsystem was rejected in favour of the
+existing Engineering OS standards and this ledger, so no parallel governance
+system exists.
+
+**Impact**
+
+Governance, documentation and the project Claude Code permission configuration.
+No application code, test, verifier, dependency, schema or migration change.
+
+`.claude/settings.json` now allows routine repository-local inspection, editing,
+test, build and verification commands, and **denies** the consequential ones:
+`supabase db push` / `db reset` / `migration up` / `migration repair`, `psql`,
+`pg_dump`, `pg_restore`, `git push --force` / `-f` / `--force-with-lease`,
+`git reset --hard`, `git rebase`, `git commit --amend`, history rewriting,
+`rm -rf`, `sudo`, deployment commands, and reading or editing any `.env` file.
+`defaultMode` remains `default`, so anything neither allowed nor denied still
+prompts. There is no `bypassPermissions`, no `--dangerously-skip-permissions`,
+and no blanket `Bash(*)` rule. Dependency commands are deliberately left to
+prompt rather than denied, so an authorized dependency change is still possible.
+
+`.claude/settings.local.json` is machine-local and gitignored; ineffective glob
+syntax there was removed in favour of correct prefix rules in the tracked file.
+
+**Deny rules are defence in depth, not a sandbox.** They match command strings,
+so flag position and shell composition can evade them. Engineering OS section 7
+and this decision remain the authoritative boundary even where a pattern could
+technically be evaded.
+
+**Related Documents**
+
+`docs/Engineering-OS/Engineering-OS.md` section 7 · `CLAUDE.md` binding documents
+and Change Control · `docs/Project/DECISION_LEDGER.md` DEC-047 ·
+`.claude/settings.json`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

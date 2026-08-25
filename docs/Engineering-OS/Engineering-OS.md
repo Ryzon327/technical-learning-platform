@@ -262,6 +262,109 @@ AI must not:
 
 Every AI action should be understandable and reviewable.
 
+## Autonomous execution within an approved objective
+
+Once the Founder approves an implementation objective, the ordinary
+non-destructive engineering work required to accomplish it is **pre-authorized**.
+Routine shell execution is an implementation mechanism, not a Founder decision
+point, and AI must not repeatedly ask *"do you want to proceed?"* for it.
+
+This **replaces repetitive command approval, not governance**. The control model
+is:
+
+```
+approved objective → autonomous implementation → automated verification
+  → fail-closed inventory review → architecture review → commit authorization
+  → designated Human UAT
+```
+
+Pre-authorized when relevant to the approved objective: repository navigation and
+file inspection · `grep`, `find`, `sed`, `awk`, `cat` · scripted controlled edits
+to project files · modifying files the objective legitimately requires · adding
+or modifying tests and verifier scripts within scope · temporary mutation testing
+with verified restoration · package-manager repository commands · tests,
+typecheck, build, lint, security scans, smoke tests and existing verification
+scripts · read-only git inspection (`status`, `diff`, `log`, `show`,
+`rev-parse`, `fetch`) · inventory, attribution, dependency and migration **state**
+checks · starting existing local development processes when the approved task
+requires it and doing so does not modify persistent state.
+
+## Actions that always require Founder approval
+
+Autonomy stops at consequence. Approval remains mandatory for:
+
+* **Persistent state** — executing migrations, `supabase db push`,
+  `supabase migration up`, destructive SQL, schema or RLS changes outside an
+  approved implementation, and modifying development or production data.
+* **Dependencies and toolchain** — adding, removing, upgrading or replacing
+  dependencies, test frameworks, package managers or major tooling.
+* **Security and credentials** — secrets, credentials, authentication providers,
+  credential stores, weakening a security control, or exposing a token.
+* **Destructive operations** — deleting substantial existing work, destructive
+  bulk file operations, destructive database operations.
+* **Git history** — force push, history rewriting, shared-history rebase,
+  `reset --hard` against established work, amending an approved commit.
+* **Production** — deployment, production infrastructure, DNS, paid provisioning.
+* **Material architecture or product scope** — a new subsystem or service,
+  materially different data or authorization architecture, changing approved
+  acceptance criteria, weakening an approved guardrail, implementing another
+  Feature's functionality, or any meaningful product behaviour that is the
+  Founder's choice.
+
+Do **not** stop for trivial implementation choices where repository precedent
+already establishes the correct approach.
+
+## Tooling permissions are defence in depth, not the boundary
+
+The project permission configuration in `.claude/settings.json` denies the
+consequential operations listed above and allows routine repository-local work.
+It is **defence in depth, not a sandbox**: the rules match command strings, so
+flag position and shell composition can evade them. **These standards remain
+authoritative even where a pattern could technically be evaded.** A command that
+slips past a deny rule is still forbidden if it crosses a boundary above.
+
+Construct commands so they match the permission rules. A single compound
+expression — shell variable assignment with command substitution, nested `$(…)`,
+or a loop — cannot be attributed to any one rule and will prompt even when every
+operation inside it is individually permitted. Prefer one simple command per
+invocation, or move genuinely multi-step logic into a script invoked as a single
+command. **Never weaken a boundary merely to avoid a prompt.**
+
+## Inventory expansion
+
+An obviously required existing file omitted from an initial inventory is not a
+reason to interrupt the Founder. It may be included when it does not materially
+expand architecture or product scope, weaken security, introduce a dependency or
+execute a migration — and the final report must record the file, why it became
+necessary, and why it stayed within approved scope. **Stop only for material
+scope expansion.**
+
+## Verification replaces repetitive approval
+
+Reduced command approval makes verification the control. Every implementation
+batch executes all applicable existing gates and reports the evidence: exact
+working-tree inventory and file-level changes, diff review, targeted and full
+test suites, typecheck, build, lint, security scan, smoke tests, engine
+verification scripts, regression verification, mutation testing for important
+contract and security guards, dependency and migration **state** checks,
+temporary-artifact checks, known limitations, and Human UAT status.
+
+**Never claim a gate passed unless it was executed. Never hide a failing gate.** A
+failure may be reported as pre-existing only when evidence establishes the
+current work did not introduce it.
+
+## Commit and push remain boundaries
+
+Unless the current instruction explicitly authorizes them, the default is
+**implement → verify → report → stop before commit**. Staging and inspection
+commands within an authorized commit do not need separate approval: once
+commit and push are authorized, the whole safe sequence — verify inventory,
+stage approved paths explicitly, commit with the approved subject, verify author,
+committer, body, trailers and attribution, push, fetch, and confirm
+`HEAD == origin/main` with a clean tree — is authorized as one operation.
+
+**Never force push.**
+
 ---
 
 # 8. Daily Practice

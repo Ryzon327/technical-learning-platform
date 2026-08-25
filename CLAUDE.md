@@ -46,6 +46,11 @@ Binding supporting documents (consult as applicable to the task):
 * `docs/Engineering-OS/BUILD_WAVE_*_COMPLETION_REVIEW.md` — completion
   reviews for each finished build wave; check the relevant one before
   touching a previously "complete" engine.
+* `docs/Engineering-OS/Engineering-OS.md` §7 — the autonomous execution
+  standard. Within an approved objective, routine non-destructive engineering
+  and verification work is pre-authorized and must not be re-confirmed command
+  by command; the consequential actions listed there still require Founder
+  approval, and the Change Control rules below are unchanged (DEC-048).
 
 **Do not treat the stale root-level `README.md`, `ROADMAP.md`, or
 `FEATURE_REGISTRY.md` as authoritative.** These duplicate an earlier
