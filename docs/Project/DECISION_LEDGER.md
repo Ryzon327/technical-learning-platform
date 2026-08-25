@@ -1277,6 +1277,91 @@ dependency changes from this decision.
 
 ---
 
+## DEC-047
+
+**Category**
+
+Engineering
+
+**Title**
+
+Human Acceptance Testing Is a Mandatory Release Gate
+
+**Status**
+
+Approved
+
+**Decision**
+
+Automated verification does not constitute final product acceptance. Type
+checking, linting, unit and integration tests, mutation testing, static
+verification, builds, security scans and architecture review remain mandatory,
+but they are necessary rather than sufficient.
+
+Major learner-facing engines require Founder/Human Acceptance Testing conducted
+against the running application **in a browser** before final product
+acceptance. Reviewing source, unit tests, verifier output, test-generated
+screenshots or implementation reports does not satisfy this.
+
+Human UAT occurs at meaningful engine or workflow boundaries rather than after
+every implementation batch. It is an additional gate, never a replacement for
+automated testing, CI, security testing, accessibility automation or
+architecture review, and it may block acceptance even when CI is green.
+
+Findings are classified as blocking, non-blocking, or not a defect. Material
+defects return through the normal scoped implementation, review, test and commit
+workflow rather than being fixed silently during the review.
+
+The Search Engine passes through SEARCH-001 to SEARCH-008 implementation, the
+automated Search Engine completion gate, Founder browser UAT, resolution of
+blocking findings, and only then Search Engine final product acceptance. The MVP
+passes through automated completion and assurance, real-environment or
+integration verification where required, an end-to-end Founder UAT across the
+learner journey, resolution of blocking findings, and only then final MVP
+acceptance.
+
+A security property requiring real infrastructure to verify — row level
+security, cross-user isolation, live database behaviour — must not be
+represented as proven because mocked or unit tests pass.
+
+Recorded implementation limitations, including the absence of a DOM or browser
+harness and the absence of a live PostgreSQL or RLS harness, must not silently
+become permanent accepted limitations. Before MVP production acceptance each
+material limitation receives exactly one disposition: replaced by executable
+automated verification, verified through human or integration or UAT testing, or
+explicitly accepted by the Founder as a documented residual limitation.
+
+**Rationale**
+
+Every Search batch to date has recorded honestly that its authorization claims
+are query-level rather than live-database proof, and that rendered markup is not
+runtime-verified because `apps/web` has no DOM harness. Those disclosures are
+accurate, but nothing in the governance previously required them to be resolved
+before release — so a green pipeline could have been mistaken for product
+acceptance. This closes that gap without weakening any existing gate.
+
+**Alternatives Considered**
+
+Adding a browser test framework such as Playwright or Cypress was not chosen
+here: it is an implementation decision with dependency and infrastructure
+consequences, and it would not by itself establish the governance requirement.
+Creating a separate UAT tracking subsystem was rejected in favour of integrating
+into the existing Engineering OS standards, MVP Implementation Sequence and MVP
+Release Gate.
+
+**Impact**
+
+Governance and documentation only. No application code, dependency, schema,
+migration or feature status changed. No feature was marked complete.
+
+**Related Documents**
+
+`docs/Engineering-OS/Engineering-OS.md` section 6 ·
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` sections 11, 15c, 15d and 16 ·
+`docs/Roadmap/RELEASE_PLAN.md`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

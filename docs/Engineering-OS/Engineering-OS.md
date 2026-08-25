@@ -195,6 +195,40 @@ Possible tests include:
 
 Do not claim tests passed unless they were actually executed.
 
+### Automated verification is not final acceptance
+
+Type checking, linting, unit and integration tests, mutation testing, static
+verification, builds, security scans and architecture review are **necessary but
+not sufficient** for final product acceptance.
+
+They can prove that an implementation has a property. They cannot prove that the
+real learner experience is usable, understandable, visually correct, accessible
+in practice, or correct when exercised end to end.
+
+Major learner-facing engines therefore require **Human Acceptance Testing** —
+the Founder exercising the actual application **through the browser** — before
+final product acceptance. Reviewing source, unit tests, verifier output,
+test-generated screenshots or implementation reports does not satisfy this.
+
+Human acceptance testing:
+
+* is an **additional** release gate, never a replacement for automated testing,
+  CI, security testing, accessibility automation or architecture review;
+* occurs at meaningful **engine or workflow boundaries**, not after every small
+  implementation batch;
+* **may block acceptance even when CI is green**;
+* returns material defects through the normal scoped
+  implementation/review/test/commit workflow rather than fixing them silently
+  during the review.
+
+A security property that requires real infrastructure to verify — row level
+security, cross-user isolation, live database behaviour — **must not be
+represented as proven because mocked or unit tests pass**. State what was
+actually exercised.
+
+The MVP-scoped checkpoints implementing this standard are defined in
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` section 15d.
+
 ---
 
 ## Documentation

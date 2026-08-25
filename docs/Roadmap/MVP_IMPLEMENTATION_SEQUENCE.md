@@ -236,6 +236,10 @@ Start with deterministic baseline search:
 
 Students can find authorized curriculum and their own notes without AI.
 
+The automated Search Engine completion gate passes, **and** the Search Engine
+Human UAT (§15d) is completed with every blocking finding resolved, before
+Search receives final product acceptance.
+
 ---
 
 # 12. Build Wave 10 — AI Gateway and AI Features
@@ -457,6 +461,120 @@ finding is either remediated or explicitly resolved with a recorded decision.
 
 ---
 
+# 15d. Human Acceptance Testing (UAT)
+
+Automated verification does not equal final product acceptance. The engineering
+standard is recorded in `docs/Engineering-OS/Engineering-OS.md` section 6; this
+section defines the MVP-scoped checkpoints that enforce it.
+
+**This adds a gate. It removes nothing.** Every existing automated gate remains
+mandatory and must still pass.
+
+## Engine-level checkpoint
+
+Major learner-facing engines pass through:
+
+```
+feature implementation (normal engineering workflow)
+        ↓
+automated engine completion gate
+        ↓
+Founder / Human browser UAT
+        ↓
+blocking findings resolved
+        ↓
+engine final product acceptance
+```
+
+UAT exercises the **running application in a browser**. Reading source, unit
+tests, verifier output, test-generated screenshots or implementation reports does
+not satisfy it.
+
+## Findings classification
+
+Every finding is classified as:
+
+- **Blocking** — must be resolved before the engine or MVP is accepted.
+- **Non-blocking** — recorded and scheduled.
+- **Not a defect** — recorded with the reason.
+
+Material defects **return through the normal scoped
+implementation/review/test/commit workflow**. They are not silently fixed during
+the review session.
+
+A failed UAT **may block acceptance even when CI is green**.
+
+## Search Engine UAT
+
+Search follows this sequence. It has **not** occurred and cannot occur yet —
+Search is incomplete.
+
+```
+SEARCH-001 → SEARCH-008 implementation
+        ↓
+automated Search Engine completion gate
+        ↓
+Founder / Human browser UAT
+        ↓
+blocking findings resolved
+        ↓
+Search Engine final product acceptance
+```
+
+The Search UAT should exercise, as applicable to what is implemented at that
+time: realistic learner searches · filtering and clearing filters · technical
+terminology and command-like tokens · approved acronyms and aliases · typo
+recovery **once SEARCH-005B exists** · result ordering · empty-result recovery ·
+navigation from a result to its source · authorization-sensitive behaviour where
+testable · keyboard interaction · accessibility behaviour observable in the
+browser · and failure and recovery states.
+
+## MVP release checkpoint
+
+```
+automated MVP completion / assurance
+        ↓
+real-environment / integration verification where required
+        ↓
+Founder / Human end-to-end UAT across the learner journey
+        ↓
+blocking findings resolved
+        ↓
+Founder final MVP acceptance
+```
+
+The end-to-end UAT covers the applicable implemented workflows: sign-in and
+authentication · learner navigation · finding curriculum · studying and learning
+flows · labs · assessments · progress · certificates where applicable · notes
+where applicable · Search · keyboard navigation · visible accessibility
+behaviour · responsive and browser behaviour · and loading, error, empty and
+recovery states.
+
+## Recorded limitations must be dispositioned, not inherited
+
+Limitations recorded during implementation — no DOM or browser harness, no live
+PostgreSQL or RLS harness, mocked authorization or database behaviour, and any
+other explicitly recorded non-executable acceptance criterion — **must not
+silently become permanent accepted limitations**.
+
+Before MVP production acceptance each material limitation receives exactly one
+disposition:
+
+- **A. Automated** — replaced by executable automated verification.
+- **B. Verified** — verified through human, integration or UAT testing.
+- **C. Accepted** — explicitly accepted by the Founder as a documented residual
+  limitation.
+
+Items already recorded in section 15c are dispositioned under this rule.
+
+## Exit criteria
+
+Each applicable engine has completed its Human UAT with all blocking findings
+resolved, the end-to-end MVP UAT has been performed, and every material recorded
+limitation carries an A, B or C disposition.
+
+---
+
 # 16. MVP Release Gate
 
 MVP release requires:
@@ -478,6 +596,9 @@ MVP release requires:
 - [ ] no critical unresolved architecture conflicts.
 - [ ] pre-Claude-Code / legacy implementation assurance audit passes, with all
       release-blocking findings remediated or explicitly resolved (§15c).
+- [ ] Founder/Human end-to-end browser UAT performed, every blocking finding
+      resolved, and every material recorded limitation dispositioned as
+      automated, verified or explicitly accepted (§15d).
 
 ---
 
