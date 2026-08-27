@@ -137,19 +137,64 @@ flagged conditions unless the Founder/architect directs otherwise.
 
 ## Change Control
 
-Claude Code must not:
+Work reaches this repository through an **architect-approved GitHub work
+package** (DEC-050, DEC-051). One work package normally means one GitHub Issue,
+one feature branch and one pull request.
 
-* Automatically continue into the next milestone or build wave.
-* Commit changes unless explicitly authorized.
-* Push changes unless explicitly authorized.
-* Deploy unless explicitly authorized.
-* Run production migrations unless explicitly authorized.
-* Publish content unless explicitly authorized.
-* Alter secrets or production credentials.
-* Silently change architecture.
+### Pre-authorized inside an approved work package
+
+Within the scope of an approved work package, Claude Code performs the ordinary
+implementation cycle **without asking permission for each step**:
+
+* Create the work-package feature branch.
+* Read approved project files and inspect the repository.
+* Edit in-scope files, and add or update tests and verifier scripts in scope.
+* Run tests, typecheck, build, lint, security scans, smoke tests and verifiers.
+* Stage in-scope files and inspect the staged diff.
+* Create **Founder-attributed** commits.
+* Push the **feature branch**.
+* Create and update the pull request, and publish implementation and validation
+  evidence there.
+* Read CI results.
+* Correct ordinary in-scope implementation failures on the **same branch and
+  pull request**, revalidate, and push the correction.
+
+Repeating this cycle until the work package is implemented and green is expected
+behaviour, not scope creep.
+
+### Claude Code must never do independently
+
+* Expand the work package's scope.
+* Redesign approved architecture, or reopen a completed engine.
+* Weaken a verifier, a guardrail or an acceptance criterion.
+* Execute a real database migration, or author one under a work package
+  recorded as `NONE EXPECTED`.
+* Deploy to production, or configure consequential provider infrastructure.
+* Force push, rewrite published history, or delete a branch.
+* Push directly to `main`, or merge a pull request.
+* Expose, rotate or alter secrets and credentials.
+* Make consequential dependency changes.
+* Perform Human UAT, or grant subjective product or visual acceptance.
 * Treat its own recommendation as an approved decision.
 
-At milestone completion, stop and await Founder/architect review.
+Those remain **Founder gates**. Autonomy stops at consequence, never at cadence.
+
+### Milestone semantics
+
+| State | Behaviour |
+|---|---|
+| **Internal work-package checkpoint** | Validate, record evidence, and **continue automatically** while green and still in scope. Do not stop to report. |
+| **Work-package implementation complete** | Open or update the pull request with full implementation and validation evidence, then wait for CI and architecture review **through GitHub**. |
+| **Founder gate** | Stop only when a consequential approval or Human UAT is genuinely required, and say precisely which gate was reached. |
+
+This removes relay overhead, not engineering discipline. Milestone IDs, Feature
+IDs and verifier checkpoints all remain.
+
+### Commit attribution
+
+Commits are attributed **only to the Founder/user**. No AI system may appear as
+author, committer, co-author or attribution trailer. See
+`docs/Engineering-OS/Engineering-OS.md` section 7.
 
 ---
 

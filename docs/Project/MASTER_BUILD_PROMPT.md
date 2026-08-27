@@ -682,34 +682,45 @@ Do not rewrite the complete Blueprint for a normal implementation change.
 
 Do not assume the founder knows Git.
 
-At milestone completion, provide:
+**Superseded by DEC-050 and DEC-051.** Git is no longer operated by hand by the
+Founder. Work flows through GitHub:
 
-* A plain-language explanation of what changed.
-* The exact files created.
-* The exact files modified.
-* The tests run.
-* Any unresolved issues.
-* A recommended commit message.
-* Exact Git commands.
-
-Use this format:
-
-```bash
-cd ~/Projects/technical-learning-platform
-git status
-git add <specific files>
-git commit -m "<recommended commit message>"
-git push
+```
+GitHub Issue (approved work package)
+  → feature branch
+  → implementation and local validation
+  → Founder-attributed commit
+  → push feature branch
+  → pull request with implementation evidence
+  → GitHub Actions
+  → architecture review
+  → Founder merge
 ```
 
-Prefer adding specific files over `git add .` when a milestone affects a small known set of files.
+Claude Code performs the branch, commit, push and pull-request steps itself
+inside an approved work package. `main` is branch-protected: it takes changes
+through a pull request with the `verify` check passing, and never by force push
+or branch deletion. See `CLAUDE.md` — Change Control.
 
-Before suggesting a commit, confirm:
+The Founder's Git role is **review and merge**, not command execution.
+
+## What every pull request must still carry
+
+* A plain-language explanation of what changed.
+* The exact files created, modified and deleted.
+* The tests and verifiers actually run, with their results.
+* Any unresolved issues, known limitations and deferred work.
+* Migration, dependency and Human UAT status.
+* Which consequential Founder gates remain.
+
+`.github/pull_request_template.md` is the authoritative shape.
+
+## Before any commit, confirm
 
 * No secrets were added.
-* No unrelated files changed.
-* The repository is in the expected project folder.
+* No unrelated files changed — stage specific paths, never `git add .`.
 * Tests and documentation are addressed.
+* Authorship is the Founder's alone, with no AI attribution trailer.
 
 ---
 
