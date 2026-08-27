@@ -365,6 +365,27 @@ committer, body, trailers and attribution, push, fetch, and confirm
 
 **Never force push.**
 
+## Commit authorship is the Founder's alone
+
+Every commit in this repository is attributed **only to the Founder/user**.
+
+Claude, Anthropic, ChatGPT, OpenAI or any other AI system must never appear as a
+commit author, committer, co-author, attribution trailer, or equivalent metadata.
+`Co-Authored-By:` lines naming an AI, "Generated with" footers and similar
+markers are prohibited, whatever tool produced the change.
+
+AI is an implementation mechanism. The Founder is the author of this work, and
+the commit record must say so without qualification.
+
+Verifying author, committer, body and trailers is already part of the authorized
+commit sequence above. This states the standard those checks enforce.
+
+**Known exception, recorded rather than rewritten:** two Wave 8 commits
+(`ee726a0`, `8795112`) predate this rule and carry an AI co-author trailer.
+Removing them would require rewriting published history, which is itself a
+Founder-gated operation and disproportionate to the defect. Any automated
+attribution check must therefore judge **new** commits, not the whole history.
+
 ---
 
 # 8. Daily Practice

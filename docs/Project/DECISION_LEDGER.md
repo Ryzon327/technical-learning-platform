@@ -1626,6 +1626,102 @@ pending and final Search product acceptance is not granted.
 
 ---
 
+## DEC-050
+
+**Category**
+
+Engineering
+
+**Title**
+
+Native GitHub Is the Development Handoff Layer
+
+**Status**
+
+Approved
+
+**Decision**
+
+Native GitHub becomes the shared communication, handoff and source-of-truth layer
+between the Founder, the ChatGPT Architect and Claude Code. The mapping is:
+
+| Artefact | Meaning |
+|---|---|
+| **Issue** | an architect-approved, Founder-sanctioned bounded work package |
+| **Feature branch** | Claude Code's implementation workspace |
+| **Pull request** | implementation evidence and the architecture-review surface |
+| **GitHub Actions** | the automated quality gate |
+| **PR review comments** | the architecture correction loop |
+| **Merge to `main`** | the approved source-of-truth transition |
+
+One bounded work package normally maps to one issue, one feature branch and one
+pull request. Internal implementation checkpoints are **automated**, not Founder
+relay points: the Founder is asked to act at consequence, not at cadence.
+
+**No custom orchestration platform is approved or necessary.** Assessment found
+no requirement that native GitHub cannot meet, so no orchestration service, agent
+platform, LangGraph, message queue, additional database, GitHub App or webhook
+infrastructure is authorized for this purpose.
+
+The Founder remains the authority for every consequential gate — migration
+execution, deployment, destructive operations, git history rewriting, secrets,
+dependency changes, material architecture or scope changes, provider and
+infrastructure consequences — and for Human UAT, subjective product acceptance,
+and merge to `main`.
+
+**Commits are attributed only to the Founder/user.** Claude, Anthropic, ChatGPT,
+OpenAI or any other AI system must never appear as author, committer, co-author
+or attribution trailer. The standard is recorded in `Engineering-OS.md` section 7.
+
+**Rationale**
+
+Governance already permitted most of this. `Engineering-OS.md` section 7 (DEC-048)
+pre-authorizes ordinary implementation within an approved objective and stops
+autonomy at consequence. What remained was a *communication* problem: the Founder
+was relaying work packages, implementation reports, validation evidence and
+architecture corrections by hand between two AI systems, which is effort without
+judgement.
+
+GitHub already holds the code, the CI and the history. Making it hold the handoff
+removes the relay without weakening a single gate, and every element of the model
+maps onto a primitive the repository already has.
+
+**Alternatives Considered**
+
+A custom orchestration layer was rejected: the assessment found no mandatory
+requirement native GitHub fails to meet, and it would add infrastructure to
+maintain, secure and reason about for no governance benefit.
+
+Continuing the existing per-slice relay was rejected because it scales with the
+number of tasks rather than with their consequence.
+
+**Impact**
+
+Governance and repository configuration. This decision authorizes the direction;
+it does not by itself change Claude's commit or push permissions, which remain as
+`Engineering-OS.md` section 7 defines them until a later work package changes
+them explicitly.
+
+Two Wave 8 commits (`ee726a0`, `8795112`) predate the attribution rule and carry
+an AI co-author trailer. They are recorded rather than rewritten: removing them
+would require rewriting published history, itself a Founder-gated operation.
+Automated attribution checks must therefore judge new commits, not all history.
+
+Branch protection for `main` is **designed but deliberately not applied** by this
+decision; it changes repository governance and is proposed separately for Founder
+approval.
+
+**Related Documents**
+
+`docs/Engineering-OS/Engineering-OS.md` section 7 ·
+`.github/ISSUE_TEMPLATE/work-package.md` ·
+`.github/pull_request_template.md` ·
+`.github/workflows/ci.yml` ·
+`docs/Project/DECISION_LEDGER.md` DEC-047, DEC-048 ·
+`CLAUDE.md` Authority Model and Change Control
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.
