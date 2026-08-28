@@ -29,4 +29,36 @@ describe("runtime configuration", () => {
 
     expect(validateRuntimeConfig(config).appEnv).toBe("production");
   });
+
+  // API-CORS-1 — the browser origin allowlist is part of runtime configuration,
+  // and its production behaviour is the security-relevant half.
+  it("defaults development to the Vite dev origin", () => {
+    expect(loadRuntimeConfig({}).allowedWebOrigins).toEqual([
+      "http://localhost:5173"
+    ]);
+  });
+
+  it("PRODUCTION does not inherit the localhost development origin", () => {
+    const config = loadRuntimeConfig({
+      APP_ENV: "production",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_ANON_KEY: "test-anon",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key"
+    });
+
+    expect(config.allowedWebOrigins).toEqual([]);
+    expect(validateRuntimeConfig(config).allowedWebOrigins).toEqual([]);
+  });
+
+  it("production uses exactly the configured origins", () => {
+    const config = loadRuntimeConfig({
+      APP_ENV: "production",
+      API_ALLOWED_ORIGINS: "https://app.example.com",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_ANON_KEY: "test-anon",
+      SUPABASE_SERVICE_ROLE_KEY: "test-key"
+    });
+
+    expect(config.allowedWebOrigins).toEqual(["https://app.example.com"]);
+  });
 });

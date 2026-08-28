@@ -21,6 +21,7 @@ import { interruptAssessmentAttempt, resumeInterruptedAssessmentAttempt } from "
 import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
+import { resolveCors } from "./cors";
 import {
   addCompetencyPrerequisite,
   createDraftCompetency,
@@ -121,6 +122,20 @@ const config = validateRuntimeConfig(loadRuntimeConfig());
 function getCorrelationHeader(request: IncomingMessage): string | undefined {
   const value = request.headers["x-correlation-id"];
   if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+/**
+ * The request `Origin`, normalised to a single value.
+ *
+ * Node types a header as `string | string[]`. A duplicated `Origin` is not a
+ * legitimate browser request, so a repeated header resolves to `undefined`
+ * rather than picking one — an ambiguous origin is treated as no origin, which
+ * grants nothing.
+ */
+function readOriginHeader(request: IncomingMessage): string | undefined {
+  const value = request.headers.origin;
+  if (Array.isArray(value)) return undefined;
   return value;
 }
 
@@ -233,6 +248,47 @@ async function handleRequest(
 
   response.setHeader("x-correlation-id", context.correlationId);
   response.setHeader("x-request-id", context.requestId);
+
+  // API-CORS-1 — the one place browser origin policy is applied.
+  //
+  // It sits here, above the route table and above every call to
+  // `resolveTrustedRequestIdentity`, for two reasons.
+  //
+  // First, a preflight must be answerable WITHOUT a bearer token. The browser
+  // sends `OPTIONS` before it will send `Authorization` at all, so demanding
+  // authentication for the preflight would make authenticated cross-origin
+  // requests impossible by construction — which is exactly the bug this fixes.
+  //
+  // Second, the preflight must not execute application logic. It is answered
+  // and returned immediately below, so no route body runs, no identity is
+  // resolved, and no protected data can reach the response. `OPTIONS` never
+  // reaches the route table.
+  //
+  // Applying the headers here also means they are present on error responses,
+  // so a browser can read a 401 or a 403 as an error rather than as an opaque
+  // network failure. That is a diagnosis improvement, not a permission: CORS
+  // decides whether a page may READ a response, never whether the server
+  // answers it. Authentication, authorization and RLS are untouched.
+  const cors = resolveCors(
+    {
+      origin: readOriginHeader(request),
+      method: request.method
+    },
+    config.allowedWebOrigins
+  );
+
+  for (const [header, value] of Object.entries(cors.headers)) {
+    response.setHeader(header, value);
+  }
+
+  if (cors.isPreflight) {
+    // 204 for an allowed origin; 403 for anything else. Neither carries a body,
+    // and a disallowed origin received no Access-Control-Allow-Origin above, so
+    // the browser blocks the real request either way.
+    response.writeHead(cors.originAllowed ? 204 : 403);
+    response.end();
+    return;
+  }
 
   try {
     if (request.method === "GET" && pathname === "/health") {
