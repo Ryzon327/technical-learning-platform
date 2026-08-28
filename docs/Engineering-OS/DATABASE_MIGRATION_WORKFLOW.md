@@ -27,7 +27,7 @@ It is denied to Claude Code.
 
 ## 2. Repository truth
 
-- The **36 SQL files in `supabase/migrations/`** are the authoritative schema.
+- The **37 SQL files in `supabase/migrations/`** are the authoritative schema.
 - **Filename order is dependency order.** The timestamps are monotonic and later
   files depend on earlier ones — every migration but one inserts into
   `public.platform_schema_version`, created by the first; and
@@ -158,7 +158,61 @@ records them in `supabase_migrations.schema_migrations` on the remote.
 supabase migration list
 ```
 
-All 36 should now appear as applied both locally and remotely.
+All 37 should now appear as applied both locally and remotely.
+
+---
+
+## 4A. The database authorization contract
+
+This is the part that was missing, cost a full UAT cycle, and is worth reading
+before writing any migration that touches access.
+
+**PostgreSQL authorizes in two layers, and both are required:**
+
+1. **The base privilege** (`GRANT SELECT ON … TO authenticated`) decides whether
+   the role may *attempt* the operation at all.
+2. **The row-level security policy** (`CREATE POLICY … TO authenticated USING …`)
+   decides which *rows* that operation may touch.
+
+Neither implies the other. A table can have a perfect policy and still be
+completely unreadable.
+
+> **RLS-enabled alone is not proof that a learner can read a table.** Our
+> first 36 migrations enabled RLS on all 61 tables and wrote 65 policies while
+> granting `authenticated` nothing. Every learner read failed with
+> **`42501 insufficient_privilege`**, surfaced by PostgREST as **HTTP 403** with
+> `proxy-status: PostgREST; error=42501`. The policies were correct and were
+> never reached.
+
+The trap is that `create policy … TO authenticated` *reads* like a grant.
+It is not one — `TO` there names the role a policy applies to, not a privilege
+being given.
+
+> **Elevated SQL cannot prove learner access.** The Supabase **SQL Editor** runs
+> as a privileged role that bypasses both grants and RLS. A query that succeeds
+> there tells you a row exists; it tells you nothing about whether a learner can
+> reach it. We confirmed `user_profiles` rows that way and still shipped a
+> completely inaccessible table. **Only a real authenticated session proves
+> learner access**, which is why §6.2 is mandatory and cannot be replaced by a
+> SQL check.
+
+**The contract this repository now holds**, established by
+`20260814000100_authenticated_privilege_contract.sql`:
+
+- Every table with an `authenticated` policy is granted exactly the verbs those
+  policies authorize — granted verbs are a *subset* of policy verbs.
+- A table with no `authenticated` policy receives **no** grant. Thirteen tables
+  are server-only this way, with RLS-without-policy and the absent grant as two
+  independent barriers.
+- No `GRANT … ON ALL TABLES`, and no `ALTER DEFAULT PRIVILEGES` — either would
+  grant on tables nobody decided to expose.
+- `anon` receives nothing; there is no anonymous data contract.
+- Privileged RPCs stay revoked from every client role.
+
+`scripts/verify-db-rls.sh` parses the policies out of the migrations and fails
+if the grants and the policies ever disagree **in either direction** — a policy
+without its grant, or a grant without a policy. Adding one half of the pair
+cannot reach main.
 
 ---
 
@@ -187,18 +241,18 @@ Run these against the development project after `db push`. All are read-only.
 
 | Check | Expected |
 |---|---|
-| `supabase migration list` | **36** migrations applied |
-| `select count(*) from public.platform_schema_version;` | **35** — see the note below |
+| `supabase migration list` | **37** migrations applied |
+| `select count(*) from public.platform_schema_version;` | **36** — see the note below |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** tables |
 | `select count(*) from pg_policies where schemaname='public';` | **65** policies |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
 | `select count(*) from public.lab_provider_registry;` | **2** rows |
 
-> **36 migrations, 35 schema-version rows — this is correct, not a failure.**
+> **37 migrations, 36 schema-version rows — this is correct, not a failure.**
 > Each migration registers one component row in
 > `public.platform_schema_version`, except
 > `20260813001000_certificate_correction_foundation.sql` (CERT-008), which
-> registers none. An operator expecting 36 rows will read a correct migration as
+> registers none. An operator expecting 37 rows will read a correct migration as
 > a broken one.
 
 The `lab_provider_registry` rows are intended operational configuration seeded
@@ -207,21 +261,25 @@ by `20260812001300`: `mock` enabled, `container` **disabled**.
 ### 6.2 Real behaviour
 
 The structural checks above prove the schema exists. These prove it *works*,
-and they matter more, because **live PostgreSQL and RLS behaviour has never
-been exercised by this project** — every RLS guarantee in the test suite is
-proven against mocks.
+and they matter more. The auth trigger has now been proven on a real project;
+**RLS row filtering still has not**, because until the privilege contract landed
+PostgreSQL rejected every learner statement before any policy ran.
 
 1. **Auth trigger.** Sign up a user through the web app, then confirm a
    `public.user_profiles` row exists for them with `role = 'student'`. That
    proves the `on_auth_user_created` trigger on `auth.users` fired.
-   This is the single most likely step to fail, because attaching a trigger to
-   `auth.users` is a privileged operation.
-2. **Learner RLS isolation.** Signed in as that learner, `select * from
-   public.user_profiles` must return exactly one row — their own. With a second
-   learner account, neither may see the other.
+   ✅ Proven on the development project.
+2. **Learner read reaches the table at all.** Signed in, load the app. The
+   profile must resolve rather than showing *"We could not load your profile."*
+   A 403 with `error=42501` here means the privilege contract is not applied.
+3. **Learner RLS isolation — the criterion that actually matters.** Create a
+   **second** learner. Signed in as each, `select * from public.user_profiles`
+   through the app must return exactly **one** row — their own. One account only
+   proves the policy permits self-reads; **two prove it denies cross-reads**, and
+   that is the first genuine demonstration that RLS works on this project.
 
-A failure in either is a genuine finding about live behaviour, not an operator
-mistake. Report it precisely.
+A failure in any of these is a genuine finding about live behaviour, not an
+operator mistake. Report it precisely.
 
 ---
 

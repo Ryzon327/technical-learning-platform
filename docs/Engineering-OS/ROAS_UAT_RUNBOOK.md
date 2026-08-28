@@ -15,7 +15,7 @@ Three already exist in the repository. Two are yours to supply.
 | **Frontend** | The Vite web app, `npm run dev` | ✅ In the repo |
 | **API** | The Node API service, `npm run dev:api` | ✅ In the repo |
 | **Authentication** | Supabase Auth, via the browser anon key | ⚠️ **Needs your Supabase project** |
-| **Database** | A Supabase Postgres with all 36 migrations applied | ⚠️ **Needs your project + migrations** |
+| **Database** | A Supabase Postgres with all 37 migrations applied | ⚠️ **Needs your project + migrations** |
 | **Curriculum publication** | `npm run admin:publish-roas-curriculum` | ✅ Built here — ⚠️ **you run it** |
 | **Learner access** | None needed — any authenticated user reads published curriculum through RLS | ✅ Nothing to do |
 | **Progress persistence** | `student_learning_progress`, written by `record_mission_progress` | ✅ Exists once migrations are applied |
@@ -38,7 +38,7 @@ but that is a safety net, not a reason to point it somewhere important.
 
 ### 2.2 Apply the migrations
 
-All 36 migrations in `supabase/migrations/` must be applied, in filename order.
+All 37 migrations in `supabase/migrations/` must be applied, in filename order.
 ROAS-4 adds none and executes none.
 
 **Use the Supabase CLI.** DB-TOOLING-1 established it as the standard mechanism,
@@ -65,16 +65,16 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 | Check | Expected |
 |---|---|
-| `supabase migration list` | **36** applied |
-| `select count(*) from public.platform_schema_version;` | **35** |
+| `supabase migration list` | **37** applied |
+| `select count(*) from public.platform_schema_version;` | **36** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
 
-> **36 migrations but 35 schema-version rows is correct.** Every migration
+> **37 migrations but 36 schema-version rows is correct.** Every migration
 > registers one component row except
 > `20260813001000_certificate_correction_foundation.sql` (CERT-008), which
-> registers none. Expecting 36 would make a successful migration look failed.
+> registers none. Expecting 37 would make a successful migration look failed.
 
 This is the step with the most room for surprise: **live PostgreSQL and RLS
 behaviour has never been exercised by this project**. Everything the test suite

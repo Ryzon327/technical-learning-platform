@@ -404,8 +404,8 @@ echo "PASS:  7. only pre-existing API contracts were used; no server change"
 # 8. No migration, no dependency, no provider, no AI
 # ------------------------------------------------------------
 MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "36" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
+[ "$MIGRATION_COUNT" = "37" ] \
+  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
 
 # A dependency change necessarily changes the lockfile, so the lockfile is the
 # thing to pin. The manifest itself is not: a later package may legitimately add

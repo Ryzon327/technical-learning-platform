@@ -339,8 +339,8 @@ echo "PASS:  9. no AI component can manufacture competency"
 # the Wave 6 lab schema already represent everything above. The pinned count is
 # the guarantee, following the ROAS-1 precedent.
 MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "36" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
+[ "$MIGRATION_COUNT" = "37" ] \
+  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
 ROAS2_MIGRATIONS="$(ls supabase/migrations/*roas*.sql supabase/migrations/*curriculum_content*.sql \
   2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$ROAS2_MIGRATIONS" = "0" ] || fail "ROAS-2 added a migration"
