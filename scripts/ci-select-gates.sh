@@ -60,6 +60,12 @@ set -euo pipefail
 # Order here is the order gates run: cheapest and most specific first.
 RULES=$(
   cat <<'RULES'
+services/api/src/cors*|scripts/verify-api-cors.sh
+services/api/src/server.ts|scripts/verify-api-cors.sh
+services/api/src/config*|scripts/verify-api-cors.sh
+services/api/src/auth-context*|scripts/verify-api-cors.sh
+apps/web/src/lib/api-client*|scripts/verify-api-cors.sh
+scripts/verify-api-cors.sh|scripts/verify-api-cors.sh
 supabase/migrations/*|scripts/verify-db-rls.sh
 scripts/verify-db-rls.sh|scripts/verify-db-rls.sh
 supabase/config.toml|scripts/verify-db-tooling.sh

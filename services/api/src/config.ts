@@ -1,4 +1,5 @@
 import { AppError, type AppEnvironment } from "@tlp/shared-types";
+import { resolveAllowedOrigins } from "./cors";
 
 export interface RuntimeConfig {
   appEnv: AppEnvironment;
@@ -8,6 +9,15 @@ export interface RuntimeConfig {
   supabaseAnonKey?: string;
   supabaseServiceRoleKey?: string;
   aiDefaultProvider: string;
+  /**
+   * Browser origins permitted to read cross-origin API responses.
+   *
+   * Development and test default to the Vite dev origin. **Production has no
+   * default**: an unconfigured production environment resolves to an empty list
+   * and grants no origin anything, so the localhost development value can never
+   * be inherited by omission. See `cors.ts`.
+   */
+  allowedWebOrigins: string[];
 }
 
 function readInteger(value: string | undefined, fallback: number): number {
@@ -42,8 +52,11 @@ function readEnvironment(value: string | undefined): AppEnvironment {
 export function loadRuntimeConfig(
   env: NodeJS.ProcessEnv = process.env
 ): RuntimeConfig {
+  const appEnv = readEnvironment(env.APP_ENV);
+
   return {
-    appEnv: readEnvironment(env.APP_ENV),
+    appEnv,
+    allowedWebOrigins: resolveAllowedOrigins(env.API_ALLOWED_ORIGINS, appEnv),
     appName: env.APP_NAME?.trim() || "Technical Learning Platform",
     apiPort: readInteger(env.API_PORT, 3001),
     supabaseUrl: env.SUPABASE_URL?.trim() || undefined,
