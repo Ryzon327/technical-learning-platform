@@ -359,9 +359,28 @@ for later in '"linux-' '"windows-' '"security-' '"integrated-'; do
 done
 
 # The learner UI is not ROAS-2's scope.
-CHANGED_WEB="$(git diff --name-only origin/main...HEAD -- apps/web 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_WEB" = "0" ] \
-  || fail "ROAS-2 changed $CHANGED_WEB learner-facing web files; the UI is out of scope"
+#
+# This was originally asserted as "the branch changes no file under apps/web".
+# That was true of ROAS-2's own pull request and became wrong the moment ROAS-3
+# was authorized to build the learner surface: a BRANCH-scoped assertion cannot
+# survive the next package, and left unchanged it would have meant "nobody may
+# ever build the learner UI".
+#
+# The durable form asserts the property of the ARTIFACT instead. What "the UI is
+# out of scope" actually protects is that the authored curriculum is data and
+# validators carrying no presentation — so it stays renderable by any surface,
+# and a change to a component can never change what the course says. That is
+# also strictly more than the diff check proved: a React import inside the
+# content module would have passed it.
+for presentation in 'react' 'jsx' 'useState' 'useEffect' 'className' \
+                    'document.' 'window.' 'render('; do
+  if echo "$CONTENT_CODE" | grep -qiF -e "$presentation"; then
+    fail "the authored curriculum carries presentation, which belongs to the learner surface: $presentation"
+  fi
+done
+if grep -qiF -e 'react' "$CONTENT_TESTS"; then
+  fail "the ROAS-2 tests depend on a rendering library"
+fi
 
 # And the content must be validated by real tests, not merely declared.
 grep -Fq 'validateRoasCurriculum()' "$CONTENT_TESTS" \
