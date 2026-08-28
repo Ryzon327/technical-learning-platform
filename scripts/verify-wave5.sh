@@ -60,10 +60,6 @@ echo "PASS: notes have no premature AI dependency"
 echo "PASS: no intentional note-body logging pattern detected"
 echo "PASS: command/code/output remains inert data"
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 5 Batch 4 verification passed."

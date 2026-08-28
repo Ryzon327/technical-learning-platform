@@ -24,10 +24,6 @@ done
 
 echo "Wave 1 authentication structure verified."
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 1 Batch 4 verification passed."

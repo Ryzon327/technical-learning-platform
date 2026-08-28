@@ -158,7 +158,14 @@
       "Bash(chmod +x scripts/:*)",
       "Bash(claude --version)",
       "Bash(rm -f /private/tmp/claude-501/:*)",
-      "Bash(rm -f supabase/migrations/9999:*)"
+      "Bash(rm -f supabase/migrations/9999:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git merge --ff-only:*)",
+      "Bash(git pull --ff-only:*)",
+      "Bash(command grep:*)",
+      "Bash(gh label create:*)",
+      "Bash(gh api -X GET:*)",
+      "Bash(gh api --method GET:*)"
     ]
   },
   "model": "opus"

@@ -1970,12 +1970,7 @@ echo "PASS: SEARCH-008 adds no migration, provider, dependency, cache or AI"
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
-echo ""
-echo "--- repository verification ---"
-npm run typecheck
-npm test
-npm run build
-bash scripts/security-scan.sh
+bash scripts/ci-toolchain.sh typecheck test build security
 
 echo ""
 echo "============================================================"

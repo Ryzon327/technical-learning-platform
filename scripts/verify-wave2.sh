@@ -34,10 +34,6 @@ fi
 
 echo "Wave 2 curriculum quality structure verified."
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 2 Batch 4 verification passed."

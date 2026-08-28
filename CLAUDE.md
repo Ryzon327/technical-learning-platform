@@ -190,6 +190,25 @@ Those remain **Founder gates**. Autonomy stops at consequence, never at cadence.
 This removes relay overhead, not engineering discipline. Milestone IDs, Feature
 IDs and verifier checkpoints all remain.
 
+### Command shape
+
+Permission rules match command **strings**. A single simple command matches one
+rule cleanly; a compound expression matches none, so it prompts even when every
+operation inside it is individually permitted.
+
+Two habits remove most routine prompts:
+
+* **No `cd` prefix.** Commands already run from the repository root. Prefixing
+  `cd /Users/.../technical-learning-platform && …` turns an allowed command into
+  an unmatchable compound string.
+* **One command per invocation.** Prefer three simple calls over one chained
+  with `;` or `&&` and nested `$(…)`. Move genuinely multi-step logic into a
+  script under `scripts/`, which is invoked as a single command.
+
+This is the practical form of the rule in `Engineering-OS.md` section 7:
+construct commands so they match the permission rules, and never weaken a
+boundary merely to avoid a prompt.
+
 ### Commit attribution
 
 Commits are attributed **only to the Founder/user**. No AI system may appear as

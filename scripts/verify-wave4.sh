@@ -27,9 +27,5 @@ if grep -R -n 'correctOptionIds' apps/web/src 2>/dev/null; then
 fi
 
 echo "Wave 4 Batch 4 recovery/integrity/handoff structure verified."
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 echo "Wave 4 Batch 4 verification passed."

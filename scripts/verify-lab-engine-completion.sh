@@ -262,8 +262,12 @@ fi
 echo "PASS: real-provider student access delivery is implemented"
 
 # Ensure student-facing Lab routes remain protected.
+#
+# Routed through the shared toolchain step so it is not duplicated when the
+# hardened CI baseline has already run the smoke suite in the same job. Outside
+# that trusted context it runs exactly as before.
 if [ -x scripts/smoke-api.sh ]; then
-  bash scripts/smoke-api.sh
+  bash scripts/ci-toolchain.sh smoke
 fi
 
 # Run the complete accumulated Wave 6 verification chain where available.
