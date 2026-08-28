@@ -400,6 +400,13 @@ EXPECT_DENIED = [
     "supabase db push",
     "supabase migration up",
     "supabase db reset",
+    # DB-TOOLING-1. Authenticating to and binding a remote project are database
+    # connection actions, and the migration workflow requires them to stay
+    # Founder-gated. They were reachable before this package.
+    "supabase login",
+    "supabase link --project-ref abcdefghijklmnopqrst",
+    "supabase db pull",
+    "supabase db dump",
     "psql -c 'select 1'",
     "pg_dump db",
     "vercel deploy",
