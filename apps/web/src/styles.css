@@ -237,6 +237,122 @@ dd {
   color: #334155;
 }
 
+/* ROAS-3 — the learner course experience.
+   Calm by construction: no progress bar racing to full, no colour-coded urgency,
+   no badge. Every state is words, so nothing depends on colour and nothing
+   pressures. Spacing does the work that emphasis would otherwise do. */
+
+.course-status {
+  margin-bottom: 0.25rem;
+}
+
+.module-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.module-list > li {
+  margin-bottom: 2rem;
+}
+
+.module-list ul {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.module-list ul > li {
+  padding: 0.35rem 0;
+  border-top: 1px solid #eef2f7;
+}
+
+.module-list ul button {
+  border: 0;
+  background: transparent;
+  padding: 0.15rem 0;
+  color: #111827;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+}
+
+.module-list ul button[aria-current="true"] {
+  text-decoration: none;
+  border-left: 3px solid #111827;
+  padding-left: 0.6rem;
+}
+
+.mission-state {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.mission-detail {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.mission-detail h3:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
+.mission-brief-list,
+.practice-list {
+  padding-left: 1.25rem;
+}
+
+.mission-note {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  color: #334155;
+}
+
+.practice-list {
+  list-style: none;
+  padding: 0;
+}
+
+.practice-check {
+  margin: 1.25rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.practice-question {
+  margin: 1.25rem 0;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+
+.practice-question legend {
+  padding: 0 0.35rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.practice-option {
+  margin: 0.4rem 0;
+  color: #334155;
+}
+
+.practice-question-result {
+  margin-bottom: 0;
+  font-weight: 600;
+  color: #334155;
+}
+
+.practice-hint {
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
 /* Browser-native printing. No PDF library and no image rendering: the printed
    certificate is the same semantic text a screen reader reads. */
 
