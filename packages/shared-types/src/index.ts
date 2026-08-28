@@ -67,3 +67,4 @@ export * from "./lab-operations";
 export * from "./lab-automation";
 export * from "./lab-rollout";
 export * from "./roas-curriculum";
+export * from "./roas-bootstrap";

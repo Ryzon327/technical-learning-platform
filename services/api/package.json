@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "provision-founder": "tsx src/admin/provision-founder.ts",
+    "publish-roas-curriculum": "tsx src/admin/publish-roas-curriculum.ts",
     "lab:container:canary": "tsx src/admin/run-container-canary.ts",
     "lab:container:rollout": "tsx src/admin/manage-container-rollout.ts"
   },

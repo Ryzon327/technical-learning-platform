@@ -401,15 +401,16 @@ export function LearningView() {
           canRecord={canRecordMissionProgress(
             availability,
             publishedMissionStableIds,
-            selectedMission.stableId
+            selectedMission
           )}
           controlExplanation={explainProgressControl(
             availability,
             canRecordMissionProgress(
               availability,
               publishedMissionStableIds,
-              selectedMission.stableId
-            )
+              selectedMission
+            ),
+            selectedMission
           )}
           saving={saving}
           saveMessage={saveMessage}
