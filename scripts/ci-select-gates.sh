@@ -25,6 +25,7 @@ set -euo pipefail
 # Several gates internally defer to wave verifiers that re-run typecheck, the
 # full test suite and the build:
 #
+#   verify-roas3.sh -> verify-roas2.sh -> verify-roas1.sh -> lab engine
 #   verify-roas2.sh -> verify-roas1.sh -> verify-lab-engine-completion.sh
 #   verify-roas1.sh -> verify-lab-engine-completion.sh -> 4 wave-6 verifiers
 #   verify-search-engine-completion.sh -> verify-wave9.sh
@@ -58,6 +59,9 @@ set -euo pipefail
 # Order here is the order gates run: cheapest and most specific first.
 RULES=$(
   cat <<'RULES'
+apps/web/src/learning/*|scripts/verify-roas3.sh
+apps/web/src/auth/AuthenticatedApp.tsx|scripts/verify-roas3.sh
+scripts/verify-roas3.sh|scripts/verify-roas3.sh
 packages/shared-types/src/roas-curriculum*|scripts/verify-roas2.sh
 scripts/verify-roas2.sh|scripts/verify-roas2.sh
 services/api/src/lab-*|scripts/verify-roas1.sh

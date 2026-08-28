@@ -5,10 +5,12 @@ import { CertificateEligibilityView } from "../certificates/CertificateEligibili
 import { CertificatePortfolioView } from "../certificates/CertificatePortfolioView";
 import { CurriculumSearchView } from "../search/CurriculumSearchView";
 import { EvidencePortfolioView } from "../evidence/EvidencePortfolioView";
+import { LearningView } from "../learning/LearningView";
 import { FounderMfaGate } from "./FounderMfaGate";
 
 type WorkspaceView =
   | "overview"
+  | "learning"
   | "evidence"
   | "certificates"
   | "certificate-portfolio"
@@ -54,6 +56,15 @@ function Workspace() {
                 onClick={() => setView("overview")}
               >
                 Overview
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                aria-current={view === "learning" ? "page" : undefined}
+                onClick={() => setView("learning")}
+              >
+                Learning
               </button>
             </li>
             <li>
@@ -115,6 +126,8 @@ function Workspace() {
           </div>
         </dl>
         )}
+
+        {view === "learning" && <LearningView />}
 
         {view === "evidence" && <EvidencePortfolioView />}
 
