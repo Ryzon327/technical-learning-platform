@@ -329,20 +329,35 @@ export function resolveContinueTarget(input: {
 export function canRecordMissionProgress(
   availability: CourseAvailability,
   publishedMissionStableIds: readonly string[] | null,
-  missionStableId: string
+  mission: Pick<LearnerMission, "stableId" | "isDemonstration">
 ): boolean {
+  // ROAS-4. The demonstration mission is settled by the deterministic lab
+  // validator and by nothing else. No provider implements the probes yet, so
+  // there is no honest way for a learner to complete it — and a "mark as
+  // complete" button here would be precisely the simulated pass the Lab rule
+  // forbids. Offering it and letting the Learning Engine accept it would record
+  // a mission the learner never demonstrated.
+  if (mission.isDemonstration) return false;
+
   if (!availability.progressRecorded) return false;
   if (publishedMissionStableIds === null) return false;
-  return publishedMissionStableIds.includes(missionStableId);
+  return publishedMissionStableIds.includes(mission.stableId);
 }
 
 /** Why a progress control is unavailable, in the learner's terms. */
 export function explainProgressControl(
   availability: CourseAvailability,
-  canRecord: boolean
+  canRecord: boolean,
+  mission?: Pick<LearnerMission, "isDemonstration">
 ): string {
   if (canRecord) {
     return "Marking a mission updates your saved progress.";
+  }
+
+  // Checked before availability: this reason holds even on a fully published,
+  // reachable course, and it is the accurate one to give.
+  if (mission?.isDemonstration) {
+    return "This mission is completed by the deterministic lab validator, not by marking it here. The lab environment does not exist yet, so it cannot be completed at all.";
   }
 
   if (availability.kind === "not_published") {

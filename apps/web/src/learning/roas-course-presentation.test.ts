@@ -364,12 +364,20 @@ describe("ROAS-3 continue target comes from the server", () => {
 });
 
 describe("ROAS-3 progress controls gate on server authority", () => {
+  // Every non-demonstration mission; the demonstration has its own rule below.
+  const ordinaryMission = course.missions.find(
+    (mission) => !mission.isDemonstration
+  )!;
+  const demonstrationMission = course.missions.find(
+    (mission) => mission.isDemonstration
+  )!;
+
   it("allows recording only for a published mission on an available course", () => {
     expect(
       canRecordMissionProgress(
         availability("available"),
         course.missions.map((m) => m.stableId),
-        firstMission
+        ordinaryMission
       )
     ).toBe(true);
   });
@@ -379,7 +387,7 @@ describe("ROAS-3 progress controls gate on server authority", () => {
       canRecordMissionProgress(
         availability("available"),
         [course.missions[1]!.stableId],
-        firstMission
+        ordinaryMission
       )
     ).toBe(false);
   });
@@ -390,7 +398,7 @@ describe("ROAS-3 progress controls gate on server authority", () => {
         canRecordMissionProgress(
           availability(kind),
           course.missions.map((m) => m.stableId),
-          firstMission
+          ordinaryMission
         )
       ).toBe(false);
     }
@@ -398,8 +406,31 @@ describe("ROAS-3 progress controls gate on server authority", () => {
 
   it("refuses recording when the published set is unknown", () => {
     expect(
-      canRecordMissionProgress(availability("available"), null, firstMission)
+      canRecordMissionProgress(availability("available"), null, ordinaryMission)
     ).toBe(false);
+  });
+
+  // ROAS-4. The strongest version of the lab rule: even a fully published,
+  // fully reachable course must not offer a way to complete the demonstration,
+  // because the deterministic validator is the only thing that may settle it.
+  it("NEVER allows recording the demonstration mission, even when everything else is green", () => {
+    expect(
+      canRecordMissionProgress(
+        availability("available"),
+        course.missions.map((m) => m.stableId),
+        demonstrationMission
+      )
+    ).toBe(false);
+  });
+
+  it("says the demonstration is settled by the lab, not by marking it", () => {
+    const text = explainProgressControl(
+      availability("available"),
+      false,
+      demonstrationMission
+    );
+    expect(text).toMatch(/deterministic lab validator/i);
+    expect(text).toMatch(/does not exist yet/i);
   });
 
   it("explains why a control is unavailable in the learner's terms", () => {

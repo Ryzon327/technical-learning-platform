@@ -360,16 +360,38 @@ grep -Fq -e 'learning\/missions\/' "$SERVER" \
 grep -Fq -e '(start|complete)' "$SERVER" \
   || fail "the server no longer accepts the start/complete progress actions"
 
-# No server file may change. ROAS-3 is a consumer of the API, not an author of
-# it: a new read model shaped for the UI is exactly the duplicate truth this
-# package must not create.
-CHANGED_API="$(git diff --name-only origin/main...HEAD -- services/api 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_API" = "0" ] \
-  || fail "ROAS-3 changed $CHANGED_API API files; no server change is authorized in this package"
+# ROAS-3 is a consumer of the API, not an author of one: a read model shaped for
+# the UI is exactly the duplicate truth this package must not create.
+#
+# This was originally asserted as "the branch changes no file under services/api
+# or packages/shared-types". That was true of ROAS-3's own pull request and is
+# not a durable statement of the rule — ROAS-4 was authorized to add a Founder
+# publication command under services/api and its derived plan under
+# shared-types, and read literally the old check said no later package may ever
+# touch either directory again.
+#
+# The durable form asserts the property of the ARTIFACT: the learner surface
+# defines no server-side data access and no route of its own. It reads through
+# the feature service, which reaches only the routes proven to exist above.
+if grep -qE 'createServerSupabaseClient|createUserScopedSupabaseClient|@supabase/supabase-js|\.rpc\(|\.insert\(|\.upsert\(' "$LEARNING_LOGIC"; then
+  fail "the learner surface performs its own data access instead of calling the API"
+fi
 
-CHANGED_SHARED="$(git diff --name-only origin/main...HEAD -- packages/shared-types 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_SHARED" = "0" ] \
-  || fail "ROAS-3 changed $CHANGED_SHARED shared-types files; the authored curriculum and contracts are not in scope"
+if grep -qE 'pathname ===|request\.method|createServer|app\.(get|post|put)\(' "$LEARNING_LOGIC"; then
+  fail "the learner surface declares a route; ROAS-3 consumes the API and does not author it"
+fi
+
+# Every network call must go through the one feature service, so there is a
+# single place where the set of consumed contracts can be read off.
+for surface in "$VIEW" "$PRACTICE_VIEW" "$PROJECTION" "$PRESENTATION"; do
+  if grep -qF -e 'apiRequest' "$surface"; then
+    fail "a learner component calls the API client directly, bypassing the feature service: $surface"
+  fi
+done
+
+# The authored curriculum stays ROAS-2's. This gate defers to verify-roas2.sh
+# below, which owns every invariant about that content, so a change to it is
+# caught there rather than by a directory diff here.
 
 # No identity is ever sent: ownership is the session's, enforced by RLS.
 if grep -qE 'userId|studentId|learnerId|ownerId' "$SERVICE_LOGIC"; then
@@ -385,9 +407,18 @@ MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
 [ "$MIGRATION_COUNT" = "36" ] \
   || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
 
-CHANGED_DEPS="$(git diff --name-only origin/main...HEAD -- package.json package-lock.json 'apps/web/package.json' 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_DEPS" = "0" ] \
-  || fail "ROAS-3 changed dependency manifests; no dependency change is authorized"
+# A dependency change necessarily changes the lockfile, so the lockfile is the
+# thing to pin. The manifest itself is not: a later package may legitimately add
+# an npm *script* to package.json without adding a dependency, and ROAS-4 did
+# exactly that for the Founder publication command.
+CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+[ "$CHANGED_LOCK" = "0" ] \
+  || fail "the lockfile changed; no dependency change is authorized in this package"
+
+# And the web workspace's own dependency block must be untouched.
+CHANGED_WEB_DEPS="$(git diff origin/main...HEAD -- apps/web/package.json 2>/dev/null | grep -cE '^\+.*"(dependencies|devDependencies)"|^\+\s+"[^"]+": "\^?[0-9~]' || true)"
+[ "$CHANGED_WEB_DEPS" = "0" ] \
+  || fail "the web workspace gained $CHANGED_WEB_DEPS dependency line(s); none is authorized"
 
 # The workspace still navigates without a router, which is why no routing
 # dependency was needed.
