@@ -119,7 +119,7 @@ for service in certificate-admin certificate-eligibility certificate-issuance \
   [ -f "services/api/src/${service}.test.ts" ] || fail "API service has no tests: ${service}.test.ts"
 done
 
-CERT_MIGRATIONS="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | xargs -n1 basename | sort || true)"
+CERT_MIGRATIONS="$(ls supabase/migrations/*certificate*.sql 2>/dev/null | xargs -n1 basename | LC_ALL=C sort || true)"
 EXPECTED_MIGRATIONS="20260813000700_certificate_definition_foundation.sql
 20260813000800_certificate_issuance_foundation.sql
 20260813000900_certificate_lifecycle_foundation.sql
@@ -180,7 +180,7 @@ grep -Fq '/^\/certificates\/verify\/([^/]+)$/' services/api/src/server.ts \
   || fail "the CERT-005 public verification route is missing or changed shape"
 # Anchored at the start of the path so /admin/certificates/... cannot match:
 # the only non-admin path-parameter certificate route is CERT-005 verification.
-PUBLIC_CERT_ROUTES="$(grep -oE '\^\\/certificates\\/[a-z-]+\\/' services/api/src/server.ts | sort -u || true)"
+PUBLIC_CERT_ROUTES="$(grep -oE '\^\\/certificates\\/[a-z-]+\\/' services/api/src/server.ts | LC_ALL=C sort -u || true)"
 [ "$PUBLIC_CERT_ROUTES" = '^\/certificates\/verify\/' ] \
   || fail "the public certificate route set changed: $PUBLIC_CERT_ROUTES"
 

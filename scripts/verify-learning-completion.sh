@@ -23,7 +23,7 @@ while IFS= read -r spec; do
     echo "FAIL: Learning specification is not approved: $spec"
     unapproved=$((unapproved + 1))
   fi
-done < <(find "$spec_dir" -maxdepth 1 -type f -name 'LEARN-*.md' | sort)
+done < <(find "$spec_dir" -maxdepth 1 -type f -name 'LEARN-*.md' | LC_ALL=C sort)
 
 if [ "$spec_count" -ne 8 ]; then
   echo "FAIL: Expected 8 LEARN feature specifications; found $spec_count."

@@ -38,7 +38,7 @@ while IFS= read -r path; do
 done < <(
   find "$LAB_DIR" -maxdepth 1 -type f \
     -name 'LAB-*.md' \
-    | sort
+    | LC_ALL=C sort
 )
 
 if [ "${#LAB_SPECS[@]}" -ne 12 ]; then

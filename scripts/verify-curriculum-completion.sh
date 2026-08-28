@@ -29,7 +29,7 @@ while IFS= read -r spec; do
     echo "FAIL: Curriculum specification is not approved: $spec"
     unapproved=$((unapproved + 1))
   fi
-done < <(find "$spec_dir" -maxdepth 1 -type f -name 'CURR-*.md' | sort)
+done < <(find "$spec_dir" -maxdepth 1 -type f -name 'CURR-*.md' | LC_ALL=C sort)
 
 if [ "$spec_count" -eq 0 ]; then
   echo "FAIL: No CURR-* feature specifications were found."

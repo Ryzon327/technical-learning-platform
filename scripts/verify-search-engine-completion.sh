@@ -267,7 +267,7 @@ grep -Fq 'export function isSharedIndexEligible' "$SD" \
 grep -Fq 'export function canServeSearchDocument(resolution: SearchSourceResolution)' "$SD" \
   || fail "serving no longer requires an authoritative source resolution"
 SD_FIELDS="$(awk '/^export interface SearchDocument \{/{f=1;next} /^\}/{f=0} f' "$SD" \
-  | grep -oE '^\s+[a-zA-Z]+\??:' | tr -d ' ?:' | sort | tr '\n' ' ')"
+  | grep -oE '^\s+[a-zA-Z]+\??:' | tr -d ' ?:' | LC_ALL=C sort | tr '\n' ' ')"
 for forbidden in userId ownerId studentId learnerId accessControl acl \
                  permissions policy roles noteId noteBody embedding; do
   case " $SD_FIELDS " in
@@ -631,7 +631,7 @@ fi
 # Structured navigation reuses the existing authenticated route, as the caller.
 grep -Fq '>(accessToken, "/curriculum/paths", {' "$NAV" \
   || fail "structured navigation no longer reads as the caller through the existing route"
-NAV_PATHS="$(echo "$NAV_CODE" | grep -oE '"/[a-z/-]+"' | sort -u | tr '\n' ' ')"
+NAV_PATHS="$(echo "$NAV_CODE" | grep -oE '"/[a-z/-]+"' | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$NAV_PATHS" = '"/curriculum/paths" ' ] \
   || fail "structured navigation reaches an unapproved route: $NAV_PATHS"
 if echo "$NAV_CODE" | grep -qE 'userId|ownerId|studentId|learnerId|createServerSupabaseClient|fetch\(|Authorization'; then
@@ -806,7 +806,7 @@ done
 # The Search route census. Exactly one learner curriculum route, one private
 # notes route, one Founder route — and the reused Curriculum navigation route.
 SEARCH_ROUTES="$(grep -oE 'pathname === "/(search|notes/search|admin/search)[a-z/-]*"' "$SERVER" \
-  | sort -u | tr '\n' ' ')"
+  | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$SEARCH_ROUTES" = 'pathname === "/admin/search/freshness" pathname === "/notes/search" pathname === "/search/curriculum" ' ] \
   || fail "the Search route set changed: $SEARCH_ROUTES"
 grep -Fq 'pathname === "/curriculum/paths"' "$SERVER" \
