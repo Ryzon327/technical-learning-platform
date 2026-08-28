@@ -340,9 +340,14 @@ MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
 [ "$MIGRATION_COUNT" = "36" ] \
   || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
 
-CHANGED_MIGRATIONS="$(git diff --name-only origin/main...HEAD -- supabase 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
+# Scoped to supabase/migrations, not all of supabase/. The rule is "no schema
+# change", and the directory also holds tooling that is not schema:
+# DB-TOOLING-1 added supabase/config.toml and a pointer in supabase/README.md,
+# neither of which alters a table, a policy or a function. The migration count
+# pinned above is what actually guarantees the schema is untouched.
+CHANGED_MIGRATIONS="$(git diff --name-only origin/main...HEAD -- supabase/migrations 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
 [ "$CHANGED_MIGRATIONS" = "0" ] \
-  || fail "ROAS-4 changed $CHANGED_MIGRATIONS files under supabase/; no schema change is authorized"
+  || fail "ROAS-4 changed $CHANGED_MIGRATIONS migration file(s); no schema change is authorized"
 
 CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
 [ "$CHANGED_LOCK" = "0" ] \

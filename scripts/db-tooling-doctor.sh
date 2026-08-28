@@ -62,10 +62,13 @@ else
 fi
 
 # The remote project ref belongs in gitignored local state, never in a commit.
-if git check-ignore -q supabase/.temp 2>/dev/null; then
-  echo "PASS: supabase/.temp is gitignored, so a linked project ref stays local"
+# A file inside the directory is asked about rather than the directory itself:
+# the ignore pattern ends in a slash, so it matches only a path git can classify
+# as a directory, and the directory does not exist in a fresh clone.
+if git check-ignore -q supabase/.temp/project-ref 2>/dev/null; then
+  echo "PASS: supabase/.temp/ is gitignored, so a linked project ref stays local"
 else
-  echo "FAIL: supabase/.temp is not gitignored; linking could commit a project ref"
+  echo "FAIL: supabase/.temp/ is not gitignored; linking could commit a project ref"
   repository_ready=0
 fi
 

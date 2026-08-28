@@ -76,10 +76,16 @@ git ls-files --error-unmatch "$CONFIG" >/dev/null 2>&1 \
 grep -Eq '^project_id[[:space:]]*=' "$CONFIG" \
   || fail "$CONFIG does not set project_id, which the CLI requires"
 
-# The repository must not be bound to one remote project. `supabase link`
-# writes the ref into supabase/.temp, which must stay ignored.
-if ! git check-ignore -q supabase/.temp; then
-  fail "supabase/.temp is not gitignored; linking would commit a remote project ref"
+# The repository must not be bound to one remote project. `supabase link` writes
+# the ref into supabase/.temp/, which must stay ignored.
+#
+# The check names a FILE inside the directory, not the directory itself. The
+# .gitignore pattern ends in a slash, so it only matches a path git can classify
+# as a directory — and `git check-ignore supabase/.temp` reports "not ignored"
+# for a directory that does not exist yet, which is exactly the state of a fresh
+# clone. Asking about the ref file is both correct and closer to the real risk.
+if ! git check-ignore -q supabase/.temp/project-ref; then
+  fail "supabase/.temp/ is not gitignored; linking would commit a remote project ref"
 fi
 
 # A Supabase project ref is 20 lowercase letters. None may appear here.
@@ -208,9 +214,24 @@ echo "PASS:  5. $MIGRATION_COUNT migrations versus $SCHEMA_VERSION_ROWS componen
 # The doctor must never execute the CLI at all — not even --version. That is
 # what makes "running it cannot contact a remote project" true by construction
 # rather than by intent.
-if grep -qE '(^|[^-])\bsupabase [a-z]' "$DOCTOR_LOGIC"; then
-  echo "$DOCTOR_LOGIC contains a CLI invocation:"
-  grep -nE '(^|[^-])\bsupabase [a-z]' "$DOCTOR_LOGIC"
+# An invocation is `supabase` followed by whitespace and a subcommand OR a
+# flag. Matching only a subcommand is not enough: `supabase --version` is still
+# running the CLI, and a mutation adding exactly that survived an earlier
+# version of this check that required `supabase [a-z]`.
+#
+# `command -v supabase` is the one permitted form and is filtered out by line,
+# so detection stays possible while execution does not. Path mentions such as
+# `supabase/config.toml` and `supabase/tap/supabase` never match, because a
+# slash follows rather than whitespace.
+CLI_LINES="$SCAN_DIR/doctor-cli-lines.txt"
+CLI_INVOCATIONS="$SCAN_DIR/doctor-cli-invocations.txt"
+
+grep -nE 'supabase[[:space:]]+[-a-z]' "$DOCTOR_LOGIC" > "$CLI_LINES" || true
+grep -v 'command -v' "$CLI_LINES" > "$CLI_INVOCATIONS" || true
+
+if [ -s "$CLI_INVOCATIONS" ]; then
+  echo "the doctor script contains a CLI invocation:"
+  cat "$CLI_INVOCATIONS"
   fail "the doctor script invokes the Supabase CLI; it must only detect it"
 fi
 
