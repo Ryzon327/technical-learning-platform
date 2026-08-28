@@ -41,10 +41,47 @@ but that is a safety net, not a reason to point it somewhere important.
 All 36 migrations in `supabase/migrations/` must be applied, in filename order.
 ROAS-4 adds none and executes none.
 
+**Use the Supabase CLI.** DB-TOOLING-1 established it as the standard mechanism,
+and the full procedure — installation, `link`, `migration list`, `db push`, and
+every secret-handling rule — lives in
+[`DATABASE_MIGRATION_WORKFLOW.md`](DATABASE_MIGRATION_WORKFLOW.md). The short
+version:
+
+```
+supabase login
+supabase link --project-ref <project-ref>
+supabase migration list
+supabase db push
+```
+
+Dashboard SQL paste and direct `psql` are **not** the normal path — the first
+records no migration history, and the migrations are not individually
+re-runnable, so that history is load-bearing. `supabase db reset` is destructive
+and never appropriate for a remote project.
+
+Check the machine is ready first with `npm run db:doctor`, which is read-only.
+
+**Verify afterwards**, and note one result that looks wrong but is not:
+
+| Check | Expected |
+|---|---|
+| `supabase migration list` | **36** applied |
+| `select count(*) from public.platform_schema_version;` | **35** |
+| `select count(*) from information_schema.tables where table_schema='public';` | **61** |
+| `select count(*) from pg_policies where schemaname='public';` | **65** |
+| `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
+
+> **36 migrations but 35 schema-version rows is correct.** Every migration
+> registers one component row except
+> `20260813001000_certificate_correction_foundation.sql` (CERT-008), which
+> registers none. Expecting 36 would make a successful migration look failed.
+
 This is the step with the most room for surprise: **live PostgreSQL and RLS
 behaviour has never been exercised by this project**. Everything the test suite
 proves about RLS is proven against mocks. If something fails here, that is a
-genuine finding and worth reporting, not a mistake on your part.
+genuine finding and worth reporting, not a mistake on your part. The most likely
+failure is the `on_auth_user_created` trigger on `auth.users`, which is a
+privileged operation — §4 of the workflow document explains how to confirm it.
 
 ### 2.3 Configure the environment
 

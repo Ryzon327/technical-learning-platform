@@ -1,5 +1,14 @@
 # Supabase
 
+> **How migrations are applied:** the Supabase CLI (`supabase link` then
+> `supabase db push`). The procedure, the verification expectations and the
+> secret-handling rules are in
+> [`docs/Engineering-OS/DATABASE_MIGRATION_WORKFLOW.md`](../docs/Engineering-OS/DATABASE_MIGRATION_WORKFLOW.md).
+> Dashboard SQL paste and direct `psql` are not the normal path. Applying
+> migrations is a Founder action.
+>
+> The rest of this file is the per-migration changelog.
+
 Current Assessment migrations:
 
 - `20260812000100_assessment_foundation.sql`

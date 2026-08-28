@@ -17,6 +17,7 @@
     "verify": "bash scripts/verify-wave1.sh",
     "gate": "bash scripts/run-gate.sh",
     "health": "bash scripts/local-health-check.sh",
+    "db:doctor": "bash scripts/db-tooling-doctor.sh",
     "security:scan": "bash scripts/security-scan.sh",
     "smoke:api": "bash scripts/smoke-api.sh",
     "admin:provision-founder": "npm run provision-founder --workspace @tlp/api",

@@ -4,8 +4,12 @@
     "deny": [
       "Bash(supabase db push:*)",
       "Bash(supabase db reset:*)",
+      "Bash(supabase db pull:*)",
+      "Bash(supabase db dump:*)",
       "Bash(supabase migration up:*)",
       "Bash(supabase migration repair:*)",
+      "Bash(supabase link:*)",
+      "Bash(supabase login:*)",
       "Bash(psql:*)",
       "Bash(pg_dump:*)",
       "Bash(pg_restore:*)",
