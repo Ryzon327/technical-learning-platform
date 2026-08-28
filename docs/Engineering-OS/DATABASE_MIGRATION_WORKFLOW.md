@@ -44,21 +44,58 @@ on any pull request that touches `supabase/migrations/`.
 
 ## 3. Installing the CLI
 
-The CLI is **not** an npm dependency and is not vendored. Supabase does not
-support installing it as a project dependency, so it is installed per machine.
+Supabase supports **two** installation approaches, and both are legitimate:
 
-On macOS, the supported method is Homebrew:
+1. **Per-machine, globally.** On macOS, via Homebrew:
 
-```
-brew install supabase/tap/supabase
-```
+   ```
+   brew install supabase/tap/supabase
+   ```
 
-**No CLI version is pinned in this repository.** Pinning was considered and
-rejected for now: it would require either a dependency change or a
-version-manager mechanism, both outside DB-TOOLING-1's scope, for a tool that
-one operator runs by hand a handful of times. If more than one operator starts
-applying migrations, revisit it — that is the point at which drift becomes a
-real risk rather than a theoretical one.
+2. **Project-scoped, as a dev dependency**, using npm, pnpm, yarn or bun, and
+   invoked through the package runner:
+
+   ```
+   npx supabase migration list
+   ```
+
+   This is also the supported way to **pin the CLI version for the project**, so
+   every operator and any future CI job runs the same one.
+
+### What this repository does today, and why
+
+> **CLI installation in force: Homebrew (global).**
+>
+> This one line is the declaration `scripts/verify-db-tooling.sh` checks against
+> `package.json`. Change it in the same commit that changes the approach, or the
+> gate fails — that is what keeps this section from going quietly stale.
+
+The CLI is not currently an npm dependency, and no CLI version is pinned.
+
+That is a deliberate choice for this phase, not a statement that the
+project-scoped option is unavailable — it is available and supported:
+
+- One Founder/operator performs remote migrations by hand, a handful of times.
+  Version drift between operators is not yet a real risk.
+- Adding the dependency was **outside DB-TOOLING-1's approved scope**. That work
+  package was authorized to establish configuration and documentation, and a
+  dependency change is a separate toolchain decision.
+
+### When to reconsider — and what to prefer then
+
+**A project-scoped, version-pinned CLI dev dependency is the preferred option**
+the moment either of these becomes true:
+
+- **Migration execution moves into CI/CD.** An automated runner must not depend
+  on whatever CLI version a machine happens to have.
+- **More than one operator applies migrations**, and reproducible CLI versions
+  start to matter.
+
+At that point the change is: add the CLI as a pinned dev dependency, switch the
+commands in §4 to `npx supabase …`, and update this section. Nothing in this
+repository forbids it — `scripts/verify-db-tooling.sh` checks that the
+documentation matches whichever approach is in force, and does not prohibit
+either.
 
 Check local readiness at any time with:
 

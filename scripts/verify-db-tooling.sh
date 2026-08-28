@@ -277,16 +277,57 @@ CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/
 [ "$CHANGED_LOCK" = "0" ] \
   || fail "the lockfile changed; no dependency change is authorized"
 
-# The CLI is documented, not vendored. A dependency on it would be a toolchain
-# change this package is not authorized to make.
+# The CLI installation approach is CONSISTENT with the documentation — it is not
+# constrained to one approach forever.
+#
+# An earlier version of this gate failed outright if the CLI appeared as a
+# project dependency, on the incorrect belief that Supabase does not support
+# that. Supabase supports both a global install and a project-scoped dev
+# dependency invoked through the package runner, and the project-scoped form is
+# the supported way to pin a version. A gate that rejected it would have been a
+# permanent architectural prohibition blocking a future approved move to a
+# pinned project CLI — which is exactly what a long-lived gate must not do.
+#
+# What is durable is that the repository and its documentation agree about which
+# approach is in force. Either is allowed; disagreeing about it is not.
+# The documentation carries an explicit one-line declaration of the approach in
+# force. Matching on that rather than on an incidental mention matters: an
+# earlier version of this check looked for the string `npx supabase` anywhere in
+# the document, and a mutation that removed it from the actual instructions
+# survived, because the phrase still appeared in the paragraph explaining when
+# to reconsider. Prose about an option is not the same as adopting it.
+DECLARED_HOMEBREW='CLI installation in force: Homebrew'
+DECLARED_DEPENDENCY='CLI installation in force: project dev dependency'
+
 if grep -qE '"supabase"[[:space:]]*:' package.json services/api/package.json apps/web/package.json; then
-  fail "the Supabase CLI was added as a dependency; it is documented, not vendored"
+  grep -Fq -e "$DECLARED_DEPENDENCY" "$DOCS" \
+    || fail "the CLI is a project dependency, but the documentation still declares a different installation approach in force"
+  grep -Fq 'npx supabase' "$DOCS" \
+    || fail "the CLI is a project dependency, but the documentation never shows the package-runner invocation"
+else
+  grep -Fq -e "$DECLARED_HOMEBREW" "$DOCS" \
+    || fail "the CLI is not a project dependency, but the documentation does not declare the per-machine approach in force"
+  grep -Fq 'brew install supabase/tap/supabase' "$DOCS" \
+    || fail "the CLI is not a project dependency, so the documentation must give a supported per-machine installation method"
 fi
 
-grep -Fq 'brew install supabase/tap/supabase' "$DOCS" \
-  || fail "the workflow document does not give a supported macOS installation method"
+# Exactly one approach may be declared in force, or the declaration means nothing.
+if grep -Fq -e "$DECLARED_HOMEBREW" "$DOCS" && grep -Fq -e "$DECLARED_DEPENDENCY" "$DOCS"; then
+  fail "the documentation declares two installation approaches in force at once"
+fi
 
-echo "PASS:  8. no migration, dependency or vendored CLI was introduced"
+# Both supported approaches must be described, so a future operator is not told
+# that the one this phase did not choose is unavailable.
+grep -Fq 'dev dependency' "$DOCS" \
+  || fail "the documentation does not record that a project-scoped dev dependency is a supported installation approach"
+grep -Fq 'pin' "$DOCS" \
+  || fail "the documentation does not record that a project-scoped install is how the CLI version would be pinned"
+
+# The lockfile check above is what enforces DB-TOOLING-1's own decision to add
+# no dependency. It is scoped to this branch's diff and stops applying once
+# merged, which is the correct lifetime for a work-package decision.
+
+echo "PASS:  8. no migration or dependency was added, and the install approach matches the docs"
 
 # ------------------------------------------------------------
 # 9. The gate participates in the DEV-FLOW-2 workflow
