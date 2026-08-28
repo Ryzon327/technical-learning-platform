@@ -60,6 +60,8 @@ set -euo pipefail
 # Order here is the order gates run: cheapest and most specific first.
 RULES=$(
   cat <<'RULES'
+supabase/migrations/*|scripts/verify-db-rls.sh
+scripts/verify-db-rls.sh|scripts/verify-db-rls.sh
 supabase/config.toml|scripts/verify-db-tooling.sh
 supabase/README.md|scripts/verify-db-tooling.sh
 docs/Engineering-OS/DATABASE_MIGRATION_WORKFLOW.md|scripts/verify-db-tooling.sh

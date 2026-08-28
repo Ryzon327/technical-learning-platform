@@ -216,8 +216,8 @@ fi
 # false positive by matching the pre-existing curriculum authoring migration —
 # a pinned count cannot be fooled that way.
 MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "36" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
+[ "$MIGRATION_COUNT" = "37" ] \
+  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
 ROAS_MIGRATIONS="$(ls supabase/migrations/*lab_admin*.sql supabase/migrations/*roas*.sql \
   2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$ROAS_MIGRATIONS" = "0" ] || fail "ROAS-1 added a migration"

@@ -337,8 +337,8 @@ echo "PASS:  8. re-running reuses existing nodes instead of re-versioning"
 # 9. Nothing was executed, and no scope was expanded
 # ------------------------------------------------------------
 MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "36" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (36 expected)"
+[ "$MIGRATION_COUNT" = "37" ] \
+  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
 
 # Scoped to supabase/migrations, not all of supabase/. The rule is "no schema
 # change", and the directory also holds tooling that is not schema:
