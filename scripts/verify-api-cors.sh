@@ -91,17 +91,22 @@ echo "PASS:  1. CORS lives at one shared boundary and is not duplicated per rout
 # and comparing against a definition rather than a call site would measure the
 # wrong thing. The property that matters is the order in which the REQUEST PATH
 # does these things.
-HANDLER_LINE="$(grep -n 'async function handleRequest' "$SERVER" | head -1 | cut -d: -f1)"
+# `grep -m 1`, never `grep | head -1`. Piping into `head` closes the pipe as soon
+# as the first line arrives, so grep takes SIGPIPE and — under `set -o pipefail`
+# — the pipeline reports failure and `set -e` kills the gate. Whether that
+# happens depends on the pipe buffer, so it passes on a laptop and fails on a
+# runner. `-m 1` stops grep itself and produces no early close.
+HANDLER_LINE="$(grep -n -m 1 'async function handleRequest' "$SERVER" | cut -d: -f1)"
 [ -n "$HANDLER_LINE" ] || fail "server.ts no longer defines handleRequest"
 
 HANDLER="$SCAN_DIR/handler.txt"
 sed -n "${HANDLER_LINE},\$p" "$SERVER" > "$HANDLER"
 [ -s "$HANDLER" ] || fail "the handleRequest body scanned empty"
 
-CORS_LINE="$(grep -n 'const cors = resolveCors(' "$HANDLER" | head -1 | cut -d: -f1)"
-PREFLIGHT_LINE="$(grep -n 'if (cors.isPreflight)' "$HANDLER" | head -1 | cut -d: -f1)"
-TRY_LINE="$(grep -n '^  try {' "$HANDLER" | head -1 | cut -d: -f1)"
-FIRST_AUTH_LINE="$(grep -n 'resolveTrustedRequestIdentity(request)' "$HANDLER" | head -1 | cut -d: -f1)"
+CORS_LINE="$(grep -n -m 1 'const cors = resolveCors(' "$HANDLER" | cut -d: -f1)"
+PREFLIGHT_LINE="$(grep -n -m 1 'if (cors.isPreflight)' "$HANDLER" | cut -d: -f1)"
+TRY_LINE="$(grep -n -m 1 '^  try {' "$HANDLER" | cut -d: -f1)"
+FIRST_AUTH_LINE="$(grep -n -m 1 'resolveTrustedRequestIdentity(request)' "$HANDLER" | cut -d: -f1)"
 
 [ -n "$CORS_LINE" ] || fail "server.ts never resolves a CORS decision"
 [ -n "$PREFLIGHT_LINE" ] || fail "server.ts never short-circuits a preflight"
@@ -210,8 +215,8 @@ grep -Fq 'return [];' "$CORS_LOGIC" \
 # The development default must be unreachable from production. The production
 # check has to come BEFORE the fallback, or an unconfigured production
 # environment would fall through to localhost.
-PROD_LINE="$(grep -n 'if (appEnv === "production")' "$CORS" | head -1 | cut -d: -f1)"
-FALLBACK_LINE="$(grep -n 'return \[DEVELOPMENT_WEB_ORIGIN\];' "$CORS" | head -1 | cut -d: -f1)"
+PROD_LINE="$(grep -n -m 1 'if (appEnv === "production")' "$CORS" | cut -d: -f1)"
+FALLBACK_LINE="$(grep -n -m 1 'return \[DEVELOPMENT_WEB_ORIGIN\];' "$CORS" | cut -d: -f1)"
 
 [ -n "$PROD_LINE" ] || fail "no production branch found"
 [ -n "$FALLBACK_LINE" ] || fail "no development fallback found"
