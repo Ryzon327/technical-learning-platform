@@ -1722,6 +1722,115 @@ approval.
 
 ---
 
+## DEC-051
+
+**Category**
+
+Engineering
+
+**Title**
+
+The GitHub Handoff Workflow Is Active
+
+**Status**
+
+Approved
+
+**Decision**
+
+DEC-050 approved the direction. This activates it.
+
+**Ordinary feature-branch Git and GitHub operations are pre-authorized** for an
+architect-approved work package. Within that scope Claude Code creates the
+feature branch, edits in-scope files, runs validation, stages specific paths,
+creates Founder-attributed commits, pushes the feature branch, opens and updates
+the pull request, publishes evidence there, reads CI, and corrects ordinary
+in-scope failures on the same branch — **without Founder relay between steps**.
+
+**Internal work-package checkpoints no longer stop for the Founder.** The
+milestone model is now three states: an internal checkpoint validates and
+continues; implementation completion opens or updates the pull request and waits
+for CI and architecture review through GitHub; a Founder gate stops only when a
+consequential approval or Human UAT is genuinely required.
+
+**Merge to `main` remains Founder-controlled.** `main` is branch-protected:
+pull requests required, the `verify` status check required, force pushes and
+branch deletion disabled, conversation resolution required. `enforce_admins` is
+deliberately `false` and `required_approving_review_count` is `0` because this is
+a single-maintainer repository — GitHub does not permit self-approval, so any
+higher count would permanently block every merge.
+
+**Every consequential Founder gate from DEC-048 is unchanged**: migration
+execution, deployment, destructive operations, history rewriting, secrets,
+dependency changes, material architecture or scope changes, provider and
+infrastructure consequences, Human UAT, and subjective product acceptance.
+
+**AI attribution remains prohibited.** Commits carry the Founder's identity only.
+
+**Direct push to `main` is not the implementation workflow.** WORKFLOW-
+MODERNIZATION-2 included exactly one architect-authorized bootstrap push
+(`555cce5`) to place the templates and governance on `main` before protection was
+activated. Implementation work uses a feature branch and a pull request.
+
+**Rationale**
+
+DEC-048 already stopped autonomy at consequence rather than at cadence, but the
+handoff itself was still manual: the Founder relayed work packages, reports,
+validation evidence and architecture corrections between two AI systems by hand.
+That is effort without judgement. Moving the handoff into GitHub removes the
+relay without removing a single gate, because GitHub already holds the code, the
+CI and the history.
+
+**Alternatives Considered**
+
+Leaving commit and push as per-task approvals was rejected: it made the Founder a
+message bus for work they had already approved, and the approval added no
+information beyond the work package itself.
+
+Requiring one approving review on the pull request was rejected as unusable — a
+sole maintainer cannot approve their own pull request, so it would block every
+merge rather than add scrutiny.
+
+**Impact**
+
+Governance and repository configuration.
+
+* `CLAUDE.md` — Change Control rewritten around the work-package model, with the
+  pre-authorized cycle, the never-independently list, and milestone semantics.
+* `docs/Project/MASTER_BUILD_PROMPT.md` section 19 — the manual
+  `git add`/`commit`/`push` instruction is superseded; the Founder's Git role is
+  review and merge.
+* `.claude/settings.json` — narrowly widened for feature-branch work. Every
+  previous deny is preserved and new denies were added for pushing to `main`,
+  branch deletion, `git add .`, `gh pr merge`, mutating `gh api` verbs and
+  secrets.
+
+**Known limitation, recorded rather than papered over.** Claude Code permission
+rules match command strings, so a feature-branch-only push rule cannot be
+expressed exhaustively — the allow-list permits `wp/` branches and the deny-list
+names the known `main` push forms, but string matching can be evaded by an
+unanticipated spelling. This is defence in depth, consistent with
+`Engineering-OS.md` section 7. Branch protection is a second layer, though with
+`enforce_admins: false` it does not hard-block an administrator's direct push.
+**Governance remains the actual control.**
+
+`.claude/settings.local.json` is untracked and machine-local, and currently
+carries broader grants than this decision intends. It is outside this decision's
+authority to alter and is flagged for Founder review.
+
+No application code, schema, migration or dependency changed. 36 migrations,
+none executed.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-047, DEC-048, DEC-050 ·
+`CLAUDE.md` Change Control ·
+`docs/Engineering-OS/Engineering-OS.md` section 7 ·
+`docs/Project/MASTER_BUILD_PROMPT.md` section 19 ·
+`.github/ISSUE_TEMPLATE/work-package.md` · `.github/pull_request_template.md`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.
