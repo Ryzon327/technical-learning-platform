@@ -9,13 +9,21 @@ permissions:
   contents: read
 
 jobs:
+  # The job id is the status-check context that branch protection requires.
+  # It must stay named `verify`. Protection is configured outside this file and
+  # is not modified by this workflow.
   verify:
+    name: verify
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
+        # Full history: the attribution and change-detection steps below need to
+        # reach the merge base, which a shallow clone does not contain.
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -23,11 +31,129 @@ jobs:
           node-version: "22"
           cache: npm
 
+      # ----------------------------------------------------------------
+      # Baseline gate — runs for every change, in dependency order.
+      # The full test suite runs exactly once here.
+      # ----------------------------------------------------------------
+
       - name: Install reproducible dependencies
         run: npm ci
 
       - name: Local health baseline
         run: npm run health
 
-      - name: Verify foundation
-        run: npm run verify
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test suite
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Security scan
+        # Includes the committed-secret scan and `npm audit --audit-level=high`.
+        run: bash scripts/security-scan.sh
+
+      - name: API smoke test
+        run: bash scripts/smoke-api.sh
+
+      # `scripts/verify-wave1.sh` is deliberately NOT run here. It was the whole
+      # of the previous gate, but it is a Wave 1 AUTHENTICATION structural
+      # verifier that also re-runs typecheck, the test suite, the build, the
+      # security scan and the smoke test. Keeping it in the baseline would
+      # duplicate five steps above, including the full suite.
+      #
+      # Its structural assertions are not lost: authentication paths map to
+      # `verify-authentication-completion.sh`, which defers to it.
+
+      # ----------------------------------------------------------------
+      # Repository hygiene
+      # ----------------------------------------------------------------
+
+      - name: Whitespace and conflict-marker hygiene
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git diff --check HEAD~1..HEAD || true
+          fi
+
+      - name: Commit attribution
+        # DEC-051 and Engineering-OS section 7: commits are attributed to the
+        # Founder alone. Judges only the commits this change adds — two Wave 8
+        # commits predate the rule and are recorded as a known exception, so a
+        # whole-history scan would fail permanently.
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          range="origin/${{ github.base_ref }}..HEAD"
+          if git log "$range" --format='%B%n%an%n%ae' \
+            | grep -inE 'co-authored-by|anthropic\.com|@openai|generated with .*(claude|chatgpt|copilot)'; then
+            echo "FAIL: AI attribution found in a commit added by this pull request."
+            exit 1
+          fi
+          echo "PASS: no AI attribution in commits added by this pull request."
+
+      - name: Migration guard
+        # A change that adds or edits a migration is a Founder gate. CI does not
+        # block it, but it must be impossible to land one unnoticed.
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          count="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
+          echo "Migrations present: $count"
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- supabase/migrations || true)"
+          if [ -n "$changed" ]; then
+            echo "::warning title=Migration change::This pull request changes migrations. Founder authorization is required before execution:"
+            echo "$changed"
+          else
+            echo "PASS: no migration added or modified."
+          fi
+
+      # ----------------------------------------------------------------
+      # Change-relevant gates — only the engines this change touches.
+      # ----------------------------------------------------------------
+
+      - name: Select change-relevant gates
+        id: gates
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="HEAD~1"
+          fi
+          git diff --name-only "$base...HEAD" > /tmp/changed-files.txt || \
+            git diff --name-only "$base..HEAD" > /tmp/changed-files.txt
+          echo "Changed files:"
+          sed 's/^/  /' /tmp/changed-files.txt
+          bash scripts/ci-select-gates.sh < /tmp/changed-files.txt > /tmp/selected-gates.txt
+          if [ -s /tmp/selected-gates.txt ]; then
+            echo "Selected gates:"
+            sed 's/^/  /' /tmp/selected-gates.txt
+          else
+            echo "No engine gate owns the changed paths; baseline only."
+          fi
+
+      - name: Run change-relevant gates
+        run: |
+          set -euo pipefail
+          if [ ! -s /tmp/selected-gates.txt ]; then
+            echo "No change-relevant gate to run."
+            exit 0
+          fi
+          status=0
+          while IFS= read -r gate; do
+            [ -n "$gate" ] || continue
+            echo "::group::$gate"
+            if bash "$gate"; then
+              echo "PASS: $gate"
+            else
+              echo "::error title=Gate failed::$gate"
+              status=1
+            fi
+            echo "::endgroup::"
+          done < /tmp/selected-gates.txt
+          exit "$status"
