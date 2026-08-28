@@ -372,9 +372,12 @@ done
 # and a change to a component can never change what the course says. That is
 # also strictly more than the diff check proved: a React import inside the
 # content module would have passed it.
+# The raw file is scanned, not a piped variable: under `pipefail` an early
+# match makes `echo "$VAR" | grep -q` return 141 from echo's SIGPIPE, which an
+# absence check reads as "clean" — the guard would then pass on a real hit.
 for presentation in 'react' 'jsx' 'useState' 'useEffect' 'className' \
                     'document.' 'window.' 'render('; do
-  if echo "$CONTENT_CODE" | grep -qiF -e "$presentation"; then
+  if grep -qiF -e "$presentation" "$CONTENT"; then
     fail "the authored curriculum carries presentation, which belongs to the learner surface: $presentation"
   fi
 done

@@ -46,8 +46,54 @@ for p in "$CONTENT" "$VIEW" "$PRACTICE_VIEW" "$PROJECTION" "$PRESENTATION" \
   [ -f "$p" ] || fail "MISSING: $p"
 done
 
-LEARNING_CODE="$(cat "$PROJECTION" "$PRESENTATION" "$PRACTICE" "$SERVICE" "$VIEW" "$PRACTICE_VIEW")"
-LEARNING_LOGIC="$(code_of "$PROJECTION"; code_of "$PRESENTATION"; code_of "$PRACTICE"; code_of "$SERVICE"; code_of "$VIEW"; code_of "$PRACTICE_VIEW")"
+# The sources to scan are assembled into FILES, not shell variables, and every
+# check greps a file rather than piping a variable into grep.
+#
+# This is not a style preference. Under `set -o pipefail`, `echo "$BIG" | grep -q`
+# returns 141 when grep matches early enough to exit while echo is still
+# writing: echo takes SIGPIPE and its status wins. A *presence* check then reads
+# a match as a miss, and — far worse — an *absence* check reads a real hit as
+# clean and silently passes. Which of the two happens depends on where in the
+# input the match sits and on the pipe buffer, so the same guard can behave
+# differently on a laptop and on a runner. This gate hit exactly that: a match
+# on line 39 failed in CI while a match near the end passed locally.
+#
+# Grepping a file removes the pipeline, and with it the whole class of bug.
+SCAN_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCAN_DIR"' EXIT
+
+LEARNING_CODE="$SCAN_DIR/learning-code.txt"
+LEARNING_LOGIC="$SCAN_DIR/learning-logic.txt"
+
+cat "$PROJECTION" "$PRESENTATION" "$PRACTICE" "$SERVICE" "$VIEW" \
+  "$PRACTICE_VIEW" > "$LEARNING_CODE"
+
+{
+  code_of "$PROJECTION"
+  code_of "$PRESENTATION"
+  code_of "$PRACTICE"
+  code_of "$SERVICE"
+  code_of "$VIEW"
+  code_of "$PRACTICE_VIEW"
+} > "$LEARNING_LOGIC"
+
+# A scan file that came out empty would make every absence check vacuous and
+# every presence check fail, so prove both are populated before relying on them.
+[ -s "$LEARNING_CODE" ] || fail "the learner sources scanned empty"
+[ -s "$LEARNING_LOGIC" ] || fail "the comment-stripped learner sources scanned empty"
+
+# Per-file comment-stripped scans, for the same reason.
+PRACTICE_LOGIC="$SCAN_DIR/practice-logic.txt"
+PRACTICE_VIEW_LOGIC="$SCAN_DIR/practice-view-logic.txt"
+SERVICE_LOGIC="$SCAN_DIR/service-logic.txt"
+
+code_of "$PRACTICE" > "$PRACTICE_LOGIC"
+code_of "$PRACTICE_VIEW" > "$PRACTICE_VIEW_LOGIC"
+code_of "$SERVICE" > "$SERVICE_LOGIC"
+
+for scan in "$PRACTICE_LOGIC" "$PRACTICE_VIEW_LOGIC" "$SERVICE_LOGIC"; do
+  [ -s "$scan" ] || fail "a per-file scan came out empty: $scan"
+done
 
 echo "===== ROAS-3 COMPLETION GATE ====="
 echo ""
@@ -80,7 +126,7 @@ done
 
 # Navigation stays keyboard-operable platform semantics, not click handlers on
 # inert elements.
-if echo "$LEARNING_LOGIC" | grep -qE '<(div|span|p|li)[^>]*onClick'; then
+if grep -qE '<(div|span|p|li)[^>]*onClick' "$LEARNING_LOGIC"; then
   fail "a non-interactive element carries a click handler and would be unreachable by keyboard"
 fi
 
@@ -127,7 +173,7 @@ while IFS= read -r authored; do
   [ -n "$authored" ] || continue
   # -e is required: an authored line may begin with "- ", which grep would
   # otherwise read as an option and skip — silently weakening this check.
-  if echo "$LEARNING_LOGIC" | grep -Fq -e "$authored"; then
+  if grep -Fq -e "$authored" "$LEARNING_LOGIC"; then
     echo "  duplicated authored content: ${authored:0:72}…"
     DUPLICATED=$((DUPLICATED + 1))
   fi
@@ -139,7 +185,7 @@ EOF
   || fail "$DUPLICATED authored string(s) were copied into the web sources; the UI must project the ROAS-2 content, not restate it"
 
 # The approved counts are never hardcoded as a structural constant either.
-if echo "$LEARNING_LOGIC" | grep -qE '(modules|missions)\.length\s*(===|==)\s*[0-9]'; then
+if grep -qE '(modules|missions)\.length\s*(===|==)\s*[0-9]' "$LEARNING_LOGIC"; then
   fail "the UI pins a module or mission count instead of rendering what is authored"
 fi
 
@@ -165,8 +211,7 @@ grep -Fq 'competency.description' "$VIEW" \
 # attribute positions the learner never reads. What it may never be is a JSX
 # text child. The character immediately before the interpolation distinguishes
 # them: "=" is an attribute, "$" is a template literal, anything else is text.
-RENDERED_IDS="$(echo "$LEARNING_LOGIC" \
-  | grep -oE '.\{[a-zA-Z]+\.stableId\}' \
+RENDERED_IDS="$(grep -oE '.\{[a-zA-Z]+\.stableId\}' "$LEARNING_LOGIC" \
   | grep -vE '^[=$]' || true)"
 
 if [ -n "$RENDERED_IDS" ]; then
@@ -196,14 +241,14 @@ PRACTICE_IMPORTS="$(grep -oE 'from "[^"]+"' "$PRACTICE" | sed 's/from //' | tr -
 for forbidden in apiRequest 'fetch(' accessToken supabase '/assessments' \
                  'assessment-attempts' attemptId evidenceId '/evidence' \
                  competencyStableId; do
-  if code_of "$PRACTICE" | grep -qF -e "$forbidden"; then
+  if grep -qF -e "$forbidden" "$PRACTICE_LOGIC"; then
     fail "the practice module reaches something it must not: $forbidden"
   fi
 done
 
 # The practice component must not acquire a token or a service either.
 for forbidden in useAuth apiRequest accessToken learning-service; do
-  if code_of "$PRACTICE_VIEW" | grep -qF "$forbidden"; then
+  if grep -qF -e "$forbidden" "$PRACTICE_VIEW_LOGIC"; then
     fail "the practice component can reach the server: $forbidden"
   fi
 done
@@ -219,7 +264,7 @@ grep -Fq 'assertPracticeOnly(definition)' "$PRACTICE" \
 # Scoring is the shared contract, not a second implementation.
 grep -Fq 'scoreAssessment' "$PRACTICE" \
   || fail "practice scoring does not reuse the shared assessment contract"
-if code_of "$PRACTICE" | grep -qE 'earnedPoints\s*\+='; then
+if grep -qE 'earnedPoints\s*\+=' "$PRACTICE_LOGIC"; then
   fail "the practice module implements its own scoring loop"
 fi
 
@@ -230,7 +275,7 @@ grep -Fq 'not recorded' "$PRACTICE" \
   || fail "the practice wording no longer says results are not recorded"
 
 # And nothing anywhere in the learner surface writes evidence or competency.
-if echo "$LEARNING_LOGIC" | grep -qE '/evidence|/certificates|competencyState|awardCompetency|competency_demonstrated"\s*\)'; then
+if grep -qE '/evidence|/certificates|competencyState|awardCompetency|competency_demonstrated"\s*\)' "$LEARNING_LOGIC"; then
   fail "the learner course surface reaches an evidence or competency write"
 fi
 
@@ -242,7 +287,7 @@ echo "PASS:  5. practice is provably practice and produces no evidence"
 # The substitution this package exists to prevent. A quoted "not_started"
 # anywhere in the learner sources would mean the browser can decide a learner
 # has not begun something it never actually asked about.
-if echo "$LEARNING_LOGIC" | grep -qF '"not_started"'; then
+if grep -qF -e '"not_started"' "$LEARNING_LOGIC"; then
   fail "the learner surface can substitute a not-started state the server never sent"
 fi
 
@@ -260,7 +305,7 @@ grep -Fq 'known: false' "$PRESENTATION" \
 for forbidden in 'completionPercent[[:space:]]*=[^=]' \
                  'completedMissions[[:space:]]*=[^=]' \
                  'completionPercent:' 'completedMissions:'; do
-  if echo "$LEARNING_LOGIC" | grep -qE "$forbidden"; then
+  if grep -qE "$forbidden" "$LEARNING_LOGIC"; then
     fail "the browser computes course completion instead of reading it: $forbidden"
   fi
 done
@@ -327,7 +372,7 @@ CHANGED_SHARED="$(git diff --name-only origin/main...HEAD -- packages/shared-typ
   || fail "ROAS-3 changed $CHANGED_SHARED shared-types files; the authored curriculum and contracts are not in scope"
 
 # No identity is ever sent: ownership is the session's, enforced by RLS.
-if code_of "$SERVICE" | grep -qE 'userId|studentId|learnerId|ownerId'; then
+if grep -qE 'userId|studentId|learnerId|ownerId' "$SERVICE_LOGIC"; then
   fail "the learner service names a learner in a request; ownership is the session's"
 fi
 
@@ -355,18 +400,18 @@ done
 
 for token in proxmox pve hypervisor esxi vsphere vcenter qemu kvm libvirt \
              docker podman containerd aws azure gcp node-r620; do
-  if echo "$LEARNING_CODE" | grep -qiF "$token"; then
+  if grep -qiF -e "$token" "$LEARNING_CODE"; then
     fail "a provider-specific token entered the learner experience: $token"
   fi
 done
 
-if echo "$LEARNING_CODE" | grep -qiE 'openai|anthropic|ollama|ai[ _-]?gateway|aigw|llm|gpt|tutor'; then
+if grep -qiE 'openai|anthropic|ollama|ai[ _-]?gateway|aigw|llm|gpt|tutor' "$LEARNING_CODE"; then
   fail "an AI dependency or AI tutor behaviour entered the learner experience"
 fi
 
 # Only the approved course. ROAS-3 authors no new one.
 for later in 'linux' 'windows-' 'integrated-challenge'; do
-  if echo "$LEARNING_LOGIC" | grep -qF "\"$later"; then
+  if grep -qF -e "\"$later" "$LEARNING_LOGIC"; then
     fail "the learner surface authored content for a later course: $later"
   fi
 done
@@ -382,7 +427,7 @@ grep -Fq 'not available yet' "$PRESENTATION" \
   || fail "the course implies a lab environment exists"
 
 # No lab session may be requested from here: the provider does not exist.
-if echo "$LEARNING_LOGIC" | grep -qE '/lab-sessions|/lab-providers|startLab|provisionLab'; then
+if grep -qE '/lab-sessions|/lab-providers|startLab|provisionLab' "$LEARNING_LOGIC"; then
   fail "the learner course tries to start a lab; no provider implements one"
 fi
 
@@ -398,12 +443,12 @@ for pressure in streak countdown "days left" "don't lose" "keep it up" \
                 "hurry" "expires in"; do
   # Comment-stripped: a comment may explain that streaks are deliberately
   # absent, which is documentation rather than a streak.
-  if echo "$LEARNING_LOGIC" | grep -qiF -e "$pressure"; then
+  if grep -qiF -e "$pressure" "$LEARNING_LOGIC"; then
     fail "pressure-oriented or gamified language entered the learner experience: $pressure"
   fi
 done
 
-if echo "$LEARNING_LOGIC" | grep -qE 'setTimeout|setInterval|Date.now\(\)'; then
+if grep -qE 'setTimeout|setInterval|Date.now\(\)' "$LEARNING_LOGIC"; then
   fail "the learner experience introduces timing behaviour; nothing here is timed"
 fi
 
@@ -412,7 +457,7 @@ fi
 # note is explicit that browser accessibility remains Human UAT.
 for semantic in 'aria-labelledby' 'aria-live' 'aria-controls' 'aria-current' \
                 'aria-expanded'; do
-  if ! echo "$LEARNING_CODE" | grep -qF "$semantic"; then
+  if ! grep -qF -e "$semantic" "$LEARNING_CODE"; then
     fail "a required accessibility affordance is missing: $semantic"
   fi
 done
