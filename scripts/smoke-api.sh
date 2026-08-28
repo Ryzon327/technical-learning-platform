@@ -114,6 +114,19 @@ assert_status POST /notes/search 404 '{"q":"vlan"}'
 assert_status DELETE /notes/search 401
 assert_status GET '/search/notes?q=vlan' 404
 
+# ROAS-1 — Founder-guarded lab authoring must never be publicly reachable, and
+# must expose no read or student-facing surface. Authentication is proven here;
+# Founder-role enforcement is proven by unit tests and the ROAS-1 verifier.
+assert_status POST /admin/labs/definitions 401 '{"stableId":"LABDEF-NET-001"}'
+assert_status POST /admin/labs/validation-checks 401 '{"profileStableId":"LABVP-NET-001"}'
+assert_status POST /admin/labs/definitions/LABDEF-NET-001/1/state 401 '{"publicationState":"review"}'
+assert_status POST /admin/labs/validation-profiles/LABVP-NET-001/state 401 '{"publicationState":"review"}'
+assert_status GET /admin/labs/definitions 404
+assert_status GET /admin/labs/validation-checks 404
+assert_status DELETE /admin/labs/definitions 404
+assert_status GET /labs/definitions 404
+assert_status GET /admin/labs 404
+
 # SEARCH-008 — structured navigation fallback composes the EXISTING published
 # curriculum route. SEARCH-008 adds no route of its own, so what must be proven
 # is that the route it reuses is authenticated and exposes no mutation.
@@ -227,5 +240,7 @@ echo 'PASS: SEARCH-006 private notes search requires authentication'
 echo 'PASS: SEARCH-006 exposes no second or public notes-search route'
 echo 'PASS: SEARCH-002 curriculum search requires authentication'
 echo 'PASS: SEARCH-002 exposes no public or admin search route'
+echo 'PASS: ROAS-1 lab authoring requires authentication and exposes no public surface'
+echo 'PASS: ROAS-1 exposes no student-facing or read-only lab authoring route'
 echo 'PASS: SEARCH-008 navigation fallback reuses the authenticated curriculum route'
 echo 'PASS: SEARCH-008 adds no ranking, fallback or navigation route'
