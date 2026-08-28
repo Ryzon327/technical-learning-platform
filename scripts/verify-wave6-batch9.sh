@@ -97,10 +97,6 @@ echo "PASS: suspend/disable immediately force rollout off"
 echo "PASS: rollout administration is an explicit operator action"
 echo "PASS: AI is not part of provider activation or rollout authority"
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 6 Batch 9 verification passed."

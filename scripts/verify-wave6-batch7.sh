@@ -123,10 +123,6 @@ echo "PASS: Container Provider remains disabled by default"
 echo "PASS: no Proxmox coupling introduced"
 echo "PASS: AI is not part of container lifecycle or validation authority"
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 6 Batch 7 verification passed."

@@ -138,6 +138,15 @@ jobs:
           fi
 
       - name: Run change-relevant gates
+        # TLP_CI_BASELINE_VERIFIED is set HERE and nowhere else. Every baseline
+        # step above has already succeeded in this same job — the job would have
+        # stopped otherwise — so the statement it makes is true by construction.
+        #
+        # It lets nested wave verifiers skip the repository-wide toolchain they
+        # would otherwise re-run (see scripts/ci-toolchain.sh). Their unique
+        # structural and engine assertions still run in full.
+        env:
+          TLP_CI_BASELINE_VERIFIED: "1"
         run: |
           set -euo pipefail
           if [ ! -s /tmp/selected-gates.txt ]; then

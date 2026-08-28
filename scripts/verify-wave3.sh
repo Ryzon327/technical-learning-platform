@@ -40,10 +40,6 @@ grep -Fq 'listReviewState' services/api/src/server.ts   || { echo "FAIL: review-
 
 echo "Wave 3 Batch 4 guidance/history/review structure verified."
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 3 Batch 4 verification passed."

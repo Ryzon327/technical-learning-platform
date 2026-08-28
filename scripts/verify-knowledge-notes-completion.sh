@@ -29,7 +29,7 @@ while IFS= read -r file; do
     echo "FAIL: Knowledge specification is not marked approved: $file"
     unapproved=1
   fi
-done < <(find "$spec_dir" -maxdepth 1 -type f -name 'KNOW-*.md' | sort)
+done < <(find "$spec_dir" -maxdepth 1 -type f -name 'KNOW-*.md' | LC_ALL=C sort)
 
 if [ "$unapproved" -ne 0 ]; then
   exit 1

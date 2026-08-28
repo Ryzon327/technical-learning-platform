@@ -137,7 +137,7 @@ echo "PASS: baseline Search requires no AI"
 # SEARCH-001 forbade every search route because it had no learner surface.
 # SEARCH-002 is the feature authorized to introduce exactly one. The boundary is
 # preserved and is now EXACT: that route and no other.
-SEARCH_ROUTES="$(grep -oE 'pathname === "/search[^"]*"' "$SERVER" | sort -u || true)"
+SEARCH_ROUTES="$(grep -oE 'pathname === "/search[^"]*"' "$SERVER" | LC_ALL=C sort -u || true)"
 [ "$SEARCH_ROUTES" = 'pathname === "/search/curriculum"' ] \
   || fail "the search route set changed; expected only the curriculum search:
 $SEARCH_ROUTES"
@@ -910,8 +910,8 @@ fi
 # Pinning the exact export surface means any new way to produce vocabulary — or
 # to leak per-query state — has to pass through this review checkpoint.
 ST_EXPORTS="$(grep -oE '^export (const|function|interface|type) [A-Za-z_]+' "$ST_TYPES" \
-  | awk '{print $3}' | sort | tr '\n' ' ')"
-ST_EXPECTED="buildCurriculumQueryAdjustment buildCurriculumQueryVariants buildTieredCurriculumSearchResults ClassifiedSearchDocument classifyCurriculumMatch containsTokenSequence CURATED_CURRICULUM_TERM_ALIASES CURRICULUM_MATCH_KINDS CurriculumAdjustedSearchResults CurriculumMatchKind CurriculumQueryAdjustment CurriculumQueryVariant CurriculumTermAlias DEFERRED_TERM_ALIAS_CANDIDATES describeCurriculumQueryAdjustment MAX_CURRICULUM_QUERY_VARIANTS MIN_ALIAS_RETRIEVAL_LENGTH normalizeTerminalPunctuation PROTECTED_TECHNICAL_TERMS REMOVABLE_TERMINAL_PUNCTUATION SEARCH_TERM_FORBIDDEN_FIELDS SEARCH_TERM_MODEL_VERSION withCurriculumQueryAdjustment "
+  | awk '{print $3}' | LC_ALL=C sort | tr '\n' ' ')"
+ST_EXPECTED="CURATED_CURRICULUM_TERM_ALIASES CURRICULUM_MATCH_KINDS ClassifiedSearchDocument CurriculumAdjustedSearchResults CurriculumMatchKind CurriculumQueryAdjustment CurriculumQueryVariant CurriculumTermAlias DEFERRED_TERM_ALIAS_CANDIDATES MAX_CURRICULUM_QUERY_VARIANTS MIN_ALIAS_RETRIEVAL_LENGTH PROTECTED_TECHNICAL_TERMS REMOVABLE_TERMINAL_PUNCTUATION SEARCH_TERM_FORBIDDEN_FIELDS SEARCH_TERM_MODEL_VERSION buildCurriculumQueryAdjustment buildCurriculumQueryVariants buildTieredCurriculumSearchResults classifyCurriculumMatch containsTokenSequence describeCurriculumQueryAdjustment normalizeTerminalPunctuation withCurriculumQueryAdjustment "
 [ "$ST_EXPORTS" = "$ST_EXPECTED" ] \
   || fail "the search-terms export surface changed; every addition must be reviewed:
   expected: $ST_EXPECTED
@@ -1034,7 +1034,7 @@ ST_ADJ_BODY="$(awk '/^export interface CurriculumQueryAdjustment \{/{f=1;next} f
 # text would flag `adjustmentKind: Exclude<CurriculumMatchKind, "exact">` for
 # containing "MatchKind", which is the annotation, not a leaked field.
 ST_ADJ_NAMES="$(echo "$ST_ADJ_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' \
-  | tr -d ' ' | sort | tr '\n' ' ')"
+  | tr -d ' ' | LC_ALL=C sort | tr '\n' ' ')"
 [ "$ST_ADJ_NAMES" = "adjustmentKind effectiveQuery originalQuery " ] \
   || fail "the adjustment contract fields changed; exactly three are approved:
   expected: adjustmentKind effectiveQuery originalQuery
@@ -1140,8 +1140,8 @@ fi
 # EXPORT ALLOW-LIST. A dependency scan alone is insufficient: a function that
 # ACCEPTS candidate rows needs no client, no await and no import.
 TY_EXPORTS="$(grep -oE '^export (const|function|interface|type) [A-Za-z_]+' "$TY_TYPES" \
-  | awk '{print $3}' | sort | tr '\n' ' ')"
-TY_EXPECTED="buildCurriculumTypoRecovery buildTypoTargets CurriculumTypoRecovery describeCurriculumOriginalQueryAction describeCurriculumOriginalQueryEmptyState describeCurriculumTypoRecovery findSingleTypoTarget isTypoEligibleToken isWithinOneEdit SEARCH_TYPO_FORBIDDEN_FIELDS SEARCH_TYPO_MODEL_VERSION TYPO_EXCLUDED_INPUT_SHAPES TYPO_MAX_CORRECTED_TOKENS TYPO_MAX_EDIT_DISTANCE TYPO_MAX_RECOVERED_VARIANTS TYPO_MIN_TOKEN_LENGTH TYPO_RECOVERY_TARGETS TYPO_SHORT_TOKEN_LENGTH "
+  | awk '{print $3}' | LC_ALL=C sort | tr '\n' ' ')"
+TY_EXPECTED="CurriculumTypoRecovery SEARCH_TYPO_FORBIDDEN_FIELDS SEARCH_TYPO_MODEL_VERSION TYPO_EXCLUDED_INPUT_SHAPES TYPO_MAX_CORRECTED_TOKENS TYPO_MAX_EDIT_DISTANCE TYPO_MAX_RECOVERED_VARIANTS TYPO_MIN_TOKEN_LENGTH TYPO_RECOVERY_TARGETS TYPO_SHORT_TOKEN_LENGTH buildCurriculumTypoRecovery buildTypoTargets describeCurriculumOriginalQueryAction describeCurriculumOriginalQueryEmptyState describeCurriculumTypoRecovery findSingleTypoTarget isTypoEligibleToken isWithinOneEdit "
 [ "$TY_EXPORTS" = "$TY_EXPECTED" ] \
   || fail "the search-typo export surface changed; every addition must be reviewed:
   expected: $TY_EXPECTED
@@ -1248,7 +1248,7 @@ grep -Fq 'CurriculumTypoRecovery' "$TY_TYPE_TESTS" \
 # so the interface body is extracted and its field NAMES compared — text
 # matching would also misread a type annotation.
 TY_REC_BODY="$(awk '/^export interface CurriculumTypoRecovery \{/{f=1;next} f&&/^\}/{f=0} f' "$TY_TYPES")"
-TY_REC_NAMES="$(echo "$TY_REC_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | sort | tr '\n' ' ')"
+TY_REC_NAMES="$(echo "$TY_REC_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | LC_ALL=C sort | tr '\n' ' ')"
 [ "$TY_REC_NAMES" = "correctedQuery originalQuery " ] \
   || fail "the recovery contract fields changed; exactly two are approved:
   expected: correctedQuery originalQuery
@@ -1272,7 +1272,7 @@ for forbidden in 'mode=' 'searchMode' 'disableTypo' 'disableAliases' 'fuzzy=' \
     fail "a general search mode was added to the route: $forbidden"
   fi
 done
-ROUTE_PARAMS="$(echo "$SEARCH_ROUTE_BLOCK" | grep -oE 'searchParams\.(get|getAll)\("[a-zA-Z]+"\)' | sort -u | tr '\n' ' ')"
+ROUTE_PARAMS="$(echo "$SEARCH_ROUTE_BLOCK" | grep -oE 'searchParams\.(get|getAll)\("[a-zA-Z]+"\)' | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$ROUTE_PARAMS" = 'searchParams.get("limit") searchParams.get("q") searchParams.getAll("contentType") ' ] \
   || fail "the search route accepts an unapproved parameter set: $ROUTE_PARAMS"
 grep -Fq 'describeCurriculumOriginalQueryAction' "$CS_VIEW" \
@@ -1589,7 +1589,7 @@ for forbidden in documents documentIds titles snippets records userId ownerId qu
 done
 # The report shape is pinned by FIELD NAMES, so a leak cannot be added beside it.
 FR_REPORT_BODY="$(awk '/^export interface SearchFreshnessReport \{/{f=1;next} f&&/^\}/{f=0} f' "$FR_TYPES")"
-FR_REPORT_FIELDS="$(echo "$FR_REPORT_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | sort | tr '\n' ' ')"
+FR_REPORT_FIELDS="$(echo "$FR_REPORT_BODY" | grep -oE '^[[:space:]]+[A-Za-z_]+' | tr -d ' ' | LC_ALL=C sort | tr '\n' ' ')"
 [ "$FR_REPORT_FIELDS" = "examined exhaustedRetries healthy modelVersion outcomes servable unservable " ] \
   || fail "the freshness report fields changed; only aggregate state is approved:
   actual: $FR_REPORT_FIELDS"
@@ -1871,7 +1871,7 @@ grep -Fq '"/curriculum/paths"' "$NAV_SERVICE" \
 NAV_ROUTES="$(echo "$NAV_CODE" | grep -c 'apiRequest<' || true)"
 [ "$NAV_ROUTES" = "1" ] \
   || fail "the navigation service makes $NAV_ROUTES requests; exactly one may exist"
-NAV_PATHS="$(echo "$NAV_CODE" | grep -oE '"/[a-z/-]+"' | sort -u | tr '\n' ' ')"
+NAV_PATHS="$(echo "$NAV_CODE" | grep -oE '"/[a-z/-]+"' | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$NAV_PATHS" = '"/curriculum/paths" ' ] \
   || fail "the navigation service reaches an unapproved route: $NAV_PATHS"
 grep -Fq 'buildCurriculumNavigationEntries(payload.learningPaths ?? [])' "$NAV_SERVICE" \
@@ -1970,12 +1970,7 @@ echo "PASS: SEARCH-008 adds no migration, provider, dependency, cache or AI"
 # ------------------------------------------------------------
 # 11. Repository toolchain
 # ------------------------------------------------------------
-echo ""
-echo "--- repository verification ---"
-npm run typecheck
-npm test
-npm run build
-bash scripts/security-scan.sh
+bash scripts/ci-toolchain.sh typecheck test build security
 
 echo ""
 echo "============================================================"

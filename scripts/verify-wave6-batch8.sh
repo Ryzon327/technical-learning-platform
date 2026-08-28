@@ -111,10 +111,6 @@ echo "PASS: canary can be run through an explicit administrative command"
 echo "PASS: no Proxmox coupling introduced"
 echo "PASS: AI is not part of canary or activation authority"
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 6 Batch 8 verification passed."

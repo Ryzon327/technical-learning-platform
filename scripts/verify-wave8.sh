@@ -49,7 +49,7 @@ CERTIFICATE_MIGRATIONS_EXPECTED="20260813000700_certificate_definition_foundatio
 20260813000900_certificate_lifecycle_foundation.sql
 20260813001000_certificate_correction_foundation.sql"
 certificate_migration_set() {
-  ls supabase/migrations/*certificate*.sql 2>/dev/null | xargs -n1 basename | sort || true
+  ls supabase/migrations/*certificate*.sql 2>/dev/null | xargs -n1 basename | LC_ALL=C sort || true
 }
 
 # ------------------------------------------------------------
@@ -2225,7 +2225,7 @@ for forbidden in resolveEffectiveCertificateStatus evaluateCertificateEligibilit
   fi
 done
 # It may read only the two presentation concerns it owns.
-PRES_READS="$(echo "$PRES_SERVICE_CODE" | grep -oE '\.from\("[a-z_]+"\)' | sort -u || true)"
+PRES_READS="$(echo "$PRES_SERVICE_CODE" | grep -oE '\.from\("[a-z_]+"\)' | LC_ALL=C sort -u || true)"
 EXPECTED_PRES_READS='.from("certificate_definitions")
 .from("user_profiles")'
 [ "$PRES_READS" = "$EXPECTED_PRES_READS" ] \
@@ -2347,13 +2347,7 @@ bash scripts/verify-evidence-engine-completion.sh
 # ------------------------------------------------------------
 # 13. Repository toolchain
 # ------------------------------------------------------------
-echo ""
-echo "--- repository verification ---"
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo ""
 echo "============================================================"

@@ -197,7 +197,7 @@ echo "PASS:  7. authoring records probes and explanations, never outcomes"
 # ------------------------------------------------------------
 # 8. No new persistence surface, migration, dependency or AI
 # ------------------------------------------------------------
-LITERAL_TABLES="$(echo "$ADMIN_CODE" | grep -oE '\.from\("[a-z_]+"\)' | sort -u | tr '\n' ' ')"
+LITERAL_TABLES="$(echo "$ADMIN_CODE" | grep -oE '\.from\("[a-z_]+"\)' | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$LITERAL_TABLES" = '.from("lab_definitions") .from("lab_validation_checks") ' ] \
   || fail "authoring writes an unexpected table: $LITERAL_TABLES"
 grep -Fq 'table: "missions" | "competencies"' "$LAB_ADMIN" \

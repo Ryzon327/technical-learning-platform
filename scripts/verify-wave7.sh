@@ -1124,11 +1124,7 @@ echo "PASS: export never mutates Evidence or source-engine truth"
 echo "PASS: the export request is accessible and private"
 echo "PASS: sharing, employer access, documents and AI remain deferred"
 
-npm run typecheck
-npm run test
-npm run build
-bash scripts/security-scan.sh
-bash scripts/smoke-api.sh
+bash scripts/ci-toolchain.sh typecheck test build security smoke
 
 echo "Wave 7 Batch 1 verification passed."
 echo "Wave 7 Batch 2 verification passed."
