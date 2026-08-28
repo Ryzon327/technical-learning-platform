@@ -34,6 +34,14 @@ import {
   validateLearningPathForPublication
 } from "./curriculum-admin";
 import {
+  addLabValidationChecks,
+  createDraftLabDefinition,
+  transitionLabDefinitionState,
+  transitionLabValidationProfileState,
+  type CreateLabDefinitionInput
+} from "./lab-admin";
+import type { LabPublicationState } from "@tlp/shared-types";
+import {
   createDraftCertificateDefinition,
   getCertificateDefinition,
   listCertificateDefinitions,
@@ -1066,6 +1074,75 @@ async function handleRequest(
           trusted.accessToken,
           missionStableId,
           action
+        )
+      });
+      return;
+    }
+
+    // ROAS-1 — Founder-guarded Lab Definition and validation-check authoring.
+    //
+    // The Lab Engine shipped `lab_definitions` and `lab_validation_checks` with a
+    // publication state but no write path anywhere in the repository, so LAB-001
+    // section 14's "Founder can define a lab" was not reachable through any
+    // governed mechanism. These four routes are that mechanism and nothing more.
+    //
+    // Authoring is metadata only. No provider is imported, selected, provisioned,
+    // started, reset or validated by any handler below.
+    if (request.method === "POST" && pathname === "/admin/labs/definitions") {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, {
+        labDefinition: await createDraftLabDefinition(
+          { actorUserId: trusted.identity.userId },
+          body as unknown as CreateLabDefinitionInput
+        )
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/admin/labs/validation-checks") {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 201, {
+        checks: await addLabValidationChecks(
+          { actorUserId: trusted.identity.userId },
+          {
+            profileStableId: body.profileStableId,
+            checks: body.checks
+          }
+        )
+      });
+      return;
+    }
+
+    const labDefinitionStateMatch = pathname.match(
+      /^\/admin\/labs\/definitions\/([^/]+)\/([0-9]+)\/state$/
+    );
+    if (request.method === "POST" && labDefinitionStateMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        labDefinition: await transitionLabDefinitionState(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(labDefinitionStateMatch[1] ?? ""),
+          Number(labDefinitionStateMatch[2]),
+          String(body.publicationState ?? "") as LabPublicationState
+        )
+      });
+      return;
+    }
+
+    const labProfileStateMatch = pathname.match(
+      /^\/admin\/labs\/validation-profiles\/([^/]+)\/state$/
+    );
+    if (request.method === "POST" && labProfileStateMatch) {
+      const trusted = await founder(request);
+      const body = await readJsonBody(request);
+      sendJson(response, 200, {
+        checks: await transitionLabValidationProfileState(
+          { actorUserId: trusted.identity.userId },
+          decodeURIComponent(labProfileStateMatch[1] ?? ""),
+          String(body.publicationState ?? "") as LabPublicationState
         )
       });
       return;
