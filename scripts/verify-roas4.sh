@@ -317,6 +317,15 @@ grep -Fq 'async function findExisting' "$PUBLISHER" \
   || fail "the publisher has no existence check; a re-run would create a second version"
 grep -Fq 'nextVersionFor' "$CURRICULUM_ADMIN" \
   || fail "curriculum-admin no longer versions on create; the idempotency reasoning above is stale"
+
+# Every versioned node type must actually consult it. Asserting only that the
+# helper exists is not enough: a mutation that bypassed the lookup for one table
+# survived that weaker check, because the helper was still defined and still
+# used elsewhere. Each table is named at a call site here instead.
+for versioned in learning_paths courses learning_modules missions competencies; do
+  grep -Fq -e "findExisting(\"$versioned\"" "$PUBLISHER" \
+    || fail "no existence check before creating $versioned; a re-run would create a second version of it"
+done
 grep -Fq 'prerequisiteExists' "$PUBLISHER" \
   || fail "competency prerequisites are not checked before insert; a re-run would fail"
 grep -Fq 'report("reuse"' "$PUBLISHER" \
