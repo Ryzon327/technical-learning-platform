@@ -374,7 +374,39 @@ grep -Fq 'validateAssessmentDefinition(assessment)' "$CONTENT_TESTS" \
 echo "PASS: 10. no unrelated MVP scope, migration, route or later course was introduced"
 
 # ------------------------------------------------------------
-# 11. The content must actually validate, and ROAS-1 must remain green
+# 11. This gate is reachable the DEV-FLOW-2 way
+# ------------------------------------------------------------
+# DEV-FLOW-2 landed after ROAS-2 was authored. Two things must hold for this
+# gate to participate in the current workflow rather than only in CI.
+#
+# (a) It resolves through the verifier namespace. `npm run gate -- roas2` maps a
+#     bare name onto `scripts/verify-<name>.sh`, which is why adding a verifier
+#     needs no new permission rule. Pin the resolution so a change to run-gate.sh
+#     that broke it would be caught here and not only by the autonomy gate.
+grep -Fq 'target="scripts/verify-${command_name}.sh"' scripts/run-gate.sh \
+  || fail "run-gate.sh no longer resolves a bare verifier name; npm run gate -- roas2 would break"
+[ -f "scripts/verify-roas2.sh" ] \
+  || fail "scripts/verify-roas2.sh is not where the namespace entry point resolves it"
+# The execute bit is deliberately NOT tested here. scripts/verify-autonomy.sh
+# owns that invariant repository-wide, and its scan would flag the search
+# pattern itself if this gate carried a duplicate copy of it.
+
+# (b) ROAS-2's own paths select this gate. Without this the curriculum could be
+#     merged unchecked — the DEV-FLOW-1 failure, in ROAS-2's shape.
+for roas2_path in packages/shared-types/src/roas-curriculum.ts \
+                  packages/shared-types/src/roas-curriculum.test.ts \
+                  scripts/verify-roas2.sh; do
+  SELECTED="$(bash scripts/ci-select-gates.sh "$roas2_path")"
+  case "$SELECTED" in
+    scripts/verify-roas2.sh*) ;;
+    *) fail "$roas2_path does not select this gate; it selected: $SELECTED" ;;
+  esac
+done
+
+echo "PASS: 11. the gate resolves through the verifier namespace and owns its paths"
+
+# ------------------------------------------------------------
+# 12. The content must actually validate, and ROAS-1 must remain green
 # ------------------------------------------------------------
 echo ""
 # Honours the DEV-FLOW-1 trusted-baseline convention. `roas-curriculum.test.ts`
