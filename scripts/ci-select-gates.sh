@@ -38,6 +38,11 @@ set -euo pipefail
 #   git diff --name-only origin/main...HEAD | scripts/ci-select-gates.sh
 # ============================================================
 
+# The verification machinery maps to itself. Editing a gate, a wave verifier or
+# the shared toolchain step must run at least one real gate, or a change to the
+# thing that does the checking would be merged unchecked. DEV-FLOW-1 found this
+# the hard way: it modified 13 verifier scripts and originally selected none.
+#
 # One rule per line: "<glob> <gate script>".
 #
 # Globs are matched with bash pattern matching against each changed path.
@@ -48,6 +53,11 @@ services/api/src/lab-*|scripts/verify-roas1.sh
 services/api/src/lab-admin*|scripts/verify-roas1.sh
 packages/shared-types/src/lab*|scripts/verify-roas1.sh
 scripts/verify-roas1.sh|scripts/verify-roas1.sh
+scripts/verify-lab-engine-completion.sh|scripts/verify-roas1.sh
+scripts/verify-wave6*.sh|scripts/verify-roas1.sh
+scripts/ci-toolchain.sh|scripts/verify-roas1.sh
+scripts/verify-wave9.sh|scripts/verify-search-engine-completion.sh
+scripts/verify-search-engine-completion.sh|scripts/verify-search-engine-completion.sh
 services/api/src/curriculum-search*|scripts/verify-search-engine-completion.sh
 services/api/src/search-*|scripts/verify-search-engine-completion.sh
 services/api/src/note-retrieval*|scripts/verify-search-engine-completion.sh
