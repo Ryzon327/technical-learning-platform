@@ -163,9 +163,19 @@ echo "PASS:  3. the CLI is documented as standard and the alternatives are rejec
 # Recomputed from the migrations on every run. A future migration that adds a
 # table or a policy makes the documentation wrong, and this fails until the
 # documentation is corrected — which is the point.
-TABLE_COUNT="$(grep -rho 'create table if not exists public\.' "$MIGRATIONS" | wc -l | tr -d ' ')"
-POLICY_COUNT="$(grep -rho 'create policy' "$MIGRATIONS" | wc -l | tr -d ' ')"
-RLS_COUNT="$(grep -rho 'enable row level security' "$MIGRATIONS" | wc -l | tr -d ' ')"
+#
+# Counted from COMMENT-STRIPPED SQL. These numbers are meant to be "how many
+# policies exist", not "how many times the words appear": DB-RLS-1 added a
+# migration whose header comment explains the `create policy … TO authenticated`
+# trap in prose, and counting raw text scored that explanation as a 66th policy.
+# A documentation number can only stay honest if it counts statements.
+MIGRATION_SQL="$SCAN_DIR/migrations-code.txt"
+grep -rhv '^[[:space:]]*--' "$MIGRATIONS" > "$MIGRATION_SQL" || true
+[ -s "$MIGRATION_SQL" ] || fail "the comment-stripped migration scan came out empty"
+
+TABLE_COUNT="$(grep -o 'create table if not exists public\.' "$MIGRATION_SQL" | wc -l | tr -d ' ')"
+POLICY_COUNT="$(grep -o 'create policy' "$MIGRATION_SQL" | wc -l | tr -d ' ')"
+RLS_COUNT="$(grep -o 'enable row level security' "$MIGRATION_SQL" | wc -l | tr -d ' ')"
 SCHEMA_VERSION_ROWS="$(grep -rl 'insert into public.platform_schema_version' "$MIGRATIONS" | wc -l | tr -d ' ')"
 
 [ "$TABLE_COUNT" -gt "0" ] || fail "no tables were found in the migrations; the derivation is broken"
@@ -269,9 +279,18 @@ echo "PASS:  7. every remote-touching Supabase command is denied and documented"
 # ------------------------------------------------------------
 # 8. Nothing was executed, and no scope was expanded
 # ------------------------------------------------------------
-CHANGED_MIGRATIONS="$(git diff --name-only origin/main...HEAD -- "$MIGRATIONS" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_MIGRATIONS" = "0" ] \
-  || fail "DB-TOOLING-1 changed $CHANGED_MIGRATIONS migration file(s); none is authorized"
+# Migration integrity is NOT asserted here any more.
+#
+# This gate used to require that the branch change no file under
+# supabase/migrations. That was true of DB-TOOLING-1's own pull request and is
+# not a durable rule: DB-RLS-1 was authorized to add the privilege-contract
+# migration, and read literally the old check said no later package may ever add
+# a migration at all.
+#
+# scripts/verify-db-rls.sh now owns this, and owns it better: it asserts that
+# every migration change is an ADDITION, so modifying an already-applied file
+# fails on any branch rather than only on this one. Duplicating a weaker,
+# branch-scoped version of that here would only produce false failures.
 
 CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
 [ "$CHANGED_LOCK" = "0" ] \
