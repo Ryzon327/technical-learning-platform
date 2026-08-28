@@ -35,8 +35,16 @@ set -euo pipefail
 # would modify many files outside its scope. Selecting narrowly is what keeps the
 # cost proportionate.
 #
+# ## Two ways in, one behaviour
+#
+# Paths may arrive on stdin (one per line) or as arguments. CI uses stdin and
+# that path is unchanged. Arguments exist so a mapping can be checked without
+# building a shell pipeline, which is itself an approval prompt (DEV-FLOW-2).
+#
 # Usage:
 #   git diff --name-only origin/main...HEAD | scripts/ci-select-gates.sh
+#   bash scripts/ci-select-gates.sh services/api/src/lab-admin.ts
+#   npm run gate -- select services/api/src/lab-admin.ts
 # ============================================================
 
 # The verification machinery maps to itself. Editing a gate, a wave verifier or
@@ -59,6 +67,9 @@ scripts/verify-roas1.sh|scripts/verify-roas1.sh
 scripts/verify-lab-engine-completion.sh|scripts/verify-roas1.sh
 scripts/verify-wave6*.sh|scripts/verify-roas1.sh
 scripts/ci-toolchain.sh|scripts/verify-roas1.sh
+scripts/verify-certificate-engine-completion.sh|scripts/verify-certificate-engine-completion.sh
+scripts/verify-wave8.sh|scripts/verify-certificate-engine-completion.sh
+scripts/verify-wave7.sh|scripts/verify-certificate-engine-completion.sh
 scripts/verify-wave9.sh|scripts/verify-search-engine-completion.sh
 scripts/verify-search-engine-completion.sh|scripts/verify-search-engine-completion.sh
 services/api/src/curriculum-search*|scripts/verify-search-engine-completion.sh
@@ -86,10 +97,27 @@ packages/shared-types/src/curriculum.ts|scripts/verify-curriculum-completion.sh
 services/api/src/auth-context*|scripts/verify-authentication-completion.sh
 services/api/src/authorization*|scripts/verify-authentication-completion.sh
 apps/web/src/auth/*|scripts/verify-authentication-completion.sh
+.claude/settings.json|scripts/verify-autonomy.sh
+CLAUDE.md|scripts/verify-autonomy.sh
+docs/Engineering-OS/Engineering-OS.md|scripts/verify-autonomy.sh
+package.json|scripts/verify-autonomy.sh
+scripts/run-gate.sh|scripts/verify-autonomy.sh
+scripts/verify-autonomy.sh|scripts/verify-autonomy.sh
+scripts/ci-select-gates.sh|scripts/verify-autonomy.sh
 RULES
 )
 
 selected=""
+
+# Arguments win when present; otherwise stdin is read exactly as before. Both
+# feed the identical matching loop below, so the two entry points cannot drift.
+read_changed_paths() {
+  if [ "$#" -gt 0 ]; then
+    printf '%s\n' "$@"
+  else
+    cat
+  fi
+}
 
 while IFS= read -r changed; do
   [ -n "$changed" ] || continue
@@ -106,7 +134,7 @@ while IFS= read -r changed; do
         ;;
     esac
   done <<<"$RULES"
-done
+done < <(read_changed_paths "$@")
 
 for gate in $selected; do
   # A gate that has been removed must not silently stop running.

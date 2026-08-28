@@ -326,9 +326,49 @@ slips past a deny rule is still forbidden if it crosses a boundary above.
 Construct commands so they match the permission rules. A single compound
 expression — shell variable assignment with command substitution, nested `$(…)`,
 or a loop — cannot be attributed to any one rule and will prompt even when every
-operation inside it is individually permitted. Prefer one simple command per
-invocation, or move genuinely multi-step logic into a script invoked as a single
-command. **Never weaken a boundary merely to avoid a prompt.**
+operation inside it is individually permitted. **Never weaken a boundary merely
+to avoid a prompt.**
+
+### Command shape is a requirement, not a preference
+
+This was written as a preference through DEV-FLOW-1. The ROAS-2 work package
+then produced at least twelve routine approval prompts, most of them caused by
+AI wrapping already-allowed commands in pipes and redirects **purely to shorten
+its own output**. A preference that is ignored is not a control, so it is now a
+requirement (DEC-052).
+
+**Where a safe operation has an allowed simple form, that simple form must be
+used.** An allowed command must never be wrapped in `| head`, `| tail`,
+`| grep`, `2>&1`, `> logfile`, `;`, `&&`, `||`, a `while` loop, a command
+substitution, a process substitution or a subshell **to shorten, format, collate
+or monitor output.** AI reads full command output directly; formatting output for
+its own convenience is never a justification.
+
+Consequences of this requirement, recorded so they are not re-litigated:
+
+* Verifiers run through the namespace entry point `npm run gate -- <name>`,
+  which resolves `scripts/verify-<name>.sh` and nothing else. One permission
+  rule covers the whole namespace, so adding a verifier never requires a new
+  rule.
+* Verifiers are invoked as `bash <script>` everywhere, so the execute bit is not
+  load-bearing. **Creating a verifier requires no `chmod`**, and verifiers must
+  test `[ -f … ]`, never `[ -x … ]` — an execute-bit test lets a mode accident
+  silently skip a gate while the gate still reports success.
+* CI is observed with `gh pr checks <PR> --watch`, or by re-running
+  `gh pr checks <PR>`. **Shell polling loops are prohibited.**
+* Genuinely multi-step logic belongs in a committed script under `scripts/`,
+  invoked as one simple command. Executing an arbitrary scratchpad script by
+  absolute path is deliberately outside the autonomous path, and must never be
+  enabled by broadening permissions.
+* `.claude/settings.local.json` is machine-local and must never be what makes
+  the workflow function; autonomy rests on committed configuration so it
+  survives a fresh clone.
+
+`scripts/verify-autonomy.sh` is the committed acceptance test for this section.
+It classifies representative commands against the real rule set, fails if a
+required Founder gate is missing or an over-broad allow rule appears, and
+reports which commands remain dependent on unobservable matcher behaviour rather
+than claiming they are solved.
 
 ## Inventory expansion
 
