@@ -281,8 +281,10 @@ echo "PASS: AI holds no authority anywhere in the certificate truth path"
 # ------------------------------------------------------------
 # 10. The verification infrastructure the engine depends on
 # ------------------------------------------------------------
-[ -x scripts/verify-wave8.sh ] || fail "the Wave 8 per-batch verifier is missing or not executable"
-[ -x scripts/smoke-api.sh ] || fail "the API smoke script is missing or not executable"
+# Presence, not the execute bit: every caller runs these as `bash <script>`, so
+# executability proves nothing about whether they work (DEV-FLOW-2).
+[ -f scripts/verify-wave8.sh ] || fail "the Wave 8 per-batch verifier is missing"
+[ -f scripts/smoke-api.sh ] || fail "the API smoke script is missing"
 grep -Fq '/certificates/verify/' scripts/smoke-api.sh \
   || fail "smoke coverage for public verification is missing"
 grep -Fq '/certificates/presentation' scripts/smoke-api.sh \

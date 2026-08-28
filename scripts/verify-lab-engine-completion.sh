@@ -266,15 +266,21 @@ echo "PASS: real-provider student access delivery is implemented"
 # Routed through the shared toolchain step so it is not duplicated when the
 # hardened CI baseline has already run the smoke suite in the same job. Outside
 # that trusted context it runs exactly as before.
-if [ -x scripts/smoke-api.sh ]; then
+if [ -f scripts/smoke-api.sh ]; then
   bash scripts/ci-toolchain.sh smoke
 fi
 
 # Run the complete accumulated Wave 6 verification chain where available.
-[ -x scripts/verify-wave6.sh ] && bash scripts/verify-wave6.sh
-[ -x scripts/verify-wave6-batch7.sh ] && bash scripts/verify-wave6-batch7.sh
-[ -x scripts/verify-wave6-batch8.sh ] && bash scripts/verify-wave6-batch8.sh
-[ -x scripts/verify-wave6-batch9.sh ] && bash scripts/verify-wave6-batch9.sh
+#
+# These test -f, not -x. Every caller invokes verifiers as `bash <script>`, so
+# the execute bit is not load-bearing anywhere — but with -x, a verifier that
+# merely lost its mode bit would be SILENTLY SKIPPED and this gate would still
+# report success. DEV-FLOW-2 removed that failure mode; it also means creating a
+# verifier needs no chmod.
+[ -f scripts/verify-wave6.sh ] && bash scripts/verify-wave6.sh
+[ -f scripts/verify-wave6-batch7.sh ] && bash scripts/verify-wave6-batch7.sh
+[ -f scripts/verify-wave6-batch8.sh ] && bash scripts/verify-wave6-batch8.sh
+[ -f scripts/verify-wave6-batch9.sh ] && bash scripts/verify-wave6-batch9.sh
 
 echo
 echo "LAB ENGINE COMPLETION CHECK PASSED"

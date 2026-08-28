@@ -190,20 +190,101 @@ Those remain **Founder gates**. Autonomy stops at consequence, never at cadence.
 This removes relay overhead, not engineering discipline. Milestone IDs, Feature
 IDs and verifier checkpoints all remain.
 
-### Command shape
+### MANDATORY COMMAND SHAPE
 
 Permission rules match command **strings**. A single simple command matches one
 rule cleanly; a compound expression matches none, so it prompts even when every
 operation inside it is individually permitted.
 
-Two habits remove most routine prompts:
+DEV-FLOW-1 recorded this as advice. ROAS-2 then produced at least twelve routine
+approval prompts, and the ROAS-2 review found that **most were caused by Claude
+Code wrapping already-allowed commands in pipes and redirects purely to shorten
+output.** It is therefore no longer advice.
 
-* **No `cd` prefix.** Commands already run from the repository root. Prefixing
-  `cd /Users/.../technical-learning-platform && …` turns an allowed command into
-  an unmatchable compound string.
-* **One command per invocation.** Prefer three simple calls over one chained
-  with `;` or `&&` and nested `$(…)`. Move genuinely multi-step logic into a
-  script under `scripts/`, which is invoked as a single command.
+**When a safe operation already has an allowed simple command form, Claude Code
+MUST use that form.**
+
+Claude Code must **never wrap an allowed command** in any of `| head`, `| tail`,
+`| grep`, `2>&1`, `> logfile`, `;`, `&&`, `||`, shell loops such as `while `,
+command substitutions such as `$(…)`, process substitutions, or subshells —
+**to shorten, format, collate, or monitor output.**
+
+Claude Code reads full command output directly. Shell formatting to make output
+easier for Claude to read is never a justification.
+
+| Wrong | Right |
+|---|---|
+| `bash scripts/verify-x.sh 2>&1 \| head -40` | `bash scripts/verify-x.sh` |
+| `bash scripts/verify-x.sh > logfile 2>&1; echo $?` | `bash scripts/verify-x.sh` |
+| `git push -u origin wp/x 2>&1 \| tail -5` | `git push -u origin wp/x` |
+| `printf 'a\nb\n' \| bash scripts/ci-select-gates.sh` | `npm run gate -- select a b` |
+| `git diff --name-only \| bash scripts/ci-select-gates.sh` | `npm run gate -- select <paths>` |
+| `while true; do gh pr checks 9; sleep 20; done` | `gh pr checks 9 --watch` |
+| `git log --format=%H \| grep -i claude` | run the git command, read the output |
+
+The `cd` prefix is likewise prohibited: commands already run from the repository
+root, and `cd /Users/… && …` turns an allowed command into an unmatchable
+compound string. It also persists between invocations, which has silently
+produced wrong answers by running a command in the wrong directory.
+
+Genuinely multi-step logic belongs in a committed script under `scripts/`,
+invoked as one simple command.
+
+### Running verifiers
+
+**Prefer the namespace entry point:**
+
+```
+npm run gate -- <name>          # runs scripts/verify-<name>.sh
+npm run gate -- list            # lists the namespace
+npm run gate -- select <path>…  # change-relevant gate selection
+```
+
+`npm run gate` is covered by a single permission rule for the whole verifier
+namespace, so **adding a verifier never requires a new permission rule.**
+
+This form is preferred over `bash scripts/verify-<name>.sh` for a specific
+reason. Permission rules match command strings by prefix, and it is not
+observable from inside this repository whether a rule whose prefix ends
+*mid-token* — `Bash(bash scripts/:*)` — matches. `npm run gate` puts the varying
+part in an argument, so the rule only has to cover three complete words and
+matches under either interpretation. `scripts/verify-autonomy.sh` reports every
+command that is still prefix-dependent.
+
+**Never `chmod` a verifier.** Every caller runs verifiers with `bash`, so the
+execute bit is not load-bearing and a new verifier works at mode 0644. Verifiers
+must test `[ -f … ]`, never `[ -x … ]` — an execute-bit test lets a mode
+accident silently skip a gate while it still reports success.
+
+### CI monitoring
+
+Use `gh pr checks <PR> --watch` to wait for CI, or `gh pr checks <PR>` to sample
+it once and invoke the same simple command again later.
+
+**Never build a shell polling loop.** `while`, `sleep`, `comm`, `jq` pipelines
+and command substitutions are all prohibited for this purpose.
+
+### Scratchpad scripts
+
+Routine repository validation uses **committed scripts under `scripts/`**.
+
+Scratchpad files remain available for analysis, but **executing an arbitrary
+scratchpad shell script is not part of the autonomous development path** — it
+requires an absolute path, which no repository-relative permission rule can
+match, so it will always prompt. That is deliberate and must not be worked
+around by broadening permissions.
+
+If reusable multi-step validation is genuinely part of the work package, add a
+proper repository script. Never add a repository script merely to bypass a
+permission prompt.
+
+### Machine-local settings
+
+`.claude/settings.local.json` is untracked and machine-local. It must never be
+what makes the workflow function: autonomy has to rest on the **committed**
+`.claude/settings.json` so it survives a fresh clone. Accumulating "don't ask
+again" entries there is not a fix for a permission gap, and
+`scripts/verify-autonomy.sh` deliberately ignores that file when classifying.
 
 This is the practical form of the rule in `Engineering-OS.md` section 7:
 construct commands so they match the permission rules, and never weaken a

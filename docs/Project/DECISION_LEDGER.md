@@ -1831,6 +1831,129 @@ none executed.
 
 ---
 
+## DEC-052
+
+**Category**
+
+Engineering
+
+**Title**
+
+Command Shape Is a Requirement, and Autonomy Is Verified by a Committed Test
+
+**Status**
+
+Approved
+
+**Decision**
+
+**The command-shape rule is mandatory, not advice.** When a safe operation has
+an allowed simple command form, Claude Code must use that form. Wrapping an
+allowed command in `| head`, `| tail`, `| grep`, `2>&1`, `> logfile`, `;`, `&&`,
+`||`, a shell loop, a command substitution or a subshell **to shorten, format,
+collate or monitor output is prohibited.** Claude Code reads full command output
+directly; shell formatting for its own convenience is never a justification.
+
+**One permission rule covers the whole verifier namespace.** `npm run gate --
+<name>` resolves `scripts/verify-<name>.sh` and nothing else. Adding a verifier
+therefore never requires a new permission rule, and per-verifier rules are
+prohibited.
+
+**Verifiers never require `chmod`.** Every caller invokes them as
+`bash <script>`, so the execute bit is not load-bearing. Verifiers must test
+`[ -f … ]`, never `[ -x … ]`.
+
+**CI is watched with `gh pr checks <PR> --watch`.** Shell polling loops are
+prohibited.
+
+**Executing arbitrary scratchpad scripts is not part of the autonomous path.**
+It needs an absolute path that no repository-relative rule can match, and that
+is deliberate.
+
+**`.claude/settings.local.json` must never be what makes the workflow function.**
+Autonomy rests on committed configuration so it survives a fresh clone.
+
+**Every consequential Founder gate is unchanged.** The deny list is unchanged at
+63 rules, and `scripts/verify-autonomy.sh` fails if any required boundary is
+removed or if an over-broad allow rule is introduced.
+
+**Rationale**
+
+DEV-FLOW-1 stated the command-shape practice as guidance and asserted a "100%
+correct" permission matrix from an uncommitted scratchpad script. ROAS-2 then
+produced at least twelve routine approval prompts. Both failures share a cause:
+a claim that nothing could contradict. The matrix was never re-run, and the
+guidance carried no consequence for ignoring it.
+
+The correction is to make the policy a prohibition and the claim a committed,
+CI-selected test.
+
+**Honesty about what is not knowable.** Claude Code's matching behaviour for a
+rule whose prefix ends *mid-token* — `Bash(bash scripts/:*)`,
+`Bash(git push -u origin wp/:*)` — is not observable from inside this
+repository. DEV-FLOW-2 does not guess. Commands are classified under both a raw
+string-prefix reading and a whole-word reading, and any command that depends on
+the former is reported as `PREFIX-DEPENDENT` rather than claimed as solved. The
+high-frequency operation, running verifiers, was moved onto a form that is
+robust under either reading.
+
+**Alternatives Considered**
+
+Broadening `Bash(git push -u origin:*)` to make feature-branch push robust under
+both readings was rejected: it would permit pushing any non-`main` branch to
+reduce a prompt that occurs once per work package, and the Founder scoped pushes
+to `wp/*`.
+
+Adding machine-local "don't ask again" entries was rejected outright. It hides a
+gap rather than closing it, and it does not survive a fresh clone.
+
+Adding a per-verifier allow rule for each new gate was rejected as unbounded —
+it is the pattern that produced five stale absolute-path entries in
+`settings.local.json`.
+
+**Impact**
+
+Governance, permissions and verification tooling.
+
+* `CLAUDE.md` — the command-shape section is now a prohibition with explicit
+  wrong/right pairs, plus verifier, CI-monitoring, scratchpad and machine-local
+  settings policy.
+* `scripts/run-gate.sh` — new namespace-safe entry point; containment is
+  executed, not asserted in prose.
+* `scripts/verify-autonomy.sh` — new committed acceptance test, selected by CI
+  whenever permissions, policy or the entry point change.
+* `scripts/ci-select-gates.sh` — accepts paths as arguments; the CI stdin path
+  is byte-identical.
+* `scripts/verify-lab-engine-completion.sh`,
+  `scripts/verify-certificate-engine-completion.sh` — `[ -x ]` replaced by
+  `[ -f ]`, which also removes a latent bug where a lost mode bit would silently
+  skip four Wave 6 verifiers while the gate still reported success.
+* `.claude/settings.json` — one rule added, `Bash(npm run gate:*)`. No deny rule
+  changed.
+* `package.json` — one `scripts` entry. No dependency added; the lockfile is
+  unchanged.
+
+**Known limitation, recorded rather than papered over.** This test proves
+classification, not lived experience. It cannot observe whether Claude Code
+actually prompted. The real acceptance signal is the next work package
+completing without Founder clicks, and DEV-FLOW-2 does not claim that signal in
+advance.
+
+No application code, schema, migration or dependency changed. 36 migrations,
+none executed.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-047, DEC-048, DEC-050, DEC-051 ·
+`CLAUDE.md` Change Control — Mandatory Command Shape, Running verifiers,
+CI monitoring, Scratchpad scripts, Machine-local settings ·
+`docs/Engineering-OS/Engineering-OS.md` section 7 ·
+`.claude/settings.json` · `package.json` ·
+`scripts/run-gate.sh` · `scripts/verify-autonomy.sh` ·
+`scripts/ci-select-gates.sh` · `.github/workflows/ci.yml`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

@@ -147,6 +147,7 @@
       "Bash(npm run lint:*)",
       "Bash(npm run test:*)",
       "Bash(npm run verify:*)",
+      "Bash(npm run gate:*)",
       "Bash(npm run health:*)",
       "Bash(npm run security:scan:*)",
       "Bash(npm run smoke:api:*)",
