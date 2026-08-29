@@ -66,6 +66,10 @@ services/api/src/config*|scripts/verify-api-cors.sh
 services/api/src/auth-context*|scripts/verify-api-cors.sh
 apps/web/src/lib/api-client*|scripts/verify-api-cors.sh
 scripts/verify-api-cors.sh|scripts/verify-api-cors.sh
+supabase/migrations/*|scripts/verify-learn-progress-db.sh
+services/api/src/learning-progress*|scripts/verify-learn-progress-db.sh
+scripts/verify-learn-progress-db.sh|scripts/verify-learn-progress-db.sh
+apps/web/src/learning/roas-course-presentation.ts|scripts/verify-learn-progress-db.sh
 supabase/migrations/*|scripts/verify-db-service-role.sh
 scripts/verify-db-service-role.sh|scripts/verify-db-service-role.sh
 services/api/src/db-diagnostics*|scripts/verify-db-service-role.sh

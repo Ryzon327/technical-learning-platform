@@ -1,16 +1,26 @@
-# DB-SERVICE-ROLE-1 — frozen byte-identity baseline.
+# Frozen byte-identity baseline for APPLIED migrations.
 #
-# The 37 migrations that existed before this work package. They are applied
-# history: a remote database has already run them, and Supabase records their
-# checksums, so editing one does not "fix" anything — it desynchronises the
-# repository from every environment that has already migrated.
+# Every migration in this list has been run against a real database. Supabase
+# records their checksums, so editing one does not "fix" anything — it
+# desynchronises the repository from every environment that has already
+# migrated. There is no supported way to change an applied migration; the only
+# forward move is a new one.
 #
-# scripts/verify-db-service-role.sh fails if any line here stops matching.
-# This is an artifact property, not a branch diff, so it keeps holding after
-# this branch merges and after later migrations are added. Future migrations are
-# NOT added to this file; it is a historical record, deliberately frozen at 37.
+# scripts/verify-db-service-role.sh and scripts/verify-learn-progress-db.sh both
+# fail if any line here stops matching, as do the ROAS and API-CORS gates. This
+# is an artifact property, not a branch diff, so it keeps holding after a branch
+# merges and as later migrations are added.
 #
-# Paths are relative to the repository root, which is where the gate runs.
+# A migration joins this list in the work package that follows its deployment,
+# never in the one that authors it — an unapplied migration is still editable in
+# review, and freezing it early would be a lie about what the database has seen.
+#
+# DB-SERVICE-ROLE-1 froze the first 37. LEARN-PROGRESS-DB-1 added
+# 20260828000100 once the Founder had applied it to publish the ROAS curriculum.
+# 20260829000100 is deliberately ABSENT: it is this package's repair and has not
+# been deployed.
+#
+# Paths are relative to the repository root, which is where the gates run.
 e4ce3b867ed5fee9789e86c9ee4131047b50afa7b0354549088f2aa3417cdd19  supabase/migrations/20260811000100_platform_foundation.sql
 bc235fadeb1e3e7a4b8a52bee951e9ba34a48e926aa824d5241fb62ef81da19b  supabase/migrations/20260811000200_authentication_foundation.sql
 484f8d18d795695eb6c56b933a259c9c7532867fe2d7254e88f5dad68de53d78  supabase/migrations/20260811000300_curriculum_foundation.sql
@@ -48,3 +58,4 @@ ca81bec161a634ae757f04e13d6c9c9f4d90c74766d9648941c108b4877d62ed  supabase/migra
 2121f66fa5803987cb72a90eb25aad403e7c00b7652023ca5a340305771e7e71  supabase/migrations/20260813000900_certificate_lifecycle_foundation.sql
 c6e85b4cc77263b50bd8b7327383cd5a2b1bc8250346e5f0fde7cffeb720502a  supabase/migrations/20260813001000_certificate_correction_foundation.sql
 2e17c7bd2818868c3d589076b08b0df7cb470c4940bab3664d3b02a961232dfa  supabase/migrations/20260814000100_authenticated_privilege_contract.sql
+c0d85804a03746570de330e75ccb1922611ad424e5446406db7ea99f607efbde  supabase/migrations/20260828000100_service_role_privilege_contract.sql
