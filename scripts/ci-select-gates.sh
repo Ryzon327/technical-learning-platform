@@ -75,6 +75,10 @@ scripts/verify-db-service-role.sh|scripts/verify-db-service-role.sh
 services/api/src/db-diagnostics*|scripts/verify-db-service-role.sh
 services/api/src/admin/publish-roas-curriculum.ts|scripts/verify-db-service-role.sh
 packages/shared-types/src/roas-bootstrap*|scripts/verify-db-service-role.sh
+scripts/uat-env.sh|scripts/verify-uat-env.sh
+scripts/verify-uat-env.sh|scripts/verify-uat-env.sh
+docs/Engineering-OS/ROAS_UAT_RUNBOOK.md|scripts/verify-uat-env.sh
+.gitignore|scripts/verify-uat-env.sh
 scripts/uat-env.sh|scripts/verify-db-service-role.sh
 scripts/migration-baseline.sha256|scripts/verify-db-service-role.sh
 supabase/migrations/*|scripts/verify-db-rls.sh
