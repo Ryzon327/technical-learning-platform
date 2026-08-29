@@ -14,15 +14,15 @@ import {
 } from "./roas-course-content";
 import {
   buildMissionRegionId,
-  canRecordMissionProgress,
   collectPublishedMissionStableIds,
   describeCourseProgress,
   describeDemonstrationAvailability,
   describeMissionProgress,
-  explainProgressControl,
   resolveContinueTarget,
   resolveCourseAvailability,
-  resolveSelectedMission
+  resolveMissionControlState,
+  resolveSelectedMission,
+  type MissionControlState
 } from "./roas-course-presentation";
 import {
   loadLearningPathProgress,
@@ -56,8 +56,7 @@ function MissionDetail({
   mission,
   totalMissions,
   progressLabel,
-  canRecord,
-  controlExplanation,
+  controls,
   saving,
   saveMessage,
   onRecord
@@ -65,8 +64,7 @@ function MissionDetail({
   mission: LearnerMission;
   totalMissions: number;
   progressLabel: string;
-  canRecord: boolean;
-  controlExplanation: string;
+  controls: MissionControlState;
   saving: boolean;
   saveMessage: string;
   onRecord: (action: "start" | "complete") => void;
@@ -135,18 +133,18 @@ function MissionDetail({
         </>
       )}
 
-      <p className="mission-note">{controlExplanation}</p>
+      <p className="mission-note">{controls.explanation}</p>
 
       <button
         type="button"
-        disabled={!canRecord || saving}
+        disabled={!controls.canStart || saving}
         onClick={() => onRecord("start")}
       >
         Mark as started
       </button>{" "}
       <button
         type="button"
-        disabled={!canRecord || saving}
+        disabled={!controls.canComplete || saving}
         onClick={() => onRecord("complete")}
       >
         Mark as complete
@@ -184,9 +182,24 @@ export function LearningView() {
 
   const pathStableId = course.learningPathStableId;
 
+  // `background` distinguishes the FIRST load from a post-write revalidation.
+  //
+  // UAT-PROGRESS-UI-1. `handleRecord` refreshed by calling this, which set
+  // `loading`, which made availability `loading`, which made
+  // `canRecordMissionProgress` false, which made the control note read
+  // "Progress cannot be saved right now." — beside a "Saved." message, after a
+  // write the server had accepted with HTTP 200.
+  //
+  // A revalidation is not a cold start. The previous successful read stays
+  // authoritative on screen while the new one is in flight, so the course does
+  // not regress to "Loading your course…" after a successful save. A genuine
+  // failure during that refresh still clears the curriculum read and sets the
+  // error code below, so real failures surface exactly as before.
   const load = useCallback(
-    async (signal: AbortSignal) => {
-      setLoading(true);
+    async (signal: AbortSignal, options: { background?: boolean } = {}) => {
+      const background = options.background === true;
+
+      if (!background) setLoading(true);
       setErrorCode(undefined);
 
       try {
@@ -206,7 +219,7 @@ export function LearningView() {
         setErrorCode(
           caught instanceof ApiRequestError ? caught.code : "INTERNAL_ERROR"
         );
-        setLoading(false);
+        if (!background) setLoading(false);
         return;
       }
 
@@ -243,7 +256,7 @@ export function LearningView() {
         )
       ]);
 
-      setLoading(false);
+      if (!background) setLoading(false);
     },
     [accessToken, pathStableId]
   );
@@ -290,7 +303,7 @@ export function LearningView() {
         `Saved. The platform now records this mission as "${record.state.replace(/_/g, " ")}".`
       );
       const controller = new AbortController();
-      await load(controller.signal);
+      await load(controller.signal, { background: true });
     } catch (caught) {
       setSaveMessage(
         caught instanceof ApiRequestError
@@ -398,20 +411,16 @@ export function LearningView() {
               selectedMission.stableId
             ).label
           }
-          canRecord={canRecordMissionProgress(
+          controls={resolveMissionControlState({
             availability,
             publishedMissionStableIds,
-            selectedMission
-          )}
-          controlExplanation={explainProgressControl(
-            availability,
-            canRecordMissionProgress(
+            mission: selectedMission,
+            missionProgress: describeMissionProgress(
               availability,
-              publishedMissionStableIds,
-              selectedMission
-            ),
-            selectedMission
-          )}
+              progress,
+              selectedMission.stableId
+            )
+          })}
           saving={saving}
           saveMessage={saveMessage}
           onRecord={(action) => void handleRecord(selectedMission, action)}
