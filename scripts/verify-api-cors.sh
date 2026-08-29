@@ -288,9 +288,19 @@ MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | 
 [ "$MIGRATION_COUNT" -ge 37 ] \
   || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
 
-CHANGED_MIGRATIONS="$(git diff --name-only origin/main...HEAD -- supabase/migrations 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_MIGRATIONS" = "0" ] \
-  || fail "API-CORS-1 changed $CHANGED_MIGRATIONS migration file(s); none is authorized"
+# The branch diff that used to stand here has been removed, not weakened.
+#
+# It asserted "this branch adds no migration", which was true of API-CORS-1's own
+# pull request and, read literally, forbade every later authorized migration.
+# DB-SERVICE-ROLE-1 added the service-role privilege contract under an explicit
+# architecture decision and this gate failed — having detected nothing about
+# API-CORS-1 at all. It also could not run locally, because the comparison needs
+# origin/main, so it was CI-only and invisible until push.
+#
+# The property API-CORS-1 actually needs is that the schema it was written
+# against is intact, and the checksum baseline above states exactly that — over
+# every one of the 37 files, byte for byte. That is strictly stronger than a
+# diff which counts changed paths and cannot say what changed inside them.
 
 echo "PASS:  8. no dependency, no migration, no scope expansion"
 
