@@ -18,6 +18,7 @@ import {
   explainProgressControl,
   resolveContinueTarget,
   resolveCourseAvailability,
+  resolveMissionControlState,
   resolveSelectedMission
 } from "./roas-course-presentation";
 
@@ -495,6 +496,206 @@ describe("ROAS-3 tells the truth about the lab", () => {
       "hypervisor"
     ]) {
       expect(text).not.toContain(token);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * UAT-PROGRESS-UI-1 — a successful save must never read as a failure
+ * ------------------------------------------------------------------ */
+
+const loadingAvailability = resolveCourseAvailability({
+  loading: true,
+  publishedMissionStableIds: course.missions.map((m) => m.stableId)
+});
+
+const publishedIds = course.missions.map((m) => m.stableId);
+const missionOne = course.missions[0]!;
+const demonstrationMission = course.missions.find((m) => m.isDemonstration)!;
+
+/** Any sentence a learner would read as "your save did not work". */
+function readsAsFailure(text: string): boolean {
+  return /cannot be saved|not saved|could not|unchanged|failed/i.test(text);
+}
+
+function controlsFor(
+  state: LearningProgressState | "unknown",
+  mission = missionOne,
+  courseAvailability = availability("available")
+) {
+  const progress =
+    state === "unknown" ? null : progressFor({ [mission.stableId]: state });
+
+  return resolveMissionControlState({
+    availability: courseAvailability,
+    publishedMissionStableIds: publishedIds,
+    mission,
+    missionProgress: describeMissionProgress(
+      courseAvailability,
+      progress,
+      mission.stableId
+    )
+  });
+}
+
+describe("UAT-PROGRESS-UI-1 a refresh is never reported as a failed save", () => {
+  // The exact defect. A successful write triggered a refresh, the refresh set
+  // `loading`, and this sentence appeared beside "Saved.".
+  it("NEVER calls the loading state a save failure", () => {
+    const explanation = explainProgressControl(
+      loadingAvailability,
+      canRecordMissionProgress(loadingAvailability, publishedIds, missionOne),
+      missionOne
+    );
+
+    expect(readsAsFailure(explanation)).toBe(false);
+    expect(explanation).toMatch(/checking/i);
+  });
+
+  it("successful start feedback is never accompanied by failure text", () => {
+    // The post-write render: the save succeeded, and a revalidation is in
+    // flight. Neither the control note nor the course summary may contradict it.
+    const saved = 'Saved. The platform now records this mission as "in progress".';
+    const controls = controlsFor("in_progress", missionOne, loadingAvailability);
+
+    expect(readsAsFailure(saved)).toBe(false);
+    expect(readsAsFailure(controls.explanation)).toBe(false);
+    expect(readsAsFailure(describeCourseProgress(loadingAvailability, null))).toBe(
+      false
+    );
+  });
+
+  it("successful complete feedback is never accompanied by failure text", () => {
+    const saved = 'Saved. The platform now records this mission as "completed".';
+    const controls = controlsFor("completed", missionOne, loadingAvailability);
+
+    expect(readsAsFailure(saved)).toBe(false);
+    expect(readsAsFailure(controls.explanation)).toBe(false);
+  });
+
+  // The transition the Founder actually observed, as a sequence.
+  it("no phase of a successful save renders failure text", () => {
+    const phases = [
+      controlsFor("unknown", missionOne, availability("available")),
+      controlsFor("in_progress", missionOne, loadingAvailability),
+      controlsFor("in_progress", missionOne, availability("available"))
+    ];
+
+    for (const phase of phases) {
+      expect(readsAsFailure(phase.explanation)).toBe(false);
+    }
+  });
+});
+
+describe("UAT-PROGRESS-UI-1 genuine failures still surface honestly", () => {
+  it("an unreachable course still says progress cannot be saved", () => {
+    const controls = controlsFor("unknown", missionOne, availability("unavailable"));
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(readsAsFailure(controls.explanation)).toBe(true);
+  });
+
+  it("an unpublished course still refuses and explains why", () => {
+    const controls = controlsFor(
+      "unknown",
+      missionOne,
+      availability("not_published")
+    );
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(controls.explanation).toMatch(/not part of your learning path/i);
+  });
+
+  it("an expired session still asks the learner to sign in", () => {
+    const expired = resolveCourseAvailability({
+      publishedMissionStableIds: null,
+      errorCode: "UNAUTHORIZED"
+    });
+    const controls = resolveMissionControlState({
+      availability: expired,
+      publishedMissionStableIds: null,
+      mission: missionOne,
+      missionProgress: describeMissionProgress(expired, null, missionOne.stableId)
+    });
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.explanation).toMatch(/sign in again/i);
+  });
+
+  it("a failed save message is recognisable as a failure", () => {
+    // Pins the detector honest: it must classify the real failure string.
+    expect(
+      readsAsFailure("Not saved. Your existing progress is unchanged.")
+    ).toBe(true);
+  });
+});
+
+describe("UAT-PROGRESS-UI-1 controls reflect persisted progress", () => {
+  it("a persisted in_progress mission does not offer Mark as started", () => {
+    const controls = controlsFor("in_progress");
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(true);
+    expect(controls.explanation).toMatch(/already started|have started/i);
+  });
+
+  it("a persisted completed mission offers neither action", () => {
+    const controls = controlsFor("completed");
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(controls.explanation).toMatch(/finished/i);
+  });
+
+  it("a demonstrated mission offers neither action", () => {
+    const controls = controlsFor("competency_demonstrated");
+
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+  });
+
+  it("a not_started mission offers both actions", () => {
+    const controls = controlsFor("not_started");
+
+    expect(controls.canStart).toBe(true);
+    expect(controls.canComplete).toBe(true);
+  });
+
+  // The architecture rule this module exists to protect.
+  it("UNKNOWN progress is not treated as not_started", () => {
+    const unknown = controlsFor("unknown");
+
+    // Both remain offered: "the server has not said" is not "not started", and
+    // withholding a control would be the same substitution in reverse.
+    expect(unknown.canStart).toBe(true);
+    expect(unknown.canComplete).toBe(true);
+    expect(
+      describeMissionProgress(availability("available"), null, missionOne.stableId)
+        .known
+    ).toBe(false);
+  });
+
+  it("repeating a start on an already-started mission is not offered", () => {
+    // Redundant start is safe at the server, but offering it contradicts the
+    // state shown directly above the control.
+    const controls = controlsFor("in_progress");
+    expect(controls.canStart).toBe(false);
+  });
+
+  // ROAS-4's rule, unchanged by any of this.
+  it("MISSION 7 still cannot be manually completed, in any progress state", () => {
+    for (const state of [
+      "unknown",
+      "not_started",
+      "in_progress",
+      "completed"
+    ] as const) {
+      const controls = controlsFor(state, demonstrationMission);
+      expect(controls.canStart).toBe(false);
+      expect(controls.canComplete).toBe(false);
+      expect(controls.explanation).toMatch(/deterministic lab validator/i);
     }
   });
 });

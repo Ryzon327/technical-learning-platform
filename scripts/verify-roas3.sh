@@ -328,10 +328,55 @@ else
 fi
 
 # Every progress control is gated on that single decision.
-grep -Fq 'canRecordMissionProgress' "$VIEW" \
-  || fail "progress controls are not gated on server authority"
-grep -Fq 'disabled={!canRecord' "$VIEW" \
-  || fail "a progress control is offered even when progress cannot be saved"
+#
+# UAT-PROGRESS-UI-1 re-scoped this from two literal strings to the property they
+# stood for. The originals matched `canRecordMissionProgress` and
+# `disabled={!canRecord` in the VIEW; the gating then moved into
+# `resolveMissionControlState`, which applies the SAME server-authority decision
+# and additionally narrows the actions to what the persisted state allows. The
+# assertion below is therefore stricter, not looser: it requires BOTH controls to
+# be individually gated, which the single `canRecord` binding never checked.
+#
+# The behavioural guarantee lives in the ROAS-3 learner tests this gate runs
+# below, which drive the resolver through every availability and progress state.
+grep -Fq 'canRecordMissionProgress' "$PRESENTATION" \
+  || fail "server authority no longer gates progress controls"
+grep -Fq 'resolveMissionControlState' "$VIEW" \
+  || fail "the view no longer derives its controls from the server-authority resolver"
+
+python3 - "$VIEW" <<'PYCHECK'
+import re
+import sys
+
+view = open(sys.argv[1], encoding="utf-8").read()
+
+problems = []
+
+# Each progress button must carry its own disabled binding derived from the
+# resolver. A button rendered without one is a control offered unconditionally.
+for action, flag in [("Mark as started", "canStart"), ("Mark as complete", "canComplete")]:
+    index = view.find(action)
+    if index < 0:
+        problems.append(f"the '{action}' control is gone")
+        continue
+
+    # The button element opens before its label; look back over that element.
+    element = view[max(0, index - 400):index]
+    opening = element.rfind("<button")
+    if opening < 0:
+        problems.append(f"'{action}' is not rendered as a button")
+        continue
+
+    if f"!controls.{flag}" not in element[opening:]:
+        problems.append(
+            f"the '{action}' control is not gated on controls.{flag}"
+        )
+
+if problems:
+    for problem in problems:
+        print(f"FAIL: {problem}", file=sys.stderr)
+    sys.exit(1)
+PYCHECK
 
 # What is displayed after a write is what the server returned.
 grep -Fq 'record.state' "$VIEW" \

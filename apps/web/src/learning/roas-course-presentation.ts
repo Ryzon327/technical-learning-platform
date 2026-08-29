@@ -360,6 +360,21 @@ export function explainProgressControl(
     return "This mission is completed by the deterministic lab validator, not by marking it here. The lab environment does not exist yet, so it cannot be completed at all.";
   }
 
+  // UAT-PROGRESS-UI-1. Loading is NOT a failure, and saying so was a lie a
+  // learner actually read.
+  //
+  // `canRecordMissionProgress` is false while `availability.kind === "loading"`,
+  // because `progressRecorded` is false. With no branch for it, this function
+  // fell through to the generic failure sentence below. A successful save
+  // refreshed the course, the refresh set `loading`, and the interface
+  // simultaneously reported "Saved." and "Progress cannot be saved right now."
+  //
+  // `describeCourseProgress` already handled this state ("Checking your
+  // progress…"). The two sibling functions had simply drifted apart.
+  if (availability.kind === "loading") {
+    return "Checking your saved progress…";
+  }
+
   if (availability.kind === "not_published") {
     return "This course is not part of your learning path yet, so progress cannot be saved.";
   }
@@ -369,6 +384,79 @@ export function explainProgressControl(
   }
 
   return "Progress cannot be saved right now. Your existing progress is unchanged.";
+}
+
+/**
+ * Which progress actions a mission may offer, and why.
+ *
+ * UAT-PROGRESS-UI-1. The controls previously depended only on whether progress
+ * could be recorded at all, never on what the server had already recorded. A
+ * mission the learner had persisted as `in_progress` still offered an enabled
+ * "Mark as started", which contradicts the state shown directly above it.
+ *
+ * The authority direction is unchanged: this reads the server's answer and
+ * narrows what is offered. It never asserts a state, and it never widens what
+ * `canRecordMissionProgress` already refused — the demonstration mission and an
+ * unavailable course stay closed here for exactly the reasons they close there.
+ *
+ * The UNKNOWN case deliberately offers both actions. "The server has not told
+ * us" is not "not started"; withholding controls on an unknown state would be
+ * the same substitution this module exists to refuse, in the other direction.
+ * The server remains the authority on what the action then does.
+ */
+export interface MissionControlState {
+  canStart: boolean;
+  canComplete: boolean;
+  explanation: string;
+}
+
+export function resolveMissionControlState(input: {
+  availability: CourseAvailability;
+  publishedMissionStableIds: readonly string[] | null;
+  mission: Pick<LearnerMission, "stableId" | "isDemonstration">;
+  missionProgress: MissionProgressDisplay;
+}): MissionControlState {
+  const canRecord = canRecordMissionProgress(
+    input.availability,
+    input.publishedMissionStableIds,
+    input.mission
+  );
+
+  const explanation = explainProgressControl(
+    input.availability,
+    canRecord,
+    input.mission
+  );
+
+  if (!canRecord) {
+    return { canStart: false, canComplete: false, explanation };
+  }
+
+  if (!input.missionProgress.known) {
+    return { canStart: true, canComplete: true, explanation };
+  }
+
+  switch (input.missionProgress.state) {
+    case "completed":
+    case "competency_demonstrated":
+      // Already recorded. Re-asserting it would be a no-op the learner cannot
+      // distinguish from a fresh save.
+      return {
+        canStart: false,
+        canComplete: false,
+        explanation: "You have finished this mission. Your progress is saved."
+      };
+
+    case "in_progress":
+      return {
+        canStart: false,
+        canComplete: true,
+        explanation: "You have started this mission. Mark it complete when you are done."
+      };
+
+    default:
+      return { canStart: true, canComplete: true, explanation };
+  }
 }
 
 /** Resolve the open mission against the missions actually in the course. */
