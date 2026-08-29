@@ -151,17 +151,44 @@ VITE_SUPABASE_ANON_KEY=<anon key>
 VITE_API_BASE_URL=http://localhost:3001
 ```
 
-**2. The API file** — `.env.api` at the repository root:
+**2. The API file** — `.env.api` at the repository root. **Three lines are all
+the learner API needs:**
 
 ```
 APP_ENV=development
 SUPABASE_URL=<the same project URL>
 SUPABASE_ANON_KEY=<the same anon key>
-SUPABASE_SERVICE_ROLE_KEY=<service role key — NOT the anon key>
-TLP_UAT_BOOTSTRAP_ACTOR_ID=<the UUID of an existing account>
 ```
 
-Both files are git-ignored. Never commit either.
+Both files are git-ignored. Never commit either. Create them in a text editor
+rather than with `echo` or a heredoc, so no value reaches your shell history.
+
+**Publication credentials are deliberately separate.** `SUPABASE_SERVICE_ROLE_KEY`
+and `TLP_UAT_BOOTSTRAP_ACTOR_ID` are needed **only** to publish curriculum. They
+are not needed to run the learner API, and §3.2 shows how to supply them for the
+one command that does need them. You may keep them out of `.env.api` entirely.
+
+#### The execution contract
+
+> **DO:**
+> ```
+> bash scripts/uat-env.sh check
+> bash scripts/uat-env.sh run npm run dev:api
+> ```
+>
+> **DO NOT:**
+> ```
+> source scripts/uat-env.sh
+> ```
+>
+> The helper is a **bash script that must be executed**. Sourcing it runs it in
+> your own shell, where `BASH_SOURCE` may not exist — in zsh that produced
+> `BASH_SOURCE[0]: parameter not set`, made the helper resolve the *parent* of
+> the repository, and reported five failures for configuration that was present.
+> It also left the shell relocated with `set -euo pipefail` applied.
+>
+> The helper now refuses a sourced invocation immediately, without moving your
+> shell or changing its options. If you see that refusal, re-run it with `bash`.
 
 **3. Check it before you rely on it:**
 
@@ -169,11 +196,23 @@ Both files are git-ignored. Never commit either.
 bash scripts/uat-env.sh check
 ```
 
-This validates the whole contract and prints a verdict per variable. **It never
-prints a value** — only the variable name and whether it is usable. It catches
-every mistake that actually happened during UAT: a project URL that is really
-the database connection string, the anon key pasted into the service-role slot,
-an `APP_ENV` that is unset, and a missing browser env file.
+Requirements are **scoped by purpose**, so the check tells you what each value is
+for and fails only on what the thing you are doing actually needs:
+
+| Category | Variables | Required for |
+|---|---|---|
+| learner API + publication | `APP_ENV`, `SUPABASE_URL` | everything |
+| learner API | `SUPABASE_ANON_KEY` | running the API |
+| publication/admin | `SUPABASE_SERVICE_ROLE_KEY`, `TLP_UAT_BOOTSTRAP_ACTOR_ID` | publishing only |
+| browser/frontend | `apps/web/.env.local` | the browser only — never blocks the API |
+
+`bash scripts/uat-env.sh check publish` checks the publication requirements, and
+`check all` checks every category at once.
+
+**It never prints a value** — only variable names, verdicts and purpose labels.
+It catches every mistake that actually happened during UAT: a project URL that is
+really the database connection string, the anon key pasted into the service-role
+slot, and an unset `APP_ENV`.
 
 **4. Run everything through it:**
 
@@ -181,9 +220,10 @@ an `APP_ENV` that is unset, and a missing browser env file.
 bash scripts/uat-env.sh run npm run dev:api
 ```
 
-`run` loads `.env.api`, validates it, then starts the command. It parses the
-file without `source` and without `eval`, so values containing spaces, quotes or
-`$` are treated as data.
+`run` loads `.env.api`, validates only what that command needs, then starts it.
+It parses the file without `source` and without `eval`, so values containing
+spaces, quotes or `$` are treated as data. It recognises the publication command
+automatically and applies the stronger publication requirements to that one.
 
 #### Where each value comes from
 
@@ -254,6 +294,24 @@ The confirmation must equal `SUPABASE_URL` **exactly**. This follows the
 `provision-founder` precedent: you have to name the project you are changing, so
 a shell with the wrong URL exported fails instead of writing somewhere you did
 not intend.
+
+**If you kept the publication credentials out of `.env.api`**, supply them for
+this one command by putting them in a second env file and pointing the helper at
+it — never by echoing them into your shell:
+
+```
+TLP_ENV_FILE=.env.publish TLP_UAT_BOOTSTRAP_CONFIRM=<your exact SUPABASE_URL> bash scripts/uat-env.sh run npm run admin:publish-roas-curriculum
+```
+
+`.env.publish` would hold the learner API three plus `SUPABASE_SERVICE_ROLE_KEY`
+and `TLP_UAT_BOOTSTRAP_ACTOR_ID`. Any `.env*` name is git-ignored. Keeping the
+service-role key out of the file you use every day is the point: the API never
+needs it, so it never has to be loaded to run the course.
+
+The helper recognises this command as a publication and applies the stronger
+requirements — with a confirmation present it refuses to start without a valid
+service-role credential and a real actor UUID. Without a confirmation it is a
+dry run, and a dry run deliberately requires neither.
 
 The command then:
 
