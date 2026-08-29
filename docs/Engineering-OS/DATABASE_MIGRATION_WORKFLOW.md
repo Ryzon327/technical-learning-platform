@@ -1,7 +1,38 @@
 # Database Migration Workflow
 
-**Status:** DB-TOOLING-1. Establishes the standard mechanism. No database has
-been migrated yet; the first `supabase db push` is a Founder action.
+**Status:** DB-TOOLING-1 established the standard mechanism. LEARN-PROGRESS-DB-1
+last corrected this document.
+
+## Deployment state of the development/UAT project
+
+This section records **verified current state**. It is corrected by the work
+package that changes it, never left to drift.
+
+| Migrations | State |
+|---|---|
+| `20260811000100` … `20260828000100` (**38 files**) | ✅ **Applied** to the development/UAT project |
+| `20260829000100_record_mission_progress_ambiguity_fix.sql` | ⛔ **Authored and reviewed. NOT deployed.** |
+
+**How the 38 are known to be applied** — from observed application behaviour
+during real Founder UAT, not from any query run by Claude Code:
+
+- A learner reads published curriculum, progress, resume and next-action
+  successfully, which requires `20260814000100` (the `authenticated` privilege
+  contract, DB-RLS-1).
+- The Router-on-a-Stick curriculum published successfully, which requires
+  `20260828000100` (the `service_role` privilege contract, DB-SERVICE-ROLE-1) —
+  publication writes through the service role and fails on its first query
+  without it.
+
+**What the 39th being undeployed means today.** Reading the course works.
+**Writing progress does not**: "Mark as started" and "Mark as complete" both
+return HTTP 409 with `column reference "node_type" is ambiguous` until
+`20260829000100` is applied. See the note in §6.1.
+
+> **Applying it is a Founder action and has not happened.** Claude Code has run
+> no `supabase db push`, no remote SQL and no database command of any kind. The
+> migration-control workflow in §4 is unchanged and remains the only route by
+> which anything reaches a database.
 
 ---
 
@@ -27,7 +58,7 @@ It is denied to Claude Code.
 
 ## 2. Repository truth
 
-- The **37 SQL files in `supabase/migrations/`** are the authoritative schema.
+- The **39 SQL files in `supabase/migrations/`** are the authoritative schema.
 - **Filename order is dependency order.** The timestamps are monotonic and later
   files depend on earlier ones — every migration but one inserts into
   `public.platform_schema_version`, created by the first; and
@@ -158,7 +189,7 @@ records them in `supabase_migrations.schema_migrations` on the remote.
 supabase migration list
 ```
 
-All 37 should now appear as applied both locally and remotely.
+All 39 should now appear as applied both locally and remotely.
 
 ---
 
@@ -241,19 +272,27 @@ Run these against the development project after `db push`. All are read-only.
 
 | Check | Expected |
 |---|---|
-| `supabase migration list` | **37** migrations applied |
-| `select count(*) from public.platform_schema_version;` | **36** — see the note below |
+| `supabase migration list` | **39** migrations applied |
+| `select count(*) from public.platform_schema_version;` | **38** — see the note below |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** tables |
 | `select count(*) from pg_policies where schemaname='public';` | **65** policies |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
 | `select count(*) from public.lab_provider_registry;` | **2** rows |
 
-> **37 migrations, 36 schema-version rows — this is correct, not a failure.**
-> Each migration registers one component row in
+> **One fewer schema-version row than migrations — this is correct, not a
+> failure.** Each migration registers one component row in
 > `public.platform_schema_version`, except
 > `20260813001000_certificate_correction_foundation.sql` (CERT-008), which
-> registers none. An operator expecting 37 rows will read a correct migration as
-> a broken one.
+> registers none. An operator expecting the counts to match will read a correct
+> migration as a broken one.
+
+> **These numbers describe the schema after ALL migrations are applied.**
+> `20260829000100_record_mission_progress_ambiguity_fix.sql`
+> (LEARN-PROGRESS-DB-1) is the 39th and, at the time of writing, is **not yet
+> deployed**. Until it is, a learner pressing "Mark as started" receives
+> `column reference "node_type" is ambiguous` and HTTP 409. It changes one
+> function body and adds one schema-version row; the table, policy and RLS
+> counts above are unaffected by it.
 
 The `lab_provider_registry` rows are intended operational configuration seeded
 by `20260812001300`: `mock` enabled, `container` **disabled**.

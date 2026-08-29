@@ -1,7 +1,15 @@
 # Router-on-a-Stick — Founder UAT Runbook
 
-**Status:** ROAS-4. Prepared, not executed. Claude Code has run nothing against
-any Supabase project; every step below is a Founder action.
+**Status:** ROAS-4, last corrected by LEARN-PROGRESS-DB-1.
+
+Sections 2 and 3 have been performed: 38 migrations are applied and the
+Router-on-a-Stick curriculum is published in the development/UAT project. §4
+learner UAT is **blocked on one undeployed migration** —
+`20260829000100_record_mission_progress_ambiguity_fix.sql` — without which
+recording mission progress returns HTTP 409.
+
+**Claude Code has still run nothing against any Supabase project.** Every step
+below is a Founder action.
 
 ---
 
@@ -15,7 +23,7 @@ Three already exist in the repository. Two are yours to supply.
 | **Frontend** | The Vite web app, `npm run dev` | ✅ In the repo |
 | **API** | The Node API service, `npm run dev:api` | ✅ In the repo |
 | **Authentication** | Supabase Auth, via the browser anon key | ⚠️ **Needs your Supabase project** |
-| **Database** | A Supabase Postgres with all 38 migrations applied | ⚠️ **Needs your project + migrations** |
+| **Database** | A Supabase Postgres with all 39 migrations applied | ⚠️ **Needs your project + migrations** |
 | **Curriculum publication** | `npm run admin:publish-roas-curriculum` | ✅ Built here — ⚠️ **you run it** |
 | **Learner access** | None needed — any authenticated user reads published curriculum through RLS | ✅ Nothing to do |
 | **Progress persistence** | `student_learning_progress`, written by `record_mission_progress` | ✅ Exists once migrations are applied |
@@ -38,9 +46,9 @@ but that is a safety net, not a reason to point it somewhere important.
 
 ### 2.2 Apply the migrations
 
-All 38 migrations in `supabase/migrations/` must be applied, in filename order.
-ROAS-4 added none. DB-SERVICE-ROLE-1 adds the 38th and executes none — applying
-it remains a Founder action.
+All 39 migrations in `supabase/migrations/` must be applied, in filename order.
+ROAS-4 added none. DB-SERVICE-ROLE-1 added the 38th and LEARN-PROGRESS-DB-1 adds
+the 39th. Neither executes one — applying them remains a Founder action.
 
 **Use the Supabase CLI.** DB-TOOLING-1 established it as the standard mechanism,
 and the full procedure — installation, `link`, `migration list`, `db push`, and
@@ -66,8 +74,8 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 | Check | Expected |
 |---|---|
-| `supabase migration list` | **38** applied |
-| `select count(*) from public.platform_schema_version;` | **37** |
+| `supabase migration list` | **39** applied |
+| `select count(*) from public.platform_schema_version;` | **38** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
@@ -87,12 +95,28 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 > learner-facing 403. The table and policy counts above are unchanged by it: it
 > alters privileges only.
 
-This is the step with the most room for surprise: **live PostgreSQL and RLS
-behaviour has never been exercised by this project**. Everything the test suite
-proves about RLS is proven against mocks. If something fails here, that is a
-genuine finding and worth reporting, not a mistake on your part. The most likely
-failure is the `on_auth_user_created` trigger on `auth.users`, which is a
-privileged operation — §4 of the workflow document explains how to confirm it.
+> **Migration 39 is required before a learner can record progress.**
+> `20260829000100_record_mission_progress_ambiguity_fix.sql`
+> (LEARN-PROGRESS-DB-1) repairs `record_mission_progress`. Without it, "Mark as
+> started" and "Mark as complete" both fail with HTTP 409 and
+> `column reference "node_type" is ambiguous` — the function's `RETURNS TABLE`
+> column names are PL/pgSQL variables, and the upsert's `ON CONFLICT` clause
+> referenced three of them unqualified. Reading the course works without it;
+> only the write path is affected. It changes one function body and adds one
+> schema-version row.
+
+This step has already been performed once, and it is worth recording what it
+proved: the `on_auth_user_created` trigger on `auth.users` fires correctly, and
+**two-way RLS isolation is confirmed** — learner A reads A's rows and zero of
+B's, and the reverse. Live PostgreSQL and RLS behaviour is therefore no longer
+unexercised.
+
+What that exercise also proved is that the test suite cannot stand in for it.
+Everything the suite asserts about the database is asserted against mocks, and
+three defects reached real UAT anyway: the missing `authenticated` grants
+(42501), the missing `service_role` grants, and the ambiguous `node_type`
+reference this runbook's §2.2 note describes. If something fails here, that is a
+genuine finding worth reporting, not a mistake on your part.
 
 ### 2.3 Configure the environment
 

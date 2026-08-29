@@ -376,8 +376,18 @@ fi
 # The runbook must be honest about what is still required.
 grep -Fq 'Needs your Supabase project' "$RUNBOOK" \
   || fail "the runbook does not state that a Supabase project is still required"
-grep -Fq 'Prepared, not executed' "$RUNBOOK" \
-  || fail "the runbook does not state that nothing was executed"
+
+# The property ROAS-4 needs the runbook to state is that **Claude Code executed
+# nothing**, not that nothing has happened at all.
+#
+# This previously matched the literal "Prepared, not executed". That string
+# conflated two different claims, and once the Founder actually applied the
+# migrations and published the curriculum it became false — the runbook was
+# telling an operator that steps they had already completed were still pending.
+# LEARN-PROGRESS-DB-1 corrected the document to record verified current state,
+# and this assertion now pins the invariant that actually matters and stays true.
+grep -Fq 'Claude Code has still run nothing against any Supabase project' "$RUNBOOK" \
+  || fail "the runbook no longer states that Claude Code executed nothing"
 
 echo "PASS:  9. no migration, dependency, secret or executed write"
 

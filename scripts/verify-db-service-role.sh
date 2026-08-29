@@ -75,25 +75,28 @@ echo ""
 # Supabase stores their checksums, so editing one desynchronises the repository
 # from every environment that has migrated.
 if ! shasum -a 256 -c "$BASELINE" --quiet; then
-  fail "1. a pre-existing migration changed; the 37 applied migrations are frozen history"
+  fail "1. an applied migration changed; applied migrations are frozen history"
 fi
 
+# The baseline covers every APPLIED migration, so it grows as the Founder
+# deploys. It must never shrink: that would mean a frozen file stopped being
+# checked. LEARN-PROGRESS-DB-1 added 20260828000100 to it after deployment.
 baseline_count="$(grep -c '^[0-9a-f]\{64\}  ' "$BASELINE")"
-[ "$baseline_count" -eq 37 ] ||
-  fail "1. the baseline must cover exactly 37 migrations, found $baseline_count"
+[ "$baseline_count" -ge 38 ] ||
+  fail "1. the baseline must cover at least 38 applied migrations, found $baseline_count"
 
-echo "PASS:  1. the 37 pre-existing migrations are byte-identical"
+echo "PASS:  1. all $baseline_count applied migrations are byte-identical"
 
 # ------------------------------------------------------------
-# 2. Exactly one new forward-only migration.
+# 2. The service-role migration exists and is forward-only.
 # ------------------------------------------------------------
-migration_count="$(find supabase/migrations -name '*.sql' -type f | wc -l | tr -d ' ')"
-[ "$migration_count" -eq 38 ] ||
-  fail "2. expected 38 migrations, found $migration_count"
-
-newest="$(find supabase/migrations -name '*.sql' -type f -exec basename {} \; | sort | tail -1)"
-[ "$newest" = "$(basename "$MIGRATION")" ] ||
-  fail "2. the new migration must sort last; last is $newest"
+# Asserted as an artifact property. This section previously required exactly 38
+# migrations and required THIS migration to sort last, which failed the moment
+# LEARN-PROGRESS-DB-1 added a later one — detecting nothing about
+# DB-SERVICE-ROLE-1. Its byte-identity is already proved by the baseline above;
+# what remains is that the file is still present and still forward-only.
+[ -f "$MIGRATION" ] ||
+  fail "2. the service-role privilege contract migration is missing"
 
 # Comment-aware: the migration documents what it deliberately does NOT grant,
 # and naming TRUNCATE in that prose must not read as performing one.
@@ -111,7 +114,7 @@ for forbidden in ["drop table", "drop policy", "drop column", "truncate", "delet
         sys.exit(1)
 PYTHON
 
-echo "PASS:  2. exactly one new forward-only migration, sorting last"
+echo "PASS:  2. the service-role migration is present and forward-only"
 
 # ------------------------------------------------------------
 # 3-6. The privilege contract itself.
@@ -707,8 +710,8 @@ echo "=========================================================="
 echo "DB-SERVICE-ROLE-1 VERIFIED"
 echo ""
 echo "service_role holds exactly the curriculum-authoring privileges the"
-echo "approved implementation issues, and nothing else. The 37 applied"
-echo "migrations are byte-identical. The credential guard checks the role"
+echo "approved implementation issues, and nothing else. Every applied"
+echo "migration is byte-identical. The credential guard checks the role"
 echo "claim and fails closed. Diagnostics carry the SQLSTATE and no"
 echo "credential. 31 mission-competency links remain authored truth."
 echo "=========================================================="
