@@ -66,6 +66,13 @@ services/api/src/config*|scripts/verify-api-cors.sh
 services/api/src/auth-context*|scripts/verify-api-cors.sh
 apps/web/src/lib/api-client*|scripts/verify-api-cors.sh
 scripts/verify-api-cors.sh|scripts/verify-api-cors.sh
+supabase/migrations/*|scripts/verify-db-service-role.sh
+scripts/verify-db-service-role.sh|scripts/verify-db-service-role.sh
+services/api/src/db-diagnostics*|scripts/verify-db-service-role.sh
+services/api/src/admin/publish-roas-curriculum.ts|scripts/verify-db-service-role.sh
+packages/shared-types/src/roas-bootstrap*|scripts/verify-db-service-role.sh
+scripts/uat-env.sh|scripts/verify-db-service-role.sh
+scripts/migration-baseline.sha256|scripts/verify-db-service-role.sh
 supabase/migrations/*|scripts/verify-db-rls.sh
 scripts/verify-db-rls.sh|scripts/verify-db-rls.sh
 supabase/config.toml|scripts/verify-db-tooling.sh

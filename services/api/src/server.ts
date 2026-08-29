@@ -22,6 +22,7 @@ import { resolveTrustedRequestIdentity } from "./auth-context";
 import { requireFounderAdmin } from "./authorization";
 import { loadRuntimeConfig, validateRuntimeConfig } from "./config";
 import { resolveCors } from "./cors";
+import { describeUnexpectedError } from "./db-diagnostics";
 import {
   addCompetencyPrerequisite,
   createDraftCompetency,
@@ -1605,6 +1606,22 @@ async function handleRequest(
           });
 
     const statusCode = statusCodeForError(normalized);
+
+    // DB-SERVICE-ROLE-1 — server-side observability for unexpected throws.
+    //
+    // Previously only `normalized.toJSON()` was logged, so a non-`AppError`
+    // exception left no record of what actually threw: the malformed
+    // `SUPABASE_URL` incident produced `INTERNAL_ERROR / "Unexpected server
+    // error"` in the log and nothing else, and the cause had to be recovered by
+    // reading library source.
+    //
+    // This is added to the **log only**. `normalized` is unchanged, so the
+    // client still receives exactly the generic error it received before — no
+    // stack, no library message, no internal detail. `describeUnexpectedError`
+    // redacts credential-shaped substrings and truncates the stack.
+    const unexpected =
+      error instanceof AppError ? undefined : describeUnexpectedError(error);
+
     log(statusCode >= 500 ? "error" : "warn", "Request failed", {
       correlationId: context.correlationId,
       event: "http.request.failed",
@@ -1613,7 +1630,8 @@ async function handleRequest(
         method: request.method,
         pathname,
         statusCode,
-        error: normalized.toJSON()
+        error: normalized.toJSON(),
+        ...(unexpected ? { unexpected } : {})
       }
     });
 

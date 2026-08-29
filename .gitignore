@@ -1,9 +1,16 @@
 node_modules/
 dist/
 coverage/
-.env
-.env.local
-.env.*.local
+# DB-SERVICE-ROLE-1 — ignore every env file, then allow back only templates.
+#
+# The previous list named three exact spellings, so `.env.api` — the file the
+# UAT runbook now asks the Founder to create, holding the service-role key —
+# would have been committable. Any new spelling had the same problem. This
+# inverts the default: nothing named `.env*` is committed unless it is
+# explicitly an example.
+.env*
+!.env.example
+!.env*.example
 .DS_Store
 .vscode/
 .idea/

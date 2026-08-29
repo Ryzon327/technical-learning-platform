@@ -338,9 +338,16 @@ echo "PASS:  9. no AI component can manufacture competency"
 # ROAS-2 authors content. It adds NO migration; the Wave 2 curriculum schema and
 # the Wave 6 lab schema already represent everything above. The pinned count is
 # the guarantee, following the ROAS-1 precedent.
+# Asserted as an artifact property, not a count. See verify-roas4.sh section 9
+# for the full reasoning: a hardcoded count cannot detect a migration being
+# EDITED, only added or removed, and it fails on every later authorized
+# migration. The checksum baseline is strictly stronger on both counts.
+shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
+  || fail "a migration this package was written against was modified"
+
 MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "37" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
+[ "$MIGRATION_COUNT" -ge 37 ] \
+  || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
 ROAS2_MIGRATIONS="$(ls supabase/migrations/*roas*.sql supabase/migrations/*curriculum_content*.sql \
   2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$ROAS2_MIGRATIONS" = "0" ] || fail "ROAS-2 added a migration"

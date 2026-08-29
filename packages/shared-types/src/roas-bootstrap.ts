@@ -245,6 +245,209 @@ export function buildRoasCurriculumBootstrapPlan(): RoasCurriculumBootstrapPlan 
 
 export type BootstrapMode = "dry_run" | "execute";
 
+/* ------------------------------------------------------------------ *
+ * DB-SERVICE-ROLE-1 — service-role credential classification
+ * ------------------------------------------------------------------ */
+
+/**
+ * Why a supplied credential is not usable as a service-role key.
+ *
+ * This is an enum and not a message on purpose. Every refusal below is rendered
+ * from a fixed string, so no code path can interpolate any part of a credential
+ * into output that reaches a terminal, a log or a CI transcript.
+ */
+export type ServiceRoleCredentialProblem =
+  | "absent"
+  | "publishable_key"
+  | "anon_role"
+  | "wrong_role"
+  | "unreadable_jwt"
+  | "unrecognised_format";
+
+export type ServiceRoleCredentialVerdict =
+  | { usable: true; format: "legacy_jwt" | "secret_key" }
+  | { usable: false; problem: ServiceRoleCredentialProblem };
+
+/**
+ * Read the `role` claim out of a JWT payload, or null.
+ *
+ * **This is not authentication and proves nothing about the key.** The
+ * signature is not checked and cannot be checked here — only Supabase holds the
+ * secret. Its single job is to catch the operator pasting the wrong key, which
+ * is the failure that actually happens: the anon key and the service-role key
+ * sit next to each other on the same dashboard page.
+ *
+ * The decoded payload is never returned, stored or logged. Only the `role`
+ * claim is read, and only to compare it.
+ */
+function readJwtRoleClaim(token: string): string | null {
+  const segments = token.split(".");
+  if (segments.length !== 3) return null;
+
+  const payloadSegment = segments[1];
+  if (!payloadSegment) return null;
+
+  try {
+    const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "="
+    );
+    const parsed: unknown = JSON.parse(atob(padded));
+
+    if (parsed && typeof parsed === "object" && "role" in parsed) {
+      const role = (parsed as { role: unknown }).role;
+      return typeof role === "string" ? role : null;
+    }
+
+    return null;
+  } catch {
+    // A credential we cannot parse is not a credential we will trust.
+    return null;
+  }
+}
+
+/**
+ * Decide whether a credential is a service-role credential.
+ *
+ * The previous guard proved only that `SUPABASE_SERVICE_ROLE_KEY` was
+ * non-empty. That is the same presence-not-validity defect that produced the
+ * `SUPABASE_URL` incident: a wrong value passes a truthiness check and then
+ * fails much later, deep inside a route, as something unrecognisable.
+ *
+ * Supabase issues two generations of key, and both are accepted:
+ *
+ *  - **Legacy JWT** — the `role` claim must be exactly `service_role`. An
+ *    `anon` claim is called out separately because pasting the browser key here
+ *    is the single most likely mistake, and because `anon` is granted nothing by
+ *    DB-RLS-1, so it would fail with the *same* 42501 this package exists to
+ *    fix.
+ *  - **`sb_secret_…`** — the current secret-key format, which is opaque and
+ *    carries no readable claim. The prefix is the only signal available and is
+ *    accepted as such; `sb_publishable_…` is its browser counterpart and is
+ *    refused.
+ *
+ * Anything else is refused. Fail closed: an unrecognised format is not assumed
+ * to be a future valid one.
+ */
+export function classifyServiceRoleCredential(
+  rawValue: string | undefined
+): ServiceRoleCredentialVerdict {
+  const credential = rawValue?.trim() ?? "";
+
+  if (credential === "") {
+    return { usable: false, problem: "absent" };
+  }
+
+  if (credential.startsWith("sb_publishable_")) {
+    return { usable: false, problem: "publishable_key" };
+  }
+
+  if (credential.startsWith("sb_secret_")) {
+    return { usable: true, format: "secret_key" };
+  }
+
+  if (credential.split(".").length === 3) {
+    const role = readJwtRoleClaim(credential);
+
+    if (role === null) return { usable: false, problem: "unreadable_jwt" };
+    if (role === "service_role") return { usable: true, format: "legacy_jwt" };
+    if (role === "anon") return { usable: false, problem: "anon_role" };
+
+    return { usable: false, problem: "wrong_role" };
+  }
+
+  return { usable: false, problem: "unrecognised_format" };
+}
+
+/**
+ * The operator-facing refusal for each problem.
+ *
+ * Every branch is a constant. None interpolates the credential, any part of it,
+ * its length, or its decoded payload.
+ */
+export function describeServiceRoleCredentialProblem(
+  problem: ServiceRoleCredentialProblem
+): string {
+  switch (problem) {
+    case "absent":
+      return "SUPABASE_SERVICE_ROLE_KEY is not set, so the authoring operations cannot run.";
+    case "publishable_key":
+      return "SUPABASE_SERVICE_ROLE_KEY holds a publishable (browser) key. Publication requires the service-role secret key, which is a different value on the same Supabase API settings page.";
+    case "anon_role":
+      return "SUPABASE_SERVICE_ROLE_KEY holds the anon key. The anon role is granted no curriculum privileges by design, so publication would fail at the database. Use the service-role key.";
+    case "wrong_role":
+      return "SUPABASE_SERVICE_ROLE_KEY is a JWT whose role claim is not service_role. Refusing rather than attempting a write with an unintended identity.";
+    case "unreadable_jwt":
+      return "SUPABASE_SERVICE_ROLE_KEY looks like a JWT but its payload could not be read. Refusing rather than guessing what identity it carries.";
+    case "unrecognised_format":
+      return "SUPABASE_SERVICE_ROLE_KEY is not in a recognised Supabase key format. Expected the service-role JWT or an sb_secret_ key.";
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * DB-SERVICE-ROLE-1 — authoring actor identity
+ * ------------------------------------------------------------------ */
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a value can be the `actor_user_id` of a publication event.
+ *
+ * `curriculum_publication_events.actor_user_id` is
+ * `uuid not null references auth.users(id)`, so the audit trail requires a real
+ * account. The command previously defaulted to the literal string
+ * `"roas4-uat-bootstrap"`, which cannot be cast to `uuid` at all — a guaranteed
+ * `22P02` at the very last step of publication, after roughly fifty writes have
+ * already been committed and with no transaction to roll them back.
+ *
+ * Format is all that can be checked locally. Whether the account exists is
+ * settled by the foreign key, and DB-SERVICE-ROLE-1's error observability is
+ * what makes that answer readable when it is not.
+ */
+export function isValidAuthoringActorId(value: string | undefined): boolean {
+  return UUID_PATTERN.test(value?.trim() ?? "");
+}
+
+/**
+ * A target description safe to print.
+ *
+ * The command used to announce `MODE: EXECUTE — target <the full project URL>`.
+ * The URL is not a secret in the way a key is, but it names the project and
+ * lands in terminals, screenshots, CI transcripts and pasted bug reports for no
+ * operational benefit. The operator already had to type it exactly to get here.
+ *
+ * What the operator actually needs is proof the guard resolved the environment
+ * it thinks it did, so this returns the environment and the host's first label
+ * — enough to recognise the right project, not enough to address it.
+ */
+export function describeBootstrapTarget(
+  appEnv: string,
+  supabaseUrl: string
+): string {
+  const trimmed = supabaseUrl.trim();
+
+  let projectHint = "unrecognised host";
+  try {
+    const host = new URL(trimmed).hostname;
+
+    if (host === "localhost" || /^[0-9.]+$/.test(host)) {
+      // A local stack names no project and is safe to show in full.
+      projectHint = host;
+    } else {
+      const firstLabel = host.split(".")[0] ?? "";
+      projectHint =
+        firstLabel.length > 4 ? `${firstLabel.slice(0, 4)}…` : firstLabel;
+    }
+  } catch {
+    // Keep the fallback. A URL that will not parse is reported as such rather
+    // than echoed back.
+  }
+
+  return `${appEnv} environment, project ${projectHint}`;
+}
+
 export interface BootstrapEnvironmentInput {
   /** `APP_ENV`, as the API service already interprets it. */
   appEnv?: string;
@@ -252,8 +455,16 @@ export interface BootstrapEnvironmentInput {
   supabaseUrl?: string;
   /** The operator's explicit confirmation value. */
   confirmation?: string;
-  /** Whether a service-role credential is present at all. */
-  hasServiceRoleKey: boolean;
+  /**
+   * `SUPABASE_SERVICE_ROLE_KEY`, classified locally and never logged.
+   *
+   * It is passed in full rather than as a boolean so the role claim can be
+   * checked. Nothing in this module returns, stores or renders it, and every
+   * refusal message is a constant.
+   */
+  serviceRoleKey?: string;
+  /** `TLP_UAT_BOOTSTRAP_ACTOR_ID` — the account credited in the audit trail. */
+  actorUserId?: string;
 }
 
 export interface BootstrapEnvironmentDecision {
@@ -262,6 +473,10 @@ export interface BootstrapEnvironmentDecision {
   reason: string;
   /** Present only when a write is permitted. */
   targetUrl?: string;
+  /** A description of the target that is safe to print. Execute mode only. */
+  targetDescription?: string;
+  /** The validated authoring actor. Execute mode only. */
+  actorUserId?: string;
 }
 
 export class BootstrapEnvironmentError extends Error {
@@ -347,16 +562,34 @@ export function resolveBootstrapEnvironment(
     );
   }
 
-  if (!input.hasServiceRoleKey) {
+  // DB-SERVICE-ROLE-1 — the credential must be a service-role credential, not
+  // merely a non-empty string. Refusals are constants and never echo the value.
+  const credential = classifyServiceRoleCredential(input.serviceRoleKey);
+
+  if (!credential.usable) {
     throw new BootstrapEnvironmentError(
-      "SUPABASE_SERVICE_ROLE_KEY is not set, so the authoring operations cannot run."
+      describeServiceRoleCredentialProblem(credential.problem)
     );
   }
 
+  // DB-SERVICE-ROLE-1 — the audit trail requires a real account.
+  // `curriculum_publication_events.actor_user_id` is `uuid not null references
+  // auth.users(id)`, so refuse here rather than fail at the final write with
+  // fifty uncommittable-back rows already in the database.
+  if (!isValidAuthoringActorId(input.actorUserId)) {
+    throw new BootstrapEnvironmentError(
+      "TLP_UAT_BOOTSTRAP_ACTOR_ID must be the UUID of an existing account. Publication is recorded against a real actor in curriculum_publication_events, which requires a valid auth.users id."
+    );
+  }
+
+  const targetDescription = describeBootstrapTarget(appEnv, supabaseUrl);
+
   return {
     mode: "execute",
-    reason: `Confirmed target ${supabaseUrl}. Publishing through the existing curriculum authoring operations.`,
-    targetUrl: supabaseUrl
+    reason: `Confirmed target: ${targetDescription}. Publishing through the existing curriculum authoring operations.`,
+    targetUrl: supabaseUrl,
+    targetDescription,
+    actorUserId: input.actorUserId?.trim() ?? ""
   };
 }
 
