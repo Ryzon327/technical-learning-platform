@@ -336,22 +336,32 @@ echo "PASS:  8. re-running reuses existing nodes instead of re-versioning"
 # ------------------------------------------------------------
 # 9. Nothing was executed, and no scope was expanded
 # ------------------------------------------------------------
-MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "37" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
+# Migration integrity, asserted as an artifact property rather than a count.
+#
+# This assertion has now been narrowed three times. First from all of `supabase/`
+# to `supabase/migrations` when DB-TOOLING-1 added `config.toml`. Then the branch
+# diff was replaced with a hardcoded count of 37, with a comment correctly
+# explaining that a branch diff "cannot express 'ROAS-4 changed no schema'
+# without also forbidding every later authorized migration".
+#
+# The count had exactly the same defect, only deferred: DB-SERVICE-ROLE-1 added
+# the service-role privilege contract under an explicit architecture decision and
+# this gate failed, having detected nothing about ROAS-4 at all.
+#
+# What ROAS-4 genuinely requires is that the schema it was written against is
+# still intact. `scripts/migration-baseline.sha256` states that directly, as
+# SHA-256 over each of the 37 files, and `shasum -c` proves it.
+#
+# This is STRICTLY STRONGER than the count it replaces. A count of 37 could not
+# detect a file being edited — only added or removed. The baseline detects an
+# edit, a removal and a substitution, and it keeps holding as later authorized
+# migrations are added. Nothing was weakened to make this gate pass.
+shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
+  || fail "a migration ROAS-4 was written against was modified"
 
-# Migration integrity is NOT asserted by a branch diff here.
-#
-# This was narrowed once already, from all of supabase/ to supabase/migrations,
-# when DB-TOOLING-1 added config.toml. DB-RLS-1 then added the privilege-contract
-# migration under an explicit architecture decision, and the narrowed version was
-# wrong for the same reason: a branch diff cannot express "ROAS-4 changed no
-# schema" without also forbidding every later authorized migration.
-#
-# What ROAS-4 actually needs is that the schema it was written against is intact,
-# and the migration count pinned above says that. scripts/verify-db-rls.sh owns
-# the durable half: every migration change must be an ADDITION, so an
-# already-applied file cannot be rewritten on any branch.
+MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
+[ "$MIGRATION_COUNT" -ge 37 ] \
+  || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
 
 CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
 [ "$CHANGED_LOCK" = "0" ] \

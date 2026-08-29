@@ -277,13 +277,30 @@ for cors_package in '"cors"' '"@fastify/cors"' '"koa-cors"' '"@koa/cors"'; do
   fi
 done
 
-MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "37" ] \
-  || fail "the migration set changed: $MIGRATION_COUNT migrations (37 expected)"
+# Asserted as an artifact property, not a count. See verify-roas4.sh section 9
+# for the full reasoning: a hardcoded count cannot detect a migration being
+# EDITED, only added or removed, and it fails on every later authorized
+# migration. The checksum baseline is strictly stronger on both counts.
+shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
+  || fail "a migration this package was written against was modified"
 
-CHANGED_MIGRATIONS="$(git diff --name-only origin/main...HEAD -- supabase/migrations 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_MIGRATIONS" = "0" ] \
-  || fail "API-CORS-1 changed $CHANGED_MIGRATIONS migration file(s); none is authorized"
+MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
+[ "$MIGRATION_COUNT" -ge 37 ] \
+  || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
+
+# The branch diff that used to stand here has been removed, not weakened.
+#
+# It asserted "this branch adds no migration", which was true of API-CORS-1's own
+# pull request and, read literally, forbade every later authorized migration.
+# DB-SERVICE-ROLE-1 added the service-role privilege contract under an explicit
+# architecture decision and this gate failed — having detected nothing about
+# API-CORS-1 at all. It also could not run locally, because the comparison needs
+# origin/main, so it was CI-only and invisible until push.
+#
+# The property API-CORS-1 actually needs is that the schema it was written
+# against is intact, and the checksum baseline above states exactly that — over
+# every one of the 37 files, byte for byte. That is strictly stronger than a
+# diff which counts changed paths and cannot say what changed inside them.
 
 echo "PASS:  8. no dependency, no migration, no scope expansion"
 

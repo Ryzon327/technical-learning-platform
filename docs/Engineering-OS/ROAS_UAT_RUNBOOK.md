@@ -15,7 +15,7 @@ Three already exist in the repository. Two are yours to supply.
 | **Frontend** | The Vite web app, `npm run dev` | ✅ In the repo |
 | **API** | The Node API service, `npm run dev:api` | ✅ In the repo |
 | **Authentication** | Supabase Auth, via the browser anon key | ⚠️ **Needs your Supabase project** |
-| **Database** | A Supabase Postgres with all 37 migrations applied | ⚠️ **Needs your project + migrations** |
+| **Database** | A Supabase Postgres with all 38 migrations applied | ⚠️ **Needs your project + migrations** |
 | **Curriculum publication** | `npm run admin:publish-roas-curriculum` | ✅ Built here — ⚠️ **you run it** |
 | **Learner access** | None needed — any authenticated user reads published curriculum through RLS | ✅ Nothing to do |
 | **Progress persistence** | `student_learning_progress`, written by `record_mission_progress` | ✅ Exists once migrations are applied |
@@ -38,8 +38,9 @@ but that is a safety net, not a reason to point it somewhere important.
 
 ### 2.2 Apply the migrations
 
-All 37 migrations in `supabase/migrations/` must be applied, in filename order.
-ROAS-4 adds none and executes none.
+All 38 migrations in `supabase/migrations/` must be applied, in filename order.
+ROAS-4 added none. DB-SERVICE-ROLE-1 adds the 38th and executes none — applying
+it remains a Founder action.
 
 **Use the Supabase CLI.** DB-TOOLING-1 established it as the standard mechanism,
 and the full procedure — installation, `link`, `migration list`, `db push`, and
@@ -65,16 +66,26 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 | Check | Expected |
 |---|---|
-| `supabase migration list` | **37** applied |
-| `select count(*) from public.platform_schema_version;` | **36** |
+| `supabase migration list` | **38** applied |
+| `select count(*) from public.platform_schema_version;` | **37** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
 
-> **37 migrations but 36 schema-version rows is correct.** Every migration
+> **One fewer schema-version row than migrations is correct.** Every migration
 > registers one component row except
 > `20260813001000_certificate_correction_foundation.sql` (CERT-008), which
-> registers none. Expecting 37 would make a successful migration look failed.
+> registers none. Expecting the counts to match would make a successful
+> migration look failed.
+
+> **Migration 38 is required before publication.**
+> `20260828000100_service_role_privilege_contract.sql` (DB-SERVICE-ROLE-1) grants
+> the `service_role` the curriculum privileges the publication command needs.
+> Without it, publication fails on its **first query** with
+> `42501 insufficient_privilege`, because `service_role` bypasses RLS but not
+> table `GRANT`s — the same two-layer distinction that produced the earlier
+> learner-facing 403. The table and policy counts above are unchanged by it: it
+> alters privileges only.
 
 This is the step with the most room for surprise: **live PostgreSQL and RLS
 behaviour has never been exercised by this project**. Everything the test suite
@@ -85,17 +96,89 @@ privileged operation — §4 of the workflow document explains how to confirm it
 
 ### 2.3 Configure the environment
 
-Copy `.env.example` to `.env.local` and fill in:
+> **This section was rewritten after real UAT.** The previous instruction — one
+> `.env.local` at the repository root — does not work, and the way it fails is
+> confusing rather than loud. Three separate mechanisms are involved:
+>
+> | Who needs it | Variables | Where it is read from | Loaded by |
+> |---|---|---|---|
+> | The **browser** | `VITE_*` | `apps/web/.env.local` | Vite, automatically |
+> | The **API** and the **publication command** | `SUPABASE_*`, `APP_ENV` | your shell environment | **nothing — you must load it** |
+>
+> `apps/web/vite.config.ts` sets no `envDir`, so Vite's env root is `apps/web`,
+> not the repository root. And the API runs under `tsx`, which has no dotenv
+> support at all. A root `.env.local` is therefore read by *neither*.
+>
+> This is why the first UAT attempt had a working browser and a broken API at
+> the same time, and why the API then returned `HTTP 500 "Unexpected server
+> error"` — `SUPABASE_URL` was eventually set to something that was not a URL,
+> and nothing validated its shape.
+>
+> **Do not `source apps/web/.env.local`.** In zsh that breaks on any value
+> containing a space and silently mangles quoted values. It was never safe.
+
+**Two files, and one command that loads the second one.**
+
+**1. The browser file** — `apps/web/.env.local`:
+
+```
+VITE_SUPABASE_URL=<your development project URL>
+VITE_SUPABASE_ANON_KEY=<anon key>
+VITE_API_BASE_URL=http://localhost:3001
+```
+
+**2. The API file** — `.env.api` at the repository root:
 
 ```
 APP_ENV=development
-SUPABASE_URL=<your development project URL>
-SUPABASE_ANON_KEY=<anon key>
-SUPABASE_SERVICE_ROLE_KEY=<service role key>
-VITE_SUPABASE_URL=<same URL>
-VITE_SUPABASE_ANON_KEY=<same anon key>
-VITE_API_BASE_URL=http://localhost:3001
+SUPABASE_URL=<the same project URL>
+SUPABASE_ANON_KEY=<the same anon key>
+SUPABASE_SERVICE_ROLE_KEY=<service role key — NOT the anon key>
+TLP_UAT_BOOTSTRAP_ACTOR_ID=<the UUID of an existing account>
 ```
+
+Both files are git-ignored. Never commit either.
+
+**3. Check it before you rely on it:**
+
+```
+bash scripts/uat-env.sh check
+```
+
+This validates the whole contract and prints a verdict per variable. **It never
+prints a value** — only the variable name and whether it is usable. It catches
+every mistake that actually happened during UAT: a project URL that is really
+the database connection string, the anon key pasted into the service-role slot,
+an `APP_ENV` that is unset, and a missing browser env file.
+
+**4. Run everything through it:**
+
+```
+bash scripts/uat-env.sh run npm run dev:api
+```
+
+`run` loads `.env.api`, validates it, then starts the command. It parses the
+file without `source` and without `eval`, so values containing spaces, quotes or
+`$` are treated as data.
+
+#### Where each value comes from
+
+In the Supabase dashboard, **Settings → API**:
+
+- **Project URL** → `SUPABASE_URL` and `VITE_SUPABASE_URL`. It starts with
+  `https://` and ends in `.supabase.co`. It is *not* the value on the Database
+  settings page — that one starts with `postgresql://` and contains your
+  database password.
+- **anon / publishable key** → `SUPABASE_ANON_KEY` and `VITE_SUPABASE_ANON_KEY`.
+- **service_role / secret key** → `SUPABASE_SERVICE_ROLE_KEY`. This sits
+  directly beside the anon key and is the one people paste wrongly. It grants
+  full database access and **bypasses RLS**; it must never reach the browser,
+  a commit, or a `VITE_*` variable.
+
+`TLP_UAT_BOOTSTRAP_ACTOR_ID` is the `id` of a row in `auth.users` — take it from
+**Authentication → Users** in the dashboard. Publication is recorded against a
+real account in `curriculum_publication_events`, whose `actor_user_id` column is
+`uuid not null references auth.users(id)`, so a placeholder cannot be used.
 
 `APP_ENV` must be `development` or `test`. The publication command refuses to
 run under any other value, including an unset one.
@@ -114,20 +197,33 @@ workspace, which adds a step UAT does not need.
 ### 3.1 See what would happen — safe, changes nothing
 
 ```
-npm run admin:publish-roas-curriculum
+bash scripts/uat-env.sh run npm run admin:publish-roas-curriculum
 ```
 
 With no confirmation set this is a **dry run**. It prints the learning path,
-course, 4 modules, 7 missions, 9 competencies, the prerequisite edges and every
-mission-competency link it would create, in the order ROAS-2 derived, and then
-exits without writing.
+course, 4 modules, 7 missions, 9 competencies, 6 prerequisite edges and all
+**31** mission-competency links it would create, in the order ROAS-2 derived,
+and then exits without writing.
+
+> **31 is correct.** The ROAS-4 pull-request description said 30. That prose was
+> a miscount: `packages/shared-types/src/roas-curriculum.ts` has exactly one
+> commit and has never been modified, and its seven missions carry
+> 4 + 3 + 2 + 4 + 3 + 6 + 9 = 31 competency assignments. The count is derived
+> from the authored missions by `flatMap`, never stated as a constant, and
+> `roas-bootstrap.test.ts` now pins both the total and the per-mission
+> breakdown.
 
 Read this output. It is the last cheap moment to notice something wrong.
+
+**The dry run touches no database at all.** It resolves the environment, builds
+the plan in memory and prints it. A successful dry run therefore proves nothing
+about your credentials, your privileges or your connection — which is exactly
+why the first real execution failed on its very first query.
 
 ### 3.2 Actually publish
 
 ```
-TLP_UAT_BOOTSTRAP_CONFIRM=<your exact SUPABASE_URL> npm run admin:publish-roas-curriculum
+TLP_UAT_BOOTSTRAP_CONFIRM=<your exact SUPABASE_URL> bash scripts/uat-env.sh run npm run admin:publish-roas-curriculum
 ```
 
 The confirmation must equal `SUPABASE_URL` **exactly**. This follows the
@@ -162,10 +258,18 @@ so a naive second run would produce a second version of the entire course.
 
 ## 4. Run the UAT
 
+In two terminals:
+
 ```
-npm run dev:api
+bash scripts/uat-env.sh run npm run dev:api
+```
+
+```
 npm run dev
 ```
+
+The API needs the wrapper because nothing else loads `.env.api` (§2.3). The web
+app does not, because Vite loads `apps/web/.env.local` by itself.
 
 Sign in, then work through this list. The point is to judge whether it *teaches*,
 not whether it renders.

@@ -17,6 +17,7 @@ import {
   validateLearningPathForPublication
 } from "../curriculum-admin";
 import { createServerSupabaseClient } from "../supabase";
+import { describeDatabaseError } from "../db-diagnostics";
 
 /**
  * ROAS-4 — publish the authored Router-on-a-Stick curriculum for Founder UAT.
@@ -61,10 +62,19 @@ interface ExistingNode {
   publicationState: string;
 }
 
-/** Actor recorded on authoring operations, from the operator's environment. */
-function authoringActorId(): string {
-  return process.env.TLP_UAT_BOOTSTRAP_ACTOR_ID?.trim() || "roas4-uat-bootstrap";
-}
+/**
+ * Actor recorded on authoring operations.
+ *
+ * DB-SERVICE-ROLE-1 removed the `"roas4-uat-bootstrap"` fallback that used to
+ * live here. `curriculum_publication_events.actor_user_id` is
+ * `uuid not null references auth.users(id)`, so that literal could never have
+ * been inserted — it is not even castable to `uuid`. It would have failed at the
+ * final step of publication, after every node had already been written, with no
+ * transaction to undo them.
+ *
+ * The value now arrives already validated from `resolveBootstrapEnvironment`,
+ * which refuses before the first write rather than after the last one.
+ */
 
 /**
  * Find the newest row for a stable id, or null.
@@ -89,7 +99,12 @@ async function findExisting(
     .maybeSingle();
 
   if (error) {
-    throw new Error(`Unable to inspect existing ${table} "${stableId}".`);
+    // DB-SERVICE-ROLE-1 — carry the SQLSTATE. This exact throw reported only
+    // its own sentence during real UAT, which hid a `42501 insufficient_privilege`
+    // and cost a full static-analysis pass to identify.
+    throw new Error(
+      `Unable to inspect existing ${table} "${stableId}": ${describeDatabaseError(error)}`
+    );
   }
 
   if (!data) return null;
@@ -117,7 +132,9 @@ async function prerequisiteExists(
     .maybeSingle();
 
   if (error) {
-    throw new Error("Unable to inspect existing competency prerequisites.");
+    throw new Error(
+      `Unable to inspect existing competency prerequisites: ${describeDatabaseError(error)}`
+    );
   }
 
   return Boolean(data);
@@ -161,10 +178,19 @@ function printDryRun(plan: RoasCurriculumBootstrapPlan, reason: string) {
   console.log("written by this command, in either mode.");
 }
 
-async function execute(plan: RoasCurriculumBootstrapPlan, targetUrl: string) {
-  const context = { actorUserId: authoringActorId() };
+async function execute(
+  plan: RoasCurriculumBootstrapPlan,
+  targetDescription: string,
+  actorUserId: string
+) {
+  const context = { actorUserId };
 
-  console.log(`MODE: EXECUTE — target ${targetUrl}`);
+  // DB-SERVICE-ROLE-1 — the full project URL used to be printed here. It names
+  // the project, lands in terminals, screenshots and CI transcripts, and the
+  // operator already had to type it exactly to reach this line. The description
+  // proves the guard resolved the environment it claims without republishing
+  // the address.
+  console.log(`MODE: EXECUTE — ${targetDescription}`);
   console.log(`Ensuring: ${describeBootstrapPlan(plan)}`);
   console.log("");
 
@@ -404,9 +430,14 @@ async function main() {
     ...(process.env.TLP_UAT_BOOTSTRAP_CONFIRM === undefined
       ? {}
       : { confirmation: process.env.TLP_UAT_BOOTSTRAP_CONFIRM }),
-    hasServiceRoleKey: Boolean(
-      process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
-    )
+    // DB-SERVICE-ROLE-1 — the key is classified locally, never logged, and
+    // every refusal it can produce is a constant string.
+    ...(process.env.SUPABASE_SERVICE_ROLE_KEY === undefined
+      ? {}
+      : { serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY }),
+    ...(process.env.TLP_UAT_BOOTSTRAP_ACTOR_ID === undefined
+      ? {}
+      : { actorUserId: process.env.TLP_UAT_BOOTSTRAP_ACTOR_ID })
   });
 
   console.log("ROAS-4 — Router-on-a-Stick curriculum publication");
@@ -417,7 +448,11 @@ async function main() {
     return;
   }
 
-  await execute(plan, decision.targetUrl ?? "");
+  await execute(
+    plan,
+    decision.targetDescription ?? "confirmed target",
+    decision.actorUserId ?? ""
+  );
 }
 
 main().catch((error) => {
