@@ -279,6 +279,25 @@ tests/
 
 ---
 
+# 17a. Relationship to CURR-010 and DEC-056
+
+The instructional references, demonstration references and activities named in
+section 5 are modelled by **`CURR-010` — Mission Instructional Steps**, as
+ordered, typed instructional content beneath a Mission. `CURR-010` is recorded as
+genuinely new architecture rather than as completion of this Feature: section 5
+establishes intent and direction, and does not specify an ordered typed step
+model.
+
+Section 16's success metric — *"Curriculum can be created without modifying
+application code"* — is addressed by **DEC-056**, which makes curriculum
+repository-authored data outside the application bundle.
+
+Mission remains the authoritative unit for learner progress, resume and
+navigation, prerequisite evaluation, competency relationship, lab association and
+completion. A Lesson curriculum node was evaluated and rejected (DEC-054).
+
+---
+
 # 18. Future Extensions
 
 - Instructor-authored variants.

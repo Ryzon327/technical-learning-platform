@@ -145,6 +145,13 @@ Stated plainly so this Feature is not read as already satisfying the ruling:
    extension and would require a migration, so it needs separate Founder
    authorization.
 
+   **The model is now approved.** DEC-055 approves
+   `mission_competencies.relationship` with the values `develops` and
+   `reinforces`, and explicitly declines to add `requires` —
+   `learning_prerequisite_rules` remains the sole prerequisite authority. **The
+   migration itself remains a Founder gate and is not yet authorized**, so this
+   gap is still open in implementation terms.
+
 2. **The curriculum-defined reinforcement checkpoint trigger has no writer.**
    Section 8 approves the trigger, but review state is currently written only
    from the readiness/test-out path. No implementation writes review state from a

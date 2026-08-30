@@ -220,6 +220,28 @@ CURR-004 is complete when:
 
 ---
 
+# 17a. Extension — Develops versus Reinforces (DEC-055)
+
+A mission-to-competency link carries a **relationship** with exactly two values:
+
+| relationship | meaning |
+|---|---|
+| `develops` | this mission is accountable for teaching and developing the competency |
+| `reinforces` | the learner developed it elsewhere; this mission deliberately applies and reuses it in another context |
+
+**`requires` is deliberately not added.** `learning_prerequisite_rules` remains
+the sole authoritative prerequisite mechanism. The two questions have two owners:
+this Feature answers *"what does this mission do with this competency?"*;
+prerequisite rules answer *"what must already be true before the learner enters
+this mission?"*
+
+The existing `required` flag keeps its meaning — required versus supporting
+within the mission — and is orthogonal to `relationship`.
+
+**The migration remains a Founder gate and is not yet authorized.**
+
+---
+
 # 18. Future Extensions
 
 - External credential equivalencies.

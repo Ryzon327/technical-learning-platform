@@ -1477,7 +1477,15 @@ Learn By Doing Is Platform-Wide, and the MVP Proves One Connected Learning Exper
 
 **Status**
 
-Approved
+Approved — course list amended by DEC-053
+
+> **Amendment notice.** DEC-053 inserts **Networking Foundations** ahead of
+> Router-on-a-Stick in the connected MVP path. Only the five-course list in this
+> decision is superseded. Everything else DEC-049 approved — the learn-by-doing
+> default, the instructional lifecycle, cross-course reinforcement as MVP scope,
+> contextual rather than quiz-shaped reinforcement, labs as a core instructional
+> mechanism, provider neutrality, and the AI authority boundaries — remains in
+> force and is unchanged. The list below is retained as the historical record.
 
 **Decision**
 
@@ -1951,6 +1959,709 @@ CI monitoring, Scratchpad scripts, Machine-local settings ·
 `.claude/settings.json` · `package.json` ·
 `scripts/run-gate.sh` · `scripts/verify-autonomy.sh` ·
 `scripts/ci-select-gates.sh` · `.github/workflows/ci.yml`
+
+---
+
+## DEC-053
+
+**Category**
+
+Product
+
+**Title**
+
+Networking Foundations Enters the Connected MVP Path Ahead of Router-on-a-Stick
+
+**Status**
+
+Approved
+
+**Decision**
+
+The connected MVP learning path, working title **IT & Cybersecurity Foundations**,
+is amended to:
+
+```text
+01 Networking Foundations                  (develops foundational net.* competencies)
+02 Router-on-a-Stick / Build the Network   (applies and reinforces them)
+03 Linux Fundamentals                      (focused, reuses networking)
+04 Windows Fundamentals                    (focused, reinforces networking)
+05 Security Fundamentals                   (integrates prior learning)
+06 Integrated Challenge                    (combines competencies, unannounced)
+```
+
+**Networking Foundations develops** the reusable foundational `net.*`
+competencies. **Router-on-a-Stick and later applicable courses reinforce and
+reuse** competencies already developed rather than claiming to develop them for
+the first time.
+
+This **amends the five-course list in DEC-049** and nothing else in it.
+
+**Rationale**
+
+The BEGINNER-COMPLETE-1 audit established that Router-on-a-Stick begins above the
+floor the Zero-Assumption Learning Gate sets. Its Mission 1 requires IPv4 address
+structure, prefix length as a comparable quantity, subnet membership, device
+roles and the default-gateway relationship, and teaches none of them — while the
+practice placed at that mission tests a generalisation the instruction never
+supplies. The teaching in Missions 2 through 6 is sound; the floor beneath it is
+missing.
+
+Four structural options were evaluated. Expanding Mission 1 and adding a module
+inside Router-on-a-Stick were both rejected because foundations authored inside
+one course cannot be referenced by Linux, Windows, Security or Cloud, so the same
+material would be re-authored per course — the outcome DEC-049's cross-course
+reinforcement requirement exists to prevent. A separate reusable course was
+necessary but not sufficient on its own, because pure separation loses the
+contextual reinforcement `Learning-OS.md` section 21.2 requires. The approved
+hybrid authors foundations **once**, as a reusable course developing
+domain-scoped competencies, and has Router-on-a-Stick apply them in context.
+
+**This also resolves a conflict that was flagged rather than repaired.**
+`PLATFORM_BLUEPRINT.md` section 6.1 already records the guided progression as
+Computer Foundations → Networking Foundations → Windows and Linux Foundations,
+and `LEARN-004` section 2 already records that "Router-on-a-stick assumes basic
+switching and VLAN knowledge". DEC-049 nonetheless placed Router-on-a-Stick at
+the entry point. The Blueprint needs no change; this decision brings the MVP path
+into agreement with it.
+
+**Alternatives Considered**
+
+Expanding Mission 1 — rejected: eleven required foundations do not fit a
+45-minute mission whose current job is a good one, and nothing produced would be
+reusable.
+
+A foundations module inside Router-on-a-Stick — rejected for reuse and for
+ownership: a later course would have to reference a module inside a networking
+course to declare a networking prerequisite, and Router-on-a-Stick would become
+the owner of platform-wide foundations. Retained as the fallback if the MVP
+cannot absorb an additional course.
+
+Leaving the path unchanged and lowering the difficulty of Missions 6 and 7 —
+rejected outright. The answer to a course being too hard for beginners is to
+build the steps below it, never to reduce the competency it proves.
+
+**Impact**
+
+Product scope and documentation. No implementation code, schema, migration or
+dependency changed by this decision.
+
+* `docs/Product-OS/Product-OS.md` — MVP Learning Paths corrected to six entries.
+* `docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` section 15e — corrected, with the
+  superseded list retained as history.
+* `docs/Project/DECISION_LEDGER.md` — DEC-049 carries an amendment notice.
+
+Detailed lesson plans, module breakdowns and completion-time estimates remain
+**not approved** and require separate authorization, exactly as DEC-049 stated.
+
+`NOT_NOW.md` is not reopened. Networking Foundations is a prerequisite course
+inside the already-approved connected experience, not catalog expansion.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-049 ·
+`docs/Product-OS/Product-OS.md` MVP Learning Paths ·
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` section 15e ·
+`docs/Project/PLATFORM_BLUEPRINT.md` section 6.1 ·
+`docs/Feature-Registry/Learning-Engine/LEARN-004_PREREQUISITE_ENFORCEMENT.md`
+
+---
+
+## DEC-054
+
+**Category**
+
+Architecture
+
+**Title**
+
+Instructional Steps Are Content Beneath a Mission, Not a Curriculum Node
+
+**Status**
+
+Approved
+
+**Decision**
+
+The curriculum hierarchy is:
+
+```text
+Course → Module → Mission → ordered instructional steps
+```
+
+**Mission remains the authoritative unit** for learner progress, resume and
+navigation, prerequisite evaluation, competency relationship, lab association and
+completion.
+
+**Instructional steps are content beneath a mission.** They are not curriculum
+nodes, and they do not independently own publication state, version, learner
+progress, competency, prerequisite, completion, evidence or supersession. A step
+publishes with its mission, versions with its mission, and is read only when its
+mission is published.
+
+The approved step-type vocabulary is closed at **seven**:
+
+`concept` · `diagram` · `command` · `prediction` · `interaction` · `practice` ·
+`reference`
+
+Semantic boundaries that are part of this decision:
+
+* An **example** is `concept` content. A type that changes no rendering,
+  accessibility, validation or projection behaviour is decoration.
+* **`command`** carries a displayed command and/or displayed output. They are one
+  instructional unit and are not split across two steps.
+* **`checkpoint`** is not an instructional-step type. The curriculum-defined
+  reinforcement checkpoint recorded in `LEARN-008` is a **Learning Engine**
+  trigger; placing it in curriculum content would put a Learning Engine concept
+  in a Curriculum Engine table and pre-empt an unauthorized design.
+* **`practice`** points at an assessment by stable id and never duplicates
+  assessment content.
+* **`reference`** is optional enrichment. It **may never carry prerequisite
+  instruction required to satisfy BEGINNER-COMPLETE-1.** If a learner must read
+  it to proceed, it is a `concept`.
+
+**A Lesson curriculum node is rejected for now.** It may be reconsidered only if a
+future requirement genuinely needs an independently addressable instructional
+unit — independent lesson progress, or cross-course lesson reuse.
+
+**Rationale**
+
+`student_learning_progress.node_type` is constrained to
+`('learning_path','course','module','mission')`, and both `record_mission_progress`
+and the progress aggregation function key on `node_type = 'mission'`. A Lesson
+node would change two check constraints, two PL/pgSQL functions, the published
+tree contract, `CurriculumNodeType`, `SEARCH_CONTENT_TYPES`, resume and
+next-action — reopening the completed Wave 3 Learning Engine to gain an
+instructional capability that steps provide without touching any of it.
+
+Steps sit below the progress grain, so they require none of that. Verified
+further: `curriculum_publish_learning_path_tree()` publishes by updating
+`publication_state` on the five node tables. A step table carrying no
+`publication_state` inherits publication through the same RLS pattern
+`curriculum_assets` already uses, and the cascade function needs no change.
+
+The vocabulary is held closed because a closed set is what makes typed rendering,
+server-side projection and publication-blocking accessibility validation
+tractable. Every additional type multiplies four contracts.
+
+**Alternatives Considered**
+
+Enriching the mission with further named columns (`professional_context`,
+`activities`, …) — rejected: fixed named fields cannot express *repeated*
+teach → predict → observe cycles, which is the approved instructional model, and
+the pattern ends in many nullable columns by the fourth course.
+
+Reusing `student_note_blocks` — rejected. It is the correct **shape** precedent,
+and its shape is deliberately mirrored, but it is Knowledge Engine property
+scoped to a learner's private notes. Sharing the table would violate
+one-concept-one-owner and place private and published content under one RLS
+policy set.
+
+**Impact**
+
+Architecture and documentation. No schema change is authorized by this decision.
+`CURR-010 — Mission Instructional Steps` records the Feature.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-010_MISSION_INSTRUCTIONAL_STEPS.md` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-003_COURSE_MODULE_AND_MISSION_DEFINITION.md` ·
+`docs/Feature-Registry/Learning-Engine/LEARN-008_REVIEW_AND_REINFORCEMENT_STATE.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-053, DEC-056
+
+---
+
+## DEC-055
+
+**Category**
+
+Architecture
+
+**Title**
+
+A Mission Develops or Reinforces a Competency; Prerequisites Stay in learning_prerequisite_rules
+
+**Status**
+
+Approved
+
+**Decision**
+
+`mission_competencies` gains one semantic distinction:
+
+| relationship | meaning |
+|---|---|
+| `develops` | this mission is accountable for teaching and developing the competency |
+| `reinforces` | the learner developed it elsewhere; this mission deliberately applies and reuses it in another context |
+
+**`requires` is deliberately NOT added.** `learning_prerequisite_rules` remains
+the sole authoritative prerequisite mechanism.
+
+The two questions have two owners:
+
+* `mission_competencies` answers **"what does this mission do with this
+  competency?"**
+* `learning_prerequisite_rules` answers **"what must already be true before the
+  learner enters this mission?"**
+
+The existing `required` flag keeps its current meaning — required versus
+supporting within the mission — and is orthogonal to `relationship`. A mission
+can reinforce a competency that is nonetheless required to complete it.
+
+**Rationale**
+
+This closes the first of the three gaps recorded in DEC-049 and `LEARN-008`
+section 8.1: curriculum cannot yet express whether a mission teaches or reuses a
+competency.
+
+It is also the direct cause of a real learner-facing defect. Practice placement
+derives "developed at" from the first mission listing a competency as required,
+so a practice check exercising IPv4 addressing is placed at Router-on-a-Stick
+Mission 1 — a mission that applies addressing rather than teaching it. The
+placement machinery is correct; its input is untrue. With `relationship`, the
+derivation reads *first mission that **develops** it*, and the same machinery
+produces the right answer unchanged.
+
+Without this distinction DEC-053's central promise — that Router-on-a-Stick
+reinforces rather than teaches the foundations — is expressible only in prose,
+never in data.
+
+**A `requires` value was specifically considered and rejected.**
+`learning_prerequisite_rules` already carries four satisfaction types, a
+mandatory learner-facing explanation, server-side evaluation, a fail-safe
+`temporarily_unavailable` state, and a closed test-out loop through
+`learning_requirement_satisfactions`. A `requires` value in `mission_competencies`
+would be a second, weaker prerequisite mechanism with none of that — and the
+weaker one would win by being closer to hand. One owner per concept.
+
+**Alternatives Considered**
+
+A three-value vocabulary including `requires` — rejected, above.
+
+Inferring the relationship from mission ordering — rejected: ordering says where
+a competency first appears, not whether the mission is accountable for teaching
+it. That inference is exactly the error being corrected.
+
+**Impact**
+
+Requires one additive column with a preserving default, which keeps every
+existing row's current meaning. **The migration is a Founder gate and is not
+authorized by this decision.** Backfill is then a content decision per mission,
+not a data conversion.
+
+Extends `CURR-004 — Competency and Prerequisite Definitions`.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-004_COMPETENCY_AND_PREREQUISITE_DEFINITIONS.md` ·
+`docs/Feature-Registry/Learning-Engine/LEARN-004_PREREQUISITE_ENFORCEMENT.md` ·
+`docs/Feature-Registry/Learning-Engine/LEARN-008_REVIEW_AND_REINFORCEMENT_STATE.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-049, DEC-053
+
+---
+
+## DEC-056
+
+**Category**
+
+Architecture
+
+**Title**
+
+Curriculum Is Authored as Data Outside the Application Bundle
+
+**Status**
+
+Approved
+
+**Decision**
+
+Curriculum instructional content is **repository-authored data outside the
+application bundle**. The initial authoring format is **JSON**.
+
+```text
+repository-authored JSON
+→ shared schema validation
+→ BEGINNER-COMPLETE / structural validation
+→ CI
+→ controlled publication command
+→ curriculum tables
+→ published learner read model
+```
+
+**The application owns HOW content renders. Curriculum data owns WHAT is taught.**
+
+Compiled TypeScript curriculum constants are **not** the long-term authoring
+model. No CMS is built now, and Router-on-a-Stick content is **not** migrated by
+this decision.
+
+**Rationale**
+
+`CURR-003` section 16 already records the success metric *"Curriculum can be
+created without modifying application code."* The Router-on-a-Stick course
+currently violates it: the whole course is a TypeScript module compiled into the
+web bundle, so authoring a course means changing application code and shipping a
+new build.
+
+JSON was chosen over the alternatives on specific grounds. YAML was rejected
+despite being pleasanter to hand-write: significant whitespace and implicit
+typing make silent misparse its failure mode, which is the wrong risk for content
+a non-developer edits. Database-native authoring was rejected for now — it has no
+review workflow, no diffs and no version control, and it needs the CMS this
+decision declines to build. TypeScript data files are what we are moving away
+from.
+
+JSON gives schema validation, line-oriented diffs an architect can review, full
+version history, and an inert substrate a future authoring tool can read and
+write.
+
+**One weakness is recorded rather than glossed over:** editing JSON is not a good
+authoring experience for a non-developer. It is acceptable for the first courses
+because edits are small and reviewable and the alternative is building a CMS now.
+**Authoring tooling over this substrate is a genuine future requirement, not an
+optional nicety.**
+
+**Alternatives Considered**
+
+YAML, TypeScript data files, database-native authoring — each rejected above.
+Reusing an existing repository pattern was examined: `supabase/migrations` is
+schema, not content, and `scripts/` is validation, not content. Neither fits.
+
+**Impact**
+
+Establishes a `content/` authoring location and a generalised publication
+command. The command must reuse the safety posture already proven by
+`services/api/src/admin/publish-roas-curriculum.ts` — dry run by default, an
+exact-match confirmation naming the target project, unconditional refusal of
+production, writes only through existing `curriculum-admin` operations, and
+idempotency by stable-id lookup.
+
+**The publication command must never contain course content.** It reads a file
+path.
+
+No implementation is authorized by this decision.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-003_COURSE_MODULE_AND_MISSION_DEFINITION.md` section 16 ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-010_MISSION_INSTRUCTIONAL_STEPS.md` ·
+`services/api/src/admin/publish-roas-curriculum.ts` ·
+`docs/Project/DECISION_LEDGER.md` DEC-054
+
+---
+
+## DEC-057
+
+**Category**
+
+Product
+
+**Title**
+
+Instructional Quality Has Three Tiers, and Human UAT Is the Authority
+
+**Status**
+
+Approved
+
+**Decision**
+
+Curriculum instructional quality is governed in three tiers with three different
+authorities.
+
+**Tier 1 — Hard structural validation.** Objective, machine-verifiable invariants
+**may block publication**. Examples: invalid step type; invalid payload for its
+type; unresolved required reference; missing required accessibility alternative;
+duplicate or invalid position; unregistered interaction type; structurally
+prohibited content.
+
+> **Clarification — what "structurally prohibited content" means.** It refers to
+> prohibited content *structures* and prohibited execution or rendering
+> *behaviour*: an executable authored payload, executable authored markup, or a
+> field requesting an unsupported raw-markup interpretation.
+>
+> **It must never mean rejecting legitimate instructional plain text because that
+> text resembles HTML, JavaScript, shell syntax, configuration syntax, a security
+> payload example, or other code.** The platform has to be able to teach those
+> subjects.
+>
+> The governing security rule is: authored plain-text and code-bearing fields are
+> **inert**; renderers **escape** authored content; **no raw-HTML or
+> markup-interpreting instructional rendering mode exists**; executable authored
+> payloads and markup are prohibited; **code-looking instructional strings are
+> valid content**; and **structural validation must not use HTML or script
+> keyword or pattern matching as a proxy for safety.**
+>
+> This clarifies an example in Tier 1. It does not alter the approved three-tier
+> quality-authority model. See `CURR-010` section 10.
+
+**Tier 2 — Advisory instructional signals.** Automation **may flag** suspicious
+instructional patterns for human review. These signals **never automatically fail
+and never automatically approve** instruction.
+
+**Tier 3 — Human instructional UAT.** A human reviewer is the **final authority
+on pedagogical sufficiency**. A mission may pass every automated check and still
+fail instructional UAT.
+
+**No arbitrary numeric pedagogy threshold is authorized.** A rule such as "no
+more than three prose blocks" must not be introduced for automation convenience.
+Where a Tier 2 signal needs a comparison point, it is derived from the
+distribution of already-published, human-approved missions — never chosen.
+
+**BEGINNER-COMPLETE-1 remains a human-authoritative curriculum quality
+requirement, supported and not replaced by automation.**
+
+A signal may be promoted from Tier 2 to Tier 1 only when it can be restated as an
+objective invariant requiring no pedagogical judgement. "Alt text is missing" is
+objective. "Alt text is inadequate" is not, and stays in Tier 2 permanently.
+
+**Rationale**
+
+Automation can prove that a term was defined before it was used. It cannot judge
+whether the definition worked. The BEGINNER-COMPLETE-1 audit found its central
+defect — a practice question testing a generalisation the instruction had only
+demonstrated once, on different values — in a mission that satisfied every
+structural invariant the repository could express. No automated check would have
+graded it.
+
+Recording the tiers separately prevents the two failure modes that follow from
+conflating them: a green pipeline being read as pedagogical approval, and an
+invented numeric threshold becoming a de facto curriculum standard nobody
+approved.
+
+**Alternatives Considered**
+
+A single pass/fail publication gate — rejected: it forces every judgement into
+one of two wrong shapes, either blocking on advisory concerns or ignoring them.
+
+Scoring instructional quality numerically — rejected: a score implies a
+measurement the platform cannot make and would be optimised against.
+
+**Impact**
+
+Extends `CURR-009 — Curriculum Quality Checklist`, which already distinguishes
+automated checks from required human review and already blocks publication on a
+required failure. No new mechanism is introduced.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-010_MISSION_INSTRUCTIONAL_STEPS.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-053
+
+---
+
+## DEC-058
+
+**Category**
+
+Product
+
+**Title**
+
+Simulation Teaches the Mental Model; the Real Lab Confirms It
+
+**Status**
+
+Approved
+
+**Decision**
+
+The approved signature learning progression is:
+
+```text
+TEACH A LITTLE → INTERACT → PREDICT → OBSERVE → CONFIGURE
+→ OBSERVE CONSEQUENCE → TROUBLESHOOT → REPAIR → CONFIRM → REUSE → PROVE
+```
+
+The governing principle is recorded verbatim:
+
+> **Simulation teaches the mental model. The real lab confirms the mental model.**
+
+For applicable hands-on technical learning paths:
+
+* teaching simulation constructs the mental model;
+* the real environment eventually confirms it;
+* **authored simulation produces no competency evidence**;
+* live visualization may render authoritative observations but **never invents
+  them**;
+* **visualization never becomes a second validator**;
+* deterministic validation remains the authority for competency success and
+  failure.
+
+**A hands-on technical path must not be declared fully SIGNATURE-LEARNING
+complete solely because an authored simulation exists** when real-environment
+confirmation is applicable to the competency.
+
+**Packet Journey** is the first implementation of this interaction architecture,
+in two modes.
+
+**A. Teaching mode.** Driven by authored curriculum and **clearly identified on
+screen as instructional simulation**. It may visualize topology, interfaces,
+links, addresses, subnets, VLANs, traffic movement, learner predictions, authored
+faults, allowed learner actions and authored consequences. It does not represent
+a live environment, does not independently compute networking truth, and produces
+no competency evidence.
+
+**B. Live lab confirmation / diagnostic mode.** Future. Driven **only** by
+authoritative Lab Engine observations. It renders authoritative observations,
+never fabricates plausible state, **fails closed to "state unavailable"** when
+authoritative state cannot be read, never becomes a second forwarding, routing or
+VLAN simulator, and never becomes the competency validator.
+
+**The observation-model seam is a required design constraint.** The renderer
+consumes a shared `ObservationModel` and never authored parameters directly:
+
+```text
+teaching mode:  authored curriculum      → projection → ObservationModel → renderer
+future live:    Lab Engine observations  → projection → ObservationModel → renderer
+```
+
+The renderer must contain **no independent forwarding, routing, VLAN or
+competency-success model** in either mode.
+
+**Rationale**
+
+Router-on-a-Stick today instructs learners to configure devices in an environment
+that does not exist. Simulation is what makes cause-and-effect learning possible
+before a lab provider exists, and it is genuinely valuable — but a mental model
+that has never met a real device is not competency, which is why simulation is
+explicitly barred from producing evidence.
+
+The seam exists for one reason: it is the difference between live mode being an
+adapter and live mode being a rewrite of the instructional content model and the
+renderer. Building teaching mode against the shared observation model costs
+almost nothing now and preserves the option.
+
+The fail-closed rule is the same honesty rule the learner surface already
+follows elsewhere — an unknown state is displayed as unknown, never as a
+comfortable default.
+
+**Alternatives Considered**
+
+Treating live diagnostic mode as optional distant polish — rejected by the
+Founder. For applicable hands-on paths, real-environment confirmation is part of
+the target experience.
+
+Letting the visualization compute forwarding so it could work without a lab —
+rejected outright. A second implementation of "does this network work" is a
+second answer, and the deterministic validator must remain the only one.
+
+**Impact**
+
+Architecture and documentation. `CURR-011 — Instructional Interaction Contract`
+records the Feature. **No live-mode implementation, no Proxmox and no
+`LabProvider` contract change is authorized by this decision.**
+
+`WP-K — Live-Lab Packet Journey Adapter` is recorded as the future work item that
+eventually makes the applicable Router-on-a-Stick experience fully
+SIGNATURE-LEARNING complete.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-011_INSTRUCTIONAL_INTERACTION_CONTRACT.md` ·
+`docs/Feature-Registry/Lab-Engine/LAB-008_DETERMINISTIC_LAB_VALIDATION.md` ·
+`docs/Learning-OS/Learning-OS.md` sections 15.1–15.3 ·
+`docs/Roadmap/MVP_IMPLEMENTATION_SEQUENCE.md` section 15e ·
+`docs/Project/DECISION_LEDGER.md` DEC-049, DEC-059
+
+---
+
+## DEC-059
+
+**Category**
+
+Product
+
+**Title**
+
+Progressive Support, PROVE IT, and the AI Visibility Boundary
+
+**Status**
+
+Approved
+
+**Decision**
+
+Instructional support is withdrawn progressively:
+
+```text
+SHOW ME → HELP ME → ASK ME → CHALLENGE ME → PROVE IT
+```
+
+| Level | Available | Withheld |
+|---|---|---|
+| SHOW ME | demonstration, narration, explanation, expected path visible | — |
+| HELP ME | guidance on what to inspect, graduated hints | — |
+| ASK ME | learner predicts or explains; inspection available | expected result until commitment |
+| CHALLENGE ME | problem, environment, limited assistance | answer-revealing information |
+| PROVE IT | see below | see below |
+
+**PROVE IT withholds instructional assistance. It does not withhold the
+environment required to demonstrate competency.**
+
+During PROVE IT the learner **retains**: the actual environment; the objective;
+legitimate operational tools; their own observations; accessibility
+accommodations; and narration of non-answer-revealing material.
+
+During PROVE IT the platform **withholds**: instructional clues; the expected
+path; authored fault disclosure; answer-revealing visualization; AI tutoring;
+hints; and solution-revealing instructional simulation.
+
+**A support level must never become an authority for lab availability.** Lab
+availability is owned by the Lab Engine and the mission's lab contract.
+**Deterministic validation determines success.**
+
+**AI visibility boundary.** AI may eventually teach and explain approved authored
+curriculum. AI does not become curriculum authority. Protected information is
+**structurally withheld server-side** — not sent — rather than relying on prompts
+instructing a model not to reveal it. **Assessment answers are never routed into
+AI context.** During protected demonstration and PROVE IT, AI tutoring and hints
+are unavailable and answer-revealing instructional content is not sent.
+
+**Accessibility and narration are separate from tutoring**, and must remain
+separate code paths with separate authorization. Reading an objective aloud is an
+accommodation. Explaining what is wrong during evaluation is tutoring.
+
+**Rationale**
+
+An earlier draft of this contract stated that PROVE IT "withholds the interaction
+entirely". That was too broad and is corrected here: withholding the environment
+would prevent the demonstration rather than protect it. The distinction that
+matters is between *assistance* and *the means of demonstrating*.
+
+Structural withholding is required because a prompt instruction is not a security
+boundary. `assessment_questions` already has no authenticated SELECT policy;
+routing assessment content into AI context would defeat that control rather than
+respect it.
+
+Accessibility is separated from tutoring because accessibility must work with the
+AI Gateway switched off — which it currently is. Making a screen-reader path
+depend on a non-deterministic, unimplemented, potentially unavailable system
+would let accessibility degrade silently.
+
+**Alternatives Considered**
+
+Enforcing withholding in the client — rejected. The client is never the security
+boundary; a hidden control the browser still holds is not withheld.
+
+Instructing the model not to reveal protected content — rejected as the primary
+mechanism for the same reason. It may be a defence in depth; it is not the
+boundary.
+
+**Impact**
+
+Architecture and documentation. `AIGW-011 — Curriculum Projection and
+Protected-Content Withholding` records the Feature. **No AI Gateway
+implementation is authorized by this decision.**
+
+**Related Documents**
+
+`docs/Feature-Registry/AI-Gateway/AIGW-011_CURRICULUM_PROJECTION_AND_PROTECTED_CONTENT.md` ·
+`docs/Feature-Registry/AI-Gateway/AIGW-001_AI_REQUEST_CONTRACT.md` ·
+`docs/Feature-Registry/AI-Gateway/AIGW-005_PRIVACY_REDACTION_AND_SECRET_SCREENING.md` ·
+`docs/Feature-Registry/Learning-Engine/LEARN-005_READINESS_ASSESSMENT_AND_TEST_OUT.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-049, DEC-058
 
 ---
 
