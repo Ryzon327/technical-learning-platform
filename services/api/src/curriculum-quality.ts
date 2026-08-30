@@ -1,22 +1,36 @@
 import type {
+  CurriculumAssetInput,
+  CurriculumAssetReadOutcome,
   CurriculumAssetType,
   CurriculumEffortSummary,
   CurriculumQualityReport
 } from "@tlp/shared-types";
-import { AppError } from "@tlp/shared-types";
+import {
+  AppError,
+  isCurriculumAssetType,
+  resolvePersistedCurriculumAssets,
+  validateCurriculumAsset
+} from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
 
+/**
+ * WP-D. The READ vocabulary, and deliberately the wide one.
+ *
+ * This helper serves the quality report, which walks rows that already exist.
+ * Legacy `lab`, `assessment` and `video` rows must stay readable, so it accepts
+ * the full storage vocabulary through the shared predicate.
+ *
+ * **New authoring does not come through here.** `addMissionAsset` validates
+ * with `validateCurriculumAsset`, which uses the narrower
+ * `isAuthorableCurriculumAssetType` and refuses those three types with the
+ * reason another architecture owns them.
+ *
+ * The local `Set` this replaced was a hand-maintained second copy of the
+ * vocabulary sitting beside the shared union — the arrangement by which two
+ * definitions drift apart.
+ */
 function assetType(value: string): CurriculumAssetType {
-  const allowed = new Set([
-    "article",
-    "video",
-    "lab",
-    "assessment",
-    "reference",
-    "download"
-  ]);
-
-  if (!allowed.has(value)) {
+  if (!isCurriculumAssetType(value)) {
     throw new AppError({
       code: "VALIDATION_ERROR",
       message: "Invalid curriculum asset type",
@@ -24,7 +38,7 @@ function assetType(value: string): CurriculumAssetType {
     });
   }
 
-  return value as CurriculumAssetType;
+  return value;
 }
 
 function safeUri(value: string): string {
@@ -46,31 +60,53 @@ function safeUri(value: string): string {
   return uri;
 }
 
-export async function addMissionAsset(input: {
-  missionId: string;
-  assetType: string;
-  title: string;
-  uri: string;
-  position: number;
-  required?: boolean;
-}): Promise<void> {
-  if (!Number.isInteger(input.position) || input.position < 0) {
+/**
+ * Author one curriculum asset on an existing mission.
+ *
+ * WP-D turns this from an insert nothing called into a validated authoring
+ * operation. It now carries the mission-scoped `stableId` a WP-C step names,
+ * and the `altText` a visual asset owes a learner.
+ *
+ * **Validated before the client is created.** Invalid authored content is a
+ * caller error, not a dependency failure, and is reported as one whether or not
+ * a database is reachable. Nothing is normalized into validity.
+ *
+ * **The authoring vocabulary is the narrow one.** `validateCurriculumAsset`
+ * uses `isAuthorableCurriculumAssetType`, so `lab`, `assessment` and `video`
+ * are refused here even though the quality reader above accepts them on
+ * existing rows. That asymmetry is the point: legacy rows stay readable while
+ * new content cannot claim a concept the Lab Engine or the assessment
+ * architecture owns.
+ *
+ * Upserts on `(mission_id, stable_id)`, so re-running an authoring pass is
+ * idempotent rather than creating a second copy of an asset.
+ */
+export async function addMissionAsset(input: CurriculumAssetInput): Promise<void> {
+  const errors = validateCurriculumAsset(input);
+
+  if (errors.length > 0) {
     throw new AppError({
       code: "VALIDATION_ERROR",
-      message: "Asset position must be a non-negative integer",
+      message: `Curriculum asset is not valid: ${errors.join("; ")}`,
       retryable: false
     });
   }
 
   const supabase = createServerSupabaseClient();
-  const { error } = await supabase.from("curriculum_assets").insert({
-    mission_id: input.missionId,
-    asset_type: assetType(input.assetType),
-    title: input.title.trim(),
-    uri: safeUri(input.uri),
-    position: input.position,
-    required: input.required ?? true
-  });
+
+  const { error } = await supabase.from("curriculum_assets").upsert(
+    {
+      mission_id: input.missionId,
+      stable_id: input.stableId,
+      asset_type: input.assetType,
+      title: input.title,
+      uri: input.uri,
+      position: input.position,
+      required: input.required ?? true,
+      alt_text: input.altText ?? null
+    },
+    { onConflict: "mission_id,stable_id" }
+  );
 
   if (error) {
     throw new AppError({
@@ -79,6 +115,58 @@ export async function addMissionAsset(input: {
       retryable: true
     });
   }
+}
+
+/**
+ * Read one mission's curriculum assets.
+ *
+ * Narrow by design. WP-E owns learner read-path integration; this exists so
+ * publication validation can resolve asset references, and so the persistence
+ * contract is testable.
+ *
+ * The integrity check lives in `resolvePersistedCurriculumAssets`, not here.
+ * Persisted rows are untrusted: every field is type-checked and nothing is
+ * coerced, so a `position` of `"1"` or a `required` of `0` fails rather than
+ * being repaired into something that looks authored.
+ *
+ * Returning the outcome rather than a bare array is what stops a caller
+ * rendering a mission whose assets are partly corrupt: `assets` exists only on
+ * the `available` variant.
+ */
+export async function readMissionAssets(
+  missionId: string
+): Promise<CurriculumAssetReadOutcome> {
+  const supabase = createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("curriculum_assets")
+    .select("id,mission_id,stable_id,asset_type,title,uri,position,required,alt_text")
+    .eq("mission_id", missionId)
+    .order("position", { ascending: true });
+
+  if (error) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Unable to read curriculum assets",
+      retryable: true
+    });
+  }
+
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+
+  return resolvePersistedCurriculumAssets(
+    rows.map((row) => ({
+      id: row.id,
+      missionId: row.mission_id,
+      stableId: row.stable_id,
+      assetType: row.asset_type,
+      title: row.title,
+      uri: row.uri,
+      position: row.position,
+      required: row.required,
+      altText: row.alt_text
+    }))
+  );
 }
 
 export async function hasPrerequisiteCycle(): Promise<boolean> {

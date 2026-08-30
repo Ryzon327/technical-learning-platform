@@ -12,10 +12,13 @@ import type {
 } from "@tlp/shared-types";
 import {
   AppError,
+  collectMissionStepAssetReferences,
+  findUnresolvedAssetReferences,
   isMissionCompetencyRelationship,
   resolvePersistedMissionSteps,
   validateMissionStep
 } from "@tlp/shared-types";
+import { readMissionAssets } from "./curriculum-quality";
 import { createServerSupabaseClient } from "./supabase";
 import { buildLearningPathQualityReport } from "./curriculum-quality";
 
@@ -773,6 +776,46 @@ export async function validateLearningPathForPublication(
             nodeId: mission.id,
             stableId: mission.stable_id
           });
+        }
+
+        // WP-D — asset references must resolve before publication.
+        //
+        // WP-C could only check that `diagram.assetStableId` and
+        // `reference.assetStableId` LOOK like stable ids; nothing existed to
+        // resolve them against. Now they do, so a step naming an asset that is
+        // not authored on its mission blocks publication rather than becoming
+        // a missing diagram a learner discovers.
+        //
+        // Only reached when the steps themselves are valid: an unresolved
+        // reference on already-invalid content is noise, and the first issue is
+        // the one to fix.
+        const assetOutcome = await readMissionAssets(String(mission.id));
+
+        if (assetOutcome.state === "content_error") {
+          issues.push({
+            code: "INVALID_CURRICULUM_ASSET",
+            message: `Mission curriculum assets are not valid: ${assetOutcome.errors.join("; ")}`,
+            nodeType: "mission",
+            nodeId: mission.id,
+            stableId: mission.stable_id
+          });
+        } else if (stepOutcome.state === "available") {
+          const unresolved = findUnresolvedAssetReferences(
+            collectMissionStepAssetReferences(stepOutcome.steps),
+            assetOutcome.assets.flatMap((asset) =>
+              asset.stableId === undefined ? [] : [asset.stableId]
+            )
+          );
+
+          if (unresolved.length > 0) {
+            issues.push({
+              code: "UNRESOLVED_ASSET_REFERENCE",
+              message: `Mission instructional steps reference curriculum assets that do not exist on this mission: ${unresolved.join(", ")}`,
+              nodeType: "mission",
+              nodeId: mission.id,
+              stableId: mission.stable_id
+            });
+          }
         }
       }
     }

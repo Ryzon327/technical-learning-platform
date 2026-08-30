@@ -608,6 +608,35 @@ export function resolveMissionStepsForRead(
   return { state: "available", steps: missionStepsInAuthoredOrder(steps) };
 }
 
+/**
+ * Every curriculum asset a mission's steps name.
+ *
+ * WP-D. `diagram` and `reference` steps carry an `assetStableId`; WP-C could
+ * validate that it LOOKS like a stable id but not that it resolves, because
+ * nothing existed to resolve against. This collects the references so
+ * publication can check them against the mission's actual assets.
+ *
+ * A `reference` step may instead carry an external `uri`, in which case it
+ * names no asset and contributes nothing here. Deduplicated and sorted, so the
+ * result is stable regardless of authored order.
+ */
+export function collectMissionStepAssetReferences(
+  steps: readonly MissionStep[]
+): string[] {
+  if (!Array.isArray(steps)) return [];
+
+  const referenced = steps.flatMap((step) => {
+    const content = step?.content;
+    if (content?.type === "diagram") return [content.assetStableId];
+    if (content?.type === "reference" && content.assetStableId !== undefined) {
+      return [content.assetStableId];
+    }
+    return [];
+  });
+
+  return [...new Set(referenced)].sort();
+}
+
 /* ------------------------------------------------------------------ *
  * The persistence boundary
  * ------------------------------------------------------------------ */

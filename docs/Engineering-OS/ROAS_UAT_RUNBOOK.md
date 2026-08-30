@@ -72,26 +72,28 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 **Verify afterwards**, and note one result that looks wrong but is not.
 
-The repository now carries **41** source migrations, of which **38** are applied
+The repository now carries **42** source migrations, of which **38** are applied
 to the development/UAT project. The column you compare against depends on how
 far you have pushed — these are expectations for a target state, not a claim
 about what is deployed.
 
-| Check | After the 39 this runbook needs | After all 41 source migrations |
+| Check | After the 39 this runbook needs | After all 42 source migrations |
 |---|---|---|
-| `supabase migration list` | **39** applied | **41** applied |
-| `select count(*) from public.platform_schema_version;` | **38** | **40** |
+| `supabase migration list` | **39** applied | **42** applied |
+| `select count(*) from public.platform_schema_version;` | **38** | **41** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** | **62** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** | **66** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** | **0** |
 
-> **The two later migrations are not required for this runbook.**
+> **The three later migrations are not required for this runbook.**
 > `20260830000100` (WP-B) adds a nullable `mission_competencies.relationship`
-> column; `20260831000100` (WP-C) adds the `mission_steps` table. Neither is
-> needed to publish the curriculum or to run learner UAT: with no authored
-> steps, published missions render from `missions.description`, which is the
-> transition fallback CURR-010 section 13.4 permits. Applying them remains a
-> separate Founder action.
+> column; `20260831000100` (WP-C) adds the `mission_steps` table;
+> `20260901000100` (WP-D) adds `stable_id` and `alt_text` to
+> `curriculum_assets`. None is needed to publish the curriculum or to run
+> learner UAT: with no authored steps, published missions render from
+> `missions.description`, which is the transition fallback CURR-010 section
+> 13.4 permits, and no curriculum asset has ever been authored. Applying them
+> remains a separate Founder action.
 
 > **One fewer schema-version row than migrations is correct.** Every migration
 > registers one component row except
