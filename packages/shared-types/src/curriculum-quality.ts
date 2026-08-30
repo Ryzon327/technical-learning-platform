@@ -1,20 +1,11 @@
-export type CurriculumAssetType =
-  | "article"
-  | "video"
-  | "lab"
-  | "assessment"
-  | "reference"
-  | "download";
-
-export interface CurriculumAssetReference {
-  id: string;
-  missionId: string;
-  assetType: CurriculumAssetType;
-  title: string;
-  uri: string;
-  position: number;
-  required: boolean;
-}
+// WP-D. `CurriculumAssetType` and `CurriculumAssetReference` moved to
+// `curriculum-assets.ts`, which now owns the asset contract: the vocabulary,
+// the narrower authorable subset, accessibility rules, validation and the
+// persistence boundary. Both are still exported from `@tlp/shared-types`
+// through `index.ts`, so no consumer import changed.
+//
+// They lived here because the quality report was their only reader. It still
+// reads assets, but it is a consumer of the contract rather than its owner.
 
 export interface CurriculumEffortSummary {
   learningPathMinutes: number;

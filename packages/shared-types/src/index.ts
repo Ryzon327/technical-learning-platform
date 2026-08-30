@@ -20,6 +20,7 @@ export * from "./auth";
 export * from "./curriculum";
 export * from "./curriculum-admin";
 export * from "./mission-steps";
+export * from "./curriculum-assets";
 export * from "./curriculum-quality";
 export * from "./learning";
 export * from "./learning-navigation";

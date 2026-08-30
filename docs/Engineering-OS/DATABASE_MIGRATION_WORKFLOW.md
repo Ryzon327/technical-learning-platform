@@ -14,6 +14,7 @@ package that changes it, never left to drift.
 | `20260829000100_record_mission_progress_ambiguity_fix.sql` | ⛔ **Authored and reviewed. NOT deployed.** |
 | `20260830000100_mission_competency_relationship.sql` (WP-B) | ⛔ **Authored and reviewed. NOT deployed.** |
 | `20260831000100_mission_steps.sql` (WP-C) | ⛔ **Authored and reviewed. NOT deployed.** |
+| `20260901000100_curriculum_asset_identity.sql` (WP-D) | ⛔ **Authored and reviewed. NOT deployed.** |
 
 **How the 38 are known to be applied** — from observed application behaviour
 during real Founder UAT, not from any query run by Claude Code:
@@ -31,12 +32,14 @@ during real Founder UAT, not from any query run by Claude Code:
 return HTTP 409 with `column reference "node_type" is ambiguous` until
 `20260829000100` is applied. See the note in §6.1.
 
-`20260830000100` (WP-B) and `20260831000100` (WP-C) are additive and change
-nothing a learner can currently reach: the first adds a nullable
-`mission_competencies.relationship` column, the second adds the `mission_steps`
-table. Until they are applied, published missions carry no authored
-instructional steps and continue to render from `missions.description`, which is
-the transition fallback CURR-010 section 13.4 permits.
+`20260830000100` (WP-B), `20260831000100` (WP-C) and `20260901000100` (WP-D)
+are additive and change nothing a learner can currently reach: the first adds a
+nullable `mission_competencies.relationship` column, the second adds the
+`mission_steps` table, the third adds `stable_id` and `alt_text` to
+`curriculum_assets` and widens that table's type vocabulary. Until they are
+applied, published missions carry no authored instructional steps and continue
+to render from `missions.description`, which is the transition fallback
+CURR-010 section 13.4 permits.
 
 > **Applying it is a Founder action and has not happened.** Claude Code has run
 > no `supabase db push`, no remote SQL and no database command of any kind. The
@@ -280,9 +283,9 @@ Run these against the development project after `db push`. All are read-only.
 ### 6.1 Structure
 
 > **These are POST-APPLICATION expectations, not the current remote state.**
-> They describe the schema once **all 41** source migrations have been applied.
+> They describe the schema once **all 42** source migrations have been applied.
 > The development/UAT project currently has **38** applied — see the table at
-> the top of this document. Three migrations are authored and undeployed, so
+> the top of this document. Four migrations are authored and undeployed, so
 > running these queries against the project today will return the smaller
 > pre-application counts, and that is correct rather than a failure.
 >
@@ -290,10 +293,10 @@ Run these against the development project after `db push`. All are read-only.
 > (`npm run gate -- db-tooling`), so they cannot silently go stale. They say
 > nothing about what has been deployed.
 
-| Check | Expected after all 41 are applied |
+| Check | Expected after all 42 are applied |
 |---|---|
-| `supabase migration list` | **41** migrations applied |
-| `select count(*) from public.platform_schema_version;` | **40** — see the note below |
+| `supabase migration list` | **42** migrations applied |
+| `select count(*) from public.platform_schema_version;` | **41** — see the note below |
 | `select count(*) from information_schema.tables where table_schema='public';` | **62** tables |
 | `select count(*) from pg_policies where schemaname='public';` | **66** policies |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
@@ -313,6 +316,7 @@ Run these against the development project after `db push`. All are read-only.
 > | `20260829000100` (LEARN-PROGRESS-DB-1) | one function body, one schema-version row. No table, policy or RLS change. | ⛔ no |
 > | `20260830000100` (WP-B) | one nullable column on `mission_competencies`, one schema-version row. No table, policy or RLS change. | ⛔ no |
 > | `20260831000100` (WP-C) | `mission_steps`: +1 table, +1 policy, +1 RLS statement, one schema-version row. | ⛔ no |
+> | `20260901000100` (WP-D) | two columns and two constraints on `curriculum_assets`, one service_role grant, one schema-version row. No table, policy or RLS change. | ⛔ no |
 >
 > Against the project as it stands today (38 applied), the same queries return
 > **38** migrations, **37** schema-version rows, **61** tables and **65**

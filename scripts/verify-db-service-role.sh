@@ -159,9 +159,14 @@ text = "\n".join(statements)
 #   curriculum_assets     select  quality report reads asset URIs
 #
 # Absent on purpose: UPDATE on courses/modules/missions/competencies (cascaded by
-# the SECURITY DEFINER RPC as its owner), DELETE anywhere, INSERT on
-# curriculum_assets (addMissionAsset has no reachable caller), SELECT on
+# the SECURITY DEFINER RPC as its owner), DELETE anywhere, SELECT on
 # curriculum_publication_events (nothing reads it).
+#
+# INSERT on curriculum_assets was also absent here, because `addMissionAsset`
+# had no reachable caller. WP-D made it a validated authoring operation that
+# upserts on (mission_id, stable_id), so `20260901000100` grants INSERT and
+# UPDATE. That grant lives in the WP-D migration, not this one, which is why
+# this contract — parsed from THIS file alone — is unchanged.
 EXPECTED = {
     "learning_paths": {"select", "insert", "update"},
     "courses": {"select", "insert"},
