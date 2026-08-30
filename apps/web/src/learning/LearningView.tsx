@@ -122,11 +122,19 @@ function MissionDetail({
         <p className="mission-note">{describeDemonstrationAvailability()}</p>
       )}
 
-      {mission.requiredCompetencies.length > 0 && (
+      {/*
+        WP-B / DEC-055. Grouped by what the mission DOES with each competency,
+        not by whether it is required. The previous grouping put "What this
+        mission develops" above the required list, which announced Mission 4's
+        default gateway and Mission 6's connectivity verification as newly
+        taught when both were developed earlier. Required-versus-supporting is a
+        separate axis and is not what these headings are about.
+      */}
+      {mission.developsCompetencies.length > 0 && (
         <>
-          <h4 id={`${mission.stableId}-required`}>What this mission develops</h4>
-          <ul aria-labelledby={`${mission.stableId}-required`}>
-            {mission.requiredCompetencies.map((competency) => (
+          <h4 id={`${mission.stableId}-develops`}>What this mission teaches you</h4>
+          <ul aria-labelledby={`${mission.stableId}-develops`}>
+            {mission.developsCompetencies.map((competency) => (
               <li key={competency.stableId}>
                 <strong>{competency.title}</strong> — {competency.description}
               </li>
@@ -135,11 +143,13 @@ function MissionDetail({
         </>
       )}
 
-      {mission.supportingCompetencies.length > 0 && (
+      {mission.reinforcesCompetencies.length > 0 && (
         <>
-          <h4 id={`${mission.stableId}-supporting`}>Also drawn on here</h4>
-          <ul aria-labelledby={`${mission.stableId}-supporting`}>
-            {mission.supportingCompetencies.map((competency) => (
+          <h4 id={`${mission.stableId}-reinforces`}>
+            What you already learned and use again here
+          </h4>
+          <ul aria-labelledby={`${mission.stableId}-reinforces`}>
+            {mission.reinforcesCompetencies.map((competency) => (
               <li key={competency.stableId}>
                 <strong>{competency.title}</strong> — {competency.description}
               </li>

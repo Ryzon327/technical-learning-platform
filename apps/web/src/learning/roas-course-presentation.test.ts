@@ -1025,10 +1025,10 @@ describe("PRACTICE-ARCH-1 eligibility comes from existing curriculum truth", () 
   // Requirement 12. The derived availability must be recomputable from the
   // missions' OWN competency declarations. If it were a hand-written table,
   // this independent recomputation would disagree.
-  it("derives availability from the missions' required competencies", () => {
+  it("derives availability from the missions' developed competencies", () => {
     const developedAt = new Map<string, number>();
     course.missions.forEach((mission, index) => {
-      for (const competency of mission.requiredCompetencies) {
+      for (const competency of mission.developsCompetencies) {
         if (!developedAt.has(competency.stableId)) {
           developedAt.set(competency.stableId, index);
         }
@@ -1126,11 +1126,11 @@ function exercisedBy(assessmentStableId: string): readonly string[] {
   )!.exercisesCompetencyStableIds;
 }
 
-/** The mission index at which a competency is first required. */
+/** The mission index at which a competency is developed. */
 const developedAtIndex = (() => {
   const developed = new Map<string, number>();
   course.missions.forEach((mission, index) => {
-    for (const competency of mission.requiredCompetencies) {
+    for (const competency of mission.developsCompetencies) {
       if (!developed.has(competency.stableId)) {
         developed.set(competency.stableId, index);
       }

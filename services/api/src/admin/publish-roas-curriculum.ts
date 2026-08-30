@@ -354,10 +354,16 @@ async function execute(
       );
     }
 
-    await linkMissionCompetency(context, missionId, competencyId, link.required);
+    await linkMissionCompetency(
+      context,
+      missionId,
+      competencyId,
+      link.required,
+      link.relationship
+    );
     report(
       "link",
-      `${link.missionStableId} -> ${link.competencyStableId}${link.required ? " (required)" : ""}`
+      `${link.missionStableId} -> ${link.competencyStableId} [${link.relationship}]${link.required ? " (required)" : ""}`
     );
   }
 

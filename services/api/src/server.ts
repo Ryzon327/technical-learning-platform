@@ -42,7 +42,10 @@ import {
   transitionLabValidationProfileState,
   type CreateLabDefinitionInput
 } from "./lab-admin";
-import type { LabPublicationState } from "@tlp/shared-types";
+import type {
+  LabPublicationState,
+  MissionCompetencyRelationship
+} from "@tlp/shared-types";
 import {
   createDraftCertificateDefinition,
   getCertificateDefinition,
@@ -1310,11 +1313,16 @@ async function handleRequest(
     if (request.method === "POST" && pathname === "/admin/curriculum/mission-competencies") {
       const trusted = await founder(request);
       const body = await readJsonBody(request);
+      // WP-B / DEC-055. `relationship` has no default and is not inferred from
+      // `required`. An omitted or unapproved value is rejected by
+      // `linkMissionCompetency` as a VALIDATION_ERROR, so a caller cannot
+      // create an unclassified link through this route.
       await linkMissionCompetency(
         { actorUserId: trusted.identity.userId },
         String(body.missionId ?? ""),
         String(body.competencyId ?? ""),
-        body.required === undefined ? true : Boolean(body.required)
+        body.required === undefined ? true : Boolean(body.required),
+        body.relationship as MissionCompetencyRelationship
       );
       sendJson(response, 201, { linked: true });
       return;

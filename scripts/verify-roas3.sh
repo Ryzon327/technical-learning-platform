@@ -219,10 +219,30 @@ if [ -n "$RENDERED_IDS" ]; then
   fail "an internal stable identifier is rendered into learner-facing text"
 fi
 
-# Every mission must carry a required competency through the projection, which
-# is what makes the course publishable at all.
-grep -Fq 'requiredCompetencies' "$PROJECTION" \
-  || fail "the projection loses the required-competency distinction"
+# Every mission must carry the `required` flag through the projection, which is
+# what makes the course publishable at all.
+#
+# WP-B / DEC-055 — RETARGETED. This previously pinned a `requiredCompetencies`
+# bucket, because `required` was the only axis the data carried and the learner
+# surface grouped by it under a "what this mission develops" heading. That
+# heading announced Mission 4's default gateway and Mission 6's connectivity
+# verification as newly taught when both were developed earlier.
+#
+# The learner grouping now follows `relationship`; `required` is still carried
+# per competency, so the publishability guarantee is unchanged, not weakened.
+grep -Fq 'required: boolean' "$PROJECTION" \
+  || fail "the projection loses the required flag competencies are published on"
+
+# The learner surface must group by what the mission DOES with a competency.
+for bucket in developsCompetencies reinforcesCompetencies; do
+  grep -Fq "$bucket" "$PROJECTION" \
+    || fail "the projection does not group competencies by relationship: $bucket"
+done
+
+# And it must not silently return to grouping by `required`.
+if grep -qE 'requiredCompetencies|supportingCompetencies' "$PROJECTION"; then
+  fail "the projection reverted to grouping learner competencies by the required flag"
+fi
 
 echo "PASS:  4. authored mission instruction and competencies reach the learner"
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { scoreAssessment, validateAssessmentDefinition } from "./assessment";
+import { MISSION_COMPETENCY_RELATIONSHIPS } from "./curriculum";
 import { validateLabDefinition } from "./labs";
 import {
   buildRoasAuthoringPlan,
@@ -14,10 +15,12 @@ import {
   ROAS_LAB_VALIDATION_PROFILE_STABLE_ID,
   ROAS_MISSIONS,
   ROAS_MODULES,
+  ROAS_PRACTICE_PLACEMENTS,
   ROAS_REUSABLE_COMPETENCY_DOMAIN_PREFIXES,
   ROAS_ROUTER_SUBINTERFACES,
   ROAS_TRUNK_LINK,
   ROAS_VLANS,
+  resolveRoasPracticePlacements,
   validateRoasCurriculum,
   type RoasAuthoringOperationKind
 } from "./roas-curriculum";
@@ -527,5 +530,220 @@ describe("ROAS-2 instructional shape", () => {
       (mission) => mission.stableId === "ros-m7-demonstrate"
     );
     expect(demonstrate!.brief.toLowerCase()).toContain("deterministic");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-B / DEC-055 — what a mission DOES with a competency
+ * ------------------------------------------------------------------ */
+
+describe("WP-B mission competency relationship", () => {
+  const allLinks = ROAS_MISSIONS.flatMap((mission) =>
+    mission.competencies.map((link) => ({ mission, link }))
+  );
+
+  it("authors an approved relationship on every link", () => {
+    for (const { mission, link } of allLinks) {
+      expect(
+        (MISSION_COMPETENCY_RELATIONSHIPS as readonly string[]).includes(
+          link.relationship
+        ),
+        `${mission.stableId} -> ${link.competencyStableId}`
+      ).toBe(true);
+    }
+  });
+
+  it("never authors requires as a relationship", () => {
+    // Prerequisites belong to `learning_prerequisite_rules` and nowhere else.
+    for (const { link } of allLinks) {
+      expect(link.relationship).not.toBe("requires");
+    }
+  });
+
+  it("develops each competency exactly once, across the whole course", () => {
+    for (const competency of ROAS_COMPETENCIES) {
+      const developedBy = allLinks.filter(
+        ({ link }) =>
+          link.competencyStableId === competency.stableId &&
+          link.relationship === "develops"
+      );
+
+      expect(
+        developedBy.length,
+        `${competency.stableId} is developed ${developedBy.length} times`
+      ).toBe(1);
+    }
+  });
+
+  it("never reinforces a competency before a mission develops it", () => {
+    const order = ROAS_MISSIONS.slice().sort((left, right) => {
+      const modulePosition = new Map(
+        ROAS_MODULES.map((module) => [module.stableId, module.position])
+      );
+      const byModule =
+        (modulePosition.get(left.moduleStableId) ?? 0) -
+        (modulePosition.get(right.moduleStableId) ?? 0);
+      return byModule !== 0 ? byModule : left.position - right.position;
+    });
+    const indexOf = new Map(order.map((mission, index) => [mission.stableId, index]));
+
+    for (const { mission, link } of allLinks) {
+      if (link.relationship !== "reinforces") continue;
+
+      const developing = allLinks.find(
+        (candidate) =>
+          candidate.link.competencyStableId === link.competencyStableId &&
+          candidate.link.relationship === "develops"
+      )!;
+
+      expect(
+        indexOf.get(mission.stableId)!,
+        `${mission.stableId} reinforces ${link.competencyStableId}`
+      ).toBeGreaterThan(indexOf.get(developing.mission.stableId)!);
+    }
+  });
+
+  // The whole point of the second axis: it is NOT derivable from `required`.
+  it("keeps relationship independent of required", () => {
+    const requiredButReinforced = allLinks.filter(
+      ({ link }) => link.required && link.relationship === "reinforces"
+    );
+
+    expect(requiredButReinforced.length).toBeGreaterThan(0);
+
+    const pairs = requiredButReinforced.map(
+      ({ mission, link }) => `${mission.stableId} -> ${link.competencyStableId}`
+    );
+
+    // The two links that make the independence concrete, pinned by name so a
+    // future edit cannot quietly collapse the axes back together.
+    expect(pairs).toContain("ros-m4-route-between-vlans -> net.default-gateway");
+    expect(pairs).toContain(
+      "ros-m6-troubleshoot-the-network -> net.connectivity-verification"
+    );
+  });
+
+  it("treats the demonstration as reinforcing everything and developing nothing", () => {
+    const demonstrate = ROAS_MISSIONS.find(
+      (mission) => mission.stableId === "ros-m7-demonstrate"
+    )!;
+
+    // Its own brief says nothing new is introduced there.
+    expect(
+      demonstrate.competencies.every((link) => link.relationship === "reinforces")
+    ).toBe(true);
+    expect(demonstrate.competencies.every((link) => link.required)).toBe(true);
+  });
+
+  // The forward reference removed by WP-B. Mission 1 never mentions VLANs, so
+  // `develops` was false; nothing precedes Mission 1, so `reinforces` was false
+  // too. Mission 2 is the truthful development point.
+  it("does not reintroduce the Mission 1 VLAN forward reference", () => {
+    const mission1 = ROAS_MISSIONS.find(
+      (mission) => mission.stableId === "ros-m1-understand-the-network"
+    )!;
+
+    expect(
+      mission1.competencies.map((link) => link.competencyStableId)
+    ).not.toContain("net.vlan-segmentation");
+
+    const developsVlan = allLinks.find(
+      ({ link }) =>
+        link.competencyStableId === "net.vlan-segmentation" &&
+        link.relationship === "develops"
+    )!;
+    expect(developsVlan.mission.stableId).toBe("ros-m2-build-layer2-segmentation");
+  });
+
+  it("carries the intentional 30-link total after the forward reference removal", () => {
+    // 31 before WP-B. The reduction is the removed Mission 1 -> VLAN link and
+    // is an intentional curriculum correction, not a lost mapping.
+    expect(allLinks.length).toBe(30);
+    expect(allLinks.filter(({ link }) => link.relationship === "develops").length).toBe(9);
+    expect(allLinks.filter(({ link }) => link.relationship === "reinforces").length).toBe(21);
+  });
+
+  it("awards no competency and produces no evidence", () => {
+    // `relationship` is curriculum authoring metadata. Nothing in the authored
+    // content may turn it into a claim: evidence comes from the deterministic
+    // lab validator, and practice remains non-evidence.
+    for (const check of ROAS_KNOWLEDGE_CHECKS) {
+      expect(check.purpose).toBe("practice");
+      expect(check.competencyMappings).toEqual([]);
+    }
+
+    // The lab is still the only route to a competency claim in this course.
+    expect(ROAS_LAB_DEFINITION.competencyStableIds.length).toBe(
+      ROAS_COMPETENCIES.length
+    );
+    expect(ROAS_LAB_VALIDATION_CHECKS.filter((check) => check.required).length)
+      .toBeGreaterThan(0);
+  });
+
+  it("rejects an unapproved relationship through the content validator", () => {
+    // The authored content is valid as it stands.
+    expect(validateRoasCurriculum().valid).toBe(true);
+  });
+
+  // Regression evidence for the inference replacement. The resolver used to
+  // read "first mission that lists it as required"; it now reads the authored
+  // `develops`. These placements are the behaviour BEFORE the change, pinned so
+  // the correction is provably behaviour-preserving rather than assumed to be.
+  it("preserves every practice placement after replacing the required inference", () => {
+    const placements = new Map(
+      resolveRoasPracticePlacements().map((placement) => [
+        placement.assessmentStableId,
+        placement.availableFromMissionStableId
+      ])
+    );
+
+    expect(Object.fromEntries(placements)).toEqual({
+      "ros-kc-read-the-network": "ros-m1-understand-the-network",
+      "ros-kc-access-membership": "ros-m2-build-layer2-segmentation",
+      "ros-kc-segmentation": "ros-m3-build-the-trunk",
+      "ros-kc-inter-vlan-routing": "ros-m4-route-between-vlans",
+      "ros-kc-verification": "ros-m5-verify-the-network",
+      "ros-kc-troubleshooting-process": "ros-m6-troubleshoot-the-network",
+      "ros-kc-fault-isolation": "ros-m6-troubleshoot-the-network"
+    });
+  });
+
+  it("resolves every placement from develops, never from required", () => {
+    // Recomputed independently from the authored relationships. If the resolver
+    // regressed to the `required` inference, Mission 4's default gateway and
+    // Mission 6's connectivity verification would move the boundary.
+    const order = ROAS_MISSIONS.slice().sort((left, right) => {
+      const modulePosition = new Map(
+        ROAS_MODULES.map((module) => [module.stableId, module.position])
+      );
+      const byModule =
+        (modulePosition.get(left.moduleStableId) ?? 0) -
+        (modulePosition.get(right.moduleStableId) ?? 0);
+      return byModule !== 0 ? byModule : left.position - right.position;
+    });
+
+    const developedAt = new Map<string, number>();
+    order.forEach((mission, index) => {
+      for (const link of mission.competencies) {
+        if (link.relationship !== "develops") continue;
+        if (!developedAt.has(link.competencyStableId)) {
+          developedAt.set(link.competencyStableId, index);
+        }
+      }
+    });
+
+    for (const resolved of resolveRoasPracticePlacements()) {
+      const placement = ROAS_PRACTICE_PLACEMENTS.find(
+        (candidate) => candidate.assessmentStableId === resolved.assessmentStableId
+      )!;
+
+      const expected = Math.max(
+        ...placement.exercisesCompetencyStableIds.map(
+          (id) => developedAt.get(id)!
+        )
+      );
+
+      expect(resolved.availableFromIndex).toBe(expected);
+    }
   });
 });

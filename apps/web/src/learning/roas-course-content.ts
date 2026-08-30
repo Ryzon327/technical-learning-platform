@@ -8,6 +8,7 @@ import {
   ROAS_MODULES,
   resolveRoasPracticePlacements,
   type AssessmentDefinition,
+  type MissionCompetencyRelationship,
   type RoasPracticeScope
 } from "@tlp/shared-types";
 
@@ -47,7 +48,19 @@ export interface LearnerCompetency {
   stableId: string;
   title: string;
   description: string;
+  /** Required versus supporting within the mission. Orthogonal to relationship. */
   required: boolean;
+  /**
+   * WP-B / DEC-055. What the mission does with this competency.
+   *
+   * The learner surface groups by THIS, not by `required`. Before WP-B the
+   * heading "What this mission develops" sat above the required list, which
+   * quietly asserted that required meant developed. Two authored links break
+   * that: Mission 4 requires the default-gateway competency while only
+   * reinforcing it, and Mission 6 does the same with connectivity
+   * verification. Both would have been announced as newly taught.
+   */
+  relationship: MissionCompetencyRelationship;
 }
 
 /**
@@ -70,8 +83,10 @@ export interface LearnerMission {
   title: string;
   brief: BriefBlock[];
   estimatedMinutes: number;
-  requiredCompetencies: LearnerCompetency[];
-  supportingCompetencies: LearnerCompetency[];
+  /** Competencies this mission teaches. Grouped by relationship, not required. */
+  developsCompetencies: LearnerCompetency[];
+  /** Competencies developed earlier that this mission puts to use again. */
+  reinforcesCompetencies: LearnerCompetency[];
   /**
    * True for the mission the authored lab definition points at.
    *
@@ -167,7 +182,8 @@ export function parseMissionBrief(brief: string): BriefBlock[] {
 /** Resolve an authored competency id to the words ROAS-2 wrote for it. */
 export function describeCompetency(
   competencyStableId: string,
-  required: boolean
+  required: boolean,
+  relationship: MissionCompetencyRelationship
 ): LearnerCompetency | null {
   const authored = ROAS_COMPETENCIES.find(
     (competency) => competency.stableId === competencyStableId
@@ -182,7 +198,8 @@ export function describeCompetency(
     stableId: authored.stableId,
     title: authored.title,
     description: authored.description,
-    required
+    required,
+    relationship
   };
 }
 
@@ -192,7 +209,7 @@ function buildMission(
 ): LearnerMission {
   const resolved = authored.competencies
     .map((link) =>
-      describeCompetency(link.competencyStableId, link.required)
+      describeCompetency(link.competencyStableId, link.required, link.relationship)
     )
     .filter((competency): competency is LearnerCompetency =>
       competency !== null
@@ -205,9 +222,11 @@ function buildMission(
     title: authored.title,
     brief: parseMissionBrief(authored.brief),
     estimatedMinutes: authored.estimatedMinutes,
-    requiredCompetencies: resolved.filter((competency) => competency.required),
-    supportingCompetencies: resolved.filter(
-      (competency) => !competency.required
+    developsCompetencies: resolved.filter(
+      (competency) => competency.relationship === "develops"
+    ),
+    reinforcesCompetencies: resolved.filter(
+      (competency) => competency.relationship === "reinforces"
     ),
     isDemonstration:
       authored.stableId === ROAS_LAB_DEFINITION.missionStableId

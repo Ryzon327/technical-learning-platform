@@ -1,3 +1,4 @@
+import type { MissionCompetencyRelationship } from "./curriculum";
 import {
   ROAS_COMPETENCIES,
   ROAS_COMPETENCY_PREREQUISITES,
@@ -142,6 +143,8 @@ export interface BootstrapMissionCompetencyLink {
   missionStableId: string;
   competencyStableId: string;
   required: boolean;
+  /** WP-B / DEC-055. Carried through from the authored link, never derived. */
+  relationship: MissionCompetencyRelationship;
 }
 
 export interface RoasCurriculumBootstrapPlan {
@@ -204,7 +207,8 @@ export function buildRoasCurriculumBootstrapPlan(): RoasCurriculumBootstrapPlan 
     mission.competencies.map((link) => ({
       missionStableId: mission.stableId,
       competencyStableId: link.competencyStableId,
-      required: link.required
+      required: link.required,
+      relationship: link.relationship
     }))
   );
 

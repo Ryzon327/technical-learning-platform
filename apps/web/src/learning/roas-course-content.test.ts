@@ -102,8 +102,8 @@ describe("ROAS-3 learner course projection", () => {
   it("describes competencies with authored words rather than identifiers", () => {
     for (const mission of course.missions) {
       const all = [
-        ...mission.requiredCompetencies,
-        ...mission.supportingCompetencies
+        ...mission.developsCompetencies,
+        ...mission.reinforcesCompetencies
       ];
 
       for (const competency of all) {
@@ -120,21 +120,80 @@ describe("ROAS-3 learner course projection", () => {
     }
   });
 
-  it("keeps every mission's required competencies required", () => {
+  // WP-B / DEC-055. The learner grouping follows `relationship`, not
+  // `required`. Grouping by `required` under a "what this mission develops"
+  // heading announced Mission 4's default gateway and Mission 6's connectivity
+  // verification as newly taught, when both were developed earlier.
+  it("groups learner competencies by relationship, not by required", () => {
     for (const authored of ROAS_MISSIONS) {
       const mission = course.missions.find(
         (entry) => entry.stableId === authored.stableId
       )!;
 
-      const expectedRequired = authored.competencies
-        .filter((link) => link.required)
+      const expectedDevelops = authored.competencies
+        .filter((link) => link.relationship === "develops")
+        .map((link) => link.competencyStableId)
+        .sort();
+
+      const expectedReinforces = authored.competencies
+        .filter((link) => link.relationship === "reinforces")
         .map((link) => link.competencyStableId)
         .sort();
 
       expect(
-        mission.requiredCompetencies.map((c) => c.stableId).sort()
-      ).toEqual(expectedRequired);
-      expect(mission.requiredCompetencies.length).toBeGreaterThan(0);
+        mission.developsCompetencies.map((c) => c.stableId).sort()
+      ).toEqual(expectedDevelops);
+      expect(
+        mission.reinforcesCompetencies.map((c) => c.stableId).sort()
+      ).toEqual(expectedReinforces);
+    }
+  });
+
+  it("never presents a required-but-reinforced competency as newly taught", () => {
+    const requiredButReinforced = ROAS_MISSIONS.flatMap((authored) =>
+      authored.competencies
+        .filter((link) => link.required && link.relationship === "reinforces")
+        .map((link) => ({
+          missionStableId: authored.stableId,
+          competencyStableId: link.competencyStableId
+        }))
+    );
+
+    // The case must actually exist, or this test proves nothing.
+    expect(requiredButReinforced.length).toBeGreaterThan(0);
+
+    for (const entry of requiredButReinforced) {
+      const mission = course.missions.find(
+        (candidate) => candidate.stableId === entry.missionStableId
+      )!;
+
+      expect(
+        mission.developsCompetencies.map((c) => c.stableId)
+      ).not.toContain(entry.competencyStableId);
+      expect(
+        mission.reinforcesCompetencies.map((c) => c.stableId)
+      ).toContain(entry.competencyStableId);
+    }
+  });
+
+  it("carries required through independently of relationship", () => {
+    for (const authored of ROAS_MISSIONS) {
+      const mission = course.missions.find(
+        (entry) => entry.stableId === authored.stableId
+      )!;
+
+      const presented = [
+        ...mission.developsCompetencies,
+        ...mission.reinforcesCompetencies
+      ];
+
+      for (const link of authored.competencies) {
+        const shown = presented.find(
+          (competency) => competency.stableId === link.competencyStableId
+        )!;
+        expect(shown.required).toBe(link.required);
+        expect(shown.relationship).toBe(link.relationship);
+      }
     }
   });
 
@@ -242,15 +301,16 @@ describe("ROAS-3 brief parsing", () => {
 
 describe("ROAS-3 competency description", () => {
   it("resolves an authored competency", () => {
-    const resolved = describeCompetency("net.ip-addressing", true);
+    const resolved = describeCompetency("net.ip-addressing", true, "develops");
     expect(resolved?.title).toBe(
       ROAS_COMPETENCIES.find((c) => c.stableId === "net.ip-addressing")!.title
     );
     expect(resolved?.required).toBe(true);
+    expect(resolved?.relationship).toBe("develops");
   });
 
   it("drops an unknown competency rather than showing a bare identifier", () => {
-    expect(describeCompetency("net.does-not-exist", true)).toBeNull();
+    expect(describeCompetency("net.does-not-exist", true, "develops")).toBeNull();
   });
 });
 
