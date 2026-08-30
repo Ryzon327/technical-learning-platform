@@ -3,6 +3,7 @@ import {
   ROAS_COMPETENCIES,
   ROAS_COURSE,
   ROAS_KNOWLEDGE_CHECKS,
+  roasMissionsInLearningOrder,
   ROAS_LAB_DEFINITION,
   ROAS_MISSIONS,
   ROAS_MODULES
@@ -149,12 +150,39 @@ describe("ROAS-3 learner course projection", () => {
   });
 
   it("surfaces the authored practice checks unchanged", () => {
-    expect(course.practice).toEqual(ROAS_KNOWLEDGE_CHECKS);
-    expect(course.practice).toHaveLength(3);
+    // PRACTICE-ARCH-1 wrapped each check with its placement. The DEFINITION
+    // must still be the authored one, byte for byte — the projection places
+    // practice, it does not edit it.
+    expect(course.practice.map((check) => check.definition)).toEqual(
+      ROAS_KNOWLEDGE_CHECKS
+    );
+    expect(course.practice).toHaveLength(ROAS_KNOWLEDGE_CHECKS.length);
+
     for (const check of course.practice) {
-      expect(check.purpose).toBe("practice");
-      expect(check.competencyMappings).toEqual([]);
+      expect(check.definition.purpose).toBe("practice");
+      expect(check.definition.competencyMappings).toEqual([]);
     }
+  });
+
+  it("carries a placement for every authored check, losing none", () => {
+    // buildLearnerPractice drops a check with no placement. Nothing may vanish
+    // silently, so the count is pinned to the authored source.
+    expect(course.practice).toHaveLength(ROAS_KNOWLEDGE_CHECKS.length);
+
+    for (const check of course.practice) {
+      expect(["mission", "course_review"]).toContain(check.scope);
+      expect(check.availableFromMissionStableId).not.toBeNull();
+      expect(check.availableFromIndex).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("orders missions the same way the authored source does", () => {
+    // The one ordering. If the projection and the authored helper ever
+    // disagreed, practice eligibility and the course outline would be indexed
+    // against different sequences — a second curriculum ordering by accident.
+    expect(course.missions.map((mission) => mission.stableId)).toEqual(
+      roasMissionsInLearningOrder().map((mission) => mission.stableId)
+    );
   });
 
   it("states outcomes from the authored competencies", () => {

@@ -254,9 +254,21 @@ if echo "$CONTENT_CODE" | grep -qF 'publicationState: "published"'; then
 fi
 
 # Knowledge checks must never become a second route to a competency claim.
+#
+# PRACTICE-ARCH-1A replaced a hardcoded "expected 3" with the property that
+# count stood for. Three was never the point — the guard is that EVERY check is
+# practice-purpose and maps to no competency, and a magic number fails the
+# moment authored practice legitimately grows, while proving nothing extra.
+#
+# Comparing the two counts is stricter than the literal it replaces: a fourth
+# check that was practice-purpose but carried a competency mapping would have
+# passed the old assertion and fails this one.
 KC_COUNT="$(echo "$CONTENT_CODE" | grep -c '^    purpose: "practice",$' || true)"
-[ "$KC_COUNT" = "3" ] \
-  || fail "expected 3 practice knowledge checks; found $KC_COUNT"
+KC_UNMAPPED="$(echo "$CONTENT_CODE" | grep -c '^    competencyMappings: \[\],$' || true)"
+[ "$KC_COUNT" -ge 1 ] \
+  || fail "no practice knowledge check is authored"
+[ "$KC_COUNT" = "$KC_UNMAPPED" ] \
+  || fail "$KC_COUNT practice checks but $KC_UNMAPPED carry no competency mapping; one could manufacture a claim"
 if echo "$CONTENT_CODE" | grep -q 'purpose: "evidence_producing"'; then
   fail "a knowledge check is evidence-producing and would bypass deterministic validation"
 fi
