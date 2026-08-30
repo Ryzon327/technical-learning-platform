@@ -12,7 +12,7 @@ export interface CurriculumValidationIssue {
     | "EMPTY_MODULE"
     | "MISSING_COMPETENCY"
     | "UNPUBLISHED_CHILD"
-    | "INVALID_STATE_TRANSITION";
+    | "INVALID_STATE_TRANSITION" | "INVALID_MISSION_STEPS";
   message: string;
   nodeType: CurriculumNodeType;
   nodeId?: string;
