@@ -105,25 +105,44 @@ describe("ROAS-4 bootstrap plan is derived, never re-typed", () => {
     );
   });
 
-  it("carries every authored mission-competency link, required flag intact", () => {
+  it("carries every authored mission-competency link, required and relationship intact", () => {
     const authoredLinks = ROAS_MISSIONS.flatMap((mission) =>
       mission.competencies.map((link) => ({
         missionStableId: mission.stableId,
         competencyStableId: link.competencyStableId,
-        required: link.required
+        required: link.required,
+        relationship: link.relationship
       }))
     );
 
     expect(plan.missionCompetencyLinks).toEqual(authoredLinks);
   });
 
+  // WP-B / DEC-055. The publisher must carry the authored relationship through
+  // to the only writer. If it were dropped here, every published link would be
+  // unclassified and the database column would stay NULL forever.
+  it("carries an approved relationship on every planned link", () => {
+    expect(plan.missionCompetencyLinks.length).toBeGreaterThan(0);
+
+    for (const link of plan.missionCompetencyLinks) {
+      expect(["develops", "reinforces"]).toContain(link.relationship);
+    }
+  });
+
   /**
-   * DB-SERVICE-ROLE-1 — 31 is the authored truth.
+   * DB-SERVICE-ROLE-1 — the authored link count, asserted two ways.
    *
    * ROAS-4's pull request description claimed "all 30 mission-competency
-   * links". That prose was wrong when it was written: `roas-curriculum.ts` has
-   * exactly one commit and has never been modified, and its seven missions
-   * carry 4 + 3 + 2 + 4 + 3 + 6 + 9 = 31 competency assignments.
+   * links" when the authored total was 31. That prose was wrong at the time,
+   * and this test exists so a count can never again drift from the curriculum.
+   *
+   * **WP-B changed the total from 31 to 30, intentionally.** DEC-055 required
+   * every link to declare `develops` or `reinforces`, and Mission 1's link to
+   * `net.vlan-segmentation` could truthfully be neither: the brief never
+   * mentions VLANs, and nothing precedes Mission 1 to have developed them. It
+   * was a forward reference the BEGINNER-COMPLETE-1 audit recorded as a
+   * teach-before-use violation, and the Founder approved removing it. Mission 2
+   * is the truthful development point.
    *
    * Both halves are asserted deliberately. The literal catches an unintended
    * link being added or lost; the per-mission derivation is what makes the
@@ -131,16 +150,16 @@ describe("ROAS-4 bootstrap plan is derived, never re-typed", () => {
    * mistake. A future edit has to change the authored curriculum AND this
    * accounting together, which is the point.
    */
-  it("carries exactly 31 mission-competency links, per authored mission", () => {
+  it("carries exactly 30 mission-competency links, per authored mission", () => {
     const perMission = ROAS_MISSIONS.map(
       (mission) => mission.competencies.length
     );
 
-    expect(perMission).toEqual([4, 3, 2, 4, 3, 6, 9]);
-    expect(perMission.reduce((total, count) => total + count, 0)).toBe(31);
-    expect(plan.missionCompetencyLinks).toHaveLength(31);
+    expect(perMission).toEqual([3, 3, 2, 4, 3, 6, 9]);
+    expect(perMission.reduce((total, count) => total + count, 0)).toBe(30);
+    expect(plan.missionCompetencyLinks).toHaveLength(30);
     expect(describeBootstrapPlan(plan)).toContain(
-      "31 mission-competency links"
+      "30 mission-competency links"
     );
   });
 

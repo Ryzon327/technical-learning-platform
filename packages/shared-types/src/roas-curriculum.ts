@@ -1,4 +1,8 @@
 import { validateAssessmentDefinition, type AssessmentDefinition } from "./assessment";
+import {
+  MISSION_COMPETENCY_RELATIONSHIPS,
+  type MissionCompetencyRelationship
+} from "./curriculum";
 import { validateLabDefinition, type LabDefinition } from "./labs";
 
 /**
@@ -267,7 +271,18 @@ export interface RoasModuleNode {
 
 export interface RoasMissionCompetencyLink {
   competencyStableId: string;
+  /** Required versus supporting within the mission. */
   required: boolean;
+  /**
+   * WP-B / DEC-055 — what this mission DOES with the competency.
+   *
+   * Authored per link, read from what the mission's brief actually teaches.
+   * It is NOT derived from `required`: Mission 4 requires the default-gateway
+   * competency while only reinforcing it, and Mission 6 does the same with
+   * connectivity verification. Deriving one from the other is precisely the
+   * inference this field replaces.
+   */
+  relationship: MissionCompetencyRelationship;
 }
 
 export interface RoasMissionNode {
@@ -359,11 +374,25 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
       "Nothing is configured yet. That is deliberate: you are learning to predict behaviour from configuration, which is the skill that makes troubleshooting possible later."
     ].join("\n"),
     estimatedMinutes: 45,
+    // WP-B. Mission 1 develops addressing, subnet boundaries and the gateway
+    // relationship: today it is the accountable mission for all three, because
+    // no earlier experience exists. DEC-053 will move that accountability to
+    // Networking Foundations, at which point these become `reinforces` — but
+    // marking them so BEFORE that course exists would assert a dependency on
+    // nothing and would hide the BEGINNER-COMPLETE-1 finding rather than record
+    // it.
+    //
+    // `net.vlan-segmentation` was REMOVED from this mission. It could be
+    // neither: the brief never mentions VLANs, so `develops` was false, and
+    // nothing before Mission 1 develops them, so `reinforces` was false too. It
+    // was a forward reference the audit recorded as a teach-before-use
+    // violation — the learner met the VLAN competency description under "Also
+    // drawn on here" before VLANs existed as a concept. Mission 2 is the
+    // truthful development point.
     competencies: [
-      { competencyStableId: "net.ip-addressing", required: true },
-      { competencyStableId: "net.subnet-boundaries", required: true },
-      { competencyStableId: "net.default-gateway", required: true },
-      { competencyStableId: "net.vlan-segmentation", required: false }
+      { competencyStableId: "net.ip-addressing", required: true, relationship: "develops" },
+      { competencyStableId: "net.subnet-boundaries", required: true, relationship: "develops" },
+      { competencyStableId: "net.default-gateway", required: true, relationship: "develops" }
     ]
   },
   {
@@ -386,9 +415,9 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
     ].join("\n"),
     estimatedMinutes: 45,
     competencies: [
-      { competencyStableId: "net.vlan-segmentation", required: true },
-      { competencyStableId: "net.access-port-membership", required: true },
-      { competencyStableId: "net.ip-addressing", required: false }
+      { competencyStableId: "net.vlan-segmentation", required: true, relationship: "develops" },
+      { competencyStableId: "net.access-port-membership", required: true, relationship: "develops" },
+      { competencyStableId: "net.ip-addressing", required: false, relationship: "reinforces" }
     ]
   },
   {
@@ -411,8 +440,8 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
     ].join("\n"),
     estimatedMinutes: 45,
     competencies: [
-      { competencyStableId: "net.trunking-dot1q", required: true },
-      { competencyStableId: "net.vlan-segmentation", required: false }
+      { competencyStableId: "net.trunking-dot1q", required: true, relationship: "develops" },
+      { competencyStableId: "net.vlan-segmentation", required: false, relationship: "reinforces" }
     ]
   },
   {
@@ -434,11 +463,16 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
       "Apply the configuration, then explain the full path in your own words: PC-A, access port, VLAN 10, switch, tagged trunk, subinterface .10, routed, subinterface .20, tagged trunk, switch, access port, PC-B. Every one of those hops is something you configured. If any is wrong, the ping fails and the diagram still looks correct."
     ].join("\n"),
     estimatedMinutes: 45,
+    // `net.default-gateway` is required here and only REINFORCED. The mission
+    // needs the learner to reach it, but Mission 1 is where the relationship is
+    // taught; Mission 4 puts the gateway address on a real interface. This is
+    // one of the two links proving `required` and `relationship` are
+    // independent axes.
     competencies: [
-      { competencyStableId: "net.inter-vlan-routing", required: true },
-      { competencyStableId: "net.default-gateway", required: true },
-      { competencyStableId: "net.trunking-dot1q", required: false },
-      { competencyStableId: "net.ip-addressing", required: false }
+      { competencyStableId: "net.inter-vlan-routing", required: true, relationship: "develops" },
+      { competencyStableId: "net.default-gateway", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.trunking-dot1q", required: false, relationship: "reinforces" },
+      { competencyStableId: "net.ip-addressing", required: false, relationship: "reinforces" }
     ]
   },
   {
@@ -461,9 +495,9 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
     ].join("\n"),
     estimatedMinutes: 45,
     competencies: [
-      { competencyStableId: "net.connectivity-verification", required: true },
-      { competencyStableId: "net.default-gateway", required: false },
-      { competencyStableId: "net.inter-vlan-routing", required: false }
+      { competencyStableId: "net.connectivity-verification", required: true, relationship: "develops" },
+      { competencyStableId: "net.default-gateway", required: false, relationship: "reinforces" },
+      { competencyStableId: "net.inter-vlan-routing", required: false, relationship: "reinforces" }
     ]
   },
   {
@@ -490,13 +524,16 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
       "Then verify the repaired state using the order you built in Mission 5, and explain which piece of evidence eliminated each of the other three candidates."
     ].join("\n"),
     estimatedMinutes: 45,
+    // `net.connectivity-verification` is required here and only REINFORCED:
+    // Mission 5 teaches what a result proves, and Mission 6 applies that to a
+    // fault. The second of the two links proving the two axes are independent.
     competencies: [
-      { competencyStableId: "net.fault-isolation", required: true },
-      { competencyStableId: "net.connectivity-verification", required: true },
-      { competencyStableId: "net.vlan-segmentation", required: false },
-      { competencyStableId: "net.access-port-membership", required: false },
-      { competencyStableId: "net.trunking-dot1q", required: false },
-      { competencyStableId: "net.inter-vlan-routing", required: false }
+      { competencyStableId: "net.fault-isolation", required: true, relationship: "develops" },
+      { competencyStableId: "net.connectivity-verification", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.vlan-segmentation", required: false, relationship: "reinforces" },
+      { competencyStableId: "net.access-port-membership", required: false, relationship: "reinforces" },
+      { competencyStableId: "net.trunking-dot1q", required: false, relationship: "reinforces" },
+      { competencyStableId: "net.inter-vlan-routing", required: false, relationship: "reinforces" }
     ]
   },
   {
@@ -521,16 +558,20 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
       "Your written explanations elsewhere in this course are for your own understanding and for later review. They are not what decides this. The network either behaves or it does not."
     ].join("\n"),
     estimatedMinutes: 30,
+    // Every link here is REINFORCES. The brief says it outright — "Nothing new
+    // is introduced here" — and a demonstration that developed a competency
+    // would be asking the learner to prove something it had just taught them.
+    // All nine are still `required`: the demonstration needs all of them.
     competencies: [
-      { competencyStableId: "net.ip-addressing", required: true },
-      { competencyStableId: "net.subnet-boundaries", required: true },
-      { competencyStableId: "net.vlan-segmentation", required: true },
-      { competencyStableId: "net.access-port-membership", required: true },
-      { competencyStableId: "net.trunking-dot1q", required: true },
-      { competencyStableId: "net.inter-vlan-routing", required: true },
-      { competencyStableId: "net.default-gateway", required: true },
-      { competencyStableId: "net.connectivity-verification", required: true },
-      { competencyStableId: "net.fault-isolation", required: true }
+      { competencyStableId: "net.ip-addressing", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.subnet-boundaries", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.vlan-segmentation", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.access-port-membership", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.trunking-dot1q", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.inter-vlan-routing", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.default-gateway", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.connectivity-verification", required: true, relationship: "reinforces" },
+      { competencyStableId: "net.fault-isolation", required: true, relationship: "reinforces" }
     ]
   }
 ];
@@ -1140,9 +1181,18 @@ export interface RoasResolvedPracticePlacement {
 /**
  * When each practice check becomes answerable.
  *
- * Derived entirely from the missions' own `competencies` declarations: a
- * competency is "developed" at the first mission that lists it as required, and
- * a check waits for the latest of the competencies it exercises.
+ * A check waits for the latest of the competencies it exercises to be
+ * DEVELOPED.
+ *
+ * WP-B / DEC-055. This previously read "the first mission that lists it as
+ * required", because `required` was the only signal the data carried. That
+ * inference is what placed the addressing practice check at Mission 1, and it
+ * would have been wrong for Mission 4's default gateway and Mission 6's
+ * connectivity verification — both required there, both developed earlier.
+ *
+ * The authored `relationship` now says it directly, so nothing is inferred. The
+ * resulting placements are unchanged for the current course; a test pins that,
+ * so the correction is provably behaviour-preserving rather than assumed to be.
  */
 export function resolveRoasPracticePlacements(): readonly RoasResolvedPracticePlacement[] {
   const order = roasMissionsInLearningOrder();
@@ -1150,7 +1200,7 @@ export function resolveRoasPracticePlacements(): readonly RoasResolvedPracticePl
   const developedAt = new Map<string, number>();
   order.forEach((mission, index) => {
     for (const link of mission.competencies) {
-      if (!link.required) continue;
+      if (link.relationship !== "develops") continue;
       if (!developedAt.has(link.competencyStableId)) {
         developedAt.set(link.competencyStableId, index);
       }
@@ -1492,6 +1542,75 @@ export function validateRoasCurriculum(): RoasContentValidationResult {
       if (!competencyIds.has(link.competencyStableId)) {
         errors.push(
           `mission ${mission.stableId} references an unknown competency: ${link.competencyStableId}`
+        );
+      }
+
+      // WP-B / DEC-055. The vocabulary is closed at two values. A `requires`
+      // value would be a second, weaker prerequisite mechanism, and
+      // `learning_prerequisite_rules` already owns prerequisites entirely.
+      if (
+        !(MISSION_COMPETENCY_RELATIONSHIPS as readonly string[]).includes(
+          link.relationship
+        )
+      ) {
+        errors.push(
+          `mission ${mission.stableId} declares an unapproved relationship for ${link.competencyStableId}: ${String(link.relationship)}`
+        );
+      }
+    }
+  }
+
+  // WP-B / DEC-055. A competency must be developed exactly once. Zero means no
+  // mission is accountable for teaching it and the learner meets it cold;
+  // more than one means two missions both claim to introduce it.
+  for (const competency of ROAS_COMPETENCIES) {
+    const developedBy = ROAS_MISSIONS.filter((mission) =>
+      mission.competencies.some(
+        (link) =>
+          link.competencyStableId === competency.stableId &&
+          link.relationship === "develops"
+      )
+    );
+
+    if (developedBy.length === 0) {
+      errors.push(
+        `no mission develops this competency, so the learner would meet it untaught: ${competency.stableId}`
+      );
+    }
+
+    if (developedBy.length > 1) {
+      errors.push(
+        `more than one mission claims to develop this competency: ${competency.stableId}`
+      );
+    }
+  }
+
+  // WP-B / DEC-055. A competency cannot be reinforced before it is developed:
+  // reinforcement means applying something the learner already built.
+  const orderIndex = new Map(
+    roasMissionsInLearningOrder().map((mission, index) => [mission.stableId, index])
+  );
+
+  for (const mission of ROAS_MISSIONS) {
+    for (const link of mission.competencies) {
+      if (link.relationship !== "reinforces") continue;
+
+      const developingMission = ROAS_MISSIONS.find((candidate) =>
+        candidate.competencies.some(
+          (candidateLink) =>
+            candidateLink.competencyStableId === link.competencyStableId &&
+            candidateLink.relationship === "develops"
+        )
+      );
+
+      if (!developingMission) continue; // already reported above
+
+      const developedIndex = orderIndex.get(developingMission.stableId) ?? -1;
+      const reinforcedIndex = orderIndex.get(mission.stableId) ?? -1;
+
+      if (reinforcedIndex <= developedIndex) {
+        errors.push(
+          `mission ${mission.stableId} reinforces ${link.competencyStableId} before any mission develops it`
         );
       }
     }

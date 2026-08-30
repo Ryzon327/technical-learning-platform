@@ -518,7 +518,17 @@ PYTHON
 echo "PASS: 12. the full Supabase project URL is never printed"
 
 # ------------------------------------------------------------
-# 13. 31 mission-competency links remain the authored truth.
+# 13. 30 mission-competency links remain the authored truth.
+#
+# WP-B / DEC-055 changed this from 31 to 30, intentionally. Every link now has
+# to declare `develops` or `reinforces`, and Mission 1's link to
+# `net.vlan-segmentation` could truthfully be neither: the brief never mentions
+# VLANs, and nothing precedes Mission 1 to have developed them. It was a forward
+# reference the BEGINNER-COMPLETE-1 audit recorded as a teach-before-use
+# violation, and the Founder approved removing it. Mission 2 develops it.
+#
+# The check is unchanged in kind: a literal count, cross-checked against a test,
+# so a link cannot be added or lost unnoticed.
 # ------------------------------------------------------------
 python3 - <<'PYTHON'
 import re
@@ -534,22 +544,55 @@ missions_block = source[start:end]
 
 links = len(re.findall(r"\{\s*competencyStableId:", missions_block))
 
-if links != 31:
+if links != 30:
     print(
-        f"FAIL: 13. expected 31 authored mission-competency links, found {links}. "
-        "31 is the reconciled truth (4+3+2+4+3+6+9); ROAS-4's pull request "
-        "description said 30 and was wrong.",
+        f"FAIL: 13. expected 30 authored mission-competency links, found {links}. "
+        "30 is the authored truth after WP-B (3+3+2+4+3+6+9): DEC-055 required "
+        "every link to declare develops or reinforces, and Mission 1's link to "
+        "net.vlan-segmentation could truthfully be neither.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+# WP-B / DEC-055. Every authored link must declare an approved relationship, and
+# the vocabulary is closed: `requires` is not one of the values, because
+# prerequisites belong to learning_prerequisite_rules alone.
+relationships = re.findall(r'relationship:\s*"([a-z-]+)"', missions_block)
+
+if len(relationships) != links:
+    print(
+        f"FAIL: 13. {links} links but {len(relationships)} declare a relationship; "
+        "every mission-competency link must declare develops or reinforces.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+unapproved = sorted(set(relationships) - {"develops", "reinforces"})
+if unapproved:
+    print(
+        f"FAIL: 13. unapproved mission-competency relationship(s): {unapproved}. "
+        "The vocabulary is closed at develops and reinforces.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+develops = relationships.count("develops")
+if develops != 9:
+    print(
+        f"FAIL: 13. expected each of the 9 competencies to be developed exactly "
+        f"once, found {develops} develops links.",
         file=sys.stderr,
     )
     sys.exit(1)
 
 print(f"  authored mission-competency links: {links}")
+print(f"  develops: {develops}, reinforces: {relationships.count('reinforces')}")
 PYTHON
 
-grep -q "toHaveLength(31)" packages/shared-types/src/roas-bootstrap.test.ts ||
-  fail "13. the 31-link count must be pinned by a test"
+grep -q "toHaveLength(30)" packages/shared-types/src/roas-bootstrap.test.ts ||
+  fail "13. the 30-link count must be pinned by a test"
 
-echo "PASS: 13. 31 mission-competency links remain the authored truth"
+echo "PASS: 13. 30 mission-competency links, each with an approved relationship"
 
 # ------------------------------------------------------------
 # 14. Publication still refuses production and demands exact confirmation.
@@ -713,5 +756,6 @@ echo "service_role holds exactly the curriculum-authoring privileges the"
 echo "approved implementation issues, and nothing else. Every applied"
 echo "migration is byte-identical. The credential guard checks the role"
 echo "claim and fails closed. Diagnostics carry the SQLSTATE and no"
-echo "credential. 31 mission-competency links remain authored truth."
+echo "credential. 30 mission-competency links remain authored truth, each
+declaring develops or reinforces."
 echo "=========================================================="

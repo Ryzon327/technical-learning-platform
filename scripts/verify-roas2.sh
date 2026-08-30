@@ -133,16 +133,84 @@ grep -Fq 'mission maps to no required competency and would block publication' "$
 grep -Fq 'Mission must map to at least one required competency.' "$CURRICULUM_ADMIN" \
   || fail "the server-side required-competency rule changed; the content invariant above is stale"
 
-# The mapping must use the EXISTING mission_competencies shape and nothing more.
+# The mapping must use the approved mission_competencies shape and nothing more.
 grep -Fq 'required: boolean' "$CONTENT" \
   || fail "the mission-competency link no longer carries the approved required flag"
-# LEARN-008 section 8.1 item 1: the teaches/reuses distinction needs a migration
-# and separate Founder authorization. It must NOT appear here.
-if echo "$CONTENT_CODE" | grep -qiE 'teaches|reuses:|reinforc[a-z]*:'; then
-  fail "ROAS-2 introduced the teaches/reuses distinction, which is deferred work requiring a migration"
+
+# WP-B / DEC-055 — RETARGETED.
+#
+# This section previously FORBADE the teaches/reuses distinction, because
+# LEARN-008 section 8.1 item 1 recorded that it needed a migration and separate
+# Founder authorization. WP-B is that authorization and that migration, so the
+# prohibition is obsolete: the distinction is now approved, implemented and
+# required.
+#
+# The guard is retargeted rather than deleted. It now enforces the approved
+# architecture instead of the deferral, and the deferral-era wording is not left
+# standing where a future reader would trust it.
+grep -Fq 'relationship: MissionCompetencyRelationship' "$CONTENT" \
+  || fail "the mission-competency link no longer carries the approved DEC-055 relationship"
+
+# The vocabulary is closed at two values, and `requires` is not one of them:
+# prerequisites belong to learning_prerequisite_rules alone. A third value would
+# be a second, weaker prerequisite mechanism.
+if echo "$CONTENT_CODE" | grep -qE 'relationship:[[:space:]]*"requires"'; then
+  fail "a mission-competency link declares 'requires'; prerequisites belong to learning_prerequisite_rules"
+fi
+# HERESTRINGS, deliberately, not `echo … | grep -q`.
+#
+# `grep -q` exits the moment it matches, closing the pipe while `echo` is still
+# writing. Under `set -o pipefail` that write error becomes the pipeline's exit
+# status, so a SUCCESSFUL match can report failure. It is a race — small inputs
+# usually finish writing before grep exits, which is why this passed locally
+# and failed in CI with "echo: write error: Broken pipe".
+#
+# A herestring has no pipeline and cannot lose that race. The check itself is
+# unchanged: the same match is still required, and a genuine absence still
+# fails.
+#
+# The negative checks above and below keep their pipes safely: when nothing
+# matches, grep reads its input to the end and the pipe never closes early.
+for authored in '"develops"' '"reinforces"'; do
+  grep -Fq "relationship: $authored" <<<"$CONTENT_CODE" \
+    || fail "the authored curriculum declares no $authored relationship"
+done
+
+# Collected rather than tested with `grep -q`, for the same reason, and it also
+# lets the offending value be printed instead of merely counted.
+UNAPPROVED="$(grep -oE 'relationship:[[:space:]]*"[a-z-]+"' <<<"$CONTENT_CODE" \
+  | grep -vE '"(develops|reinforces)"' || true)"
+if [ -n "$UNAPPROVED" ]; then
+  echo "$UNAPPROVED"
+  fail "a mission-competency link declares a relationship outside the approved vocabulary"
 fi
 
-echo "PASS:  4. every mission maps to competencies through the existing link shape"
+# `required` and `relationship` are independent axes. The old inference —
+# "the first mission that lists it as required is where it is developed" — is
+# what placed a practice check about addressing at a mission that only applies
+# it. It must not return.
+if echo "$CONTENT_CODE" | grep -qE 'if \(!link\.required\) continue;'; then
+  fail "practice placement reverted to inferring development from the required flag"
+fi
+grep -Fq 'if (link.relationship !== "develops") continue;' "$CONTENT" \
+  || fail "practice placement no longer derives development from the authored relationship"
+
+# The forward reference WP-B removed: Mission 1 never teaches VLAN segmentation,
+# and nothing precedes Mission 1 to have developed it, so the link could be
+# neither develops nor reinforces. Mission 2 is the truthful development point.
+#
+# Collected, not `grep -A … | grep -q`. That shape is worse than the positive
+# case above: on a MATCH the second grep exits early, the first takes SIGPIPE,
+# `pipefail` makes the pipeline status nonzero, and the `if` therefore reads
+# FALSE — silently passing the very violation it exists to catch.
+MISSION_ONE_VLAN="$(grep -A 12 'ros-m1-understand-the-network' <<<"$CONTENT_CODE" \
+  | grep -F 'net.vlan-segmentation' || true)"
+if [ -n "$MISSION_ONE_VLAN" ]; then
+  echo "$MISSION_ONE_VLAN"
+  fail "the Mission 1 -> net.vlan-segmentation forward reference returned"
+fi
+
+echo "PASS:  4. every mission maps to competencies through the approved link shape"
 
 # ------------------------------------------------------------
 # 5. The demonstration connects to the ROAS-1 lab architecture
@@ -328,9 +396,12 @@ fi
 # network no matter what it contains. The string scan below is a second,
 # independent line — `.from(` alone makes every PostgREST mutation unreachable,
 # since a Supabase insert, update or delete must be chained off it.
+# WP-B added `./curriculum`, for the DEC-055 relationship vocabulary. It is a
+# sibling shared-types module, so the guarantee above is unchanged: the list
+# stays an EXACT match, and it still admits nothing outside shared-types.
 CONTENT_IMPORTS="$(grep -oE 'from "[^"]+"' "$CONTENT" | sed 's/from //' | tr -d '"' \
   | LC_ALL=C sort -u | tr '\n' ' ')"
-[ "$CONTENT_IMPORTS" = "./assessment ./labs " ] \
+[ "$CONTENT_IMPORTS" = "./assessment ./curriculum ./labs " ] \
   || fail "the curriculum content imports outside shared-types: $CONTENT_IMPORTS"
 
 for forbidden in supabase createServerSupabaseClient createUserScopedSupabaseClient \

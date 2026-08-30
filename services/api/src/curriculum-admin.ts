@@ -5,9 +5,10 @@ import type {
   CreateModuleInput,
   CurriculumPublicationState,
   CurriculumValidationIssue,
-  CurriculumValidationResult
+  CurriculumValidationResult,
+  MissionCompetencyRelationship
 } from "@tlp/shared-types";
-import { AppError } from "@tlp/shared-types";
+import { AppError, isMissionCompetencyRelationship } from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
 import { buildLearningPathQualityReport } from "./curriculum-quality";
 
@@ -412,12 +413,41 @@ export async function addCompetencyPrerequisite(
   }
 }
 
+/**
+ * Link a mission to a competency.
+ *
+ * WP-B / DEC-055. `relationship` is **required and has no default**: it says
+ * whether this mission is accountable for teaching the competency (`develops`)
+ * or is deliberately reusing one developed elsewhere (`reinforces`). A default
+ * would silently classify links, which is exactly what the column exists to
+ * stop — the value has to be an authoring decision.
+ *
+ * It is orthogonal to `required`, which stays required-versus-supporting within
+ * the mission. Neither may be derived from the other.
+ *
+ * Prerequisites are not expressible here and never will be:
+ * `learning_prerequisite_rules` owns "what must be true before this mission",
+ * and a third relationship value would be a second, weaker mechanism for it.
+ */
 export async function linkMissionCompetency(
   _context: AuthoringContext,
   missionId: string,
   competencyId: string,
-  required = true
+  required: boolean,
+  relationship: MissionCompetencyRelationship
 ): Promise<void> {
+  // Validated BEFORE the client is created: an unclassifiable link is a caller
+  // error, not a dependency failure, and it should be reported as one whether
+  // or not a database is reachable.
+  if (!isMissionCompetencyRelationship(relationship)) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message:
+        "Mission competency relationship must be 'develops' or 'reinforces'",
+      retryable: false
+    });
+  }
+
   const supabase = createServerSupabaseClient();
 
   const { error } = await supabase
@@ -425,7 +455,8 @@ export async function linkMissionCompetency(
     .upsert({
       mission_id: missionId,
       competency_id: competencyId,
-      required
+      required,
+      relationship
     });
 
   if (error) {
