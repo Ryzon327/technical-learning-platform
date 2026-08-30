@@ -157,12 +157,31 @@ grep -Fq 'relationship: MissionCompetencyRelationship' "$CONTENT" \
 if echo "$CONTENT_CODE" | grep -qE 'relationship:[[:space:]]*"requires"'; then
   fail "a mission-competency link declares 'requires'; prerequisites belong to learning_prerequisite_rules"
 fi
+# HERESTRINGS, deliberately, not `echo … | grep -q`.
+#
+# `grep -q` exits the moment it matches, closing the pipe while `echo` is still
+# writing. Under `set -o pipefail` that write error becomes the pipeline's exit
+# status, so a SUCCESSFUL match can report failure. It is a race — small inputs
+# usually finish writing before grep exits, which is why this passed locally
+# and failed in CI with "echo: write error: Broken pipe".
+#
+# A herestring has no pipeline and cannot lose that race. The check itself is
+# unchanged: the same match is still required, and a genuine absence still
+# fails.
+#
+# The negative checks above and below keep their pipes safely: when nothing
+# matches, grep reads its input to the end and the pipe never closes early.
 for authored in '"develops"' '"reinforces"'; do
-  echo "$CONTENT_CODE" | grep -Fq "relationship: $authored" \
+  grep -Fq "relationship: $authored" <<<"$CONTENT_CODE" \
     || fail "the authored curriculum declares no $authored relationship"
 done
-if echo "$CONTENT_CODE" | grep -oE 'relationship:[[:space:]]*"[a-z-]+"' \
-  | grep -qvE '"(develops|reinforces)"'; then
+
+# Collected rather than tested with `grep -q`, for the same reason, and it also
+# lets the offending value be printed instead of merely counted.
+UNAPPROVED="$(grep -oE 'relationship:[[:space:]]*"[a-z-]+"' <<<"$CONTENT_CODE" \
+  | grep -vE '"(develops|reinforces)"' || true)"
+if [ -n "$UNAPPROVED" ]; then
+  echo "$UNAPPROVED"
   fail "a mission-competency link declares a relationship outside the approved vocabulary"
 fi
 
@@ -179,8 +198,15 @@ grep -Fq 'if (link.relationship !== "develops") continue;' "$CONTENT" \
 # The forward reference WP-B removed: Mission 1 never teaches VLAN segmentation,
 # and nothing precedes Mission 1 to have developed it, so the link could be
 # neither develops nor reinforces. Mission 2 is the truthful development point.
-if echo "$CONTENT_CODE" | grep -A 12 'ros-m1-understand-the-network' \
-  | grep -Fq 'net.vlan-segmentation'; then
+#
+# Collected, not `grep -A … | grep -q`. That shape is worse than the positive
+# case above: on a MATCH the second grep exits early, the first takes SIGPIPE,
+# `pipefail` makes the pipeline status nonzero, and the `if` therefore reads
+# FALSE — silently passing the very violation it exists to catch.
+MISSION_ONE_VLAN="$(grep -A 12 'ros-m1-understand-the-network' <<<"$CONTENT_CODE" \
+  | grep -F 'net.vlan-segmentation' || true)"
+if [ -n "$MISSION_ONE_VLAN" ]; then
+  echo "$MISSION_ONE_VLAN"
   fail "the Mission 1 -> net.vlan-segmentation forward reference returned"
 fi
 

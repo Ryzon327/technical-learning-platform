@@ -94,9 +94,14 @@ grep -Fq 'buildRoasAuthoringPlan' "$PLAN" \
   || fail "the phase split does not derive from the ROAS-2 authoring plan"
 
 # The plan module must be inert: it computes, it does not reach anything.
+#
+# WP-B added `./curriculum`, for the DEC-055 relationship type the plan now
+# carries through to the writer. It is a sibling shared-types module, so the
+# inertness guarantee is unchanged: the list stays an EXACT match, and it still
+# admits nothing outside shared-types — no service, no client, no network.
 PLAN_IMPORTS="$(grep -oE 'from "[^"]+"' "$PLAN" | sed 's/from //' | tr -d '"' \
   | LC_ALL=C sort -u | tr '\n' ' ')"
-[ "$PLAN_IMPORTS" = "./roas-curriculum " ] \
+[ "$PLAN_IMPORTS" = "./curriculum ./roas-curriculum " ] \
   || fail "the bootstrap plan imports beyond the authored content: $PLAN_IMPORTS"
 
 # Precise reach targets, not the bare word "supabase": this module names
