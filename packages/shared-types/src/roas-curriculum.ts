@@ -549,6 +549,122 @@ export const ROAS_MISSIONS: readonly RoasMissionNode[] = [
 
 export const ROAS_KNOWLEDGE_CHECKS: readonly AssessmentDefinition[] = [
   {
+    // PRACTICE-ARCH-1A. Mission 1 reinforcement: read the topology before
+    // touching it. Exercises only addressing, subnet boundaries and the
+    // gateway relationship, so it derives to Mission 1 and asks nothing that
+    // VLANs, trunks or routing configuration would answer.
+    stableId: "ros-kc-read-the-network",
+    version: 1,
+    title: "Knowledge check — reading the network",
+    purpose: "practice",
+    passingPercent: 70,
+    questions: [
+      {
+        stableId: "ros-kc-rtn-q1",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "Before anything is configured, PC-A holds 192.168.10.10/24 and PC-B holds 192.168.20.10/24. What do those two addresses alone tell you about a conversation between them?",
+        options: [
+          { id: "a", text: "They are in the same subnet, so the two hosts can exchange traffic directly." },
+          { id: "b", text: "They are in different subnets, so anything between them has to be forwarded by a device that routes between the two." },
+          { id: "c", text: "They are in different subnets, so the two hosts can never exchange traffic." },
+          { id: "d", text: "Whether they share a subnet depends on which switch ports they are plugged into." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-rtn-q2",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "A host is given an address and prefix length but no default gateway. Which traffic does that omission affect?",
+        options: [
+          { id: "a", text: "All of its traffic, including to hosts in its own subnet." },
+          { id: "b", text: "Only traffic to destinations outside its own subnet." },
+          { id: "c", text: "Only traffic to destinations inside its own subnet." },
+          { id: "d", text: "None of it; a default gateway matters only for reaching the internet." }
+        ],
+        correctOptionIds: ["b"],
+        points: 1
+      },
+      {
+        stableId: "ros-kc-rtn-q3",
+        version: 1,
+        type: "boolean",
+        prompt:
+          "Two hosts addressed 192.168.10.10/24 and 192.168.10.200/24 need a router in order to exchange traffic with each other.",
+        options: [
+          { id: "true", text: "True" },
+          { id: "false", text: "False" }
+        ],
+        correctOptionIds: ["false"],
+        points: 1
+      }
+    ],
+    competencyMappings: [],
+    published: true
+  },
+  {
+    // PRACTICE-ARCH-1A. Mission 2 reinforcement: separation and membership.
+    // Exercises VLAN segmentation and access-port membership on top of Mission
+    // 1's addressing, so it derives to Mission 2. Nothing here requires a trunk
+    // — that reasoning is Mission 3's, and its own check already covers it.
+    stableId: "ros-kc-access-membership",
+    version: 1,
+    title: "Knowledge check — separation and port membership",
+    purpose: "practice",
+    passingPercent: 70,
+    questions: [
+      {
+        stableId: "ros-kc-am-q1",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "Two hosts hold addresses in the SAME subnet and are cabled to the same switch, but their access ports are assigned to different VLANs. No router is involved. What happens when one tries to reach the other?",
+        options: [
+          { id: "a", text: "It succeeds, because the two hosts share a subnet." },
+          { id: "b", text: "It fails, because the switch treats the two VLANs as separate broadcast domains and does not forward between them." },
+          { id: "c", text: "It succeeds, because VLANs only affect traffic that leaves the switch." },
+          { id: "d", text: "It fails, and it would succeed as soon as both hosts are given a default gateway." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-am-q2",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "A host stops reaching anything after its patch lead is moved to a different switch port. Its address, prefix length and default gateway are unchanged. What is the most likely explanation?",
+        options: [
+          { id: "a", text: "The new port belongs to a different VLAN from the one its address range is used in." },
+          { id: "b", text: "A host has to be readdressed whenever it moves to a different port." },
+          { id: "c", text: "The default gateway has to be changed to match the new port." },
+          { id: "d", text: "Moving a lead clears the host's address until it is restarted." }
+        ],
+        correctOptionIds: ["a"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-am-q3",
+        version: 1,
+        type: "boolean",
+        prompt:
+          "Placing two hosts in the same VLAN is enough for them to reach each other, whatever addresses they hold.",
+        options: [
+          { id: "true", text: "True" },
+          { id: "false", text: "False" }
+        ],
+        correctOptionIds: ["false"],
+        points: 1
+      }
+    ],
+    competencyMappings: [],
+    published: true
+  },
+  {
     stableId: "ros-kc-segmentation",
     version: 1,
     title: "Knowledge check — segmentation and trunking",
@@ -657,6 +773,126 @@ export const ROAS_KNOWLEDGE_CHECKS: readonly AssessmentDefinition[] = [
     published: true
   },
   {
+    // PRACTICE-ARCH-1A. Mission 5 reinforcement: what a result actually
+    // proves. Exercises connectivity verification on top of everything already
+    // built, so it derives to Mission 5. It stops short of diagnosing a fault —
+    // that is Mission 6's work, and its own check covers it.
+    stableId: "ros-kc-verification",
+    version: 1,
+    title: "Knowledge check — proving it works",
+    purpose: "practice",
+    passingPercent: 70,
+    questions: [
+      {
+        stableId: "ros-kc-ver-q1",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "PC-A successfully reaches its own default gateway. Which conclusion does that result, on its own, actually support?",
+        options: [
+          { id: "a", text: "Inter-VLAN routing is working." },
+          { id: "b", text: "PC-A can reach the gateway address for its own VLAN; nothing about traffic to the other VLAN has been shown either way." },
+          { id: "c", text: "The link to the router is carrying both VLANs." },
+          { id: "d", text: "PC-B is correctly addressed." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-ver-q2",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "You need to establish that a host in one VLAN can reach a host in the other. Which single result demonstrates that, rather than merely being consistent with it?",
+        options: [
+          { id: "a", text: "Both hosts reach their own default gateways." },
+          { id: "b", text: "Traffic sent from one host's address to the other host's address is exchanged successfully across the VLAN boundary." },
+          { id: "c", text: "The router reports both of its VLAN subinterfaces as up." },
+          { id: "d", text: "Both hosts appear in the switch's address table." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-ver-q3",
+        version: 1,
+        type: "boolean",
+        prompt:
+          "One successful test between a single pair of hosts is enough to prove that every path the design requires is working.",
+        options: [
+          { id: "true", text: "True" },
+          { id: "false", text: "False" }
+        ],
+        correctOptionIds: ["false"],
+        points: 1
+      }
+    ],
+    competencyMappings: [],
+    published: true
+  },
+  {
+    // PRACTICE-ARCH-1A. Mission 6 reinforcement: the PROCESS of isolating a
+    // fault — hypothesis, next useful observation, and proving a repair. It
+    // exercises fault isolation, so it derives to Mission 6.
+    //
+    // Deliberately distinct from ros-kc-fault-isolation below, which stays in
+    // cumulative review: that one asks which single fault explains several
+    // results at once, integrating trunking, routing and verification. This one
+    // asks how you would go about finding out at all.
+    stableId: "ros-kc-troubleshooting-process",
+    version: 1,
+    title: "Knowledge check — narrowing a fault",
+    purpose: "practice",
+    passingPercent: 70,
+    questions: [
+      {
+        stableId: "ros-kc-tsp-q1",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "PC-A cannot reach PC-B. You have established that PC-A reaches its own default gateway, and you have looked at nothing else yet. Which step narrows the problem most?",
+        options: [
+          { id: "a", text: "Repeat the same test from PC-A to PC-B." },
+          { id: "b", text: "Establish whether PC-B reaches its own default gateway, which splits the path at the boundary between the two halves." },
+          { id: "c", text: "Replace PC-A's patch lead." },
+          { id: "d", text: "Restart the switch and try again." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-tsp-q2",
+        version: 1,
+        type: "single_choice",
+        prompt:
+          "You changed one thing and the original failing test now succeeds. What best establishes that you corrected the cause rather than disturbed a symptom?",
+        options: [
+          { id: "a", text: "The test succeeded when you repeated it." },
+          { id: "b", text: "The observation that first identified the fault now shows the corrected state, and the end-to-end test also succeeds." },
+          { id: "c", text: "No errors appeared while the change was being made." },
+          { id: "d", text: "The change matched a configuration that had worked elsewhere." }
+        ],
+        correctOptionIds: ["b"],
+        points: 2
+      },
+      {
+        stableId: "ros-kc-tsp-q3",
+        version: 1,
+        type: "boolean",
+        prompt:
+          "If a change makes the symptom disappear, that change necessarily addressed the cause.",
+        options: [
+          { id: "true", text: "True" },
+          { id: "false", text: "False" }
+        ],
+        correctOptionIds: ["false"],
+        points: 1
+      }
+    ],
+    competencyMappings: [],
+    published: true
+  },
+  {
     stableId: "ros-kc-fault-isolation",
     version: 1,
     title: "Knowledge check — verification and fault isolation",
@@ -711,6 +947,239 @@ export const ROAS_KNOWLEDGE_CHECKS: readonly AssessmentDefinition[] = [
     published: true
   }
 ];
+
+/* ------------------------------------------------------------------ *
+ * Practice placement
+ *
+ * PRACTICE-ARCH-1. Where each knowledge check belongs, and when it becomes
+ * answerable.
+ *
+ * ## Why this could not reuse `competencyMappings`
+ *
+ * `AssessmentDefinition` already carries `competencyMappings`, which looks like
+ * the natural association. It is not usable here: `validateRoasCurriculum`
+ * below FORBIDS a knowledge check from carrying one, because a competency
+ * mapping is the route by which an assessment claims a competency. Practice
+ * must never make that claim — the deterministic lab validator owns it. Reusing
+ * that field to mean "this practice is about VLANs" would overload an evidence
+ * relationship with a placement meaning and quietly reopen the route it exists
+ * to close.
+ *
+ * So this is a genuinely new fact, not a duplicate of an existing one. Nothing
+ * in the authored curriculum previously recorded what a practice check
+ * exercises or where it belongs.
+ *
+ * ## What is authored here, and what is derived
+ *
+ * AUTHORED — two things only:
+ *   - `scope`: whether a check reinforces one mission's material or
+ *     deliberately integrates across the course. That is an instructional
+ *     decision and cannot be computed.
+ *   - `exercisesCompetencyStableIds`: which concepts the questions actually
+ *     require. Read from the questions themselves, not from the title.
+ *
+ * DERIVED — everything else, from data that already exists:
+ *   - when a check becomes answerable is the latest mission at which any
+ *     exercised competency is first REQUIRED, using the missions' own
+ *     `competencies` declarations and the authored module/mission ordering.
+ *
+ * No second ordering and no second curriculum truth: eligibility is a function
+ * of the same declarations the learning path itself is built from.
+ * ------------------------------------------------------------------ */
+
+export type RoasPracticeScope = "mission" | "course_review";
+
+export interface RoasPracticePlacement {
+  assessmentStableId: string;
+  /**
+   * `mission` reinforces the material of the mission it becomes available at.
+   * `course_review` deliberately integrates competencies developed across
+   * several missions, and belongs in cumulative review rather than beneath any
+   * single mission.
+   */
+  scope: RoasPracticeScope;
+  /**
+   * The competencies the questions require in order to be answerable.
+   *
+   * **This is not a competency claim.** Answering practice awards nothing and
+   * proves nothing. It records what a learner must already have met for the
+   * questions to be fair, which is what makes "do not show this yet" decidable.
+   */
+  exercisesCompetencyStableIds: readonly string[];
+}
+
+export const ROAS_PRACTICE_PLACEMENTS: readonly RoasPracticePlacement[] = [
+  {
+    // Addressing, subnet boundaries and the gateway relationship — the three
+    // things Mission 1 develops. Nothing later is exercised, so it derives to
+    // Mission 1 rather than being placed there by hand.
+    assessmentStableId: "ros-kc-read-the-network",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.ip-addressing",
+      "net.subnet-boundaries",
+      "net.default-gateway"
+    ]
+  },
+  {
+    // Separation and membership, on top of Mission 1's addressing. No trunk
+    // competency, so it derives to Mission 2 and cannot drift later.
+    assessmentStableId: "ros-kc-access-membership",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.ip-addressing",
+      "net.subnet-boundaries",
+      "net.default-gateway",
+      "net.vlan-segmentation",
+      "net.access-port-membership"
+    ]
+  },
+  {
+    // Separate broadcast domains, tagged frames on the uplink, and a host in
+    // the wrong VLAN. Everything it asks is settled by the end of module 2.
+    assessmentStableId: "ros-kc-segmentation",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.ip-addressing",
+      "net.subnet-boundaries",
+      "net.default-gateway",
+      "net.vlan-segmentation",
+      "net.access-port-membership",
+      "net.trunking-dot1q"
+    ]
+  },
+  {
+    // Subinterfaces bound to VLAN tags, and why a host still needs a gateway.
+    // It leans on the trunk from module 2, but its subject is module 3's.
+    assessmentStableId: "ros-kc-inter-vlan-routing",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.ip-addressing",
+      "net.default-gateway",
+      "net.access-port-membership",
+      "net.trunking-dot1q",
+      "net.inter-vlan-routing"
+    ]
+  },
+  {
+    // What a result proves versus what it is merely consistent with. Verifying
+    // is Mission 5's competency, so that is where this derives.
+    assessmentStableId: "ros-kc-verification",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.default-gateway",
+      "net.vlan-segmentation",
+      "net.inter-vlan-routing",
+      "net.connectivity-verification"
+    ]
+  },
+  {
+    // The process of narrowing a fault. Exercises fault isolation, so it
+    // derives to Mission 6 — alongside, but distinct from, the cumulative
+    // review item below.
+    assessmentStableId: "ros-kc-troubleshooting-process",
+    scope: "mission",
+    exercisesCompetencyStableIds: [
+      "net.default-gateway",
+      "net.connectivity-verification",
+      "net.fault-isolation"
+    ]
+  },
+  {
+    // Cumulative by construction. Its first question asks for the SINGLE fault
+    // that explains three results at once, which requires holding trunking,
+    // routing and verification simultaneously; its last asks why gateway
+    // reachability does not prove inter-VLAN routing. That is integration
+    // across modules 2, 3 and 4, not reinforcement of one mission.
+    assessmentStableId: "ros-kc-fault-isolation",
+    scope: "course_review",
+    exercisesCompetencyStableIds: [
+      "net.access-port-membership",
+      "net.trunking-dot1q",
+      "net.inter-vlan-routing",
+      "net.connectivity-verification",
+      "net.fault-isolation"
+    ]
+  }
+];
+
+/**
+ * The authored missions in learning order.
+ *
+ * Module position first, then mission position within it. This is the one
+ * ordering; `roas-course-content.ts` flattens the same way, and a test pins the
+ * two together so a second ordering cannot appear unnoticed.
+ */
+export function roasMissionsInLearningOrder(): readonly RoasMissionNode[] {
+  const modulePosition = new Map(
+    ROAS_MODULES.map((module) => [module.stableId, module.position])
+  );
+
+  return [...ROAS_MISSIONS].sort((left, right) => {
+    const byModule =
+      (modulePosition.get(left.moduleStableId) ?? 0) -
+      (modulePosition.get(right.moduleStableId) ?? 0);
+
+    return byModule !== 0 ? byModule : left.position - right.position;
+  });
+}
+
+export interface RoasResolvedPracticePlacement {
+  assessmentStableId: string;
+  scope: RoasPracticeScope;
+  /**
+   * The first mission at which every exercised competency has been required by
+   * some mission at or before it. Null when no such mission exists, which
+   * `validateRoasCurriculum` treats as an authoring error.
+   */
+  availableFromMissionStableId: string | null;
+  /** Index into the authored learning order, or -1 when unavailable. */
+  availableFromIndex: number;
+}
+
+/**
+ * When each practice check becomes answerable.
+ *
+ * Derived entirely from the missions' own `competencies` declarations: a
+ * competency is "developed" at the first mission that lists it as required, and
+ * a check waits for the latest of the competencies it exercises.
+ */
+export function resolveRoasPracticePlacements(): readonly RoasResolvedPracticePlacement[] {
+  const order = roasMissionsInLearningOrder();
+
+  const developedAt = new Map<string, number>();
+  order.forEach((mission, index) => {
+    for (const link of mission.competencies) {
+      if (!link.required) continue;
+      if (!developedAt.has(link.competencyStableId)) {
+        developedAt.set(link.competencyStableId, index);
+      }
+    }
+  });
+
+  return ROAS_PRACTICE_PLACEMENTS.map((placement) => {
+    let latest = 0;
+    let resolvable = true;
+
+    for (const competencyStableId of placement.exercisesCompetencyStableIds) {
+      const index = developedAt.get(competencyStableId);
+      if (index === undefined) {
+        resolvable = false;
+        break;
+      }
+      latest = Math.max(latest, index);
+    }
+
+    return {
+      assessmentStableId: placement.assessmentStableId,
+      scope: placement.scope,
+      availableFromMissionStableId: resolvable
+        ? (order[latest]?.stableId ?? null)
+        : null,
+      availableFromIndex: resolvable ? latest : -1
+    };
+  });
+}
 
 /* ------------------------------------------------------------------ *
  * The lab and its deterministic validation profile
@@ -1141,6 +1610,52 @@ export function validateRoasCurriculum(): RoasContentValidationResult {
       if (question.correctOptionIds.length >= question.options.length) {
         errors.push(`every option cannot be correct: ${question.stableId}`);
       }
+    }
+  }
+
+  // PRACTICE-ARCH-1 — every check is placed, and every placement is real.
+  const placeableCheckIds = new Set(
+    ROAS_KNOWLEDGE_CHECKS.map((check) => check.stableId)
+  );
+  const placedIds = new Set(
+    ROAS_PRACTICE_PLACEMENTS.map((placement) => placement.assessmentStableId)
+  );
+
+  for (const check of ROAS_KNOWLEDGE_CHECKS) {
+    if (!placedIds.has(check.stableId)) {
+      errors.push(
+        `knowledge check has no practice placement, so the learner surface cannot know where it belongs: ${check.stableId}`
+      );
+    }
+  }
+
+  for (const placement of ROAS_PRACTICE_PLACEMENTS) {
+    if (!placeableCheckIds.has(placement.assessmentStableId)) {
+      errors.push(
+        `practice placement references an unknown knowledge check: ${placement.assessmentStableId}`
+      );
+    }
+
+    if (placement.exercisesCompetencyStableIds.length === 0) {
+      errors.push(
+        `practice placement exercises no competency, so it can never become answerable: ${placement.assessmentStableId}`
+      );
+    }
+
+    for (const competencyStableId of placement.exercisesCompetencyStableIds) {
+      if (!competencyIds.has(competencyStableId)) {
+        errors.push(
+          `practice placement references an unknown competency: ${competencyStableId}`
+        );
+      }
+    }
+  }
+
+  for (const resolved of resolveRoasPracticePlacements()) {
+    if (resolved.availableFromMissionStableId === null) {
+      errors.push(
+        `practice exercises a competency no mission ever requires, so it would never become answerable: ${resolved.assessmentStableId}`
+      );
     }
   }
 

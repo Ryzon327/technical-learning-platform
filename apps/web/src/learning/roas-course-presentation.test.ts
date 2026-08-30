@@ -6,7 +6,9 @@ import type {
   PublishedLearningPathTree,
   RecommendedNextAction
 } from "@tlp/shared-types";
+import { ROAS_PRACTICE_PLACEMENTS } from "@tlp/shared-types";
 import { buildRoasLearnerCourse } from "./roas-course-content";
+import { describeMissionPracticeAuthority } from "./roas-practice";
 import {
   buildMissionRegionId,
   canRecordMissionProgress,
@@ -22,7 +24,10 @@ import {
   resolveCourseAvailability,
   resolveMissionControlState,
   resolveProgressFeedback,
+  resolveReachedMissionIndex,
   resolveSelectedMission,
+  selectCourseReview,
+  selectMissionPractice,
   type ProgressFeedback
 } from "./roas-course-presentation";
 
@@ -894,5 +899,407 @@ describe("UAT-PROGRESS-FEEDBACK-1 the earlier repairs still hold", () => {
       describeMissionProgress(availability("available"), null, missionA.stableId).known
     ).toBe(false);
     expect(controlsFor("unknown").canStart).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * PRACTICE-ARCH-1 — mission-contextual practice and cumulative review
+ * ------------------------------------------------------------------ */
+
+const missionOrder = course.missions.map((mission) => mission.stableId);
+const missionAt = (index: number) => course.missions[index]!;
+
+/** Progress in which exactly the given missions have been started. */
+function progressReaching(...stableIds: string[]) {
+  const states: Record<string, LearningProgressState> = {};
+  for (const stableId of stableIds) states[stableId] = "in_progress";
+  return progressFor(states);
+}
+
+describe("PRACTICE-ARCH-1 practice is placed, not piled", () => {
+  it("gives each mission only the practice that becomes answerable there", () => {
+    const placed = new Map(
+      course.practice.map((check) => [
+        check.definition.stableId,
+        check.availableFromMissionStableId
+      ])
+    );
+
+    for (const mission of course.missions) {
+      for (const check of selectMissionPractice(course, mission.stableId)) {
+        expect(check.scope).toBe("mission");
+        expect(placed.get(check.definition.stableId)).toBe(mission.stableId);
+      }
+    }
+  });
+
+  it("shows NO later-concept practice on an early mission", () => {
+    // The reported defect: all three checks visible beneath Mission 1,
+    // including trunking, routing and fault isolation.
+    //
+    // PRACTICE-ARCH-1A gave Missions 1 and 2 contextual practice of their own,
+    // so the assertion is no longer "nothing here" — it is "nothing from
+    // later", which is what the defect actually was.
+    for (const earlyMission of [missionAt(0), missionAt(1)]) {
+      const shown = selectMissionPractice(course, earlyMission.stableId).map(
+        (check) => check.definition.stableId
+      );
+
+      for (const later of [
+        "ros-kc-segmentation",
+        "ros-kc-inter-vlan-routing",
+        "ros-kc-verification",
+        "ros-kc-troubleshooting-process",
+        "ros-kc-fault-isolation"
+      ]) {
+        expect(shown).not.toContain(later);
+      }
+    }
+  });
+
+  it("changing mission changes the contextual practice", () => {
+    const atTrunk = selectMissionPractice(course, missionOrder[2]!);
+    const atRouting = selectMissionPractice(course, missionOrder[3]!);
+
+    expect(atTrunk).toHaveLength(1);
+    expect(atRouting).toHaveLength(1);
+    expect(atTrunk[0]!.definition.stableId).not.toBe(
+      atRouting[0]!.definition.stableId
+    );
+  });
+
+  it("NEVER offers a cumulative check as mission-contextual practice", () => {
+    const cumulative = course.practice
+      .filter((check) => check.scope === "course_review")
+      .map((check) => check.definition.stableId);
+
+    expect(cumulative.length).toBeGreaterThan(0);
+
+    for (const mission of course.missions) {
+      for (const check of selectMissionPractice(course, mission.stableId)) {
+        expect(cumulative).not.toContain(check.definition.stableId);
+      }
+    }
+  });
+
+  it("every authored check is placed exactly once, contextually or as review", () => {
+    const contextual = course.missions.flatMap((mission) =>
+      selectMissionPractice(course, mission.stableId)
+    );
+    const review = course.practice.filter(
+      (check) => check.scope === "course_review"
+    );
+
+    expect(contextual.length + review.length).toBe(course.practice.length);
+  });
+});
+
+describe("PRACTICE-ARCH-1 cumulative review is reachable and gated", () => {
+  it("withholds review content before its material has been reached", () => {
+    const review = selectCourseReview(course, 0);
+
+    expect(review.available).toHaveLength(0);
+    expect(review.lockedCount).toBeGreaterThan(0);
+    expect(review.explanation).toMatch(/opens once/i);
+  });
+
+  it("offers review once the learner has reached the material", () => {
+    const review = selectCourseReview(course, course.missions.length - 1);
+
+    expect(review.available.length).toBeGreaterThan(0);
+    expect(review.lockedCount).toBe(0);
+    for (const check of review.available) {
+      expect(check.scope).toBe("course_review");
+    }
+  });
+
+  it("counts what is still ahead without exposing it", () => {
+    const review = selectCourseReview(course, 0);
+    // The count is a number, never a definition.
+    expect(review.available).toEqual([]);
+    expect(typeof review.lockedCount).toBe("number");
+  });
+});
+
+describe("PRACTICE-ARCH-1 eligibility comes from existing curriculum truth", () => {
+  // Requirement 12. The derived availability must be recomputable from the
+  // missions' OWN competency declarations. If it were a hand-written table,
+  // this independent recomputation would disagree.
+  it("derives availability from the missions' required competencies", () => {
+    const developedAt = new Map<string, number>();
+    course.missions.forEach((mission, index) => {
+      for (const competency of mission.requiredCompetencies) {
+        if (!developedAt.has(competency.stableId)) {
+          developedAt.set(competency.stableId, index);
+        }
+      }
+    });
+
+    for (const check of course.practice) {
+      const placement = ROAS_PRACTICE_PLACEMENTS.find(
+        (candidate) => candidate.assessmentStableId === check.definition.stableId
+      )!;
+
+      const expected = Math.max(
+        ...placement.exercisesCompetencyStableIds.map(
+          (competencyStableId) => developedAt.get(competencyStableId) ?? -1
+        )
+      );
+
+      expect(check.availableFromIndex).toBe(expected);
+    }
+  });
+
+  it("reached position follows the open mission and the server's progress", () => {
+    // Reading a mission is reaching it.
+    expect(resolveReachedMissionIndex(course, null, missionOrder[2]!)).toBe(2);
+
+    // So is having started one, according to the server.
+    expect(
+      resolveReachedMissionIndex(
+        course,
+        progressReaching(missionOrder[4]!),
+        null
+      )
+    ).toBe(4);
+
+    // The furthest of the two wins.
+    expect(
+      resolveReachedMissionIndex(
+        course,
+        progressReaching(missionOrder[4]!),
+        missionOrder[1]!
+      )
+    ).toBe(4);
+  });
+
+  it("UNKNOWN progress reaches nothing rather than everything", () => {
+    // The rule this whole module follows, applied to practice: absence of an
+    // answer is not an answer. -1 makes every gated check ineligible.
+    expect(resolveReachedMissionIndex(course, null, null)).toBe(-1);
+    expect(selectCourseReview(course, -1).available).toHaveLength(0);
+  });
+});
+
+describe("PRACTICE-ARCH-1 practice keeps its authority boundaries", () => {
+  it("every check remains practice-purpose and awards no competency", () => {
+    for (const check of course.practice) {
+      expect(check.definition.purpose).toBe("practice");
+      expect(check.definition.competencyMappings).toEqual([]);
+    }
+  });
+
+  it("contextual practice says plainly that it completes nothing", () => {
+    const authority = describeMissionPracticeAuthority();
+
+    expect(authority).toMatch(/not recorded/i);
+    expect(authority).toMatch(/does not count towards any competency/i);
+    expect(authority).toMatch(/does not complete the mission/i);
+  });
+
+  it("MISSION 7 gains no practice route to completion", () => {
+    // Placing practice must not have created a second way to finish the
+    // demonstration mission.
+    const controls = controlsFor("unknown", demonstrationMission);
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(controls.explanation).toMatch(/deterministic lab validator/i);
+
+    for (const check of selectMissionPractice(
+      course,
+      demonstrationMission.stableId
+    )) {
+      expect(check.definition.competencyMappings).toEqual([]);
+      expect(check.definition.purpose).toBe("practice");
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * PRACTICE-ARCH-1A — every instructional mission has contextual practice
+ * ------------------------------------------------------------------ */
+
+/** The competencies a placement declares it exercises. */
+function exercisedBy(assessmentStableId: string): readonly string[] {
+  return ROAS_PRACTICE_PLACEMENTS.find(
+    (placement) => placement.assessmentStableId === assessmentStableId
+  )!.exercisesCompetencyStableIds;
+}
+
+/** The mission index at which a competency is first required. */
+const developedAtIndex = (() => {
+  const developed = new Map<string, number>();
+  course.missions.forEach((mission, index) => {
+    for (const competency of mission.requiredCompetencies) {
+      if (!developed.has(competency.stableId)) {
+        developed.set(competency.stableId, index);
+      }
+    }
+  });
+  return developed;
+})();
+
+const contextualFor = (index: number) =>
+  selectMissionPractice(course, missionOrder[index]!);
+
+describe("PRACTICE-ARCH-1A instructional missions are covered", () => {
+  it("gives Missions 1 to 6 each at least one contextual practice item", () => {
+    for (let index = 0; index <= 5; index += 1) {
+      const practice = contextualFor(index);
+      expect(
+        practice.length,
+        `mission ${index + 1} (${missionOrder[index]}) has no contextual practice`
+      ).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("gives Mission 7 NONE, because a validator owns it", () => {
+    expect(selectMissionPractice(course, demonstrationMission.stableId)).toHaveLength(0);
+    // And that is the demonstration mission, not merely the last one.
+    expect(demonstrationMission.isDemonstration).toBe(true);
+  });
+
+  // The invariant that makes "no future concepts" true for every item, now and
+  // for anything authored later — not a restatement of the current table.
+  it("NEVER exercises a competency the landing mission has not developed", () => {
+    for (const check of course.practice) {
+      if (check.scope !== "mission") continue;
+
+      const landingIndex = check.availableFromIndex;
+
+      for (const competency of exercisedBy(check.definition.stableId)) {
+        const developed = developedAtIndex.get(competency);
+        expect(developed, `${competency} is never developed`).toBeDefined();
+        expect(
+          developed!,
+          `${check.definition.stableId} exercises ${competency}, developed after its mission`
+        ).toBeLessThanOrEqual(landingIndex);
+      }
+    }
+  });
+
+  it("Mission 1 practice asks nothing about VLANs, trunks or routing", () => {
+    const exercised = exercisedBy(contextualFor(0)[0]!.definition.stableId);
+
+    for (const later of [
+      "net.vlan-segmentation",
+      "net.access-port-membership",
+      "net.trunking-dot1q",
+      "net.inter-vlan-routing",
+      "net.connectivity-verification",
+      "net.fault-isolation"
+    ]) {
+      expect(exercised).not.toContain(later);
+    }
+  });
+
+  it("Mission 2 practice asks nothing about trunks or routing", () => {
+    const exercised = exercisedBy(contextualFor(1)[0]!.definition.stableId);
+
+    for (const later of [
+      "net.trunking-dot1q",
+      "net.inter-vlan-routing",
+      "net.connectivity-verification",
+      "net.fault-isolation"
+    ]) {
+      expect(exercised).not.toContain(later);
+    }
+  });
+
+  it("Mission 5 practice asks nothing about fault isolation", () => {
+    const exercised = exercisedBy(contextualFor(4)[0]!.definition.stableId);
+
+    expect(exercised).toContain("net.connectivity-verification");
+    expect(exercised).not.toContain("net.fault-isolation");
+  });
+
+  it("Mission 6 contextual practice is a DIFFERENT item from the review", () => {
+    const contextual = contextualFor(5);
+    const review = course.practice.filter(
+      (check) => check.scope === "course_review"
+    );
+
+    expect(contextual).toHaveLength(1);
+    expect(review.length).toBeGreaterThanOrEqual(1);
+
+    const contextualIds = contextual.map((check) => check.definition.stableId);
+    for (const reviewCheck of review) {
+      expect(contextualIds).not.toContain(reviewCheck.definition.stableId);
+    }
+  });
+});
+
+describe("PRACTICE-ARCH-1A the approved mapping is preserved", () => {
+  const landsAt = (assessmentStableId: string) =>
+    course.practice.find(
+      (check) => check.definition.stableId === assessmentStableId
+    )!;
+
+  it("keeps segmentation and trunking at Mission 3", () => {
+    const check = landsAt("ros-kc-segmentation");
+    expect(check.scope).toBe("mission");
+    expect(check.availableFromMissionStableId).toBe(missionOrder[2]);
+  });
+
+  it("keeps inter-VLAN routing at Mission 4", () => {
+    const check = landsAt("ros-kc-inter-vlan-routing");
+    expect(check.scope).toBe("mission");
+    expect(check.availableFromMissionStableId).toBe(missionOrder[3]);
+  });
+
+  it("keeps fault isolation as CUMULATIVE review, not mission practice", () => {
+    const check = landsAt("ros-kc-fault-isolation");
+    expect(check.scope).toBe("course_review");
+
+    for (const mission of course.missions) {
+      const ids = selectMissionPractice(course, mission.stableId).map(
+        (item) => item.definition.stableId
+      );
+      expect(ids).not.toContain("ros-kc-fault-isolation");
+    }
+  });
+
+  it("places every authored check exactly once", () => {
+    const landed = course.practice.map(
+      (check) => check.definition.stableId
+    );
+    expect(new Set(landed).size).toBe(landed.length);
+    expect(landed).toHaveLength(ROAS_PRACTICE_PLACEMENTS.length);
+  });
+});
+
+describe("PRACTICE-ARCH-1A the non-evidence boundary holds for every item", () => {
+  it("keeps every check practice-purpose with no competency mapping", () => {
+    expect(course.practice.length).toBeGreaterThanOrEqual(7);
+
+    for (const check of course.practice) {
+      expect(check.definition.purpose).toBe("practice");
+      expect(check.definition.competencyMappings).toEqual([]);
+    }
+  });
+
+  it("authors real questions rather than placeholders", () => {
+    // A check that became answerable but had nothing to ask would satisfy the
+    // coverage test above while teaching nothing.
+    for (const check of course.practice) {
+      expect(check.definition.questions.length).toBeGreaterThanOrEqual(1);
+
+      for (const question of check.definition.questions) {
+        expect(question.options.length).toBeGreaterThanOrEqual(2);
+        expect(question.correctOptionIds.length).toBeGreaterThanOrEqual(1);
+        // Never every option, or the question decides nothing.
+        expect(question.correctOptionIds.length).toBeLessThan(
+          question.options.length
+        );
+        expect(question.prompt.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("no added practice creates a route to completing Mission 7", () => {
+    const controls = controlsFor("unknown", demonstrationMission);
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(controls.explanation).toMatch(/deterministic lab validator/i);
   });
 });

@@ -10,7 +10,8 @@ import { PracticeCheckPanel } from "./PracticeCheckPanel";
 import {
   buildRoasLearnerCourse,
   describeEstimatedTime,
-  type LearnerMission
+  type LearnerMission,
+  type LearnerPracticeCheck
 } from "./roas-course-content";
 import {
   buildMissionRegionId,
@@ -24,7 +25,10 @@ import {
   resolveCourseAvailability,
   resolveMissionControlState,
   resolveProgressFeedback,
+  resolveReachedMissionIndex,
   resolveSelectedMission,
+  selectCourseReview,
+  selectMissionPractice,
   type MissionControlState,
   type ProgressFeedback
 } from "./roas-course-presentation";
@@ -35,7 +39,10 @@ import {
   loadResumeTarget,
   recordMissionProgress
 } from "./learning-service";
-import { describePracticeAuthority } from "./roas-practice";
+import {
+  describeMissionPracticeAuthority,
+  describePracticeAuthority
+} from "./roas-practice";
 
 /**
  * ROAS-3 — the learner's Router-on-a-Stick course experience.
@@ -63,6 +70,7 @@ function MissionDetail({
   controls,
   saving,
   feedback,
+  practice,
   onRecord
 }: {
   mission: LearnerMission;
@@ -72,6 +80,8 @@ function MissionDetail({
   saving: boolean;
   /** Already resolved to this mission, or null. See resolveProgressFeedback. */
   feedback: ProgressFeedback | null;
+  /** Already selected for this mission. See selectMissionPractice. */
+  practice: readonly LearnerPracticeCheck[];
   onRecord: (action: "start" | "complete") => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -156,6 +166,24 @@ function MissionDetail({
       </button>
 
       <p aria-live="polite">{feedback?.message ?? ""}</p>
+
+      {practice.length > 0 && (
+        <section aria-labelledby={`${mission.stableId}-practice`}>
+          <h4 id={`${mission.stableId}-practice`}>Practice what you just read</h4>
+          <p>{describeMissionPracticeAuthority()}</p>
+          <ul
+            className="practice-list"
+            aria-labelledby={`${mission.stableId}-practice`}
+          >
+            {practice.map((check) => (
+              <PracticeCheckPanel
+                key={check.definition.stableId}
+                definition={check.definition}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
     </section>
   );
 }
@@ -298,6 +326,11 @@ export function LearningView() {
     setSelectedMissionStableId(missionStableId);
     setFeedback(null);
   }, []);
+
+  const courseReview = selectCourseReview(
+    course,
+    resolveReachedMissionIndex(course, progress, selectedMissionStableId)
+  );
 
   const continueTarget = resolveContinueTarget({
     availability,
@@ -450,23 +483,27 @@ export function LearningView() {
             feedback,
             selectedMission.stableId
           )}
+          practice={selectMissionPractice(course, selectedMission.stableId)}
           onRecord={(action) => void handleRecord(selectedMission, action)}
         />
       ) : (
         <p>Choose a mission above to read it. You can move between them freely.</p>
       )}
 
-      <section aria-labelledby="learning-practice-title">
-        <h3 id="learning-practice-title">Practice</h3>
+      <section aria-labelledby="learning-review-title">
+        <h3 id="learning-review-title">Cumulative course review</h3>
         <p>{describePracticeAuthority()}</p>
-        <ul className="practice-list" aria-labelledby="learning-practice-title">
-          {course.practice.map((definition) => (
-            <PracticeCheckPanel
-              key={definition.stableId}
-              definition={definition}
-            />
-          ))}
-        </ul>
+        <p>{courseReview.explanation}</p>
+        {courseReview.available.length > 0 && (
+          <ul className="practice-list" aria-labelledby="learning-review-title">
+            {courseReview.available.map((check) => (
+              <PracticeCheckPanel
+                key={check.definition.stableId}
+                definition={check.definition}
+              />
+            ))}
+          </ul>
+        )}
       </section>
     </section>
   );

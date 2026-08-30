@@ -197,6 +197,17 @@ export function describePracticeResult(
  * Held here as one string so the interface cannot drift into implying that
  * practice counts for something.
  */
+/**
+ * PRACTICE-ARCH-1 — the same guarantee, phrased for a single mission.
+ *
+ * Contextual practice sits inside a mission, so the sentence has to make clear
+ * that answering it is not how the mission gets completed. The authority claim
+ * is identical to the course-level one; only the framing differs.
+ */
+export function describeMissionPracticeAuthority(): string {
+  return "A quick check on what this mission covered. It is not recorded, it does not count towards any competency, and it does not complete the mission.";
+}
+
 export function describePracticeAuthority(): string {
   return "These checks are for your own practice. They are not recorded, they do not count towards any competency, and they are not the assessment of record. Practical ability is proved in the hands-on lab.";
 }

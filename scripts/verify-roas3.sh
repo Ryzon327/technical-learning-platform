@@ -536,9 +536,22 @@ for library in react-router @tanstack/react-router redux zustand jotai recoil \
   fi
 done
 
+# Matched as whole tokens, not as substrings.
+#
+# PRACTICE-ARCH-1. This was `grep -qiF`, a fixed SUBSTRING match, so any
+# ordinary English word containing a token tripped it — "draws", "flaws" and
+# "laws" all contain "aws". The first prose written after this gate landed hit
+# it, and the failure named a provider that appeared nowhere.
+#
+# The boundary is expressed as "not preceded or followed by an alphanumeric"
+# rather than as `\b`, because `\b` is not reliably supported by BSD grep on
+# macOS while this form works identically there and on the GNU grep CI uses.
+#
+# This is stricter about WHAT it means, not laxer: a real mention — "AWS",
+# "aws:", "(aws)" — still matches, because a provider name is a token.
 for token in proxmox pve hypervisor esxi vsphere vcenter qemu kvm libvirt \
              docker podman containerd aws azure gcp node-r620; do
-  if grep -qiF -e "$token" "$LEARNING_CODE"; then
+  if grep -qiE -e "(^|[^a-z0-9])${token}([^a-z0-9]|$)" "$LEARNING_CODE"; then
     fail "a provider-specific token entered the learner experience: $token"
   fi
 done

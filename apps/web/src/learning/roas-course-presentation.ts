@@ -5,7 +5,11 @@ import type {
   PublishedLearningPathTree,
   RecommendedNextAction
 } from "@tlp/shared-types";
-import type { LearnerCourse, LearnerMission } from "./roas-course-content";
+import type {
+  LearnerCourse,
+  LearnerMission,
+  LearnerPracticeCheck
+} from "./roas-course-content";
 
 /**
  * ROAS-3 — where authored content meets server-owned learner state.
@@ -556,6 +560,139 @@ export function resolveSelectedMission(
       (mission) => mission.stableId === selectedMissionStableId
     ) ?? null
   );
+}
+
+/* ------------------------------------------------------------------ *
+ * PRACTICE-ARCH-1 — where practice appears, and when
+ * ------------------------------------------------------------------ */
+
+/**
+ * How far through the course the learner has actually got.
+ *
+ * The reference point for "do not show practice about concepts not yet
+ * reached". It is the furthest of:
+ *
+ *   - the mission currently open, because reading a mission is reaching it;
+ *   - the furthest mission the SERVER reports as started or completed.
+ *
+ * Both inputs already exist. Unknown progress simply contributes nothing rather
+ * than being read as "reached nothing" or as "reached everything" — the same
+ * rule the rest of this module follows, applied here.
+ *
+ * Returns -1 when nothing has been reached, which makes every gated check
+ * ineligible rather than accidentally eligible.
+ */
+export function resolveReachedMissionIndex(
+  course: LearnerCourse,
+  progress: LearningPathProgressSummary | null,
+  selectedMissionStableId: string | null
+): number {
+  const indexOf = new Map(
+    course.missions.map((mission, index) => [mission.stableId, index])
+  );
+
+  let reached = -1;
+
+  if (selectedMissionStableId !== null) {
+    reached = Math.max(reached, indexOf.get(selectedMissionStableId) ?? -1);
+  }
+
+  if (progress === null) return reached;
+
+  for (const summaryCourse of progress.courses) {
+    for (const module of summaryCourse.modules) {
+      for (const mission of module.missions) {
+        const started =
+          mission.state === "in_progress" ||
+          mission.state === "completed" ||
+          mission.state === "competency_demonstrated";
+
+        if (!started) continue;
+        reached = Math.max(reached, indexOf.get(mission.stableId) ?? -1);
+      }
+    }
+  }
+
+  return reached;
+}
+
+/**
+ * The practice that belongs to one mission.
+ *
+ * A mission-scoped check appears at the mission where it BECOMES answerable,
+ * and only there. That is what makes it read as "practice for what you just
+ * learned" rather than as a growing pile beneath every later mission — the
+ * cumulative reading is what the review section is for.
+ *
+ * Course-review checks are never returned here, whatever their availability.
+ */
+export function selectMissionPractice(
+  course: LearnerCourse,
+  missionStableId: string
+): readonly LearnerPracticeCheck[] {
+  return course.practice.filter(
+    (check) =>
+      check.scope === "mission" &&
+      check.availableFromMissionStableId === missionStableId
+  );
+}
+
+export interface CourseReviewPractice {
+  /** Cumulative checks the learner has reached the material for. */
+  available: readonly LearnerPracticeCheck[];
+  /** How many cumulative checks are still ahead. Never their content. */
+  lockedCount: number;
+  explanation: string;
+}
+
+/**
+ * Cumulative review across the course.
+ *
+ * Deliberately separate from any mission: these integrate competencies
+ * developed across several missions and belong to the course, not to whatever
+ * happens to be open.
+ *
+ * A check the learner has not reached the material for is COUNTED but not
+ * returned. Saying "there is more review ahead" is honest; rendering its
+ * questions would be the early exposure this package exists to stop.
+ */
+export function selectCourseReview(
+  course: LearnerCourse,
+  reachedMissionIndex: number
+): CourseReviewPractice {
+  const cumulative = course.practice.filter(
+    (check) => check.scope === "course_review"
+  );
+
+  const available = cumulative.filter(
+    (check) =>
+      check.availableFromIndex >= 0 &&
+      check.availableFromIndex <= reachedMissionIndex
+  );
+
+  const lockedCount = cumulative.length - available.length;
+
+  if (cumulative.length === 0) {
+    return { available, lockedCount, explanation: "" };
+  }
+
+  if (available.length === 0) {
+    return {
+      available,
+      lockedCount,
+      explanation:
+        "Cumulative review opens once you have worked through the missions it draws on. Nothing here is scored, and nothing is missed by leaving it."
+    };
+  }
+
+  return {
+    available,
+    lockedCount,
+    explanation:
+      lockedCount === 0
+        ? "This review draws on several missions at once, so it is a good way to check what has stayed with you."
+        : "This review draws on several missions at once. More opens as you work further through the course."
+  };
 }
 
 /** Stable DOM id for a mission's detail region, for `aria-controls`. */

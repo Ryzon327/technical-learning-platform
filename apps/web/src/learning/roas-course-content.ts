@@ -6,7 +6,9 @@ import {
   ROAS_LEARNING_PATH_STABLE_ID,
   ROAS_MISSIONS,
   ROAS_MODULES,
-  type AssessmentDefinition
+  resolveRoasPracticePlacements,
+  type AssessmentDefinition,
+  type RoasPracticeScope
 } from "@tlp/shared-types";
 
 /**
@@ -106,7 +108,28 @@ export interface LearnerCourse {
   /** Every mission in learning order, flattened. */
   missions: LearnerMission[];
   outcomes: LearnerOutcome[];
-  practice: readonly AssessmentDefinition[];
+  practice: readonly LearnerPracticeCheck[];
+}
+
+/**
+ * A practice check together with where it belongs and when it is answerable.
+ *
+ * PRACTICE-ARCH-1. `practice` used to be the bare authored list, and the view
+ * rendered all of it beneath whichever mission was open — implying that every
+ * check belonged to that mission, and exposing questions about concepts the
+ * learner had not reached. The placement travels with the definition so no
+ * consumer has to guess.
+ *
+ * Both extra fields are projected from the authored source; nothing here
+ * decides them.
+ */
+export interface LearnerPracticeCheck {
+  definition: AssessmentDefinition;
+  scope: RoasPracticeScope;
+  /** Null only if authoring is broken; validateRoasCurriculum rejects that. */
+  availableFromMissionStableId: string | null;
+  /** Position in learning order, or -1 when unavailable. */
+  availableFromIndex: number;
 }
 
 /**
@@ -240,8 +263,38 @@ export function buildRoasLearnerCourse(): LearnerCourse {
       title: competency.title,
       description: competency.description
     })),
-    practice: ROAS_KNOWLEDGE_CHECKS
+    practice: buildLearnerPractice()
   };
+}
+
+/**
+ * Join each authored check to its resolved placement.
+ *
+ * A check without a placement would be unplaceable on the learner surface;
+ * `validateRoasCurriculum` already rejects that, so this drops nothing silently
+ * — the array lengths are pinned equal by test.
+ */
+function buildLearnerPractice(): LearnerPracticeCheck[] {
+  const placements = new Map(
+    resolveRoasPracticePlacements().map((placement) => [
+      placement.assessmentStableId,
+      placement
+    ])
+  );
+
+  return ROAS_KNOWLEDGE_CHECKS.flatMap((definition) => {
+    const placement = placements.get(definition.stableId);
+    if (!placement) return [];
+
+    return [
+      {
+        definition,
+        scope: placement.scope,
+        availableFromMissionStableId: placement.availableFromMissionStableId,
+        availableFromIndex: placement.availableFromIndex
+      }
+    ];
+  });
 }
 
 /** Human phrasing for an authored duration. Never a countdown or a deadline. */
