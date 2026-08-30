@@ -459,6 +459,92 @@ export function resolveMissionControlState(input: {
   }
 }
 
+/**
+ * Feedback from one progress operation, and the mission it belongs to.
+ *
+ * UAT-PROGRESS-FEEDBACK-1. This used to be a bare string in the view, cleared
+ * only when the next save began. Nothing tied it to a mission and nothing
+ * cleared it on navigation, so a confirmation earned on one mission stayed on
+ * screen while another was opened — and the message says "this mission", which
+ * is deictic. It silently re-pointed at whatever was rendered beneath it.
+ *
+ * A learner therefore saw Mission 7 reporting "Not started", with both controls
+ * disabled and the validator explanation shown, directly above
+ * `Saved. The platform now records this mission as "in progress".`
+ *
+ * Carrying the owner in the value makes that unrepresentable rather than merely
+ * avoided: rendering has to ask whose feedback this is, and a future navigation
+ * path that forgets to clear cannot reattach an old operation to a new mission.
+ */
+export type ProgressFeedbackOutcome = "saved" | "failed";
+
+export interface ProgressFeedback {
+  /** The mission this feedback is about. Nothing else may display it. */
+  missionStableId: string;
+  action: "start" | "complete";
+  outcome: ProgressFeedbackOutcome;
+  message: string;
+}
+
+/**
+ * What the server recorded, phrased for a learner.
+ *
+ * The state is the one the server returned, never the one that was requested —
+ * asking to complete a mission and being told it is `in_progress` must read as
+ * `in_progress`.
+ */
+export function buildSavedFeedback(
+  missionStableId: string,
+  action: "start" | "complete",
+  recordedState: string
+): ProgressFeedback {
+  return {
+    missionStableId,
+    action,
+    outcome: "saved",
+    message: `Saved. The platform now records this mission as "${recordedState.replace(/_/g, " ")}".`
+  };
+}
+
+/**
+ * A save that did not happen.
+ *
+ * The wording is unchanged from before this package: it names the failure and
+ * states that existing progress is untouched, which is the honest claim — the
+ * write either applied or it did not, and a failed write changed nothing.
+ */
+export function buildFailedFeedback(
+  missionStableId: string,
+  action: "start" | "complete",
+  detail?: string
+): ProgressFeedback {
+  const reason = detail?.trim();
+
+  return {
+    missionStableId,
+    action,
+    outcome: "failed",
+    message: reason
+      ? `Not saved. ${reason} Your existing progress is unchanged.`
+      : "Not saved. Your existing progress is unchanged."
+  };
+}
+
+/**
+ * The feedback a given mission may display, or null.
+ *
+ * The whole point of the package: feedback earned elsewhere is not this
+ * mission's to show. This is the single place that decides, so there is one
+ * answer rather than one per call site.
+ */
+export function resolveProgressFeedback(
+  feedback: ProgressFeedback | null,
+  missionStableId: string
+): ProgressFeedback | null {
+  if (feedback === null) return null;
+  return feedback.missionStableId === missionStableId ? feedback : null;
+}
+
 /** Resolve the open mission against the missions actually in the course. */
 export function resolveSelectedMission(
   course: LearnerCourse,

@@ -16,10 +16,14 @@ import {
   describeMissionProgress,
   describeProgressState,
   explainProgressControl,
+  buildFailedFeedback,
+  buildSavedFeedback,
   resolveContinueTarget,
   resolveCourseAvailability,
   resolveMissionControlState,
-  resolveSelectedMission
+  resolveProgressFeedback,
+  resolveSelectedMission,
+  type ProgressFeedback
 } from "./roas-course-presentation";
 
 const course = buildRoasLearnerCourse();
@@ -697,5 +701,198 @@ describe("UAT-PROGRESS-UI-1 controls reflect persisted progress", () => {
       expect(controls.canComplete).toBe(false);
       expect(controls.explanation).toMatch(/deterministic lab validator/i);
     }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * UAT-PROGRESS-FEEDBACK-1 — feedback belongs to the mission that earned it
+ * ------------------------------------------------------------------ */
+
+const missionA = course.missions[0]!;
+const missionB = course.missions[1]!;
+
+/**
+ * The learner's whole interaction, as the view sequences it.
+ *
+ * `feedback` is the view's own state; `selectMission` is its navigation
+ * callback. Modelling both here lets the sequence that produced the defect be
+ * replayed exactly — save on one mission, navigate, render — without a DOM.
+ */
+function learnerSession() {
+  let feedback: ProgressFeedback | null = null;
+
+  return {
+    save(mission: { stableId: string }, action: "start" | "complete", recordedState: string) {
+      feedback = null;
+      feedback = buildSavedFeedback(mission.stableId, action, recordedState);
+    },
+    failSave(
+      mission: { stableId: string },
+      action: "start" | "complete",
+      detail?: string
+    ) {
+      feedback = null;
+      feedback = buildFailedFeedback(mission.stableId, action, detail);
+    },
+    selectMission() {
+      // What LearningView's `selectMission` callback does.
+      feedback = null;
+    },
+    /** What a mission's detail panel would render. */
+    shownFor(mission: { stableId: string }): string {
+      return resolveProgressFeedback(feedback, mission.stableId)?.message ?? "";
+    }
+  };
+}
+
+describe("UAT-PROGRESS-FEEDBACK-1 save feedback is owned by one mission", () => {
+  it("a successful start shows its confirmation on the mission that earned it", () => {
+    const session = learnerSession();
+    session.save(missionA, "start", "in_progress");
+
+    expect(session.shownFor(missionA)).toMatch(/^Saved\./);
+    expect(session.shownFor(missionA)).toContain("in progress");
+  });
+
+  it("a successful complete behaves the same way", () => {
+    const session = learnerSession();
+    session.save(missionA, "complete", "completed");
+
+    expect(session.shownFor(missionA)).toMatch(/^Saved\./);
+    expect(session.shownFor(missionA)).toContain("completed");
+  });
+
+  // The exact defect: Mission A's confirmation appearing under Mission B.
+  it("NEVER shows one mission's confirmation on another mission", () => {
+    const session = learnerSession();
+    session.save(missionA, "start", "in_progress");
+
+    expect(session.shownFor(missionB)).toBe("");
+  });
+
+  it("ownership holds even if navigation forgot to clear", () => {
+    // Defence in depth. `selectMission` clears, but a future call site that set
+    // the mission directly must still not be able to reattach old feedback.
+    const stale: ProgressFeedback = buildSavedFeedback(
+      missionA.stableId,
+      "start",
+      "in_progress"
+    );
+
+    expect(resolveProgressFeedback(stale, missionB.stableId)).toBeNull();
+    expect(resolveProgressFeedback(stale, missionA.stableId)).toEqual(stale);
+  });
+
+  it("navigating away ends the feedback rather than parking it", () => {
+    const session = learnerSession();
+    session.save(missionA, "start", "in_progress");
+    session.selectMission();
+
+    expect(session.shownFor(missionB)).toBe("");
+    // And it does not resurrect on returning to the mission that earned it.
+    expect(session.shownFor(missionA)).toBe("");
+  });
+
+  it("a failed save is truthful and stays on its own mission", () => {
+    const session = learnerSession();
+    session.failSave(missionA, "start", "The platform could not complete that request.");
+
+    const shown = session.shownFor(missionA);
+    expect(shown).toMatch(/^Not saved\./);
+    expect(shown).toContain("existing progress is unchanged");
+    expect(session.shownFor(missionB)).toBe("");
+  });
+
+  it("a failure with no detail still says nothing was changed", () => {
+    const session = learnerSession();
+    session.failSave(missionA, "complete");
+
+    expect(session.shownFor(missionA)).toBe(
+      "Not saved. Your existing progress is unchanged."
+    );
+  });
+
+  it("navigating after a failure does not associate it with another mission", () => {
+    const session = learnerSession();
+    session.failSave(missionA, "start", "Prerequisites are not yet satisfied");
+    session.selectMission();
+
+    expect(session.shownFor(missionB)).toBe("");
+  });
+
+  it("a new save replaces the previous result rather than accumulating", () => {
+    const session = learnerSession();
+    session.failSave(missionA, "start", "Something went wrong.");
+    session.save(missionA, "start", "in_progress");
+
+    expect(session.shownFor(missionA)).toMatch(/^Saved\./);
+    expect(session.shownFor(missionA)).not.toMatch(/Not saved/);
+  });
+
+  // The reported scenario, end to end.
+  it("MISSION 7 shows no stale confirmation after another mission was saved", () => {
+    const session = learnerSession();
+    session.save(missionA, "start", "in_progress");
+    session.selectMission();
+
+    expect(session.shownFor(demonstrationMission)).toBe("");
+
+    // And its controls are still closed, for the reason they were always closed.
+    const controls = controlsFor("unknown", demonstrationMission);
+    expect(controls.canStart).toBe(false);
+    expect(controls.canComplete).toBe(false);
+    expect(controls.explanation).toMatch(/deterministic lab validator/i);
+  });
+
+  it("reports the state the server recorded, not the one requested", () => {
+    // Asking to complete and being told in_progress must read as in_progress.
+    const session = learnerSession();
+    session.save(missionA, "complete", "in_progress");
+
+    expect(session.shownFor(missionA)).toContain("in progress");
+    expect(session.shownFor(missionA)).not.toContain('"completed"');
+  });
+
+  it("carries the action that produced it, so feedback is attributable", () => {
+    expect(buildSavedFeedback(missionA.stableId, "start", "in_progress")).toMatchObject({
+      missionStableId: missionA.stableId,
+      action: "start",
+      outcome: "saved"
+    });
+    expect(buildFailedFeedback(missionA.stableId, "complete")).toMatchObject({
+      missionStableId: missionA.stableId,
+      action: "complete",
+      outcome: "failed"
+    });
+  });
+
+  it("no feedback at all renders nothing", () => {
+    expect(resolveProgressFeedback(null, missionA.stableId)).toBeNull();
+    expect(learnerSession().shownFor(missionA)).toBe("");
+  });
+});
+
+describe("UAT-PROGRESS-FEEDBACK-1 the earlier repairs still hold", () => {
+  // UAT-PROGRESS-UI-1 must not have regressed.
+  it("a post-success background refresh still never reads as failure", () => {
+    const session = learnerSession();
+    session.save(missionA, "start", "in_progress");
+
+    const duringRefresh = controlsFor("in_progress", missionA, loadingAvailability);
+
+    expect(readsAsFailure(session.shownFor(missionA))).toBe(false);
+    expect(readsAsFailure(duringRefresh.explanation)).toBe(false);
+  });
+
+  it("persisted progress remains authoritative for the controls", () => {
+    expect(controlsFor("in_progress").canStart).toBe(false);
+    expect(controlsFor("completed").canComplete).toBe(false);
+  });
+
+  it("unknown remains distinct from not_started", () => {
+    expect(
+      describeMissionProgress(availability("available"), null, missionA.stableId).known
+    ).toBe(false);
+    expect(controlsFor("unknown").canStart).toBe(true);
   });
 });
