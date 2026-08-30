@@ -382,6 +382,61 @@ PYCHECK
 grep -Fq 'record.state' "$VIEW" \
   || fail "the view reports the requested state rather than the recorded one"
 
+# UAT-PROGRESS-FEEDBACK-1. Save feedback belongs to the mission that earned it.
+#
+# The view previously held a bare `saveMessage` string with no owner and cleared
+# it only when the next save began. A confirmation earned on one mission stayed
+# on screen while another was opened, and the message says "this mission" — it
+# silently re-pointed. A learner saw Mission 7 reporting "Not started", both
+# controls disabled, above `Saved. … records this mission as "in progress"`.
+#
+# The regression tests model that sequence, but they cannot see the VIEW. This
+# asserts the view actually applies the ownership check before rendering, so
+# passing raw feedback through would fail here even with every test green.
+python3 - "$VIEW" <<'PYCHECK'
+import re
+import sys
+
+view = open(sys.argv[1], encoding="utf-8").read()
+problems = []
+
+if "saveMessage" in view:
+    problems.append("the unowned saveMessage string is back")
+
+index = view.find("<MissionDetail")
+if index < 0:
+    problems.append("the mission detail panel is gone")
+else:
+    element = view[index:index + 1200]
+    match = re.search(r"feedback=\{(.*?)\}\s*\n", element, re.S)
+    if not match:
+        problems.append("the mission detail panel receives no feedback prop")
+    elif "resolveProgressFeedback" not in match.group(1):
+        problems.append(
+            "feedback reaches the mission detail panel without being resolved "
+            "to that mission"
+        )
+
+# Changing the open mission must end the previous operation's feedback.
+if "setFeedback(null)" not in view:
+    problems.append("navigation no longer ends the previous feedback")
+
+for direct in re.findall(r"setSelectedMissionStableId\(", view):
+    pass
+uses = view.count("setSelectedMissionStableId(")
+# One definition from useState destructuring, one inside selectMission.
+if uses > 2:
+    problems.append(
+        "a navigation path sets the mission directly instead of going through "
+        "selectMission, so it can leave stale feedback attached"
+    )
+
+if problems:
+    for problem in problems:
+        print(f"FAIL: {problem}", file=sys.stderr)
+    sys.exit(1)
+PYCHECK
+
 echo "PASS:  6. publication, progress and completion are read from the server"
 
 # ------------------------------------------------------------

@@ -18,11 +18,15 @@ import {
   describeCourseProgress,
   describeDemonstrationAvailability,
   describeMissionProgress,
+  buildFailedFeedback,
+  buildSavedFeedback,
   resolveContinueTarget,
   resolveCourseAvailability,
   resolveMissionControlState,
+  resolveProgressFeedback,
   resolveSelectedMission,
-  type MissionControlState
+  type MissionControlState,
+  type ProgressFeedback
 } from "./roas-course-presentation";
 import {
   loadLearningPathProgress,
@@ -58,7 +62,7 @@ function MissionDetail({
   progressLabel,
   controls,
   saving,
-  saveMessage,
+  feedback,
   onRecord
 }: {
   mission: LearnerMission;
@@ -66,7 +70,8 @@ function MissionDetail({
   progressLabel: string;
   controls: MissionControlState;
   saving: boolean;
-  saveMessage: string;
+  /** Already resolved to this mission, or null. See resolveProgressFeedback. */
+  feedback: ProgressFeedback | null;
   onRecord: (action: "start" | "complete") => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -150,7 +155,7 @@ function MissionDetail({
         Mark as complete
       </button>
 
-      <p aria-live="polite">{saveMessage}</p>
+      <p aria-live="polite">{feedback?.message ?? ""}</p>
     </section>
   );
 }
@@ -178,7 +183,7 @@ export function LearningView() {
     string | null
   >(null);
   const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
+  const [feedback, setFeedback] = useState<ProgressFeedback | null>(null);
 
   const pathStableId = course.learningPathStableId;
 
@@ -278,6 +283,22 @@ export function LearningView() {
     selectedMissionStableId
   );
 
+  // UAT-PROGRESS-FEEDBACK-1. Opening a different mission ends the previous
+  // operation's feedback.
+  //
+  // Ownership alone would already stop the message rendering under the wrong
+  // mission, but on its own it would let an old confirmation REAPPEAR on
+  // returning to the mission that earned it — resurrecting a result from a
+  // visit the learner has since left. Feedback is about an action just taken,
+  // not a property of the mission, so it ends when that context does.
+  //
+  // Routing every selection through one callback is what stops a future call
+  // site from setting the mission without ending the feedback.
+  const selectMission = useCallback((missionStableId: string | null) => {
+    setSelectedMissionStableId(missionStableId);
+    setFeedback(null);
+  }, []);
+
   const continueTarget = resolveContinueTarget({
     availability,
     course,
@@ -290,7 +311,7 @@ export function LearningView() {
     action: "start" | "complete"
   ) {
     setSaving(true);
-    setSaveMessage("");
+    setFeedback(null);
 
     try {
       const record = await recordMissionProgress(
@@ -298,17 +319,20 @@ export function LearningView() {
         mission.stableId,
         action
       );
-      // What is displayed is what the server returned, not what was requested.
-      setSaveMessage(
-        `Saved. The platform now records this mission as "${record.state.replace(/_/g, " ")}".`
+      // What is displayed is what the server returned, not what was requested,
+      // and it is stamped with the mission that earned it.
+      setFeedback(
+        buildSavedFeedback(mission.stableId, action, record.state)
       );
       const controller = new AbortController();
       await load(controller.signal, { background: true });
     } catch (caught) {
-      setSaveMessage(
-        caught instanceof ApiRequestError
-          ? `Not saved. ${caught.message} Your existing progress is unchanged.`
-          : "Not saved. Your existing progress is unchanged."
+      setFeedback(
+        buildFailedFeedback(
+          mission.stableId,
+          action,
+          caught instanceof ApiRequestError ? caught.message : undefined
+        )
       );
     } finally {
       setSaving(false);
@@ -340,7 +364,7 @@ export function LearningView() {
           <button
             type="button"
             onClick={() =>
-              setSelectedMissionStableId(continueTarget.missionStableId ?? null)
+              selectMission(continueTarget.missionStableId ?? null)
             }
           >
             {continueTarget.label}
@@ -383,7 +407,7 @@ export function LearningView() {
                         aria-current={isOpen ? "true" : undefined}
                         aria-controls={buildMissionRegionId(mission.stableId)}
                         onClick={() =>
-                          setSelectedMissionStableId(mission.stableId)
+                          selectMission(mission.stableId)
                         }
                       >
                         {mission.title}
@@ -422,7 +446,10 @@ export function LearningView() {
             )
           })}
           saving={saving}
-          saveMessage={saveMessage}
+          feedback={resolveProgressFeedback(
+            feedback,
+            selectedMission.stableId
+          )}
           onRecord={(action) => void handleRecord(selectedMission, action)}
         />
       ) : (
