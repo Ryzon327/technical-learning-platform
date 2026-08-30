@@ -6,9 +6,16 @@ import type {
   CurriculumPublicationState,
   CurriculumValidationIssue,
   CurriculumValidationResult,
-  MissionCompetencyRelationship
+  MissionCompetencyRelationship,
+  MissionStep,
+  MissionStepReadOutcome
 } from "@tlp/shared-types";
-import { AppError, isMissionCompetencyRelationship } from "@tlp/shared-types";
+import {
+  AppError,
+  isMissionCompetencyRelationship,
+  resolvePersistedMissionSteps,
+  validateMissionStep
+} from "@tlp/shared-types";
 import { createServerSupabaseClient } from "./supabase";
 import { buildLearningPathQualityReport } from "./curriculum-quality";
 
@@ -468,6 +475,127 @@ export async function linkMissionCompetency(
   }
 }
 
+/* ------------------------------------------------------------------ *
+ * WP-C / CURR-010 — ordered instructional steps beneath a mission
+ * ------------------------------------------------------------------ */
+
+/**
+ * Author one instructional step on an existing mission.
+ *
+ * Extends the existing curriculum authoring surface rather than adding a
+ * parallel administration subsystem: same server client, same `AppError`
+ * conventions, same server-authorized write path, same stable-id grammar.
+ *
+ * **Validated before the client is created.** Invalid instructional content is
+ * a caller error, not a dependency failure, and it is reported as one whether
+ * or not a database is reachable. Nothing is normalized into validity: a step
+ * that does not describe what it claims to describe is refused, because
+ * inventing the missing instructional meaning is exactly what a curriculum
+ * writer must never do.
+ *
+ * Upserts on `(mission_id, stable_id)`, so re-running an authoring pass is
+ * idempotent rather than creating a second copy of a step.
+ */
+export async function upsertMissionStep(
+  _context: AuthoringContext,
+  missionId: string,
+  step: MissionStep
+): Promise<void> {
+  const errors = validateMissionStep(step);
+
+  if (errors.length > 0) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: `Mission step is not valid instructional content: ${errors.join("; ")}`,
+      retryable: false
+    });
+  }
+
+  if (!missionId.trim()) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: "Mission step must belong to a mission",
+      retryable: false
+    });
+  }
+
+  const supabase = createServerSupabaseClient();
+
+  // `content.type` is the discriminator in the application model and
+  // `step_type` is the closed vocabulary in the database. They are written from
+  // the SAME value here, which is what makes them agree on the write path;
+  // `readMissionSteps` re-checks that they still agree on the read path rather
+  // than assuming this was the only writer that ever ran.
+  const { error } = await supabase
+    .from("mission_steps")
+    .upsert(
+      {
+        mission_id: missionId,
+        stable_id: step.stableId,
+        position: step.position,
+        step_type: step.content.type,
+        payload: step.content
+      },
+      { onConflict: "mission_id,stable_id" }
+    );
+
+  if (error) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Unable to author mission step",
+      retryable: true
+    });
+  }
+}
+
+/**
+ * Read one mission's authored steps.
+ *
+ * Narrow by design. WP-E owns learner read-path integration; this exists so
+ * publication validation and authoring can see what was written, and so the
+ * persistence contract is testable.
+ *
+ * The integrity check lives in `resolvePersistedMissionSteps`, not here: the
+ * persisted `step_type` column and the payload's own `type` are two
+ * representations of one fact, and a disagreement between them is resolved by
+ * failing rather than by picking a winner. Keeping that decision in a pure
+ * shared function means it is testable without a database and cannot drift
+ * between callers.
+ *
+ * Returning the outcome rather than a bare array is what stops a caller
+ * rendering a partial mission: `steps` exists only on the `available` variant.
+ */
+export async function readMissionSteps(
+  missionId: string
+): Promise<MissionStepReadOutcome> {
+  const supabase = createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("mission_steps")
+    .select("stable_id,position,step_type,payload")
+    .eq("mission_id", missionId)
+    .order("position", { ascending: true });
+
+  if (error) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Unable to read mission steps",
+      retryable: true
+    });
+  }
+
+  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+
+  return resolvePersistedMissionSteps(
+    rows.map((row) => ({
+      stableId: row.stable_id,
+      position: row.position,
+      stepType: row.step_type,
+      payload: row.payload
+    }))
+  );
+}
+
 export async function validateLearningPathForPublication(
   learningPathId: string
 ): Promise<CurriculumValidationResult> {
@@ -622,6 +750,25 @@ export async function validateLearningPathForPublication(
             code: "MISSING_COMPETENCY",
             message:
               "Mission must map to at least one required competency.",
+            nodeType: "mission",
+            nodeId: mission.id,
+            stableId: mission.stable_id
+          });
+        }
+
+        // WP-C / CURR-010 section 13.1 — publication is the primary defence.
+        //
+        // Invalid instructional content keeps the curriculum in draft. A
+        // mission with NO steps is not an issue: CURR-010 section 13.4 permits
+        // it to keep rendering from `mission.description` during the
+        // transition, which is why `readMissionSteps` reports that case as
+        // `legacy_brief` rather than as an error.
+        const stepOutcome = await readMissionSteps(String(mission.id));
+
+        if (stepOutcome.state === "content_error") {
+          issues.push({
+            code: "INVALID_MISSION_STEPS",
+            message: `Mission instructional steps are not valid: ${stepOutcome.errors.join("; ")}`,
             nodeType: "mission",
             nodeId: mission.id,
             stableId: mission.stable_id
