@@ -91,6 +91,18 @@ Learning Path
 
 Not every Mission requires every child type, but every item must have a defined purpose.
 
+> **Clarification — DEC-054.** The children listed above are **content beneath a
+> Mission**, not curriculum nodes. "Lesson" here denotes instructional content,
+> and it is **not** a node between Module and Mission. A Lesson curriculum node
+> was evaluated and rejected: Mission remains the authoritative unit for learner
+> progress, resume and navigation, prerequisite evaluation, competency
+> relationship, lab association and completion.
+>
+> `CURR-010` specifies how that instructional content is actually modelled — as
+> ordered, typed instructional steps carrying no independent publication state,
+> version, progress, competency, prerequisite, completion, evidence or
+> supersession.
+
 ---
 
 # Current MVP Features
@@ -106,6 +118,8 @@ Not every Mission requires every child type, but every item must have a defined 
 | CURR-007 | Content Asset References | Essential | Approved |
 | CURR-008 | Estimated Effort and Course Sizing | Essential | Approved |
 | CURR-009 | Curriculum Quality Checklist | Essential | Approved |
+| CURR-010 | Mission Instructional Steps | Core | Specified |
+| CURR-011 | Instructional Interaction Contract | Core | Specified |
 
 ---
 
@@ -146,6 +160,14 @@ Keeps learning units manageable and avoids excessively long, draining courses.
 ## CURR-009 — Curriculum Quality Checklist
 
 Ensures every publishable curriculum unit meets learning, accessibility, security, and clarity standards.
+
+## CURR-010 — Mission Instructional Steps
+
+Defines the ordered, typed instructional content beneath a Mission — the unit of "teach a little, then apply it" — with a closed seven-type vocabulary and publication-blocking accessibility alternatives.
+
+## CURR-011 — Instructional Interaction Contract
+
+Defines the single authoritative contract for learner-manipulable instructional experiences, including the shared `ObservationModel`, the teaching-mode Packet Journey, and accessible interaction equivalence.
 
 ---
 

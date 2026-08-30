@@ -162,19 +162,32 @@ Working learning path: **IT & Cybersecurity Foundations**
 
 | # | Experience | Role in the path |
 |---|---|---|
-| 01 | **Router-on-a-Stick / Build the Network** | the substantive foundational networking course |
-| 02 | **Linux Fundamentals** | focused hands-on experience; **reuses** networking |
-| 03 | **Windows Fundamentals** | focused hands-on experience; reinforces networking, compares with Linux |
-| 04 | **Security Fundamentals / Secure the Environment** | intentionally integrates networking, Linux and Windows |
-| 05 | **Integrated Challenge** | a fresh deterministic environment combining prior competencies |
+| 01 | **Networking Foundations** | **develops** the reusable foundational `net.*` competencies |
+| 02 | **Router-on-a-Stick / Build the Network** | the substantive networking course; **applies and reinforces** the foundations |
+| 03 | **Linux Fundamentals** | focused hands-on experience; **reuses** networking |
+| 04 | **Windows Fundamentals** | focused hands-on experience; reinforces networking, compares with Linux |
+| 05 | **Security Fundamentals / Secure the Environment** | intentionally integrates networking, Linux and Windows |
+| 06 | **Integrated Challenge** | a fresh deterministic environment combining prior competencies |
+
+> **Amended by DEC-053.** Networking Foundations was inserted ahead of
+> Router-on-a-Stick after the BEGINNER-COMPLETE-1 audit established that
+> Router-on-a-Stick begins above the floor the Zero-Assumption Learning Gate
+> sets. This also brings the MVP path into agreement with
+> `PLATFORM_BLUEPRINT.md` section 6.1, which already placed Networking
+> Foundations ahead of enterprise networking work.
 
 The point of this sequence is the **connection between the experiences**, not the
 count of courses.
 
-* Router-on-a-Stick covers addressing and subnetting as the course requires,
-  VLANs, access versus trunk behaviour, 802.1Q, inter-VLAN routing,
-  connectivity verification and practical troubleshooting, with hands-on labs
-  proving configuration and troubleshooting capability.
+* Networking Foundations teaches what a network is made of, how to talk to a
+  device, addresses and subnet boundaries, how to prove something works, and how
+  a switch moves traffic. It **develops** the foundational competencies every
+  later course reuses.
+* Router-on-a-Stick covers VLANs, access versus trunk behaviour, 802.1Q,
+  inter-VLAN routing, connectivity verification and practical troubleshooting,
+  with hands-on labs proving configuration and troubleshooting capability. It
+  **reinforces** the foundational addressing, gateway and subnet competencies in
+  context rather than teaching them for the first time.
 * Linux and Windows are focused hands-on experiences rather than long survey
   courses. Each **requires** the networking competency already demonstrated
   instead of treating it as forgotten history.

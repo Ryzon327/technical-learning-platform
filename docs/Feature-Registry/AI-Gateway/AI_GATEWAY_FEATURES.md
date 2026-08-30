@@ -33,6 +33,7 @@ It owns provider abstraction, model routing, privacy controls, cost controls, se
 | AIGW-008 | AI Usage and Audit Metadata | Approved |
 | AIGW-009 | Local AI Provider Adapter | Approved |
 | AIGW-010 | External AI Provider Adapters | Approved |
+| AIGW-011 | Curriculum Projection and Protected-Content Withholding | Specified |
 
 ## Provider Progression
 

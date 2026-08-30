@@ -209,6 +209,46 @@ CURR-009 is complete when:
 
 ---
 
+# 14a. Extension — Three-Tier Instructional Quality Authority (DEC-057)
+
+Instructional quality is governed in three tiers with three different
+authorities.
+
+**Tier 1 — Hard structural validation.** Objective, machine-verifiable invariants
+**may block publication**: invalid step type; invalid payload for its type;
+unresolved required reference; missing required accessibility alternative;
+duplicate or invalid position; unregistered interaction type; structurally
+prohibited content.
+
+**Tier 2 — Advisory instructional signals.** Automation **may flag** suspicious
+instructional patterns for human review. These signals **never automatically fail
+and never automatically approve** instruction.
+
+**Tier 3 — Human instructional UAT.** A human reviewer is the **final authority
+on pedagogical sufficiency.** A mission may pass every automated check and still
+fail instructional UAT.
+
+**No arbitrary numeric pedagogy threshold is authorized.** Where a Tier 2 signal
+needs a comparison point, it is derived from the distribution of
+already-published, human-approved missions — never chosen for automation
+convenience.
+
+A signal may be promoted from Tier 2 to Tier 1 only when it can be restated as an
+objective invariant requiring no pedagogical judgement.
+
+**BEGINNER-COMPLETE-1 remains a human-authoritative curriculum quality
+requirement, supported and not replaced by automation.**
+
+**"Structurally prohibited content" means prohibited content structures and
+prohibited execution or rendering behaviour** — an executable authored payload,
+executable authored markup, or a field requesting unsupported raw-markup
+interpretation. It must **never** mean rejecting legitimate instructional plain
+text because it resembles HTML, JavaScript, shell syntax, configuration syntax or
+a security payload example. The boundary is inertness and renderer escaping, not
+keyword or pattern matching. See `CURR-010` section 10.
+
+---
+
 # 15. Future Extensions
 
 - Automated technical freshness checks.

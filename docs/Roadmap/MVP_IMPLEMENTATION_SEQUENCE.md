@@ -588,17 +588,26 @@ course and at least one practical lab. This section records that work.
 One **connected** learning experience — not a catalog:
 
 ```text
-01 Router-on-a-Stick / Build the Network
-02 Linux Fundamentals
-03 Windows Fundamentals
-04 Security Fundamentals / Secure the Environment
-05 Integrated Challenge
+01 Networking Foundations
+02 Router-on-a-Stick / Build the Network
+03 Linux Fundamentals
+04 Windows Fundamentals
+05 Security Fundamentals / Secure the Environment
+06 Integrated Challenge
 ```
 
-Router-on-a-Stick is the substantive networking course. Linux and Windows are
-focused hands-on experiences. Security intentionally integrates the earlier
-domains. The Integrated Challenge combines competencies without announcing which
-technology is being exercised.
+> **Amended by DEC-053.** This section previously recorded a five-course path
+> beginning with Router-on-a-Stick. Networking Foundations was inserted ahead of
+> it after the BEGINNER-COMPLETE-1 audit. The superseded list is retained in
+> DEC-049 as the historical record; only the ordering changed, and nothing else
+> in this section is affected.
+
+Networking Foundations **develops** the reusable foundational `net.*`
+competencies. Router-on-a-Stick is the substantive networking course and
+**reinforces** those foundations in context rather than developing them. Linux
+and Windows are focused hands-on experiences. Security intentionally integrates
+the earlier domains. The Integrated Challenge combines competencies without
+announcing which technology is being exercised.
 
 **The connection between experiences is the deliverable.** Later experiences must
 require reuse of competencies already demonstrated rather than allowing them to
@@ -636,6 +645,12 @@ curriculum-defined reinforcement checkpoint trigger has no writer, and no learne
 surface communicates reuse. Each needs its own authorization; none reopens the
 completed Wave 3 Learning Engine.
 
+**Gap 1 now has an approved model.** DEC-055 approves
+`mission_competencies.relationship` with the values `develops` and `reinforces`,
+and explicitly declines to add `requires` — `learning_prerequisite_rules` remains
+the sole prerequisite mechanism. The migration itself remains a Founder gate and
+is not yet authorized. Gaps 2 and 3 are unchanged.
+
 ## Sequencing note — not a binding requirement
 
 The next recommended build is the **Router-on-a-Stick end-to-end vertical slice**,
@@ -653,6 +668,47 @@ Beyond that, sequencing is deliberately **left open**:
 
 **Deterministic validation remains independent of AI under every sequencing
 choice.** The validator owns factual pass/fail; the tutor may only explain it.
+
+## Signature learning completeness — DEC-058
+
+> **Simulation teaches the mental model. The real lab confirms the mental model.**
+
+For an applicable hands-on technical path, real-environment confirmation is part
+of the target experience, not optional polish. An authored teaching simulation
+constructs the mental model and produces **no competency evidence**; the
+deterministic validator remains the authority for success and failure.
+
+**A hands-on path is not declared fully SIGNATURE-LEARNING complete solely
+because an authored simulation exists** when real-environment confirmation is
+applicable to the competency.
+
+### WP-K — Live-Lab Packet Journey Adapter
+
+Recorded here as a named future work item so it is not carried as an indefinite
+"later". **Not authorized for implementation.**
+
+**Purpose.** Connect authoritative Lab Engine observations to the shared
+`ObservationModel` established by the teaching-mode interaction work, so the same
+renderer serves both modes.
+
+**Depends on** the interaction/observation seam being built, **and** on a real
+applicable lab provider implementing the deterministic probes. WP-K cannot start
+before that provider exists.
+
+**Constraints.** It does not independently compute correctness; it fails closed
+to "state unavailable"; it never becomes a second forwarding, routing or VLAN
+simulator; it never becomes the competency validator. If the seam is built
+correctly it should require **no redesign of the renderer**. It may require a
+future Founder-approved `LabProvider` contract extension, decided against real
+observation requirements rather than anticipated now.
+
+**Significance.** WP-K is what eventually makes the applicable Router-on-a-Stick
+experience fully SIGNATURE-LEARNING complete, through:
+
+```text
+simulation → real environment → authoritative observation
+→ learner remediation → deterministic confirmation
+```
 
 ## Exit criteria
 
