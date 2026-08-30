@@ -256,10 +256,19 @@ export const CURRICULUM_ASSET_ACCESSIBILITY_NOTE =
  * changing this contract's shape.
  */
 export function isAllowedCurriculumAssetUri(value: unknown): boolean {
-  if (typeof value !== "string" || value.trim() === "") return false;
+  if (typeof value !== "string" || value === "") return false;
+
+  // Surrounding whitespace is a REJECTION, not something to tidy away.
+  //
+  // Trimming before parsing would have accepted " https://example.org/a.svg"
+  // and then stored or compared a value the author did not write — a quiet
+  // normalization, which is exactly what the rest of this contract refuses to
+  // do. The raw string must already be its own trimmed form.
+  if (value !== value.trim()) return false;
 
   try {
-    const parsed = new URL(value.trim());
+    // The ORIGINAL value, deliberately: nothing here canonicalizes a URI.
+    const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
@@ -458,6 +467,12 @@ export function resolvePersistedCurriculumAssets(
 
     if (!isNonEmptyString(row?.title)) {
       at("persisted asset has no title");
+    } else if (row.title.length > CURRICULUM_ASSET_TITLE_LIMIT) {
+      // The SAME limit the authoring contract enforces. A persisted value
+      // exceeding it did not come through `validateCurriculumAsset`, so it is
+      // reported rather than truncated: shortening it would silently alter
+      // authored content and hide however it got there.
+      at(`persisted title exceeds ${CURRICULUM_ASSET_TITLE_LIMIT} characters`);
     }
 
     if (!isAllowedCurriculumAssetUri(row?.uri)) {
@@ -478,13 +493,22 @@ export function resolvePersistedCurriculumAssets(
     if (isVisualCurriculumAsset(row?.assetType)) {
       if (!isNonEmptyString(row?.altText)) {
         at("persisted visual asset carries no alt text");
+      } else if (row.altText.length > CURRICULUM_ASSET_ALT_TEXT_LIMIT) {
+        at(
+          `persisted alt text exceeds ${CURRICULUM_ASSET_ALT_TEXT_LIMIT} characters`
+        );
       }
-    } else if (
-      row?.altText !== undefined &&
-      row?.altText !== null &&
-      !isNonEmptyString(row.altText)
-    ) {
-      at("persisted alt text is present but empty");
+    } else if (row?.altText !== undefined && row?.altText !== null) {
+      // A non-visual asset need not carry alt text, but if it does the same
+      // limit applies. Bounding it only for visuals would leave the wider
+      // column unbounded at the read boundary.
+      if (!isNonEmptyString(row.altText)) {
+        at("persisted alt text is present but empty");
+      } else if (row.altText.length > CURRICULUM_ASSET_ALT_TEXT_LIMIT) {
+        at(
+          `persisted alt text exceeds ${CURRICULUM_ASSET_ALT_TEXT_LIMIT} characters`
+        );
+      }
     }
 
     if (errors.length !== before) return;

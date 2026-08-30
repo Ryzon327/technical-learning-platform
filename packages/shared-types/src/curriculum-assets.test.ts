@@ -3,6 +3,7 @@ import {
   CURRICULUM_ASSET_ACCESSIBILITY_NOTE,
   CURRICULUM_ASSET_ALT_TEXT_LIMIT,
   CURRICULUM_ASSET_STABLE_ID,
+  CURRICULUM_ASSET_TITLE_LIMIT,
   CURRICULUM_ASSET_TYPES,
   CURRICULUM_AUTHORABLE_ASSET_TYPES,
   CURRICULUM_LEGACY_ASSET_TYPE_OWNERS,
@@ -176,6 +177,48 @@ describe("WP-D curriculum asset authoring", () => {
     ]) {
       expect(isAllowedCurriculumAssetUri(rejected), rejected).toBe(false);
     }
+  });
+
+  // Surrounding whitespace is a rejection, not something to tidy away.
+  // Trimming before parsing would accept a value the author did not write.
+  it("rejects a URL padded with whitespace rather than trimming it", () => {
+    for (const padded of [
+      " https://example.org/a.svg",
+      "https://example.org/a.svg ",
+      " https://example.org/a.svg ",
+      "\thttps://example.org/a.svg",
+      "https://example.org/a.svg\n"
+    ]) {
+      expect(isAllowedCurriculumAssetUri(padded), JSON.stringify(padded)).toBe(
+        false
+      );
+
+      expect(
+        validateCurriculumAsset({ ...validArticle, uri: padded }).join(" "),
+        JSON.stringify(padded)
+      ).toContain("absolute http or https URL");
+    }
+
+    // The unpadded form is still fine, so the rule rejects the padding rather
+    // than the URL.
+    expect(isAllowedCurriculumAssetUri("https://example.org/a.svg")).toBe(true);
+  });
+
+  it("rejects an authored title over the limit", () => {
+    expect(
+      validateCurriculumAsset({
+        ...validArticle,
+        title: "a".repeat(CURRICULUM_ASSET_TITLE_LIMIT + 1)
+      }).join(" ")
+    ).toContain("title exceeds");
+
+    // Exactly at the limit is allowed, so the boundary is inclusive.
+    expect(
+      validateCurriculumAsset({
+        ...validArticle,
+        title: "a".repeat(CURRICULUM_ASSET_TITLE_LIMIT)
+      })
+    ).toEqual([]);
   });
 
   it("rejects a non-integer or negative position without repairing it", () => {
@@ -439,6 +482,92 @@ describe("WP-D persisted curriculum asset integrity", () => {
         String(uri)
       ).toBe("content_error");
     }
+  });
+
+  // The persisted boundary must enforce the SAME limits the authoring contract
+  // does. A row exceeding them did not come through validateCurriculumAsset,
+  // and truncating it would silently alter authored content.
+  it("fails closed on a persisted title over the limit", () => {
+    const outcome = resolvePersistedCurriculumAssets([
+      row({ title: "a".repeat(CURRICULUM_ASSET_TITLE_LIMIT + 1) })
+    ]);
+
+    expect(outcome.state).toBe("content_error");
+    if (outcome.state !== "content_error") throw new Error("expected error");
+    expect(outcome.errors.join(" ")).toContain("title exceeds");
+  });
+
+  it("fails closed on persisted visual alt text over the limit", () => {
+    const outcome = resolvePersistedCurriculumAssets([
+      row({ altText: "a".repeat(CURRICULUM_ASSET_ALT_TEXT_LIMIT + 1) })
+    ]);
+
+    expect(outcome.state).toBe("content_error");
+    if (outcome.state !== "content_error") throw new Error("expected error");
+    expect(outcome.errors.join(" ")).toContain("alt text exceeds");
+  });
+
+  it("fails closed on persisted non-visual alt text over the limit", () => {
+    // A non-visual asset need not carry alt text, but if it does the limit
+    // still applies — otherwise the wider column stays unbounded here.
+    const outcome = resolvePersistedCurriculumAssets([
+      row({
+        assetType: "article",
+        altText: "a".repeat(CURRICULUM_ASSET_ALT_TEXT_LIMIT + 1)
+      })
+    ]);
+
+    expect(outcome.state).toBe("content_error");
+    if (outcome.state !== "content_error") throw new Error("expected error");
+    expect(outcome.errors.join(" ")).toContain("alt text exceeds");
+  });
+
+  it("accepts persisted values exactly at the limits", () => {
+    const outcome = resolvePersistedCurriculumAssets([
+      row({
+        title: "a".repeat(CURRICULUM_ASSET_TITLE_LIMIT),
+        altText: "b".repeat(CURRICULUM_ASSET_ALT_TEXT_LIMIT)
+      })
+    ]);
+
+    expect(outcome.state).toBe("available");
+  });
+
+  it("fails closed on a persisted URL padded with whitespace", () => {
+    for (const padded of [
+      " https://example.org/a.svg",
+      "https://example.org/a.svg ",
+      " https://example.org/a.svg "
+    ]) {
+      const outcome = resolvePersistedCurriculumAssets([row({ uri: padded })]);
+      expect(outcome.state, JSON.stringify(padded)).toBe("content_error");
+    }
+  });
+
+  it("still accepts a persisted ordinary http(s) URL", () => {
+    for (const uri of [
+      "https://example.org/a.svg",
+      "http://example.org/assets/topology.png"
+    ]) {
+      expect(
+        resolvePersistedCurriculumAssets([row({ uri })]).state,
+        uri
+      ).toBe("available");
+    }
+  });
+
+  it("fails the whole read when one row breaks a length limit", () => {
+    const outcome = resolvePersistedCurriculumAssets([
+      row({ stableId: "good-one" }),
+      row({
+        stableId: "too-long-title",
+        title: "a".repeat(CURRICULUM_ASSET_TITLE_LIMIT + 1)
+      }),
+      row({ stableId: "another-good", assetType: "article", altText: null })
+    ]);
+
+    expect(outcome.state).toBe("content_error");
+    expect(outcome).not.toHaveProperty("assets");
   });
 
   it("does not return the valid remainder when one row is corrupt", () => {
