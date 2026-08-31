@@ -8,6 +8,9 @@ for _ in $(seq 1 30); do if curl -fsS "http://127.0.0.1:${PORT}/ready" >/dev/nul
 assert_status(){ local method="$1" path="$2" expected="$3" body="${4:-}"; local args=(-sS -o /tmp/tlp-smoke-body -w "%{http_code}" -X "$method"); if [ -n "$body" ]; then args+=(-H "content-type: application/json" --data "$body"); fi; local status; status="$(curl "${args[@]}" "http://127.0.0.1:${PORT}${path}")"; [ "$status" = "$expected" ] || { echo "FAIL: $method $path expected $expected got $status"; cat "$LOG_FILE"; exit 1; }; }
 assert_status GET /assessments 401
 assert_status GET '/learning/progress?path=path.test' 401
+# WP-E. 401, not 404: an anonymous caller learns nothing about whether the
+# mission exists, because authentication is resolved before the id is read.
+assert_status GET /learning/missions/mission.test/instruction 401
 assert_status GET /notes 401
 assert_status GET /lab-providers/mock/capabilities 401
 assert_status GET /lab-sessions 401
