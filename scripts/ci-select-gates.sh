@@ -121,6 +121,9 @@ apps/web/src/learning/learning-service.ts|scripts/verify-wpf.sh
 apps/web/src/learning/LearningView.tsx|scripts/verify-wpf.sh
 apps/web/src/styles.css|scripts/verify-wpf.sh
 packages/shared-types/src/mission-instruction*|scripts/verify-wpf.sh
+packages/shared-types/src/mission-steps*|scripts/verify-wpf.sh
+services/api/src/curriculum.ts|scripts/verify-wpf.sh
+services/api/src/server.ts|scripts/verify-wpf.sh
 scripts/verify-wpf.sh|scripts/verify-wpf.sh
 packages/shared-types/src/roas-curriculum*|scripts/verify-roas2.sh
 scripts/verify-roas2.sh|scripts/verify-roas2.sh

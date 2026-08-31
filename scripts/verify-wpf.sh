@@ -130,7 +130,19 @@ if grep -qF -e 'expectedOutcome' "$WPF_LOGIC"; then
 fi
 
 # And the contract it depends on must still not carry the field.
-if grep -qE 'expectedOutcome' "$CONTRACT" | grep -qv '^\s*\*'; then
+#
+# This was written as `grep -q … | grep -qv …`, which could never fail: `-q`
+# prints nothing, so the second grep read empty input and always exited 1. The
+# check has therefore been dead since it was written — the exact pipeline
+# hazard this file's own header warns about, in the file that warns about it.
+#
+# Judged on comment-stripped code instead, so the module may go on EXPLAINING
+# that the field is withheld — which it does at length — while a real member
+# would fail. That distinction is why the raw grep could not be used directly.
+CONTRACT_LOGIC="$SCAN_DIR/contract-logic.txt"
+code_of "$CONTRACT" > "$CONTRACT_LOGIC"
+
+if grep -qF 'expectedOutcome' "$CONTRACT_LOGIC"; then
   fail "the learner contract gained an expectedOutcome member"
 fi
 
@@ -357,15 +369,71 @@ CHANGED_WEB_DEPS="$(git diff origin/main...HEAD -- apps/web/package.json 2>/dev/
 [ "$CHANGED_WEB_DEPS" = "0" ] \
   || fail "the web workspace gained $CHANGED_WEB_DEPS dependency line(s); none is authorized"
 
-# WP-F consumes WP-E. It does not author, extend or amend it.
-CHANGED_CONTRACT="$(git diff --name-only origin/main...HEAD -- \
-  packages/shared-types/src/mission-instruction.ts \
-  packages/shared-types/src/mission-steps.ts \
-  packages/shared-types/src/curriculum-assets.ts \
+# WP-F consumes the shared contract. It does not own it.
+#
+# ## Why this is no longer a file-level ownership assertion
+#
+# This check used to require that mission-instruction.ts, mission-steps.ts,
+# curriculum-assets.ts, curriculum.ts and server.ts had not changed at all
+# since origin/main. That was correct while WP-F was the package under
+# construction, and became wrong the moment a later approved package extended
+# the same contract: WP-H added the interaction registry, the typed interaction
+# parameters and the ObservationModel to two of those files by approved design.
+#
+# A file-level assertion cannot tell an authorized extension from a regression.
+# It reads any evolution of a shared file as a WP-F violation, which makes a
+# permanent gate hostile to every later work package that touches the same
+# contract — and the failure it reports names the wrong package.
+#
+# It was also **untestable locally**: `origin/main...HEAD` is empty in a working
+# tree whose changes are uncommitted, so the check could only ever fire in CI.
+# A gate that cannot fail on the machine where the work is done is a gate that
+# is discovered late, which is exactly what happened.
+#
+# So the invariant is expressed as the PROPERTIES WP-F depends on. A later
+# package may extend these files; it may not remove what this renderer needs.
+# That distinguishes authorized later evolution through the WP-F seam from an
+# unauthorized regression to WP-F.
+
+# The WP-E read path still exists and is still the user-scoped one. WP-F renders
+# whatever this returns, so a read that stopped being RLS-scoped would silently
+# widen what the renderer displays.
+grep -Fq 'export async function getLearnerMissionInstruction' \
   services/api/src/curriculum.ts \
-  services/api/src/server.ts 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_CONTRACT" = "0" ] \
-  || fail "WP-F modified the WP-E read path or the shared curriculum contract"
+  || fail "the WP-E mission instruction read was removed"
+grep -Fq 'createUserScopedSupabaseClient' services/api/src/curriculum.ts \
+  || fail "the WP-E instruction read is no longer user-scoped"
+
+grep -Fq '/instruction$' services/api/src/server.ts \
+  || fail "the WP-E instruction route was removed"
+
+# The three instruction states the renderer branches on. A fourth is fine; a
+# missing one would leave the renderer with an unhandled response.
+for state in available legacy_brief content_error; do
+  grep -Fq "\"$state\"" "$CONTRACT" \
+    || fail "the learner instruction contract lost the $state outcome"
+done
+
+# The projection WP-F consumes, and the assembly that enforces authored order
+# and asset resolution before anything reaches this renderer.
+grep -Fq 'export function projectMissionStepContent' "$CONTRACT" \
+  || fail "the learner step projection was removed"
+grep -Fq 'export function assembleLearnerInstruction' "$CONTRACT" \
+  || fail "the learner instruction assembly was removed"
+
+# The accessibility fields WP-F renders are required by the learner types, so a
+# later package cannot make them optional and quietly drop them.
+grep -Fq 'readonly textAlternative: string' "$CONTRACT" \
+  || fail "a diagram's text alternative is no longer required on the learner type"
+grep -Fq 'readonly textEquivalent: string' "$CONTRACT" \
+  || fail "an interaction's text equivalent is no longer required on the learner type"
+
+# The closed vocabulary is still exactly seven. Check 6 proves the renderer
+# handles seven; this proves seven is still the number to handle, so adding an
+# eighth authored type without a renderer cannot pass both.
+AUTHORED_TYPE_COUNT="$(grep -cE '^\s{2}"[a-z]+"' "$STEP_MODEL" || true)"
+[ "$AUTHORED_TYPE_COUNT" = "7" ] \
+  || fail "the shared step vocabulary declares $AUTHORED_TYPE_COUNT types; exactly 7 are approved"
 
 # No AI, no lab provider, no interaction engine pulled forward.
 if grep -qiE 'openai|anthropic|ollama|ai[ _-]?gateway|aigw|llm|gpt|tutor' "$WPF_LOGIC"; then
