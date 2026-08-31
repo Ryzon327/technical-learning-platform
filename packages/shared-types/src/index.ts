@@ -19,6 +19,8 @@ export * from "./audit";
 export * from "./auth";
 export * from "./curriculum";
 export * from "./curriculum-admin";
+export * from "./observation-model";
+export * from "./instruction-interaction";
 export * from "./mission-steps";
 export * from "./mission-instruction";
 export * from "./curriculum-assets";

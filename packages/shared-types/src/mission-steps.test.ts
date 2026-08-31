@@ -15,6 +15,10 @@ import {
   type MissionStepContent,
   type PersistedMissionStepRow
 } from "./mission-steps";
+import {
+  INTERACTION_TYPES,
+  type InteractionParameters
+} from "./instruction-interaction";
 
 /* ------------------------------------------------------------------ *
  * Fixtures — one valid step per approved type
@@ -51,9 +55,73 @@ const prediction: MissionStepContent = {
   expectedOutcome: "No. The addresses are in different ranges."
 };
 
+/**
+ * A minimal VALID packet journey, used wherever a test needs an interaction
+ * that passes the registry contract rather than one that fails it.
+ *
+ * No authored fault, so no resolving action is required — the smallest shape
+ * `validatePacketJourneyParameters` accepts.
+ */
+const packetJourney: InteractionParameters = {
+  interactionType: "packet_journey",
+  nodes: [
+    {
+      nodeId: "pc-a",
+      label: "PC-A",
+      role: "host",
+      interfaces: [
+        {
+          interfaceId: "pc-a-eth0",
+          label: "eth0",
+          attributes: [{ label: "IP address", value: "192.168.10.10/24" }]
+        }
+      ]
+    },
+    {
+      nodeId: "sw-1",
+      label: "Switch-1",
+      role: "switch",
+      interfaces: [
+        { interfaceId: "sw-1-fa0-1", label: "Fa0/1", attributes: [] }
+      ]
+    }
+  ],
+  links: [
+    {
+      linkId: "link-a",
+      label: "PC-A to Switch-1",
+      endpoints: ["pc-a-eth0", "sw-1-fa0-1"]
+    }
+  ],
+  traffic: {
+    label: "an ICMP echo request",
+    sourceNodeId: "pc-a",
+    destinationNodeId: "sw-1",
+    startActionLabel: "Send the ping"
+  },
+  stages: [
+    {
+      stageId: "s1",
+      atNodeId: "pc-a",
+      narration: "PC-A builds the request and sends it out eth0.",
+      decision: "The destination is on another network, so it uses its gateway.",
+      outcome: "proceeds"
+    }
+  ],
+  actions: [],
+  confirmation: {
+    narration: "The reply comes back the way it went.",
+    summary: "The path is complete."
+  }
+};
+
 const interaction: MissionStepContent = {
   type: "interaction",
   interactionStableId: "packet-journey",
+  interactionType: "packet_journey",
+  sourceKind: "authored_teaching",
+  supportLevel: "show_me",
+  parameters: packetJourney,
   textEquivalent:
     "Send traffic from PC-A and follow each hop, choosing where it goes next and seeing where it stops."
 };
@@ -370,22 +438,107 @@ describe("WP-C mission step architectural boundaries", () => {
     }
   });
 
-  it("references a future interaction without implementing WP-H", () => {
+  it("carries the WP-H typed interaction contract", () => {
     expect(validateMissionStepContent(interaction, "s01")).toEqual([]);
 
-    // The seam is the REFERENCE. Parameters, the registry and the
-    // ObservationModel belong to WP-H, and an untyped parameters field here
-    // would be the arbitrary-JSON escape hatch DEC-054 closes.
+    // WP-C carried only the REFERENCE and recorded that "adding a typed field
+    // later is additive". WP-H added those fields; this asserts the contract
+    // that replaced the pre-WP-H fence, rather than dropping the coverage.
     const keys = Object.keys(interaction);
-    for (const notYet of [
+    for (const required of [
+      "interactionStableId",
+      "interactionType",
+      "sourceKind",
+      "supportLevel",
       "parameters",
-      "topology",
-      "expectedPath",
-      "authoredFault",
-      "observationModel",
-      "supportLevel"
+      "textEquivalent"
     ]) {
-      expect(keys).not.toContain(notYet);
+      expect(keys).toContain(required);
+    }
+  });
+
+  it("keeps the two interaction identifiers doing different jobs", () => {
+    // The instance identity and the registry key are separate on purpose. If
+    // one were overloaded to do both, two missions could not carry two
+    // differently-parameterised packet journeys.
+    const content = interaction as Extract<
+      MissionStepContent,
+      { type: "interaction" }
+    >;
+
+    expect(content.interactionStableId).toBe("packet-journey");
+    expect(content.interactionType).toBe("packet_journey");
+    expect(INTERACTION_TYPES).toContain(content.interactionType);
+    expect(INTERACTION_TYPES).not.toContain(content.interactionStableId);
+  });
+
+  it("refuses an unregistered interaction type", () => {
+    const errors = validateMissionStepContent(
+      { ...interaction, interactionType: "subnet_slider" } as never,
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("not a registered interaction type");
+  });
+
+  it("refuses parameters that disagree with the declared type", () => {
+    const errors = validateMissionStepContent(
+      {
+        ...interaction,
+        parameters: { ...packetJourney, interactionType: "something_else" }
+      } as never,
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("disagrees with parameters type");
+  });
+
+  it("refuses a live_lab interaction until its adapter exists", () => {
+    const errors = validateMissionStepContent(
+      { ...interaction, sourceKind: "live_lab" },
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("WP-K");
+  });
+
+  it("fails the whole mission's read when a persisted interaction is unregistered", () => {
+    // CURR-011 s16 / CURR-010 s13.2: the step is never silently omitted and
+    // the mission is never rendered partially. A renderer therefore cannot be
+    // handed an interaction it has no component for.
+    const outcome = resolvePersistedMissionSteps([
+      {
+        stableId: "step-1",
+        position: 0,
+        stepType: "interaction",
+        payload: {
+          type: "interaction",
+          interactionStableId: "packet-journey",
+          interactionType: "retired_type",
+          sourceKind: "authored_teaching",
+          supportLevel: "show_me",
+          parameters: { interactionType: "retired_type" },
+          textEquivalent: "E"
+        }
+      }
+    ]);
+
+    expect(outcome.state).toBe("content_error");
+  });
+
+  it("carries no evidence, competency or progress field", () => {
+    // Teaching mode produces no competency evidence (DEC-058). The guarantee
+    // is structural: there is no field to put one in.
+    const serialised = JSON.stringify(interaction);
+
+    for (const forbidden of [
+      "competency",
+      "evidence",
+      "score",
+      "passed",
+      "progress"
+    ]) {
+      expect(serialised).not.toContain(forbidden);
     }
   });
 
@@ -404,11 +557,7 @@ describe("WP-C mission step architectural boundaries", () => {
 
   it("requires an accessible text equivalent on an interaction", () => {
     const errors = validateMissionStepContent(
-      {
-        type: "interaction",
-        interactionStableId: "packet-journey",
-        textEquivalent: ""
-      },
+      { ...interaction, textEquivalent: "" },
       "s01"
     );
 

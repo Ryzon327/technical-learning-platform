@@ -443,6 +443,232 @@ dd {
   white-space: pre;
 }
 
+/* ------------------------------------------------------------------ *
+   WP-H — the Packet Journey interaction.
+
+   The markup is semantic first: every fact below is readable as text, and the
+   only decorative element (.packet-journey-map) is aria-hidden and carries
+   nothing of its own.
+
+   Colour is never the only signal. A stopped stage gets a left border AND the
+   words "Stopped here" from the view model, so the consequence survives
+   monochrome, high-contrast and screen-reader presentation alike.
+ * ------------------------------------------------------------------ */
+
+.packet-journey {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #d8dee6;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.packet-journey h5 {
+  margin: 1rem 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+/* Says this is a taught example and not a live environment (DEC-058). */
+
+.packet-journey-source {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: #4a5568;
+  font-style: italic;
+}
+
+.packet-journey-traffic {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.packet-journey-nodes,
+.packet-journey-links,
+.packet-journey-stages {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.packet-journey-nodes ul {
+  padding-left: 1rem;
+}
+
+.packet-journey-node {
+  margin-bottom: 0.6rem;
+}
+
+.packet-journey-node-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.packet-journey-node dl {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.packet-journey-node dl div {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.packet-journey-node dt {
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.packet-journey-node dd {
+  margin: 0;
+}
+
+/* Decorative. Every label here also appears in the list above. */
+
+.packet-journey-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.map-node {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: #ffffff;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.map-node.is-current {
+  border-color: #2b6cb0;
+  background: #ebf4ff;
+}
+
+.packet-journey-stage {
+  margin-bottom: 0.75rem;
+  padding-left: 0.6rem;
+  border-left: 3px solid #cbd5e0;
+  animation: packet-journey-reveal 200ms ease-out;
+}
+
+.packet-journey-stage.is-stopped {
+  border-left-color: #c53030;
+}
+
+.packet-journey-stage p {
+  margin: 0.15rem 0;
+}
+
+.packet-journey-stage-node {
+  font-weight: 600;
+}
+
+.packet-journey-why {
+  color: #4a5568;
+  font-size: 0.92rem;
+}
+
+.packet-journey-outcome {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4a5568;
+}
+
+.packet-journey-committed {
+  font-size: 0.88rem;
+  color: #4a5568;
+}
+
+.packet-journey-announcement {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: #edf2f7;
+  border-radius: 4px;
+  font-size: 0.92rem;
+}
+
+.packet-journey-symptom {
+  font-weight: 600;
+}
+
+.packet-journey-explanation,
+.packet-journey-confirmation {
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  background: #f0fff4;
+}
+
+.packet-journey-prediction {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+}
+
+.packet-journey-prediction legend {
+  font-weight: 600;
+  padding: 0 0.35rem;
+}
+
+.packet-journey-option {
+  display: block;
+  margin: 0.35rem 0;
+  cursor: pointer;
+}
+
+.packet-journey-option input {
+  margin-right: 0.5rem;
+}
+
+.packet-journey-actions {
+  margin: 0.75rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.packet-journey-trace {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.packet-journey-trace summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+@keyframes packet-journey-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduced motion removes the movement and nothing else.
+
+   CURR-011 s14.5 requires reduced motion to preserve both the information and
+   the operation. It does here by construction: no JavaScript branch depends on
+   motion, so the markup, the text and every control are identical either way,
+   and only the animation and the colour transition are dropped. */
+
+@media (prefers-reduced-motion: reduce) {
+  .packet-journey-stage {
+    animation: none;
+  }
+
+  .map-node {
+    transition: none;
+  }
+}
+
 /* Browser-native printing. No PDF library and no image rendering: the printed
    certificate is the same semantic text a screen reader reads. */
 

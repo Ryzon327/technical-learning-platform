@@ -4,6 +4,17 @@ import {
   type MissionStep,
   type MissionStepContent
 } from "./mission-steps";
+import {
+  withholdsAnswerRevealingContent,
+  withholdsEntireInteraction,
+  type InteractionParameters,
+  type InteractionSupportLevel,
+  type InteractionType,
+  type LearnerInteractionParameters,
+  type LearnerPacketJourneyParameters,
+  type LearnerPacketJourneyStage
+} from "./instruction-interaction";
+import type { ObservationSourceKind } from "./observation-model";
 import type {
   CurriculumAssetReference,
   CurriculumAssetType
@@ -106,12 +117,47 @@ export interface LearnerPredictionStep {
   readonly options?: readonly string[];
 }
 
+/**
+ * What the learner may receive for an interaction, once the support level has
+ * been applied.
+ *
+ *   available  the interaction may be operated; `parameters` carry exactly the
+ *              authored content this level permits
+ *   withheld   the whole teaching interaction is instructional assistance and
+ *              this level withholds it (CURR-011 section 11)
+ *
+ * `parameters` exists only on `available`, so a consumer cannot render a
+ * withheld interaction without the type checker objecting.
+ */
+export type LearnerInteractionPresentation =
+  | {
+      readonly state: "available";
+      readonly parameters: LearnerInteractionParameters;
+    }
+  | { readonly state: "withheld"; readonly reason: "protected_demonstration" };
+
+/**
+ * An interaction as a learner receives it.
+ *
+ * `textEquivalent` sits OUTSIDE the presentation union and is required, so it
+ * survives every support level including PROVE IT. Accessibility is an
+ * accommodation, not tutoring (DEC-059), and must not disappear when
+ * instructional assistance does.
+ *
+ * `supportLevel` and `sourceKind` are carried so both presentations can label
+ * the surface honestly — DEC-058 requires teaching mode to be identified on
+ * screen as instructional simulation. Neither is a control the client enforces.
+ */
 export interface LearnerInteractionStep {
   readonly type: "interaction";
   readonly interactionStableId: string;
+  readonly interactionType: InteractionType;
+  readonly sourceKind: ObservationSourceKind;
+  readonly supportLevel: InteractionSupportLevel;
   /** Required, so the projection cannot silently drop it. */
   readonly textEquivalent: string;
   readonly caption?: string;
+  readonly presentation: LearnerInteractionPresentation;
 }
 
 /**
@@ -237,6 +283,134 @@ export interface LearnerMissionInstructionResponse {
  * ------------------------------------------------------------------ */
 
 /**
+ * Apply the support level to authored packet-journey parameters.
+ *
+ * ## What is answer-bearing, and therefore dropped
+ *
+ *   stage.decision      what the device decided and why — the expected path
+ *   fault.explanation   why the fault causes the symptom — the diagnosis
+ *   actions             every remediation carries `resolvesFault`, which names
+ *                       the correct one, and an `observation` describing what
+ *                       each produces. Both hand the learner the answer.
+ *   confirmation        the lesson's conclusion, which states the answer in
+ *                       plain words
+ *
+ * The last two were added by the WP-H architecture review. They were
+ * previously forwarded at CHALLENGE ME and merely not drawn until the learner
+ * reached the failure — which is not withholding. A network response is
+ * readable, and content the server claims to withhold must be ABSENT from it,
+ * not concealed by presentation logic.
+ *
+ * ## What stays, deliberately
+ *
+ * Topology, interface attributes, the fault's visible SYMPTOM, the traffic,
+ * every stage's narration and every prediction prompt. DEC-059 is explicit
+ * that withholding assistance must not remove the means of demonstrating, and
+ * the review warned specifically against reclassifying legitimate observations
+ * as tutoring because they describe system state.
+ *
+ * Narration is never dropped at any level: it is the authored text trace and
+ * the accessible representation of the journey, and accessibility is an
+ * accommodation rather than tutoring. Authors keep the diagnosis in `decision`
+ * for exactly this reason.
+ *
+ * ## The documented limitation
+ *
+ * Dropping `actions` also removes the remediation step at CHALLENGE ME. That
+ * is not an oversight and not a workaround — it is the only honest option
+ * inside the approved architecture. The consequence of choosing an action IS
+ * the protected content, so revealing it after the choice would require either
+ * pre-shipping the answer or a server round-trip per action. WP-H builds
+ * neither. The learner keeps the scenario, the state, the prediction, the
+ * journey and the symptom, and diagnoses without an authored fix to click.
+ *
+ * ## Withholding is absence, never a filter
+ *
+ * Nothing is nulled and nothing is filtered at render time. The learner types
+ * make every protected field OPTIONAL, and a level that withholds one simply
+ * does not write it.
+ */
+function projectPacketJourneyParameters(
+  parameters: Extract<InteractionParameters, { interactionType: "packet_journey" }>,
+  supportLevel: InteractionSupportLevel
+): LearnerPacketJourneyParameters {
+  const withhold = withholdsAnswerRevealingContent(supportLevel);
+
+  const stages: LearnerPacketJourneyStage[] = parameters.stages.map((stage) => ({
+    stageId: stage.stageId,
+    atNodeId: stage.atNodeId,
+    narration: stage.narration,
+    ...(stage.decision !== undefined && !withhold
+      ? { decision: stage.decision }
+      : {}),
+    outcome: stage.outcome,
+    ...(stage.prediction !== undefined ? { prediction: stage.prediction } : {})
+  }));
+
+  return {
+    interactionType: "packet_journey",
+    nodes: parameters.nodes,
+    links: parameters.links,
+    traffic: parameters.traffic,
+    stages,
+    ...(parameters.fault !== undefined
+      ? {
+          fault: {
+            atNodeId: parameters.fault.atNodeId,
+            symptom: parameters.fault.symptom,
+            stopsAtStageId: parameters.fault.stopsAtStageId,
+            ...(withhold
+              ? {}
+              : { explanation: parameters.fault.explanation })
+          }
+        }
+      : {}),
+    // Both carry the answer. Absent at a withholding level, so no serialised
+    // response contains them and no client can reconstruct them.
+    ...(withhold ? {} : { actions: parameters.actions }),
+    ...(withhold ? {} : { confirmation: parameters.confirmation })
+  };
+}
+
+/**
+ * Decide what a learner may receive for one interaction.
+ *
+ * The whole-interaction withholding comes first, because it makes the
+ * parameter question moot: CURR-011 section 11 records that a teaching-mode
+ * interaction which would reveal the solution IS instructional assistance, so
+ * PROVE IT withholds it rather than trying to serve a solution-bearing
+ * simulation with the solution removed.
+ *
+ * This is also why a future LIVE interaction is treated differently by
+ * `withholdsEntireInteraction`: authoritative observations are not assistance,
+ * and a live interaction at PROVE IT renders with the expected path and
+ * authored fault removed instead of being withheld.
+ *
+ * Exhaustive over the closed registry, with no default arm.
+ */
+function projectInteractionPresentation(content: {
+  readonly interactionType: InteractionType;
+  readonly sourceKind: ObservationSourceKind;
+  readonly supportLevel: InteractionSupportLevel;
+  readonly parameters: InteractionParameters;
+}): LearnerInteractionPresentation {
+  if (withholdsEntireInteraction(content.supportLevel, content.sourceKind)) {
+    return { state: "withheld", reason: "protected_demonstration" };
+  }
+
+  switch (content.parameters.interactionType) {
+    case "packet_journey":
+      return {
+        state: "available",
+        parameters: projectPacketJourneyParameters(
+          content.parameters,
+          content.supportLevel
+        )
+      };
+  }
+}
+
+/**
  * Project one validated authored step's content into its learner-safe form.
  *
  * Exhaustive over the seven approved types. The `switch` returns a distinct
@@ -289,8 +463,12 @@ export function projectMissionStepContent(
       return {
         type: "interaction",
         interactionStableId: content.interactionStableId,
+        interactionType: content.interactionType,
+        sourceKind: content.sourceKind,
+        supportLevel: content.supportLevel,
         textEquivalent: content.textEquivalent,
-        ...(content.caption !== undefined ? { caption: content.caption } : {})
+        ...(content.caption !== undefined ? { caption: content.caption } : {}),
+        presentation: projectInteractionPresentation(content)
       };
 
     case "practice":

@@ -50,6 +50,14 @@
  * it is given.
  */
 
+import {
+  validateInteractionContent,
+  type InteractionParameters,
+  type InteractionSupportLevel,
+  type InteractionType
+} from "./instruction-interaction";
+import type { ObservationSourceKind } from "./observation-model";
+
 /* ------------------------------------------------------------------ *
  * The closed vocabulary
  * ------------------------------------------------------------------ */
@@ -190,25 +198,43 @@ export interface MissionStepPredictionContent {
 /**
  * `interaction` — manipulate a system and observe the consequence.
  *
- * **The minimum seam, and deliberately no more.** CURR-011 and WP-H own the
- * shared interaction contract, its parameter schemas, the registry and the
- * `ObservationModel`. This records only WHICH interaction a step means and the
- * accessible equivalent that interaction owes the learner.
+ * **WP-H completed the seam WP-C cut.** WP-C recorded only WHICH interaction a
+ * step meant, and noted that "adding a typed field later is additive". This is
+ * that addition: the registry type, the authored source, the support level and
+ * the typed parameters now live here, and `instruction-interaction.ts` owns
+ * every rule about them.
  *
- * There is intentionally **no `parameters` field in WP-C**. Adding an untyped
- * one would create exactly the arbitrary-JSON escape hatch DEC-054 closes, and
- * a guessed shape would be rework the moment WP-H defines the real one. Adding
- * a typed field later is additive; removing a wrong one is not.
+ * Two identifiers, doing different jobs, and neither is overloaded:
  *
- * `textEquivalent` is REQUIRED by the type. CURR-011 section 14 goes further —
- * an accessible path must preserve the learner's ability to perform the task,
- * not merely read a description of it — and building that path is WP-H's work.
- * What WP-C guarantees is that the authored information it needs cannot be
- * omitted.
+ *   interactionStableId  this authored interaction INSTANCE, mission-scoped,
+ *                        for deep-linking and AI context addressing
+ *   interactionType      the closed REGISTRY key that selects the parameter
+ *                        contract and the renderer
+ *
+ * `parameters` is a discriminated union keyed by `interactionType`, never
+ * `Record<string, unknown>` — which is what keeps it from being the
+ * arbitrary-JSON escape hatch DEC-054 closes and CURR-011 section 13 forbids.
+ *
+ * `sourceKind` is the authored source discriminator (CURR-011 section 9).
+ * `live_lab` is representable but refused at publication until WP-K's adapter
+ * exists, so the seam is expressible without being falsely claimed.
+ *
+ * `supportLevel` is enforced SERVER-SIDE, in the WP-E projection. The client is
+ * never the security boundary.
+ *
+ * `textEquivalent` is REQUIRED by the type and survives every support level:
+ * accessibility is not tutoring and must not disappear when support is
+ * reduced. CURR-011 section 14 goes further — the accessible path must preserve
+ * the learner's ability to PERFORM the task, not merely read about it — and
+ * that path is built on the shared `ObservationModel`.
  */
 export interface MissionStepInteractionContent {
   readonly type: "interaction";
   readonly interactionStableId: string;
+  readonly interactionType: InteractionType;
+  readonly sourceKind: ObservationSourceKind;
+  readonly supportLevel: InteractionSupportLevel;
+  readonly parameters: InteractionParameters;
   readonly textEquivalent: string;
   readonly caption?: string;
 }
@@ -439,6 +465,14 @@ export function validateMissionStepContent(
       } else if (!withinLimit(content.textEquivalent)) {
         at(`text equivalent exceeds ${MISSION_STEP_TEXT_LIMIT} characters`);
       }
+      // The registry owns the type vocabulary, the source discriminator, the
+      // support level and every parameter rule. Restating any of it here would
+      // be a second definition of the same contract — the drift WP-G exists to
+      // prevent — so this delegates and adds nothing of its own.
+      //
+      // An unregistered type produces an error here, which makes it a
+      // publication failure through every caller of this validator.
+      errors.push(...validateInteractionContent(content, label));
       break;
     }
 

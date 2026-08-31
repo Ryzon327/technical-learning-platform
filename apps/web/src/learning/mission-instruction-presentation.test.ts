@@ -663,8 +663,12 @@ describe("the seven approved step types", () => {
     prediction: { type: "prediction", prompt: "What happens?" },
     interaction: {
       type: "interaction",
-      interactionStableId: "subnet-slider",
-      textEquivalent: "Adjust the prefix length and read the host count."
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      textEquivalent: "Follow the request hop by hop and see where it stops.",
+      presentation: { state: "withheld", reason: "protected_demonstration" }
     },
     practice: { type: "practice", assessmentStableId: "assess.vlan-basics" },
     reference: { type: "reference", label: "RFC 1918" }
@@ -708,8 +712,33 @@ describe("the seven approved step types", () => {
     const content = source.steps[0]?.content;
     expect(content).toMatchObject({
       type: "interaction",
-      textEquivalent: "Adjust the prefix length and read the host count."
+      textEquivalent: "Follow the request hop by hop and see where it stops."
     });
+  });
+
+  it("carries the text equivalent even when the interaction is withheld", () => {
+    // The sample is authored at PROVE IT, where the interaction itself is
+    // withheld. Accessibility is an accommodation rather than tutoring, so the
+    // authored account survives the withholding (DEC-059).
+    const source = expectKind(
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
+          state: "available",
+          steps: [step(samples.interaction as LearnerMissionStepContent)],
+          assets: []
+        }),
+        MISSION_A
+      ),
+      "structured"
+    );
+
+    const content = source.steps[0]?.content as Extract<
+      LearnerMissionStepContent,
+      { type: "interaction" }
+    >;
+
+    expect(content.presentation.state).toBe("withheld");
+    expect(content.textEquivalent.length).toBeGreaterThan(0);
   });
 });
 

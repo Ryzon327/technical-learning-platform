@@ -12,6 +12,7 @@ import {
   resolveAsset,
   resolveReferenceHref
 } from "./mission-instruction-presentation";
+import { InteractionSurface } from "./InteractionSurface";
 
 /**
  * WP-F — the learner's view of one mission's authored instruction.
@@ -214,30 +215,31 @@ function PredictionStep({
 }
 
 /**
- * The authored text equivalent of an interactive element.
+ * An interactive element, and the authored account of what it teaches.
  *
- * ## WP-H SEAM — read this before changing it
+ * ## WP-H filled the seam WP-F cut here
  *
- * This is the single location where a validated interaction type will be mapped
- * to a real renderer. CURR-011 section 7 makes that mapping the application's
- * responsibility and explicitly not a second registry: the vocabulary,
- * parameters and observation model stay in `packages/shared-types`, and this
- * file only chooses a component for an already-validated type.
+ * The mapping from a validated interaction type to a component lives in
+ * `InteractionSurface`, not in this file. CURR-011 section 7 makes that mapping
+ * the application's responsibility and explicitly not a second registry: the
+ * vocabulary, parameters and observation model stay in
+ * `packages/shared-types`, and the application only chooses a component for an
+ * already-validated type.
  *
- * WP-F renders the authored `textEquivalent` as instructional prose, which is
- * complete and honest content in its own right.
+ * ## The text equivalent stays, and stays first
  *
- * When WP-H introduces an interaction the learner can actually operate, the text
- * equivalent alone stops being sufficient: CURR-011 section 14.3 states it must
- * never be defined as a substitute for learner agency once the interaction
- * requires learner action, and section 14.1 lists the eight capabilities an
- * accessible path must then preserve. Satisfying those belongs to WP-H, at this
- * seam.
+ * It is rendered above the interaction at every support level, including when
+ * the interaction itself is withheld. CURR-011 section 14.3 keeps it required
+ * as narration and observation history — and section 14.3 equally states it is
+ * NOT a substitute for learner agency, which is why the operable interaction
+ * sits beneath it rather than instead of it.
  */
 function InteractionStep({
-  content
+  content,
+  instanceId
 }: {
   content: Extract<LearnerMissionStepContent, { type: "interaction" }>;
+  instanceId: string;
 }) {
   return (
     <>
@@ -245,6 +247,7 @@ function InteractionStep({
         <p className="instruction-command-caption">{content.caption}</p>
       )}
       <p>{content.textEquivalent}</p>
+      <InteractionSurface content={content} instanceId={instanceId} />
     </>
   );
 }
@@ -350,7 +353,7 @@ function renderStepContent(
     case "prediction":
       return <PredictionStep content={content} />;
     case "interaction":
-      return <InteractionStep content={content} />;
+      return <InteractionStep content={content} instanceId={headingId} />;
     case "practice":
       return <PracticeStep content={content} headingId={headingId} />;
     case "reference":

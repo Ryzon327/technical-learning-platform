@@ -93,9 +93,176 @@
           "position": 4,
           "content": {
             "type": "interaction",
-            "interactionStableId": "fixture-placeholder-interaction",
-            "caption": "Interaction placeholder",
-            "textEquivalent": "Adjusting the prefix length from /24 to /25 halves the usable host range, so an address that was reachable inside the subnet can fall outside it."
+            "interactionStableId": "fixture-packet-journey",
+            "interactionType": "packet_journey",
+            "sourceKind": "authored_teaching",
+            "supportLevel": "show_me",
+            "caption": "Instructional simulation. This is not a live environment.",
+            "textEquivalent": "PC-A sends an echo request to PC-B. It reaches Router-1, which discards it because no subinterface exists for VLAN 20. Adding that subinterface lets the request through and the reply returns.",
+            "parameters": {
+              "interactionType": "packet_journey",
+              "nodes": [
+                {
+                  "nodeId": "pc-a",
+                  "label": "PC-A",
+                  "role": "host",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-a-eth0",
+                      "label": "eth0",
+                      "attributes": [
+                        { "label": "IP address", "value": "192.168.10.10/24" },
+                        { "label": "Default gateway", "value": "192.168.10.1" },
+                        { "label": "VLAN", "value": "10" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "sw-1",
+                  "label": "Switch-1",
+                  "role": "switch",
+                  "interfaces": [
+                    {
+                      "interfaceId": "sw-1-fa0-1",
+                      "label": "Fa0/1",
+                      "attributes": [
+                        { "label": "Mode", "value": "access" },
+                        { "label": "VLAN", "value": "10" }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-fa0-24",
+                      "label": "Fa0/24",
+                      "attributes": [
+                        { "label": "Mode", "value": "trunk" },
+                        { "label": "Allowed VLANs", "value": "10,20" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "r-1",
+                  "label": "Router-1",
+                  "role": "router",
+                  "interfaces": [
+                    {
+                      "interfaceId": "r-1-gi0-0-10",
+                      "label": "Gi0/0.10",
+                      "attributes": [
+                        { "label": "Encapsulation", "value": "dot1Q 10" },
+                        { "label": "IP address", "value": "192.168.10.1/24" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "pc-b",
+                  "label": "PC-B",
+                  "role": "host",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-b-eth0",
+                      "label": "eth0",
+                      "attributes": [
+                        { "label": "IP address", "value": "192.168.20.10/24" },
+                        { "label": "VLAN", "value": "20" }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "links": [
+                {
+                  "linkId": "link-pc-a",
+                  "label": "PC-A to Switch-1 Fa0/1",
+                  "endpoints": ["pc-a-eth0", "sw-1-fa0-1"]
+                },
+                {
+                  "linkId": "link-trunk",
+                  "label": "Switch-1 Fa0/24 to Router-1 Gi0/0",
+                  "endpoints": ["sw-1-fa0-24", "r-1-gi0-0-10"]
+                },
+                {
+                  "linkId": "link-pc-b",
+                  "label": "PC-B to Switch-1",
+                  "endpoints": ["pc-b-eth0", "sw-1-fa0-1"]
+                }
+              ],
+              "traffic": {
+                "label": "an ICMP echo request",
+                "sourceNodeId": "pc-a",
+                "destinationNodeId": "pc-b",
+                "startActionLabel": "Send the ping from PC-A"
+              },
+              "stages": [
+                {
+                  "stageId": "s1-pc-a",
+                  "atNodeId": "pc-a",
+                  "narration": "PC-A addresses the request to 192.168.20.10 and sends it to its default gateway.",
+                  "decision": "The destination is outside PC-A's own network, so it hands the frame to the gateway rather than delivering it directly.",
+                  "outcome": "proceeds",
+                  "prediction": {
+                    "prompt": "PC-A wants to reach 192.168.20.10. Where does it send the frame first?",
+                    "options": [
+                      "Straight to PC-B, because they share a switch",
+                      "To its default gateway, because the destination is on another network"
+                    ]
+                  }
+                },
+                {
+                  "stageId": "s2-switch",
+                  "atNodeId": "sw-1",
+                  "narration": "Switch-1 receives the frame on an access port in VLAN 10 and sends it up the trunk.",
+                  "decision": "The trunk carries VLANs 10 and 20, so the frame leaves tagged for VLAN 10.",
+                  "outcome": "proceeds"
+                },
+                {
+                  "stageId": "s3-router",
+                  "atNodeId": "r-1",
+                  "narration": "The frame arrives at Router-1 and is discarded. No reply comes back.",
+                  "decision": "Router-1 has a subinterface for VLAN 10 but none for VLAN 20, so it has no interface in the destination network to route towards.",
+                  "outcome": "stops",
+                  "prediction": {
+                    "prompt": "Router-1 has one subinterface, Gi0/0.10. What happens to a frame destined for VLAN 20?",
+                    "options": [
+                      "It is routed into VLAN 20",
+                      "It is discarded, because there is no interface in that network"
+                    ]
+                  }
+                }
+              ],
+              "fault": {
+                "atNodeId": "r-1",
+                "symptom": "The ping from PC-A reports 100% packet loss. PC-B never sees the request.",
+                "stopsAtStageId": "s3-router",
+                "explanation": "Router-on-a-stick needs one subinterface per VLAN. Router-1 has Gi0/0.10 for VLAN 10 but nothing for VLAN 20, so traffic for 192.168.20.0/24 has no egress interface."
+              },
+              "actions": [
+                {
+                  "actionId": "add-subinterface-20",
+                  "label": "Add subinterface Gi0/0.20 for VLAN 20 with address 192.168.20.1/24",
+                  "resolvesFault": true,
+                  "observation": "Router-1 now has an interface in VLAN 20 and forwards the request on towards PC-B."
+                },
+                {
+                  "actionId": "widen-trunk",
+                  "label": "Allow all VLANs on the Switch-1 trunk",
+                  "resolvesFault": false,
+                  "observation": "The trunk already carried VLAN 20. The ping still reports 100% packet loss, so the trunk was not the problem."
+                },
+                {
+                  "actionId": "restart-pc-b",
+                  "label": "Restart PC-B",
+                  "resolvesFault": false,
+                  "observation": "PC-B comes back up and still receives nothing. The failure is not on the host."
+                }
+              ],
+              "confirmation": {
+                "narration": "The request reaches PC-B, and the echo reply returns along the same path to PC-A.",
+                "summary": "A router needs one subinterface per VLAN it routes between. The trunk carried the traffic correctly the whole time; the missing piece was the router's interface in the destination VLAN."
+              }
+            }
           }
         },
         {
