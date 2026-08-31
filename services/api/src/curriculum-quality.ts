@@ -11,6 +11,7 @@ import {
   resolvePersistedCurriculumAssets,
   validateCurriculumAsset
 } from "@tlp/shared-types";
+import { assertMissionIsDraftForAuthoring } from "./curriculum-admin";
 import { createServerSupabaseClient } from "./supabase";
 
 /**
@@ -91,6 +92,12 @@ export async function addMissionAsset(input: CurriculumAssetInput): Promise<void
       retryable: false
     });
   }
+
+  // An asset carries no publication state of its own; it is readable exactly
+  // when its owning mission is published. So the mission's state is the write
+  // boundary, checked here rather than trusted from whenever the caller last
+  // looked. See `assertMissionIsDraftForAuthoring`.
+  await assertMissionIsDraftForAuthoring(input.missionId);
 
   const supabase = createServerSupabaseClient();
 

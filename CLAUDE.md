@@ -278,6 +278,37 @@ If reusable multi-step validation is genuinely part of the work package, add a
 proper repository script. Never add a repository script merely to bypass a
 permission prompt.
 
+### Permission rules are semantic, not syntactic
+
+A permission rule names an **operation**, not a spelling. If an operation is
+denied or Founder-gated, it stays denied however it is reached.
+
+The rule set can only match command strings, so several allowed tools can
+perform a denied operation by another route. Every one of these is prohibited:
+
+| Denied operation | Prohibited circumvention |
+|---|---|
+| `rm -rf`, destructive filesystem changes | `python3`, `node`, `perl`, `find -delete`, `sed -i`, or any interpreter or tool that deletes or truncates |
+| Supabase CLI database commands | a Postgres client library, an HTTP call to the database, or a script that connects |
+| `git commit`, `git push`, history rewriting | a git library, `.git` manipulation, or a script that shells out |
+| `gh pr create`, `gh pr merge`, `gh secret` | `gh api`, `curl`, or any direct GitHub API call |
+| deployment commands | a provider SDK, API call, or CI trigger |
+| reading or editing `.env` | an interpreter reading the same path |
+
+**An allowed interpreter is allowed for the work it is allowed to do.** Being
+permitted to run `python3` is permission to compute, not permission to perform
+an operation the rule set denies.
+
+This is not a loophole to be closed by more rules — a general-purpose
+interpreter cannot be sandboxed by string matching, and
+`scripts/verify-autonomy.sh` reports that honestly rather than pretending
+otherwise. It is a standing instruction, and it is the reason the rule set can
+stay small enough to read.
+
+The same applies to the Founder gates in the Change Control table above:
+Claude Code may **prepare** work for a gated action and must never cross the
+gate by another means.
+
 ### Machine-local settings
 
 `.claude/settings.local.json` is untracked and machine-local. It must never be

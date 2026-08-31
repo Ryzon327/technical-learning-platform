@@ -1,6 +1,6 @@
 {
   "permissions": {
-    "defaultMode": "default",
+    "defaultMode": "acceptEdits",
     "deny": [
       "Bash(supabase db push:*)",
       "Bash(supabase db reset:*)",
@@ -68,7 +68,10 @@
       "Edit(./.env)",
       "Edit(./.env.*)",
       "Edit(./**/.env)",
-      "Edit(./**/.env.*)"
+      "Edit(./**/.env.*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create:*)"
     ],
     "allow": [
       "Bash(git status:*)",
@@ -87,15 +90,10 @@
       "Bash(git checkout -b:*)",
       "Bash(git add:*)",
       "Bash(git restore --staged:*)",
-      "Bash(git commit -m:*)",
       "Bash(git stash push:*)",
       "Bash(git stash list:*)",
       "Bash(git stash show:*)",
       "Bash(git stash pop:*)",
-      "Bash(git push origin wp/:*)",
-      "Bash(git push -u origin wp/:*)",
-      "Bash(git push --set-upstream origin wp/:*)",
-      "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr status:*)",
@@ -115,7 +113,6 @@
       "Bash(gh api repos/:*)",
       "Bash(ls:*)",
       "Bash(pwd)",
-      "Bash(cd:*)",
       "Bash(wc:*)",
       "Bash(sort:*)",
       "Bash(uniq:*)",
@@ -160,7 +157,6 @@
       "Bash(npm ls:*)",
       "Bash(bash scripts/:*)",
       "Bash(bash -n scripts/:*)",
-      "Bash(chmod +x scripts/:*)",
       "Bash(claude --version)",
       "Bash(rm -f /private/tmp/claude-501/:*)",
       "Bash(rm -f supabase/migrations/9999:*)",

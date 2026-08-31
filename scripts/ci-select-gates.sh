@@ -98,6 +98,16 @@ apps/web/src/learning/roas-course-presentation.ts|scripts/verify-roas4.sh
 apps/web/src/learning/*|scripts/verify-roas3.sh
 apps/web/src/auth/AuthenticatedApp.tsx|scripts/verify-roas3.sh
 scripts/verify-roas3.sh|scripts/verify-roas3.sh
+packages/shared-types/src/curriculum-document*|scripts/verify-wpg.sh
+services/api/src/curriculum-reconciliation*|scripts/verify-wpg.sh
+services/api/src/curriculum-import*|scripts/verify-wpg.sh
+services/api/src/curriculum-current-state*|scripts/verify-wpg.sh
+services/api/src/curriculum-content-path*|scripts/verify-wpg.sh
+services/api/src/curriculum-command-args*|scripts/verify-wpg.sh
+services/api/src/curriculum-quality*|scripts/verify-wpg.sh
+services/api/src/admin/publish-curriculum.ts|scripts/verify-wpg.sh
+content/*|scripts/verify-wpg.sh
+scripts/verify-wpg.sh|scripts/verify-wpg.sh
 apps/web/src/learning/MissionInstruction.tsx|scripts/verify-wpf.sh
 apps/web/src/learning/mission-instruction-presentation*|scripts/verify-wpf.sh
 apps/web/src/learning/learning-service.ts|scripts/verify-wpf.sh
