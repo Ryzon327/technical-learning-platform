@@ -344,11 +344,8 @@ EXPECT_AUTONOMOUS = [
     "git switch wp/dev-flow-2-autonomy",
     "git switch -c wp/dev-flow-2-autonomy",
     "git add scripts/verify-autonomy.sh",
-    'git commit -m "feat: message"',
     "git rev-parse HEAD",
     "git ls-tree -r --name-only HEAD",
-    "git push -u origin wp/example",
-    "git push origin wp/example",
     "npm run test",
     "npm run typecheck",
     "npm run build",
@@ -361,7 +358,6 @@ EXPECT_AUTONOMOUS = [
     "gh issue view 1",
     "gh issue create --title x --body y",
     "gh pr view 1",
-    "gh pr create --title x --body y",
     "gh pr checks 1",
     "gh pr checks 1 --watch",
     "gh run list",
@@ -370,6 +366,34 @@ EXPECT_AUTONOMOUS = [
 ]
 
 EXPECT_DENIED = [
+    # BOUNDED AUTONOMY. Committing, pushing and opening a pull request were
+    # expected to be autonomous under the previous model, whose goal was a WP
+    # cycle that ran end to end without Founder clicks. That is deliberately no
+    # longer the model: Claude Code PREPARES work for these gates and the
+    # Founder crosses them.
+    #
+    # Each is asserted in several spellings, because a gate that only catches
+    # the common one is not a gate. `git commit -m` was denied while
+    # `git commit -F -` was not — and `-F` is the form actually used for
+    # multi-paragraph messages, so the gate was open exactly where it was most
+    # likely to be reached.
+    "git commit",
+    'git commit -m "feat: message"',
+    'git commit --message="feat: message"',
+    "git commit -F -",
+    "git commit --file=/tmp/message",
+    "git commit -am wip",
+    "git commit -a -m wip",
+    "git push",
+    "git push origin wp/example",
+    "git push -u origin wp/example",
+    "git push --set-upstream origin wp/example",
+    "git push origin HEAD",
+    "git push origin HEAD:wp/example",
+    "gh pr create",
+    "gh pr create --title x --body y",
+    "gh pr create --fill",
+    "gh pr merge 1 --rebase",
     "git push origin main",
     "git push -u origin main",
     "git push --set-upstream origin main",
@@ -513,7 +537,15 @@ echo "PASS:  5. the permission acceptance matrix classifies correctly"
 # ------------------------------------------------------------
 # Every item the Founder requires to stay gated, asserted individually. A rule
 # removed here fails the gate rather than quietly widening autonomy.
+#
+# BOUNDED AUTONOMY added the first three. Committing, pushing a feature branch
+# and opening a pull request were autonomous under the previous model; they are
+# now Founder gates, and each is denied by a single rule covering every spelling
+# rather than by an enumeration that a `-F` or a bare form could slip past.
 for rule in \
+  '"Bash(git commit:*)"' \
+  '"Bash(git push:*)"' \
+  '"Bash(gh pr create:*)"' \
   '"Bash(gh pr merge:*)"' \
   '"Bash(git push origin main:*)"' \
   '"Bash(git push -u origin main:*)"' \
@@ -565,25 +597,41 @@ DENY_COUNT="$(python3 -c "import json;print(len(json.load(open('.claude/settings
 [ "$DENY_COUNT" -ge "63" ] \
   || fail "the deny list shrank to $DENY_COUNT rules; 63 or more are required"
 
-# And no rule may broadly reopen what the deny list closes.
-for forbidden in \
-  '"Bash(bash:*)"' \
-  '"Bash(gh:*)"' \
-  '"Bash(gh pr:*)"' \
-  '"Bash(gh api:*)"' \
-  '"Bash(git push:*)"' \
-  '"Bash(chmod:*)"' \
-  '"Bash(chmod +x:*)"' \
-  '"Bash(bash /tmp/:*)"' \
-  '"Bash(bash /private/tmp/:*)"' \
-  '"Bash(npm:*)"' \
-  '"Bash(:*)"'; do
-  if grep -Fq "$forbidden" "$SETTINGS"; then
-    fail "an over-broad allow rule was introduced: $forbidden"
-  fi
-done
+# No ALLOW rule may broadly reopen a Founder or safety gate.
+# Inspect permissions.allow specifically because a broad git commit/push rule
+# is intentionally required in permissions.deny under bounded autonomy.
+python3 - "$SETTINGS" <<'PYTHON_CHECK6'
+import json
+import sys
 
-echo "PASS:  6. every Founder-gated boundary is present and nothing was widened"
+with open(sys.argv[1], encoding="utf-8") as handle:
+    allow = json.load(handle).get("permissions", {}).get("allow", [])
+
+forbidden_allows = [
+    "Bash(bash:*)",
+    "Bash(gh:*)",
+    "Bash(gh pr:*)",
+    "Bash(gh api:*)",
+    "Bash(git push:*)",
+    "Bash(git commit:*)",
+    "Bash(chmod:*)",
+    "Bash(chmod +x:*)",
+    "Bash(bash /tmp/:*)",
+    "Bash(bash /private/tmp/:*)",
+    "Bash(npm:*)",
+    "Bash(:*)",
+]
+
+for rule in forbidden_allows:
+    if rule in allow:
+        print(
+            f"FAIL: 6. an over-broad allow rule was introduced: {rule}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+PYTHON_CHECK6
+
+echo "PASS:  6. no over-broad allow rule reopens a Founder or safety gate"
 
 # ------------------------------------------------------------
 # 7. Machine-local settings are not what makes this work

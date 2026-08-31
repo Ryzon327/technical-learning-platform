@@ -1,0 +1,194 @@
+{
+  "documentKind": "architecture_fixture",
+  "learningPath": {
+    "stableId": "arch-fixture-path",
+    "title": "Curriculum Architecture Fixture Path",
+    "description": "A container used only to exercise the curriculum document contract. It is not part of the learner catalog and is refused by the publication command.",
+    "estimatedMinutes": 20
+  },
+  "course": {
+    "stableId": "arch-fixture-course",
+    "title": "Curriculum Architecture Fixture Course",
+    "description": "Exercises every part of the authored curriculum document: all seven mission step types, an asset referenced by two steps, both competency relationships, a competency prerequisite edge, and an explicit learning prerequisite rule.",
+    "position": 0,
+    "estimatedMinutes": 20
+  },
+  "modules": [
+    {
+      "stableId": "arch-fixture-mod-1",
+      "title": "Fixture Module One",
+      "description": "Holds the mission that exercises every approved step type.",
+      "position": 0,
+      "estimatedMinutes": 12
+    },
+    {
+      "stableId": "arch-fixture-mod-2",
+      "title": "Fixture Module Two",
+      "description": "Holds the mission that exercises competency reuse and an explicit prerequisite.",
+      "position": 1,
+      "estimatedMinutes": 8
+    }
+  ],
+  "missions": [
+    {
+      "stableId": "arch-fixture-m1-every-step-type",
+      "moduleStableId": "arch-fixture-mod-1",
+      "title": "Every Approved Step Type",
+      "description": "A mission whose authored steps cover the closed vocabulary. Retained so the legacy description path and the structured path can both be exercised on the same mission.",
+      "position": 0,
+      "estimatedMinutes": 12,
+      "competencies": [
+        {
+          "competencyStableId": "arch.fixture-primary",
+          "required": true,
+          "relationship": "develops"
+        }
+      ],
+      "steps": [
+        {
+          "stableId": "step-concept",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "What this fixture demonstrates",
+            "paragraphs": [
+              "This document exists to prove the curriculum contract accepts a complete, well-formed course.",
+              "Code-looking text is legitimate instructional content: a shell pipeline, an HTML tag such as <section>, and a config fragment must all survive authoring, storage and rendering as inert text."
+            ]
+          }
+        },
+        {
+          "stableId": "step-diagram",
+          "position": 1,
+          "content": {
+            "type": "diagram",
+            "assetStableId": "fixture-topology",
+            "caption": "Figure 1",
+            "textAlternative": "The diagram teaches that a step's text alternative describes what the visual TEACHES here, which is a different question from the asset's own alt text describing what it DEPICTS."
+          }
+        },
+        {
+          "stableId": "step-command",
+          "position": 2,
+          "content": {
+            "type": "command",
+            "caption": "A displayed command and its result. Nothing offers to run it.",
+            "command": "ip -br addr show",
+            "output": "lo    UNKNOWN  127.0.0.1/8\neth0  UP       10.0.0.5/24",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "step-prediction",
+          "position": 3,
+          "content": {
+            "type": "prediction",
+            "prompt": "Before reading on, decide which interface would answer a request to 10.0.0.5.",
+            "options": ["lo", "eth0"],
+            "expectedOutcome": "eth0, because it holds 10.0.0.5/24. This field is authored here and is structurally withheld from the learner projection by WP-E."
+          }
+        },
+        {
+          "stableId": "step-interaction",
+          "position": 4,
+          "content": {
+            "type": "interaction",
+            "interactionStableId": "fixture-placeholder-interaction",
+            "caption": "Interaction placeholder",
+            "textEquivalent": "Adjusting the prefix length from /24 to /25 halves the usable host range, so an address that was reachable inside the subnet can fall outside it."
+          }
+        },
+        {
+          "stableId": "step-practice",
+          "position": 5,
+          "content": {
+            "type": "practice",
+            "assessmentStableId": "arch.fixture-practice",
+            "framing": "A practice reference. WP-G does not make the referenced assessment publishable, and nothing here resolves it."
+          }
+        },
+        {
+          "stableId": "step-reference",
+          "position": 6,
+          "content": {
+            "type": "reference",
+            "label": "The fixture topology image",
+            "assetStableId": "fixture-topology",
+            "note": "Resolved through the asset authored on this mission rather than through a URL written into the step."
+          }
+        }
+      ],
+      "assets": [
+        {
+          "stableId": "fixture-topology",
+          "assetType": "diagram",
+          "title": "Fixture topology",
+          "uri": "https://example.test/fixtures/topology.svg",
+          "position": 0,
+          "required": true,
+          "altText": "Two boxes labelled lo and eth0, connected to a single network segment."
+        }
+      ]
+    },
+    {
+      "stableId": "arch-fixture-m2-reuse",
+      "moduleStableId": "arch-fixture-mod-2",
+      "title": "Reuse and Prerequisite",
+      "description": "A mission that reinforces a competency developed earlier and declares an explicit entry prerequisite.",
+      "position": 0,
+      "estimatedMinutes": 8,
+      "competencies": [
+        {
+          "competencyStableId": "arch.fixture-primary",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "arch.fixture-secondary",
+          "required": true,
+          "relationship": "develops"
+        }
+      ],
+      "steps": [
+        {
+          "stableId": "step-reuse-concept",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "paragraphs": [
+              "This mission reinforces a competency the previous mission developed, which is the distinction DEC-055 records: a mission either teaches a competency or deliberately applies one taught elsewhere."
+            ]
+          }
+        }
+      ],
+      "assets": []
+    }
+  ],
+  "competencies": [
+    {
+      "stableId": "arch.fixture-primary",
+      "title": "Read the fixture topology",
+      "description": "Identify which interface holds a given address and why."
+    },
+    {
+      "stableId": "arch.fixture-secondary",
+      "title": "Apply a prefix change",
+      "description": "Predict how narrowing a prefix changes which addresses remain inside the subnet."
+    }
+  ],
+  "competencyPrerequisites": [
+    {
+      "competencyStableId": "arch.fixture-secondary",
+      "prerequisiteCompetencyStableId": "arch.fixture-primary"
+    }
+  ],
+  "prerequisiteRules": [
+    {
+      "targetNodeType": "mission",
+      "targetStableId": "arch-fixture-m2-reuse",
+      "requirementType": "content_completion",
+      "requirementStableId": "arch-fixture-m1-every-step-type",
+      "explanation": "This mission reuses the addressing idea the first mission teaches, so complete that one first."
+    }
+  ]
+}

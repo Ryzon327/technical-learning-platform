@@ -22,6 +22,7 @@ export * from "./curriculum-admin";
 export * from "./mission-steps";
 export * from "./mission-instruction";
 export * from "./curriculum-assets";
+export * from "./curriculum-document";
 export * from "./curriculum-quality";
 export * from "./learning";
 export * from "./learning-navigation";
