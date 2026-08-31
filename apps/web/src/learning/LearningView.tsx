@@ -6,10 +6,17 @@ import type {
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
+import { MissionInstruction } from "./MissionInstruction";
+import {
+  selectInstructionSource,
+  type InstructionSource,
+  type MissionInstructionRequest
+} from "./mission-instruction-presentation";
 import { PracticeCheckPanel } from "./PracticeCheckPanel";
 import {
   buildRoasLearnerCourse,
   describeEstimatedTime,
+  type BriefBlock,
   type LearnerMission,
   type LearnerPracticeCheck
 } from "./roas-course-content";
@@ -34,6 +41,7 @@ import {
 } from "./roas-course-presentation";
 import {
   loadLearningPathProgress,
+  loadMissionInstruction,
   loadPublishedLearningPath,
   loadRecommendedNextAction,
   loadResumeTarget,
@@ -63,6 +71,69 @@ import {
  * user is not left at the top of the outline.
  */
 
+/**
+ * One block of an authored brief.
+ *
+ * Unchanged from the markup this view has always produced: a block whose lines
+ * were authored as a list becomes a real list, everything else a paragraph.
+ * Shared by both brief paths so the server's brief and the bundled brief cannot
+ * drift apart visually.
+ */
+function renderBriefBlock(block: BriefBlock, index: number) {
+  return block.kind === "list" ? (
+    <ul key={index} className="mission-brief-list">
+      {block.items.map((item) => (
+        <li key={item}>{item}</li>
+      ))}
+    </ul>
+  ) : (
+    <p key={index}>{block.text}</p>
+  );
+}
+
+/**
+ * WP-F — the mission's instruction, from whichever single source applies.
+ *
+ * Four sources, one visible at a time. `selectInstructionSource` has already
+ * chosen; this renders only what it chose, which is why there is no branch here
+ * in which two sources could appear together.
+ *
+ * The two brief paths are kept separate rather than merged into one expression.
+ * They come from different places and retire at different times: `legacy` is the
+ * server's own `missions.description`, which CURR-010 section 13.4 keeps
+ * indefinitely for a published mission with no authored steps, while `bundled`
+ * is the course's compiled-in brief and exists only until the instruction
+ * endpoint can answer for every mission. WP-G owns removing the second; nothing
+ * in WP-F does.
+ */
+function MissionInstructionBody({
+  source,
+  mission
+}: {
+  source: InstructionSource;
+  mission: LearnerMission;
+}) {
+  if (source.kind === "structured") {
+    return (
+      <MissionInstruction
+        steps={source.steps}
+        assets={source.assets}
+        missionStableId={mission.stableId}
+      />
+    );
+  }
+
+  if (source.kind === "unavailable") {
+    return <p className="mission-note">{source.message}</p>;
+  }
+
+  if (source.kind === "legacy") {
+    return <>{source.blocks.map(renderBriefBlock)}</>;
+  }
+
+  return <>{mission.brief.map(renderBriefBlock)}</>;
+}
+
 function MissionDetail({
   mission,
   totalMissions,
@@ -71,6 +142,7 @@ function MissionDetail({
   saving,
   feedback,
   practice,
+  instructionSource,
   onRecord
 }: {
   mission: LearnerMission;
@@ -82,6 +154,8 @@ function MissionDetail({
   feedback: ProgressFeedback | null;
   /** Already selected for this mission. See selectMissionPractice. */
   practice: readonly LearnerPracticeCheck[];
+  /** Already reduced to one source. See selectInstructionSource. */
+  instructionSource: InstructionSource;
   onRecord: (action: "start" | "complete") => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -106,17 +180,7 @@ function MissionDetail({
       </h3>
       <p className="mission-state">{progressLabel}</p>
 
-      {mission.brief.map((block, index) =>
-        block.kind === "list" ? (
-          <ul key={index} className="mission-brief-list">
-            {block.items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        ) : (
-          <p key={index}>{block.text}</p>
-        )
-      )}
+      <MissionInstructionBody source={instructionSource} mission={mission} />
 
       {mission.isDemonstration && (
         <p className="mission-note">{describeDemonstrationAvailability()}</p>
@@ -223,6 +287,25 @@ export function LearningView() {
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<ProgressFeedback | null>(null);
 
+  // WP-F. The open mission's instructional content.
+  //
+  // ONE state slice, and it carries the mission it belongs to.
+  //
+  // This was three loose values — response, error code, loading — cleared in
+  // the effect below. That had a race, and clearing them harder would not have
+  // fixed it: an effect runs after the render that scheduled it, so on the
+  // render where the selection moves from one mission to the next, the previous
+  // mission's response was still present and still consumable. Its structured
+  // instruction could appear under the new mission's heading for a frame. The
+  // AbortController did not cover that — it stops a late response arriving, and
+  // this was a stale read of one that already had.
+  //
+  // Tagging the state removes the window instead of narrowing it.
+  // `selectInstructionSource` is handed both this and the mission being
+  // rendered, and refuses to read state belonging to any other.
+  const [instructionRequest, setInstructionRequest] =
+    useState<MissionInstructionRequest>({ status: "idle" });
+
   const pathStableId = course.learningPathStableId;
 
   // `background` distinguishes the FIRST load from a post-write revalidation.
@@ -309,6 +392,64 @@ export function LearningView() {
     void load(controller.signal);
     return () => controller.abort();
   }, [load]);
+
+  // WP-F. Fetch the open mission's instruction.
+  //
+  // Each of the three outcomes writes the one tagged state exactly once. There
+  // is deliberately no completion hook: one running after the success branch
+  // would have to decide again which state it was leaving, and getting that
+  // wrong would overwrite a delivered response.
+  //
+  // Two independent protections stop one mission's answer reaching another's
+  // panel, because they cover different failures:
+  //
+  //   the AbortController stops a late RESPONSE from being written at all;
+  //   the mission tag stops any state that was written from being READ as
+  //   another mission's — including during the render before this effect runs,
+  //   which is the window an effect-time reset can never close.
+  //
+  // An abort is silent by design: it means the learner moved on, which is not a
+  // failure and must not surface as one.
+  useEffect(() => {
+    if (!selectedMissionStableId) {
+      setInstructionRequest({ status: "idle" });
+      return;
+    }
+
+    // Captured once. Every state written below is tagged with this mission,
+    // never with whatever happens to be selected when the request settles.
+    const missionStableId = selectedMissionStableId;
+    const controller = new AbortController();
+
+    setInstructionRequest({ status: "loading", missionStableId });
+
+    void (async () => {
+      try {
+        const response = await loadMissionInstruction(
+          accessToken,
+          missionStableId,
+          { signal: controller.signal }
+        );
+
+        setInstructionRequest({ status: "loaded", missionStableId, response });
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          return;
+        }
+
+        // Classified, not rendered. selectInstructionSource decides which codes
+        // may fall back to the authored brief and which must not.
+        setInstructionRequest({
+          status: "error",
+          missionStableId,
+          errorCode:
+            caught instanceof ApiRequestError ? caught.code : "INTERNAL_ERROR"
+        });
+      }
+    })();
+
+    return () => controller.abort();
+  }, [accessToken, selectedMissionStableId]);
 
   const availability = resolveCourseAvailability({
     loading,
@@ -494,6 +635,10 @@ export function LearningView() {
             selectedMission.stableId
           )}
           practice={selectMissionPractice(course, selectedMission.stableId)}
+          instructionSource={selectInstructionSource(
+            instructionRequest,
+            selectedMission.stableId
+          )}
           onRecord={(action) => void handleRecord(selectedMission, action)}
         />
       ) : (

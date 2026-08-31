@@ -353,6 +353,96 @@ dd {
   color: #64748b;
 }
 
+/* WP-F — authored mission instruction.
+
+   The mission panel is already a bordered card. Boxing each step inside it
+   would nest cards two deep and turn a lesson into a stack of tiles, so steps
+   are separated by rhythm and one hairline rule instead. Only the two step
+   types that genuinely are a different kind of object — a command block and a
+   figure — get their own ground.
+
+   Colours are the greys and slates already used elsewhere in this sheet, so a
+   later tokenization pass has one palette to replace rather than two. */
+
+.instruction-step + .instruction-step {
+  margin-top: 1.75rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid #eef2f7;
+}
+
+.mission-instruction h4 {
+  margin-bottom: 0.5rem;
+}
+
+.instruction-prompt {
+  font-weight: 600;
+  color: #334155;
+}
+
+.instruction-options,
+.instruction-note {
+  color: #475569;
+}
+
+.instruction-options {
+  padding-left: 1.25rem;
+}
+
+/* A figure carries the image, its caption, and the instructional text
+   alternative — which is prose for every reader, not a fallback. */
+
+.instruction-figure {
+  margin: 0;
+}
+
+.instruction-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.instruction-figure figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+/* Command and result.
+
+   `overflow-x: auto` sits on the <pre>, so a long line scrolls inside its own
+   block and never widens the page. The labels above each block are what make
+   the two distinguishable without sight; they are text, not decoration. */
+
+.instruction-command-caption {
+  margin-bottom: 0.6rem;
+}
+
+.instruction-command-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.instruction-command pre {
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  background: #f1f5f9;
+  border-radius: 10px;
+  color: #111827;
+}
+
+.instruction-command code {
+  font-size: 0.92rem;
+  white-space: pre;
+}
+
 /* Browser-native printing. No PDF library and no image rendering: the printed
    certificate is the same semantic text a screen reader reads. */
 
