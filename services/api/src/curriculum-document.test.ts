@@ -656,6 +656,115 @@ describe("mission steps", () => {
     );
   });
 
+  it("rejects an unregistered interaction type at authoring time", () => {
+    // CURR-011 s13: an unregistered interaction type is a hard publication
+    // failure. The document never parses, so the publication command never
+    // receives a document to write.
+    const result = parseCurriculumDocument(
+      withStepContent({
+        type: "interaction",
+        interactionStableId: "fixture-packet-journey",
+        interactionType: "subnet_slider",
+        sourceKind: "authored_teaching",
+        supportLevel: "show_me",
+        parameters: { interactionType: "subnet_slider" },
+        textEquivalent: "E"
+      })
+    );
+
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.errors.join(" ")).toContain("not a registered interaction type");
+  });
+
+  it("rejects a live_lab interaction until its adapter exists", () => {
+    const result = parseCurriculumDocument(
+      withStepContent({
+        type: "interaction",
+        interactionStableId: "fixture-packet-journey",
+        interactionType: "packet_journey",
+        sourceKind: "live_lab",
+        supportLevel: "show_me",
+        parameters: {
+          interactionType: "packet_journey",
+          nodes: [
+            {
+              nodeId: "pc-a",
+              label: "PC-A",
+              role: "host",
+              interfaces: []
+            }
+          ],
+          links: [],
+          traffic: {
+            label: "a request",
+            sourceNodeId: "pc-a",
+            destinationNodeId: "pc-a",
+            startActionLabel: "Send it"
+          },
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "It leaves.",
+              outcome: "proceeds"
+            }
+          ],
+          actions: [],
+          confirmation: { narration: "Arrived.", summary: "Done." }
+        },
+        textEquivalent: "E"
+      })
+    );
+
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.errors.join(" ")).toContain("WP-K");
+  });
+
+  it("rejects an unknown field inside interaction parameters", () => {
+    // The document parser cannot reach inside `parameters`; the registry's own
+    // validator does the deep rejection. This proves the two are connected.
+    const result = parseCurriculumDocument(
+      withStepContent({
+        type: "interaction",
+        interactionStableId: "fixture-packet-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel: "show_me",
+        parameters: {
+          interactionType: "packet_journey",
+          routingTable: [],
+          nodes: [
+            { nodeId: "pc-a", label: "PC-A", role: "host", interfaces: [] }
+          ],
+          links: [],
+          traffic: {
+            label: "a request",
+            sourceNodeId: "pc-a",
+            destinationNodeId: "pc-a",
+            startActionLabel: "Send it"
+          },
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "It leaves.",
+              outcome: "proceeds"
+            }
+          ],
+          actions: [],
+          confirmation: { narration: "Arrived.", summary: "Done." }
+        },
+        textEquivalent: "E"
+      })
+    );
+
+    expect(result.valid).toBe(false);
+    if (result.valid) return;
+    expect(result.errors.join(" ")).toContain('unknown field "routingTable"');
+  });
+
   it("rejects a diagram with no text alternative", () => {
     expectRejected(
       withStepContent({
@@ -703,7 +812,49 @@ describe("mission steps", () => {
       },
       interaction: {
         type: "interaction",
-        interactionStableId: "fixture-placeholder-interaction",
+        interactionStableId: "fixture-packet-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel: "show_me",
+        // The smallest parameter block the registry accepts: one device, no
+        // fault and therefore no repair action. This test proves the KEYS are
+        // all accepted, so the values only have to be valid.
+        parameters: {
+          interactionType: "packet_journey",
+          nodes: [
+            {
+              nodeId: "pc-a",
+              label: "PC-A",
+              role: "host",
+              interfaces: [
+                {
+                  interfaceId: "pc-a-eth0",
+                  label: "eth0",
+                  attributes: [{ label: "IP address", value: "10.0.0.5/24" }]
+                }
+              ]
+            }
+          ],
+          links: [],
+          traffic: {
+            label: "an echo request",
+            sourceNodeId: "pc-a",
+            destinationNodeId: "pc-a",
+            startActionLabel: "Send it"
+          },
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "PC-A sends the request.",
+              decision: "It is on the local network.",
+              outcome: "proceeds",
+              prediction: { prompt: "What next?", options: ["a", "b"] }
+            }
+          ],
+          actions: [],
+          confirmation: { narration: "It arrives.", summary: "Done." }
+        },
         textEquivalent: "E",
         caption: "C"
       },

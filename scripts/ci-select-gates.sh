@@ -98,6 +98,13 @@ apps/web/src/learning/roas-course-presentation.ts|scripts/verify-roas4.sh
 apps/web/src/learning/*|scripts/verify-roas3.sh
 apps/web/src/auth/AuthenticatedApp.tsx|scripts/verify-roas3.sh
 scripts/verify-roas3.sh|scripts/verify-roas3.sh
+packages/shared-types/src/instruction-interaction*|scripts/verify-wph.sh
+packages/shared-types/src/observation-model*|scripts/verify-wph.sh
+packages/shared-types/src/mission-steps*|scripts/verify-wph.sh
+apps/web/src/learning/packet-journey-presentation*|scripts/verify-wph.sh
+apps/web/src/learning/PacketJourney.tsx|scripts/verify-wph.sh
+apps/web/src/learning/InteractionSurface.tsx|scripts/verify-wph.sh
+scripts/verify-wph.sh|scripts/verify-wph.sh
 packages/shared-types/src/curriculum-document*|scripts/verify-wpg.sh
 services/api/src/curriculum-reconciliation*|scripts/verify-wpg.sh
 services/api/src/curriculum-import*|scripts/verify-wpg.sh
@@ -114,6 +121,9 @@ apps/web/src/learning/learning-service.ts|scripts/verify-wpf.sh
 apps/web/src/learning/LearningView.tsx|scripts/verify-wpf.sh
 apps/web/src/styles.css|scripts/verify-wpf.sh
 packages/shared-types/src/mission-instruction*|scripts/verify-wpf.sh
+packages/shared-types/src/mission-steps*|scripts/verify-wpf.sh
+services/api/src/curriculum.ts|scripts/verify-wpf.sh
+services/api/src/server.ts|scripts/verify-wpf.sh
 scripts/verify-wpf.sh|scripts/verify-wpf.sh
 packages/shared-types/src/roas-curriculum*|scripts/verify-roas2.sh
 scripts/verify-roas2.sh|scripts/verify-roas2.sh

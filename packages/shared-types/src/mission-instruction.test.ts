@@ -8,6 +8,10 @@ import {
 } from "./mission-instruction";
 import { MISSION_STEP_TYPES, type MissionStep } from "./mission-steps";
 import type { CurriculumAssetReference } from "./curriculum-assets";
+import type {
+  InteractionParameters,
+  InteractionSupportLevel
+} from "./instruction-interaction";
 
 /**
  * WP-E — the learner projection, proven at the only level where it can be
@@ -35,6 +39,353 @@ const diagramAsset: CurriculumAssetReference = {
   required: true,
   altText: "Two workstations connected to a single switch."
 };
+
+/**
+ * An authored packet journey WITH a fault and a resolving action, so the
+ * support-level tests below have both protected fields to check:
+ * `stages[].decision` and `fault.explanation`.
+ */
+const packetJourneyFixture: InteractionParameters = {
+  interactionType: "packet_journey",
+  nodes: [
+    {
+      nodeId: "pc-a",
+      label: "PC-A",
+      role: "host",
+      interfaces: [
+        {
+          interfaceId: "pc-a-eth0",
+          label: "eth0",
+          attributes: [{ label: "IP address", value: "192.168.10.10/24" }]
+        }
+      ]
+    },
+    {
+      nodeId: "r-1",
+      label: "Router-1",
+      role: "router",
+      interfaces: [
+        {
+          interfaceId: "r-1-gi0-0-10",
+          label: "Gi0/0.10",
+          attributes: [{ label: "VLAN", value: "10" }]
+        }
+      ]
+    }
+  ],
+  links: [
+    {
+      linkId: "link-a",
+      label: "PC-A to Router-1",
+      endpoints: ["pc-a-eth0", "r-1-gi0-0-10"]
+    }
+  ],
+  traffic: {
+    label: "an ICMP echo request",
+    sourceNodeId: "pc-a",
+    destinationNodeId: "r-1",
+    startActionLabel: "Send the ping"
+  },
+  stages: [
+    {
+      stageId: "s1",
+      atNodeId: "pc-a",
+      narration: "PC-A sends the request towards its gateway.",
+      decision: "The destination is on another network, so it uses the gateway.",
+      outcome: "proceeds"
+    },
+    {
+      stageId: "s2",
+      atNodeId: "r-1",
+      narration: "The frame arrives at Router-1 and is discarded.",
+      decision: "The subinterface for VLAN 20 does not exist, so there is no route.",
+      outcome: "stops",
+      prediction: {
+        prompt: "What will Router-1 do with this frame?",
+        options: ["Forward it to VLAN 20", "Discard it"]
+      }
+    }
+  ],
+  fault: {
+    atNodeId: "r-1",
+    symptom: "The ping reports 100% packet loss.",
+    stopsAtStageId: "s2",
+    explanation: "Router-1 has no subinterface configured for VLAN 20."
+  },
+  actions: [
+    {
+      actionId: "add-vlan-20",
+      label: "Add the VLAN 20 subinterface on Router-1",
+      resolvesFault: true,
+      observation: "Router-1 now has an interface in VLAN 20 and forwards the frame."
+    },
+    {
+      actionId: "restart-pc-a",
+      label: "Restart PC-A",
+      resolvesFault: false,
+      observation: "PC-A comes back up and the ping still reports 100% packet loss."
+    }
+  ],
+  confirmation: {
+    narration: "The echo request reaches PC-B and the reply returns.",
+    summary: "Router-on-a-stick needs one subinterface per VLAN."
+  }
+};
+
+function interactionAt(supportLevel: InteractionSupportLevel): MissionStep {
+  return step({
+    type: "interaction",
+    interactionStableId: "packet-journey",
+    interactionType: "packet_journey",
+    sourceKind: "authored_teaching",
+    supportLevel,
+    parameters: packetJourneyFixture,
+    textEquivalent: "Follow the request hop by hop and see where it stops."
+  });
+}
+
+describe("interaction support levels are enforced in the projection", () => {
+  it("shows the expected path and the fault explanation at SHOW ME", () => {
+    const projected = projectMissionStep(interactionAt("show_me"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    expect(content.presentation.state).toBe("available");
+    if (content.presentation.state !== "available") return;
+
+    const parameters = content.presentation.parameters;
+    expect(parameters.stages[1]?.decision).toContain("VLAN 20");
+    expect(parameters.fault?.explanation).toContain("subinterface");
+  });
+
+  for (const level of ["help_me", "ask_me"] as const) {
+    it(`still shows answer-revealing teaching at ${level}`, () => {
+      const projected = projectMissionStep(interactionAt(level));
+      const content = projected.content as Extract<
+        typeof projected.content,
+        { type: "interaction" }
+      >;
+
+      if (content.presentation.state !== "available") {
+        throw new Error("expected an available interaction");
+      }
+
+      expect(content.presentation.parameters.fault?.explanation).toBeDefined();
+    });
+  }
+
+  it("withholds the expected path and the explanation at CHALLENGE ME", () => {
+    const projected = projectMissionStep(interactionAt("challenge_me"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+
+    // ABSENT, not undefined. A property carrying `undefined` still appears in
+    // some serialisations and would satisfy a naive assertion.
+    for (const stage of parameters.stages) {
+      expect("decision" in stage).toBe(false);
+    }
+    expect(parameters.fault).toBeDefined();
+    expect("explanation" in (parameters.fault ?? {})).toBe(false);
+  });
+
+  it("withholds the answer-bearing remediation and conclusion at CHALLENGE ME", () => {
+    // The architecture-review correction. Every authored action names whether
+    // it resolves the fault and what it produces, and the confirmation states
+    // the lesson's answer. Shipping them and not drawing them is not
+    // withholding, because the response is readable.
+    const projected = projectMissionStep(interactionAt("challenge_me"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+
+    expect("actions" in parameters).toBe(false);
+    expect("confirmation" in parameters).toBe(false);
+  });
+
+  it("keeps the environment, the symptom and the prediction at CHALLENGE ME", () => {
+    // DEC-059: withholding assistance must never remove the means of
+    // demonstrating. A legitimate observation is not tutoring merely because
+    // it describes system state.
+    const projected = projectMissionStep(interactionAt("challenge_me"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+
+    expect(parameters.nodes).toHaveLength(2);
+    expect(parameters.nodes[0]?.interfaces[0]?.attributes).toHaveLength(1);
+    expect(parameters.links).toHaveLength(1);
+    expect(parameters.traffic.label).toBe("an ICMP echo request");
+    expect(parameters.fault?.symptom).toContain("packet loss");
+    expect(parameters.stages.every((stage) => stage.narration !== "")).toBe(true);
+    expect(parameters.stages[1]?.prediction?.options).toHaveLength(2);
+  });
+
+  it("withholds the whole teaching interaction at PROVE IT", () => {
+    const projected = projectMissionStep(interactionAt("prove_it"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    expect(content.presentation).toEqual({
+      state: "withheld",
+      reason: "protected_demonstration"
+    });
+
+    // No parameters crossed the wire at all, so no authored fault, decision,
+    // action or narration can be read out of the response.
+    expect(JSON.stringify(content)).not.toContain("subinterface");
+    expect(JSON.stringify(content)).not.toContain("packet loss");
+  });
+
+  it("keeps the accessible text equivalent at PROVE IT", () => {
+    // Accessibility is an accommodation, not tutoring (DEC-059). It does not
+    // disappear when instructional assistance does.
+    const projected = projectMissionStep(interactionAt("prove_it"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    expect(content.textEquivalent).toContain("Follow the request");
+  });
+
+  it("leaks no protected authored string into the CHALLENGE ME response", () => {
+    // The assertion the architecture review asked for: serialise what actually
+    // crosses the wire and search it, rather than trusting property names.
+    const serialised = JSON.stringify(
+      projectMissionStep(interactionAt("challenge_me"))
+    );
+
+    const protectedStrings = [
+      // stage.decision — the expected path
+      "The destination is on another network, so it uses the gateway.",
+      "The subinterface for VLAN 20 does not exist, so there is no route.",
+      // fault.explanation — the diagnosis
+      "Router-1 has no subinterface configured for VLAN 20.",
+      // action labels and observations — which fix works, and what it does
+      "Add the VLAN 20 subinterface on Router-1",
+      "Router-1 now has an interface in VLAN 20 and forwards the frame.",
+      "PC-A comes back up and the ping still reports 100% packet loss.",
+      // confirmation — the conclusion, in plain words
+      "The echo request reaches PC-B and the reply returns.",
+      "Router-on-a-stick needs one subinterface per VLAN."
+    ];
+
+    for (const leaked of protectedStrings) {
+      expect(serialised).not.toContain(leaked);
+    }
+
+    // The answer-key field name must be gone with them.
+    expect(serialised).not.toContain("resolvesFault");
+  });
+
+  it("still carries the legitimate observations in the CHALLENGE ME response", () => {
+    // The other half of the same assertion. Over-withholding would remove the
+    // means of demonstrating, which DEC-059 forbids just as clearly.
+    const serialised = JSON.stringify(
+      projectMissionStep(interactionAt("challenge_me"))
+    );
+
+    for (const kept of [
+      "The ping reports 100% packet loss.",
+      "The frame arrives at Router-1 and is discarded.",
+      "PC-A sends the request towards its gateway.",
+      "What will Router-1 do with this frame?",
+      "192.168.10.10/24",
+      "Follow the request hop by hop"
+    ]) {
+      expect(serialised).toContain(kept);
+    }
+  });
+
+  it("leaks nothing at all in the PROVE IT response", () => {
+    const serialised = JSON.stringify(
+      projectMissionStep(interactionAt("prove_it"))
+    );
+
+    for (const leaked of [
+      "Router-1 has no subinterface configured for VLAN 20.",
+      "Add the VLAN 20 subinterface on Router-1",
+      "Router-on-a-stick needs one subinterface per VLAN.",
+      "The ping reports 100% packet loss.",
+      "The frame arrives at Router-1 and is discarded.",
+      "192.168.10.10/24",
+      "resolvesFault"
+    ]) {
+      expect(serialised).not.toContain(leaked);
+    }
+
+    // The accessible account survives, because it is an accommodation.
+    expect(serialised).toContain("Follow the request hop by hop");
+  });
+
+  it("sends the remediation and conclusion at the teaching levels", () => {
+    for (const level of ["show_me", "help_me", "ask_me"] as const) {
+      const projected = projectMissionStep(interactionAt(level));
+      const content = projected.content as Extract<
+        typeof projected.content,
+        { type: "interaction" }
+      >;
+
+      if (content.presentation.state !== "available") {
+        throw new Error(`expected an available interaction at ${level}`);
+      }
+
+      const parameters = content.presentation.parameters;
+
+      expect(parameters.actions).toHaveLength(2);
+      expect(parameters.confirmation?.summary).toContain("subinterface");
+      expect(parameters.fault?.explanation).toBeDefined();
+      expect(parameters.stages[1]?.decision).toBeDefined();
+    }
+  });
+
+  it("never sends a prediction answer key at any support level", () => {
+    for (const level of [
+      "show_me",
+      "help_me",
+      "ask_me",
+      "challenge_me",
+      "prove_it"
+    ] as const) {
+      const serialised = JSON.stringify(projectMissionStep(interactionAt(level)));
+
+      for (const forbidden of [
+        "expectedOutcome",
+        "expectedOptionIndex",
+        "correctOption",
+        "answer"
+      ]) {
+        expect(serialised).not.toContain(forbidden);
+      }
+    }
+  });
+});
 
 describe("prediction expectedOutcome is structurally withheld", () => {
   const authored = step({
@@ -133,14 +484,21 @@ describe("accessibility text survives the projection", () => {
   it("carries an interaction's textEquivalent", () => {
     const projected = projectMissionStepContent({
       type: "interaction",
-      interactionStableId: "subnet-slider",
-      textEquivalent: "Adjust the prefix length and read the host count."
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      parameters: packetJourneyFixture,
+      textEquivalent: "Follow the request hop by hop and see where it stops."
     });
 
-    expect(projected).toEqual({
+    expect(projected).toMatchObject({
       type: "interaction",
-      interactionStableId: "subnet-slider",
-      textEquivalent: "Adjust the prefix length and read the host count."
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      textEquivalent: "Follow the request hop by hop and see where it stops."
     });
   });
 
@@ -163,8 +521,12 @@ describe("the projection is exhaustive over the approved step types", () => {
     prediction: { type: "prediction", prompt: "What happens?" },
     interaction: {
       type: "interaction",
-      interactionStableId: "subnet-slider",
-      textEquivalent: "Adjust the prefix length."
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      parameters: packetJourneyFixture,
+      textEquivalent: "Follow the request hop by hop."
     },
     practice: { type: "practice", assessmentStableId: "assess.vlan-basics" },
     reference: { type: "reference", label: "RFC 1918" }

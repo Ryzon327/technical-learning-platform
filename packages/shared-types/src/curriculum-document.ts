@@ -351,7 +351,20 @@ const STEP_CONTENT_KEYS: Readonly<Record<string, readonly string[]>> = {
   diagram: ["type", "assetStableId", "caption", "textAlternative"],
   command: ["type", "command", "output", "language", "caption"],
   prediction: ["type", "prompt", "options", "expectedOutcome"],
-  interaction: ["type", "interactionStableId", "textEquivalent", "caption"],
+  // WP-H. `parameters` is listed here only so the key is not rejected as
+  // unknown; its INTERIOR is validated by `validateInteractionContent`, which
+  // rejects unknown keys at every depth. This module cannot mirror a nested
+  // discriminated union without becoming a second copy of the registry.
+  interaction: [
+    "type",
+    "interactionStableId",
+    "interactionType",
+    "sourceKind",
+    "supportLevel",
+    "parameters",
+    "textEquivalent",
+    "caption"
+  ],
   practice: ["type", "assessmentStableId", "framing"],
   reference: ["type", "label", "assetStableId", "uri", "note"]
 };
