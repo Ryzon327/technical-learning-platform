@@ -106,6 +106,60 @@ export function isBundledFallbackEligible(errorCode: string | null): boolean {
   return FALLBACK_ELIGIBLE_ERROR_CODES.includes(errorCode);
 }
 
+/* ------------------------------------------------------------------ *
+ * The request, and which mission it belongs to
+ * ------------------------------------------------------------------ */
+
+/**
+ * One mission's instruction request, carrying the mission it is about.
+ *
+ * ## Why the mission identity is part of the state
+ *
+ * The identity is not decoration and not a debugging aid. It is the whole
+ * mechanism, and it replaces an earlier model that held three loose values —
+ * response, error code, loading — cleared in an effect keyed by the selected
+ * mission.
+ *
+ * That model had a race, and clearing harder would not have fixed it. An effect
+ * runs AFTER the render that scheduled it. On the render where the selection
+ * changes from mission A to mission B, the old state is still present and still
+ * consumable, so B's panel could render A's structured instruction for one
+ * frame before the effect cleared anything. An `AbortController` does not help:
+ * it stops a late RESPONSE from arriving, and this was a stale READ of state
+ * that had already arrived.
+ *
+ * Tagging the state removes the window rather than narrowing it. There is no
+ * instant at which a value belonging to A can be read as B's, because the
+ * consumer is handed both the state and the mission it is being asked about and
+ * compares them before looking at anything else.
+ *
+ * ## Why the tag rather than the response's own mission field
+ *
+ * A loaded response does carry `response.mission.stableId`. The `loading` and
+ * `error` states carry no response at all, and those are exactly the states a
+ * stale render is most likely to catch. One mechanism covering all four states
+ * is better than one covering two.
+ *
+ * ## Why the variants omit fields instead of nulling them
+ *
+ * A `loading` state has no response and no error code, so it carries neither
+ * member rather than carrying both as `null`. An unrepresentable combination
+ * cannot be misread, and it matches how WP-E's own outcome union is built.
+ */
+export type MissionInstructionRequest =
+  | { readonly status: "idle" }
+  | { readonly status: "loading"; readonly missionStableId: string }
+  | {
+      readonly status: "loaded";
+      readonly missionStableId: string;
+      readonly response: LearnerMissionInstructionResponse;
+    }
+  | {
+      readonly status: "error";
+      readonly missionStableId: string;
+      readonly errorCode: string;
+    };
+
 /**
  * What a learner is told when no instruction can be shown.
  *
@@ -128,15 +182,20 @@ export function describeInstructionUnavailable(): string {
 }
 
 /**
- * Choose the one source to render.
+ * Choose the one source to render for one named mission.
  *
- * Total over every combination of the three inputs, and ordered so the
- * strongest answer wins:
+ * The mission identity is a required argument rather than something the caller
+ * is trusted to have checked. There is no way to ask this function what to show
+ * without saying which mission is being asked about, so the scoping below cannot
+ * be skipped, forgotten, or left to the order effects happen to run in.
+ *
+ * Ordering, once the state is known to belong to this mission:
  *
  *   1. a successful response is authoritative — including when it says the
  *      content is broken;
  *   2. only then is a failure classified;
- *   3. loading falls back to the bundled brief.
+ *   3. loading, idle and another mission's state all fall back to the bundled
+ *      brief.
  *
  * `content_error` is checked before any fallback and can never reach one. That
  * ordering is the whole of CURR-010 section 13.2 in the client: a mission whose
@@ -150,41 +209,50 @@ export function describeInstructionUnavailable(): string {
  * answering. Nothing is asserted that later turns out false: the worst case is
  * that authored steps replace an authored brief covering the same material.
  */
-export function selectInstructionSource(input: {
-  loading: boolean;
-  response: LearnerMissionInstructionResponse | null;
-  errorCode: string | null;
-}): InstructionSource {
-  const instruction = input.response?.instruction;
-
-  if (instruction) {
-    if (instruction.state === "available") {
-      return {
-        kind: "structured",
-        steps: instruction.steps,
-        assets: instruction.assets
-      };
-    }
-
-    if (instruction.state === "legacy_brief") {
-      return {
-        kind: "legacy",
-        blocks: parseMissionBrief(instruction.description)
-      };
-    }
-
-    // content_error. No fallback, no steps, no brief, no diagnostics.
-    return { kind: "unavailable", message: describeInstructionUnavailable() };
+export function selectInstructionSource(
+  request: MissionInstructionRequest,
+  missionStableId: string
+): InstructionSource {
+  // Scope before anything else is read.
+  //
+  // A request belonging to a different mission is not weaker evidence about
+  // this one — it is no evidence at all, and is treated exactly like never
+  // having asked. That includes a `content_error`: another mission's broken
+  // content says nothing about this mission and must not blank its panel.
+  if (
+    request.status === "idle" ||
+    request.missionStableId !== missionStableId
+  ) {
+    return { kind: "bundled" };
   }
 
-  if (input.errorCode !== null) {
-    return isBundledFallbackEligible(input.errorCode)
+  if (request.status === "loading") return { kind: "bundled" };
+
+  if (request.status === "error") {
+    return isBundledFallbackEligible(request.errorCode)
       ? { kind: "bundled" }
       : { kind: "unavailable", message: describeInstructionUnavailable() };
   }
 
-  // In flight, or not yet asked. The authored brief holds the page.
-  return { kind: "bundled" };
+  const instruction = request.response.instruction;
+
+  if (instruction.state === "available") {
+    return {
+      kind: "structured",
+      steps: instruction.steps,
+      assets: instruction.assets
+    };
+  }
+
+  if (instruction.state === "legacy_brief") {
+    return {
+      kind: "legacy",
+      blocks: parseMissionBrief(instruction.description)
+    };
+  }
+
+  // content_error. No fallback, no steps, no brief, no diagnostics.
+  return { kind: "unavailable", message: describeInstructionUnavailable() };
 }
 
 /* ------------------------------------------------------------------ *

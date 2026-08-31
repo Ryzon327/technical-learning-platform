@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  LearnerMissionInstructionResponse,
   LearningPathProgressSummary,
   LearningResumeTarget,
   RecommendedNextAction
@@ -10,7 +9,8 @@ import { ApiRequestError } from "../lib/api-client";
 import { MissionInstruction } from "./MissionInstruction";
 import {
   selectInstructionSource,
-  type InstructionSource
+  type InstructionSource,
+  type MissionInstructionRequest
 } from "./mission-instruction-presentation";
 import { PracticeCheckPanel } from "./PracticeCheckPanel";
 import {
@@ -289,20 +289,22 @@ export function LearningView() {
 
   // WP-F. The open mission's instructional content.
   //
-  // Held separately from the course reads above because it is scoped to one
-  // mission rather than to the path, and is refetched when the open mission
-  // changes rather than when the course reloads.
+  // ONE state slice, and it carries the mission it belongs to.
   //
-  // Both slices are cleared the moment a different mission is opened. Leaving
-  // either in place would render one mission's instruction under another's
-  // heading for as long as the new request takes — the same class of defect
-  // UAT-PROGRESS-FEEDBACK-1 found in the save confirmation.
-  const [instruction, setInstruction] =
-    useState<LearnerMissionInstructionResponse | null>(null);
-  const [instructionErrorCode, setInstructionErrorCode] = useState<
-    string | null
-  >(null);
-  const [instructionLoading, setInstructionLoading] = useState(false);
+  // This was three loose values — response, error code, loading — cleared in
+  // the effect below. That had a race, and clearing them harder would not have
+  // fixed it: an effect runs after the render that scheduled it, so on the
+  // render where the selection moves from one mission to the next, the previous
+  // mission's response was still present and still consumable. Its structured
+  // instruction could appear under the new mission's heading for a frame. The
+  // AbortController did not cover that — it stops a late response arriving, and
+  // this was a stale read of one that already had.
+  //
+  // Tagging the state removes the window instead of narrowing it.
+  // `selectInstructionSource` is handed both this and the mission being
+  // rendered, and refuses to read state belonging to any other.
+  const [instructionRequest, setInstructionRequest] =
+    useState<MissionInstructionRequest>({ status: "idle" });
 
   const pathStableId = course.learningPathStableId;
 
@@ -393,42 +395,56 @@ export function LearningView() {
 
   // WP-F. Fetch the open mission's instruction.
   //
+  // Each of the three outcomes writes the one tagged state exactly once. There
+  // is deliberately no completion hook: one running after the success branch
+  // would have to decide again which state it was leaving, and getting that
+  // wrong would overwrite a delivered response.
+  //
+  // Two independent protections stop one mission's answer reaching another's
+  // panel, because they cover different failures:
+  //
+  //   the AbortController stops a late RESPONSE from being written at all;
+  //   the mission tag stops any state that was written from being READ as
+  //   another mission's — including during the render before this effect runs,
+  //   which is the window an effect-time reset can never close.
+  //
   // An abort is silent by design: it means the learner moved on, which is not a
-  // failure and must not surface as one. The effect's cleanup aborts the request
-  // for the mission being left, so a slow response for a closed mission can
-  // never overwrite the state of the one now open.
+  // failure and must not surface as one.
   useEffect(() => {
     if (!selectedMissionStableId) {
-      setInstruction(null);
-      setInstructionErrorCode(null);
-      setInstructionLoading(false);
+      setInstructionRequest({ status: "idle" });
       return;
     }
 
+    // Captured once. Every state written below is tagged with this mission,
+    // never with whatever happens to be selected when the request settles.
+    const missionStableId = selectedMissionStableId;
     const controller = new AbortController();
-    setInstruction(null);
-    setInstructionErrorCode(null);
-    setInstructionLoading(true);
+
+    setInstructionRequest({ status: "loading", missionStableId });
 
     void (async () => {
       try {
         const response = await loadMissionInstruction(
           accessToken,
-          selectedMissionStableId,
+          missionStableId,
           { signal: controller.signal }
         );
-        setInstruction(response);
+
+        setInstructionRequest({ status: "loaded", missionStableId, response });
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") {
           return;
         }
+
         // Classified, not rendered. selectInstructionSource decides which codes
         // may fall back to the authored brief and which must not.
-        setInstructionErrorCode(
-          caught instanceof ApiRequestError ? caught.code : "INTERNAL_ERROR"
-        );
-      } finally {
-        if (!controller.signal.aborted) setInstructionLoading(false);
+        setInstructionRequest({
+          status: "error",
+          missionStableId,
+          errorCode:
+            caught instanceof ApiRequestError ? caught.code : "INTERNAL_ERROR"
+        });
       }
     })();
 
@@ -619,11 +635,10 @@ export function LearningView() {
             selectedMission.stableId
           )}
           practice={selectMissionPractice(course, selectedMission.stableId)}
-          instructionSource={selectInstructionSource({
-            loading: instructionLoading,
-            response: instruction,
-            errorCode: instructionErrorCode
-          })}
+          instructionSource={selectInstructionSource(
+            instructionRequest,
+            selectedMission.stableId
+          )}
           onRecord={(action) => void handleRecord(selectedMission, action)}
         />
       ) : (

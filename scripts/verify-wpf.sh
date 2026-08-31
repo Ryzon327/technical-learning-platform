@@ -285,6 +285,35 @@ grep -Fq 'selectInstructionSource' "$PRESENTATION" \
 grep -Fq 'selectInstructionSource' "$VIEW" \
   || fail "the learner view does not route instruction through the source decision"
 
+# The instruction request must be scoped to the mission it belongs to.
+#
+# Architecture review found a race here. The state was three loose values reset
+# inside an effect keyed by the selected mission, and an effect runs AFTER the
+# render that scheduled it — so on the render where the selection changed, the
+# previous mission's response was still present and still consumable, and its
+# structured instruction could appear under the new mission's heading. The
+# AbortController did not cover it: that stops a late response ARRIVING, and
+# this was a stale READ of one that already had.
+#
+# These three checks pin the fix as a property rather than as a timing hope.
+grep -Fq 'MissionInstructionRequest' "$PRESENTATION" \
+  || fail "the instruction request state is not modelled"
+
+grep -Fq 'request.missionStableId !== missionStableId' "$PRESENTATION" \
+  || fail "the instruction source is not scoped to the mission being rendered"
+
+# The view must hand the selector the mission it is asking about, and must hold
+# no loose instruction state beside the tagged request.
+for forbidden in 'setInstruction(' 'setInstructionErrorCode(' \
+                 'setInstructionLoading('; do
+  if grep -qF -e "$forbidden" "$VIEW"; then
+    fail "the learner view holds untagged instruction state: $forbidden"
+  fi
+done
+
+grep -Fq 'selectInstructionSource(' "$VIEW" \
+  || fail "the learner view does not call the scoped source decision"
+
 for kind in structured legacy bundled unavailable; do
   grep -Fq "\"$kind\"" "$PRESENTATION" \
     || fail "the instruction source model is missing the $kind case"

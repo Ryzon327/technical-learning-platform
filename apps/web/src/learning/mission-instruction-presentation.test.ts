@@ -17,7 +17,8 @@ import {
   resolveAsset,
   resolveReferenceHref,
   selectInstructionSource,
-  type InstructionSource
+  type InstructionSource,
+  type MissionInstructionRequest
 } from "./mission-instruction-presentation";
 import { parseMissionBrief } from "./roas-course-content";
 
@@ -35,10 +36,49 @@ const MISSION = {
   title: "Why two hosts cannot talk"
 } as const;
 
+/** The mission the learner has open in most tests. */
+const MISSION_A = MISSION.stableId;
+/** A second mission, used to prove one mission's state cannot reach another. */
+const MISSION_B = "mission.trunking";
+
 function response(
-  instruction: LearnerMissionInstructionResponse["instruction"]
+  instruction: LearnerMissionInstructionResponse["instruction"],
+  missionStableId: string = MISSION.stableId
 ): LearnerMissionInstructionResponse {
-  return { mission: MISSION, instruction };
+  return {
+    mission: { ...MISSION, stableId: missionStableId },
+    instruction
+  };
+}
+
+/* One request in each of its four statuses, tagged with the mission it is
+   about. The tag is the whole point: see the module comment on
+   MissionInstructionRequest. */
+
+function idle(): MissionInstructionRequest {
+  return { status: "idle" };
+}
+
+function loadingFor(missionStableId: string): MissionInstructionRequest {
+  return { status: "loading", missionStableId };
+}
+
+function loadedFor(
+  missionStableId: string,
+  instruction: LearnerMissionInstructionResponse["instruction"]
+): MissionInstructionRequest {
+  return {
+    status: "loaded",
+    missionStableId,
+    response: response(instruction, missionStableId)
+  };
+}
+
+function errorFor(
+  missionStableId: string,
+  errorCode: string
+): MissionInstructionRequest {
+  return { status: "error", missionStableId, errorCode };
 }
 
 function step(
@@ -67,21 +107,160 @@ function expectKind<K extends InstructionSource["kind"]>(
 }
 
 /* ------------------------------------------------------------------ *
+ * Mission scoping — the architecture-review regression
+ *
+ * The defect this guards against was a stale READ, not a stale write. An
+ * effect runs after the render that scheduled it, so clearing state when the
+ * selection changes leaves one render in which the previous mission's response
+ * is still present and still consumable. An AbortController does not help: it
+ * stops a late response arriving, and this response had already arrived.
+ *
+ * The fix is that state carries the mission it belongs to and the selector is
+ * told which mission it is being asked about. These tests pin that invariant
+ * for every status a request can hold.
+ * ------------------------------------------------------------------ */
+
+describe("instruction state is scoped to the mission it belongs to", () => {
+  it("does not render mission A's structured instruction for mission B", () => {
+    const source = selectInstructionSource(
+      loadedFor(MISSION_A, {
+        state: "available",
+        steps: [CONCEPT],
+        assets: []
+      }),
+      MISSION_B
+    );
+
+    expect(source.kind).not.toBe("structured");
+    expectKind(source, "bundled");
+  });
+
+  it("leaks none of mission A's steps or assets into mission B's source", () => {
+    const source = selectInstructionSource(
+      loadedFor(MISSION_A, {
+        state: "available",
+        steps: [
+          step({
+            type: "concept",
+            paragraphs: ["Mission A's own instructional text."]
+          })
+        ],
+        assets: [DIAGRAM_ASSET]
+      }),
+      MISSION_B
+    );
+
+    expect("steps" in source).toBe(false);
+    expect("assets" in source).toBe(false);
+    expect(JSON.stringify(source)).not.toContain("Mission A's own");
+    expect(JSON.stringify(source)).not.toContain(DIAGRAM_ASSET.uri);
+  });
+
+  it("does not render mission A's legacy brief for mission B", () => {
+    const source = selectInstructionSource(
+      loadedFor(MISSION_A, {
+        state: "legacy_brief",
+        description: "Mission A's authored brief."
+      }),
+      MISSION_B
+    );
+
+    expectKind(source, "bundled");
+    expect(JSON.stringify(source)).not.toContain("Mission A's authored brief.");
+  });
+
+  it("does not blank mission B because mission A's content is broken", () => {
+    // A content_error belongs to the mission that has it. Applying it to
+    // another mission would hide a healthy mission behind an unrelated defect.
+    const source = selectInstructionSource(
+      loadedFor(MISSION_A, { state: "content_error" }),
+      MISSION_B
+    );
+
+    expect(source.kind).not.toBe("unavailable");
+    expectKind(source, "bundled");
+  });
+
+  it("does not apply mission A's non-recoverable failure to mission B", () => {
+    const source = selectInstructionSource(
+      errorFor(MISSION_A, "INTERNAL_ERROR"),
+      MISSION_B
+    );
+
+    expect(source.kind).not.toBe("unavailable");
+    expectKind(source, "bundled");
+  });
+
+  it("does not treat mission A's in-flight request as mission B's", () => {
+    expectKind(
+      selectInstructionSource(loadingFor(MISSION_A), MISSION_B),
+      "bundled"
+    );
+  });
+
+  it("treats another mission's state exactly as never having asked", () => {
+    const neverAsked = selectInstructionSource(idle(), MISSION_B);
+
+    for (const foreign of [
+      loadedFor(MISSION_A, { state: "available", steps: [CONCEPT], assets: [] }),
+      loadedFor(MISSION_A, { state: "content_error" }),
+      loadedFor(MISSION_A, { state: "legacy_brief", description: "Brief." }),
+      errorFor(MISSION_A, "INTERNAL_ERROR"),
+      errorFor(MISSION_A, "DEPENDENCY_UNAVAILABLE"),
+      loadingFor(MISSION_A)
+    ]) {
+      expect(selectInstructionSource(foreign, MISSION_B)).toEqual(neverAsked);
+    }
+  });
+
+  it("still renders a mission's own state when the identities match", () => {
+    // The positive control: scoping must not suppress the correct answer.
+    expectKind(
+      selectInstructionSource(
+        loadedFor(MISSION_B, {
+          state: "available",
+          steps: [CONCEPT],
+          assets: []
+        }),
+        MISSION_B
+      ),
+      "structured"
+    );
+  });
+
+  it("switches to the new mission's own answer once it arrives", () => {
+    const available = {
+      state: "available",
+      steps: [CONCEPT],
+      assets: []
+    } as const;
+
+    expectKind(
+      selectInstructionSource(loadedFor(MISSION_A, available), MISSION_B),
+      "bundled"
+    );
+    expectKind(
+      selectInstructionSource(loadedFor(MISSION_B, available), MISSION_B),
+      "structured"
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Source selection
  * ------------------------------------------------------------------ */
 
 describe("selectInstructionSource", () => {
   it("selects structured instruction when WP-E says available", () => {
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "available",
           steps: [CONCEPT],
           assets: [DIAGRAM_ASSET]
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "structured"
     );
 
@@ -91,14 +270,13 @@ describe("selectInstructionSource", () => {
 
   it("selects the server legacy brief when WP-E says legacy_brief", () => {
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "legacy_brief",
           description: "First block.\n\nSecond block."
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "legacy"
     );
 
@@ -112,11 +290,10 @@ describe("selectInstructionSource", () => {
     const description = "Intro line.\n\n- first\n- second";
 
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({ state: "legacy_brief", description }),
-        errorCode: null
-      }),
+      selectInstructionSource(
+        loadedFor(MISSION_A, { state: "legacy_brief", description }),
+        MISSION_A
+      ),
       "legacy"
     );
 
@@ -125,37 +302,35 @@ describe("selectInstructionSource", () => {
 
   it("selects the bundled brief while the request is in flight", () => {
     expectKind(
-      selectInstructionSource({
-        loading: true,
-        response: null,
-        errorCode: null
-      }),
+      selectInstructionSource(loadingFor(MISSION_A), MISSION_A),
       "bundled"
     );
   });
 
   it("selects the bundled brief before a request has been made", () => {
     expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: null,
-        errorCode: null
-      }),
+      selectInstructionSource(idle(), MISSION_A),
       "bundled"
     );
   });
 
-  it("prefers a delivered response over a stale loading flag", () => {
+  it("is authoritative once a response replaces the loading state", () => {
+    // A request holds one status at a time, so a delivered response cannot
+    // coexist with a loading flag. The combination is now unrepresentable
+    // rather than merely handled correctly.
     expectKind(
-      selectInstructionSource({
-        loading: true,
-        response: response({
+      selectInstructionSource(loadingFor(MISSION_A), MISSION_A),
+      "bundled"
+    );
+    expectKind(
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "available",
           steps: [CONCEPT],
           assets: []
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "structured"
     );
   });
@@ -174,11 +349,7 @@ describe("bundled fallback eligibility", () => {
     it(`falls back to the bundled brief on ${code}`, () => {
       expect(isBundledFallbackEligible(code)).toBe(true);
       expectKind(
-        selectInstructionSource({
-          loading: false,
-          response: null,
-          errorCode: code
-        }),
+        selectInstructionSource(errorFor(MISSION_A, code), MISSION_A),
         "bundled"
       );
     });
@@ -194,11 +365,7 @@ describe("bundled fallback eligibility", () => {
     it(`refuses to disguise ${code} as working curriculum`, () => {
       expect(isBundledFallbackEligible(code)).toBe(false);
       expectKind(
-        selectInstructionSource({
-          loading: false,
-          response: null,
-          errorCode: code
-        }),
+        selectInstructionSource(errorFor(MISSION_A, code), MISSION_A),
         "unavailable"
       );
     });
@@ -212,11 +379,7 @@ describe("bundled fallback eligibility", () => {
     // The course-level availability state already tells the learner their
     // session ended; the instruction panel must not invent a second story.
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: null,
-        errorCode: "UNAUTHORIZED"
-      }),
+      selectInstructionSource(errorFor(MISSION_A, "UNAUTHORIZED"), MISSION_A),
       "unavailable"
     );
 
@@ -229,11 +392,10 @@ describe("bundled fallback eligibility", () => {
  * ------------------------------------------------------------------ */
 
 describe("content_error", () => {
-  const contentError = selectInstructionSource({
-    loading: false,
-    response: response({ state: "content_error" }),
-    errorCode: null
-  });
+  const contentError = selectInstructionSource(
+    loadedFor(MISSION_A, { state: "content_error" }),
+    MISSION_A
+  );
 
   it("renders no instruction at all", () => {
     expectKind(contentError, "unavailable");
@@ -253,15 +415,22 @@ describe("content_error", () => {
     expect("assets" in contentError).toBe(false);
   });
 
-  it("stays unavailable even when a fallback-eligible code is also present", () => {
-    // A successful response is authoritative. A stale error code from an
-    // earlier attempt must not reopen the fallback path.
+  it("is not reopened by an earlier fallback-eligible failure", () => {
+    // A request holds one status, so a delivered content_error replaces an
+    // earlier error rather than sitting beside it. A stale code cannot reopen
+    // the fallback path.
     expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({ state: "content_error" }),
-        errorCode: "DEPENDENCY_UNAVAILABLE"
-      }),
+      selectInstructionSource(
+        errorFor(MISSION_A, "DEPENDENCY_UNAVAILABLE"),
+        MISSION_A
+      ),
+      "bundled"
+    );
+    expectKind(
+      selectInstructionSource(
+        loadedFor(MISSION_A, { state: "content_error" }),
+        MISSION_A
+      ),
       "unavailable"
     );
   });
@@ -272,37 +441,40 @@ describe("content_error", () => {
  * ------------------------------------------------------------------ */
 
 describe("only one instructional source is ever selected", () => {
-  const inputs = [
-    { loading: false, response: null, errorCode: null },
-    { loading: true, response: null, errorCode: null },
-    { loading: false, response: null, errorCode: "DEPENDENCY_UNAVAILABLE" },
-    { loading: false, response: null, errorCode: "INTERNAL_ERROR" },
-    { loading: true, response: null, errorCode: "NOT_FOUND" },
-    {
-      loading: false,
-      response: response({ state: "available", steps: [CONCEPT], assets: [] }),
-      errorCode: null
-    },
-    {
-      loading: true,
-      response: response({ state: "available", steps: [CONCEPT], assets: [] }),
-      errorCode: "INTERNAL_ERROR"
-    },
-    {
-      loading: false,
-      response: response({ state: "legacy_brief", description: "Brief." }),
-      errorCode: "DEPENDENCY_UNAVAILABLE"
-    },
-    {
-      loading: false,
-      response: response({ state: "content_error" }),
-      errorCode: null
-    }
-  ] as const;
+  const AVAILABLE = {
+    state: "available",
+    steps: [CONCEPT],
+    assets: []
+  } as const;
+
+  // Every status, asked about its own mission and about another one.
+  const cases: ReadonlyArray<readonly [MissionInstructionRequest, string]> = [
+    [idle(), MISSION_A],
+    [loadingFor(MISSION_A), MISSION_A],
+    [errorFor(MISSION_A, "DEPENDENCY_UNAVAILABLE"), MISSION_A],
+    [errorFor(MISSION_A, "INTERNAL_ERROR"), MISSION_A],
+    [errorFor(MISSION_A, "NOT_FOUND"), MISSION_A],
+    [loadedFor(MISSION_A, AVAILABLE), MISSION_A],
+    [
+      loadedFor(MISSION_A, { state: "legacy_brief", description: "Brief." }),
+      MISSION_A
+    ],
+    [loadedFor(MISSION_A, { state: "content_error" }), MISSION_A],
+    [idle(), MISSION_B],
+    [loadingFor(MISSION_A), MISSION_B],
+    [errorFor(MISSION_A, "DEPENDENCY_UNAVAILABLE"), MISSION_B],
+    [errorFor(MISSION_A, "INTERNAL_ERROR"), MISSION_B],
+    [loadedFor(MISSION_A, AVAILABLE), MISSION_B],
+    [
+      loadedFor(MISSION_A, { state: "legacy_brief", description: "Brief." }),
+      MISSION_B
+    ],
+    [loadedFor(MISSION_A, { state: "content_error" }), MISSION_B]
+  ];
 
   it("returns exactly one known kind for every input combination", () => {
-    for (const input of inputs) {
-      const source = selectInstructionSource(input);
+    for (const [request, missionStableId] of cases) {
+      const source = selectInstructionSource(request, missionStableId);
       expect(["structured", "legacy", "bundled", "unavailable"]).toContain(
         source.kind
       );
@@ -310,8 +482,8 @@ describe("only one instructional source is ever selected", () => {
   });
 
   it("never returns structured steps together with brief blocks", () => {
-    for (const input of inputs) {
-      const source = selectInstructionSource(input);
+    for (const [request, missionStableId] of cases) {
+      const source = selectInstructionSource(request, missionStableId);
       const hasSteps = "steps" in source;
       const hasBlocks = "blocks" in source;
       expect(hasSteps && hasBlocks).toBe(false);
@@ -319,9 +491,21 @@ describe("only one instructional source is ever selected", () => {
   });
 
   it("carries brief blocks only on the legacy kind", () => {
-    for (const input of inputs) {
-      const source = selectInstructionSource(input);
+    for (const [request, missionStableId] of cases) {
+      const source = selectInstructionSource(request, missionStableId);
       if ("blocks" in source) expect(source.kind).toBe("legacy");
+    }
+  });
+
+  it("carries content only for the mission that owns it", () => {
+    for (const [request, missionStableId] of cases) {
+      const source = selectInstructionSource(request, missionStableId);
+      if ("steps" in source || "blocks" in source) {
+        expect(request.status).toBe("loaded");
+        if (request.status === "loaded") {
+          expect(request.missionStableId).toBe(missionStableId);
+        }
+      }
     }
   });
 });
@@ -496,11 +680,10 @@ describe("the seven approved step types", () => {
     );
 
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({ state: "available", steps, assets: [] }),
-        errorCode: null
-      }),
+      selectInstructionSource(
+        loadedFor(MISSION_A, { state: "available", steps, assets: [] }),
+        MISSION_A
+      ),
       "structured"
     );
 
@@ -511,15 +694,14 @@ describe("the seven approved step types", () => {
 
   it("preserves an interaction's authored text equivalent", () => {
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "available",
           steps: [step(samples.interaction as LearnerMissionStepContent)],
           assets: []
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "structured"
     );
 
@@ -538,9 +720,8 @@ describe("the seven approved step types", () => {
 describe("protected content stays unreachable", () => {
   it("exposes no expectedOutcome on a prediction that crosses this layer", () => {
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "available",
           steps: [
             step({
@@ -551,8 +732,8 @@ describe("protected content stays unreachable", () => {
           ],
           assets: []
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "structured"
     );
 
@@ -579,9 +760,8 @@ describe("protected content stays unreachable", () => {
 
   it("carries no question, option, answer or score on a practice step", () => {
     const source = expectKind(
-      selectInstructionSource({
-        loading: false,
-        response: response({
+      selectInstructionSource(
+        loadedFor(MISSION_A, {
           state: "available",
           steps: [
             step({
@@ -592,8 +772,8 @@ describe("protected content stays unreachable", () => {
           ],
           assets: []
         }),
-        errorCode: null
-      }),
+        MISSION_A
+      ),
       "structured"
     );
 
