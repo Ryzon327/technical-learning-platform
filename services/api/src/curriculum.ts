@@ -6,9 +6,17 @@ import type {
   Mission,
   PublishedLearningPathTree,
   CompetencyCurriculumContext,
-  CompetencyReference
+  CompetencyReference,
+  LearnerMissionInstructionResponse,
+  LearnerMissionSummary
 } from "@tlp/shared-types";
-import { AppError, competencyReferenceKey } from "@tlp/shared-types";
+import {
+  AppError,
+  assembleLearnerInstruction,
+  competencyReferenceKey,
+  resolvePersistedCurriculumAssets,
+  resolvePersistedMissionSteps
+} from "@tlp/shared-types";
 import { createUserScopedSupabaseClient } from "./supabase";
 
 function publicationState(value: unknown): CurriculumPublicationState {
@@ -229,6 +237,184 @@ export async function getPublishedLearningPathTree(
   return {
     learningPath,
     courses
+  };
+}
+
+/**
+ * WP-E — one published mission's instructional content, for a learner.
+ *
+ * ## Why this lives here and not in curriculum-admin.ts
+ *
+ * This module is the **user-scoped** curriculum reader. Every query below runs
+ * through `createUserScopedSupabaseClient`, so Row-Level Security applies to
+ * the caller's own session and remains one of the two learner boundaries.
+ *
+ * `readMissionSteps` and `readMissionAssets` already exist, and this
+ * deliberately does NOT call them. They live in `curriculum-admin.ts` and
+ * `curriculum-quality.ts`, which use `createServerSupabaseClient` — the service
+ * role, which bypasses RLS. They are authoring and publication-validation
+ * tools. Reusing them for a learner read would quietly make the explicit
+ * publication filter below the only barrier, and would put the service role on
+ * a path a learner can trigger.
+ *
+ * The pure resolvers ARE reused: `resolvePersistedMissionSteps`,
+ * `resolvePersistedCurriculumAssets` and `assembleLearnerInstruction` carry
+ * every structural rule WP-C and WP-D established. Only the data access
+ * differs, which is exactly the part that must.
+ *
+ * ## Two layers, as everywhere else in this module
+ *
+ * RLS narrows rows to published curriculum; the explicit
+ * `.eq("publication_state", "published")` states the same requirement in the
+ * query. Neither is redundant: the first survives a route mistake, the second
+ * survives a policy mistake.
+ *
+ * ## Version resolution is the existing pattern, unchanged
+ *
+ * Highest published `version` for the `stable_id`, exactly as
+ * `getPublishedLearningPathTree` resolves a path. Steps and assets are then
+ * read by that mission's internal `id`, so they belong to the resolved version
+ * and inherit its publication. No step or asset versioning is introduced.
+ *
+ * ## What a failure means
+ *
+ * A mission that is absent, unpublished or unreachable raises `NOT_FOUND` —
+ * the same answer for all three, so an unpublished mission is not
+ * distinguishable from one that does not exist. Malformed authored content is
+ * NOT a transport failure: it is a fact about the mission, reported as
+ * `content_error` inside a successful response, carrying no diagnostic detail.
+ */
+export async function getLearnerMissionInstruction(
+  accessToken: string,
+  missionStableId: string
+): Promise<LearnerMissionInstructionResponse> {
+  const supabase = createUserScopedSupabaseClient(accessToken);
+
+  const { data: missionRow, error: missionError } = await supabase
+    .from("missions")
+    .select("id,stable_id,version,title,estimated_minutes,description")
+    .eq("stable_id", missionStableId)
+    .eq("publication_state", "published")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (missionError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Published curriculum is unavailable",
+      retryable: true
+    });
+  }
+
+  if (!missionRow) {
+    throw new AppError({
+      code: "NOT_FOUND",
+      message: "Mission not found",
+      retryable: false
+    });
+  }
+
+  const mission: LearnerMissionSummary = {
+    stableId: String(missionRow.stable_id),
+    version: Number(missionRow.version),
+    title: String(missionRow.title),
+    ...(missionRow.estimated_minutes == null
+      ? {}
+      : { estimatedMinutes: Number(missionRow.estimated_minutes) })
+  };
+
+  const { data: stepRows, error: stepError } = await supabase
+    .from("mission_steps")
+    .select("stable_id,position,step_type,payload")
+    .eq("mission_id", String(missionRow.id))
+    .order("position", { ascending: true });
+
+  if (stepError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Mission instruction is unavailable",
+      retryable: true
+    });
+  }
+
+  const stepOutcome = resolvePersistedMissionSteps(
+    ((stepRows ?? []) as unknown as Array<Record<string, unknown>>).map(
+      (row) => ({
+        stableId: row.stable_id,
+        position: row.position,
+        stepType: row.step_type,
+        payload: row.payload
+      })
+    )
+  );
+
+  // The approved legacy fallback: zero authored steps, so the brief applies.
+  // Deliberately never combined with structured steps — the response type makes
+  // the two mutually exclusive, so there is no state in which a learner is
+  // shown a description AND authored instruction as competing sources.
+  if (stepOutcome.state === "legacy_brief") {
+    return {
+      mission,
+      instruction: {
+        state: "legacy_brief",
+        description: String(missionRow.description ?? "")
+      }
+    };
+  }
+
+  // Structurally invalid authored content. No detail crosses the boundary:
+  // `stepOutcome.errors` names fields, values and validators, which is
+  // authoring and operational information rather than a learner's.
+  if (stepOutcome.state === "content_error") {
+    return { mission, instruction: { state: "content_error" } };
+  }
+
+  const { data: assetRows, error: assetError } = await supabase
+    .from("curriculum_assets")
+    .select(
+      "id,mission_id,stable_id,asset_type,title,uri,position,required,alt_text"
+    )
+    .eq("mission_id", String(missionRow.id))
+    .order("position", { ascending: true });
+
+  if (assetError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Mission instruction is unavailable",
+      retryable: true
+    });
+  }
+
+  const assetOutcome = resolvePersistedCurriculumAssets(
+    ((assetRows ?? []) as unknown as Array<Record<string, unknown>>).map(
+      (row) => ({
+        id: row.id,
+        missionId: row.mission_id,
+        stableId: row.stable_id,
+        assetType: row.asset_type,
+        title: row.title,
+        uri: row.uri,
+        position: row.position,
+        required: row.required,
+        altText: row.alt_text
+      })
+    )
+  );
+
+  if (assetOutcome.state === "content_error") {
+    return { mission, instruction: { state: "content_error" } };
+  }
+
+  // Ordering, reference collection, resolution and the referenced-only rule all
+  // live in the shared assembler, so they are identical wherever applied and
+  // testable without a database.
+  return {
+    mission,
+    instruction: assembleLearnerInstruction(
+      stepOutcome.steps,
+      assetOutcome.assets
+    )
   };
 }
 

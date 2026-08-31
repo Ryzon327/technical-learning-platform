@@ -72,6 +72,7 @@ import {
   listCertificateCorrections
 } from "./certificate-correction";
 import {
+  getLearnerMissionInstruction,
   getPublishedLearningPathTree,
   listPublishedLearningPaths
 } from "./curriculum";
@@ -1088,6 +1089,41 @@ async function handleRequest(
         response,
         200,
         await evaluateMissionPrerequisites(
+          trusted.accessToken,
+          missionStableId
+        )
+      );
+      return;
+    }
+
+    // WP-E — the instructional content of one published mission.
+    //
+    // Authentication is not optional and is not a parameter:
+    // `resolveTrustedRequestIdentity` runs BEFORE the mission id is even read,
+    // so an anonymous request is rejected without the server disclosing whether
+    // the mission exists. It also supplies the access token the read is scoped
+    // to, so there is no code path here that reaches curriculum content without
+    // a verified session.
+    //
+    // The handler deliberately does nothing else. It does not decide what a
+    // learner may see, filter fields, or interpret content state — that is
+    // `getLearnerMissionInstruction` and the shared projection, where it is
+    // testable without HTTP. A withholding rule implemented in a route handler
+    // is a rule the next route forgets.
+    const missionInstructionMatch = pathname.match(
+      /^\/learning\/missions\/([^/]+)\/instruction$/
+    );
+
+    if (request.method === "GET" && missionInstructionMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const missionStableId = decodeURIComponent(
+        missionInstructionMatch[1] ?? ""
+      );
+
+      sendJson(
+        response,
+        200,
+        await getLearnerMissionInstruction(
           trusted.accessToken,
           missionStableId
         )
