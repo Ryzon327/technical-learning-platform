@@ -98,6 +98,13 @@ apps/web/src/learning/roas-course-presentation.ts|scripts/verify-roas4.sh
 apps/web/src/learning/*|scripts/verify-roas3.sh
 apps/web/src/auth/AuthenticatedApp.tsx|scripts/verify-roas3.sh
 scripts/verify-roas3.sh|scripts/verify-roas3.sh
+apps/web/src/learning/MissionInstruction.tsx|scripts/verify-wpf.sh
+apps/web/src/learning/mission-instruction-presentation*|scripts/verify-wpf.sh
+apps/web/src/learning/learning-service.ts|scripts/verify-wpf.sh
+apps/web/src/learning/LearningView.tsx|scripts/verify-wpf.sh
+apps/web/src/styles.css|scripts/verify-wpf.sh
+packages/shared-types/src/mission-instruction*|scripts/verify-wpf.sh
+scripts/verify-wpf.sh|scripts/verify-wpf.sh
 packages/shared-types/src/roas-curriculum*|scripts/verify-roas2.sh
 scripts/verify-roas2.sh|scripts/verify-roas2.sh
 services/api/src/lab-*|scripts/verify-roas1.sh

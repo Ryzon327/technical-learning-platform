@@ -1,4 +1,5 @@
 import type {
+  LearnerMissionInstructionResponse,
   LearningPathProgressSummary,
   LearningResumeTarget,
   PublishedLearningPathTree,
@@ -68,6 +69,35 @@ export async function loadLearningPathProgress(
       query: { path: pathStableId },
       ...(options.signal ? { signal: options.signal } : {})
     }
+  );
+}
+
+/**
+ * WP-F — the instructional content of one published mission.
+ *
+ * The single learner-facing entry point to WP-E's read path. What comes back is
+ * already projected: protected fields are absent from the response type rather
+ * than filtered from it, so there is nothing for this layer to strip and nothing
+ * it could accidentally forward.
+ *
+ * Read-only, and deliberately narrow. It takes a mission identity and no learner
+ * identity — the server derives the caller from the session, as every other
+ * function here does.
+ *
+ * Failures propagate. `instruction.state` is a different matter: a mission whose
+ * authored content is invalid returns HTTP 200 carrying `content_error`, which
+ * is a fact about the mission rather than a transport failure, and is classified
+ * by `selectInstructionSource` alongside the error codes.
+ */
+export async function loadMissionInstruction(
+  accessToken: string,
+  missionStableId: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<LearnerMissionInstructionResponse> {
+  return apiRequest<LearnerMissionInstructionResponse>(
+    accessToken,
+    `/learning/missions/${encodeURIComponent(missionStableId)}/instruction`,
+    { ...(options.signal ? { signal: options.signal } : {}) }
   );
 }
 
