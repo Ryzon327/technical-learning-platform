@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   LearnerCurriculumAsset,
   LearnerMissionStep,
@@ -7,6 +8,7 @@ import {
   buildAssetIndex,
   describeCommandLabel,
   describeCommandOutputLabel,
+  describeFigureUnavailable,
   describePracticeCheckpoint,
   describePracticeCheckpointLabel,
   resolveAsset,
@@ -26,10 +28,17 @@ import { InteractionSurface } from "./InteractionSurface";
  * ## What it deliberately cannot do
  *
  * It holds no token, calls no service, imports no API client and reaches no
- * database. There is no `useState`, no `useEffect` and no fetching: everything
- * it renders arrives as props. `LearningView` remains the one fetch and state
- * owner in this package, which is both the repository convention and what keeps
- * this file testable by reading it.
+ * database. There is no `useEffect` and no fetching: every fact it renders
+ * arrives as props. `LearningView` remains the one fetch and state owner in
+ * this package, which is both the repository convention and what keeps this
+ * file testable by reading it.
+ *
+ * There is exactly one `useState`, added by the WP-I correction, and it holds
+ * whether the browser failed to load a figure. That is a fact about the
+ * browser, not about curriculum: it is set by the `img` element's own error
+ * event, it cannot be reached from outside the step it belongs to, and it
+ * changes only whether an honest "figure unavailable" state is shown in place
+ * of a broken image. No content decision depends on it.
  *
  * It also performs no validation. WP-E already decided what is structurally
  * valid, which fields are withheld, and whether every referenced asset
@@ -108,6 +117,25 @@ function ConceptStep({
  * A missing asset renders the teaching without the image rather than throwing.
  * WP-E already fails the entire mission when a reference does not resolve, so
  * this path means the response did not come from WP-E.
+ *
+ * ## Why a resolved reference is not the same as a loaded image
+ *
+ * WP-E guarantees the reference RESOLVES. It cannot guarantee the URL LOADS —
+ * the host may be unreachable, the object may have been removed, the network
+ * may be down. Before the WP-I correction that case rendered as nothing at all:
+ * the browser substituted the alt text, which then read as a stray sentence
+ * floating above the caption, with no indication that a figure was meant to be
+ * there. Founder UAT reported it, correctly, as a meaningless visual.
+ *
+ * So a failed load is now an explicit, honest state. It says the figure could
+ * not be loaded, and it keeps BOTH accessibility fields on screen — the alt
+ * text, which describes what the figure depicts, and the text alternative,
+ * which is the teaching. Nothing is fabricated: no placeholder diagram, no
+ * generated image, no guess at what the figure would have shown.
+ *
+ * This is the one piece of local state in the renderer, and it holds a fact
+ * about the browser rather than about curriculum. It fetches nothing, decides
+ * nothing about content, and cannot change what a learner is authorised to see.
  */
 function DiagramStep({
   content,
@@ -116,11 +144,27 @@ function DiagramStep({
   content: Extract<LearnerMissionStepContent, { type: "diagram" }>;
   asset: LearnerCurriculumAsset | undefined;
 }) {
+  const [failed, setFailed] = useState(false);
+
   return (
     <figure className="instruction-figure">
-      {asset && (
-        <img src={asset.uri} alt={asset.altText ?? asset.title} />
+      {asset && !failed && (
+        <img
+          src={asset.uri}
+          alt={asset.altText ?? asset.title}
+          onError={() => setFailed(true)}
+        />
       )}
+
+      {asset && failed && (
+        <div className="instruction-figure-missing" role="note">
+          <p className="instruction-figure-missing-label">
+            {describeFigureUnavailable()}
+          </p>
+          <p>{asset.altText ?? asset.title}</p>
+        </div>
+      )}
+
       {content.caption !== undefined && (
         <figcaption>{content.caption}</figcaption>
       )}

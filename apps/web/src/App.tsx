@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import {
   CertificateVerificationView,
   readVerificationReferenceFromPath
@@ -6,9 +7,54 @@ import { AuthenticatedApp } from "./auth/AuthenticatedApp";
 import { AuthScreen } from "./auth/AuthScreen";
 import { PasswordRecoveryScreen } from "./auth/PasswordRecoveryScreen";
 import { useAuth } from "./auth/AuthProvider";
+import { readUatTargetFromPath } from "./uat/uat-target";
+
+/**
+ * WP-I — the development-only instructional UAT surface.
+ *
+ * The `import.meta.env.DEV` guard is the isolation mechanism, and it is written
+ * as a module-level constant so there is exactly one place to read it. Vite
+ * replaces `import.meta.env.DEV` with `false` in a production build, so this
+ * folds to `null`, the `lazy(() => import(...))` is eliminated, and neither the
+ * harness nor the architecture fixture it imports is emitted into the learner
+ * bundle.
+ *
+ * The import is dynamic for that reason and must stay dynamic: a static import
+ * would put fixture curriculum in front of learners.
+ *
+ * `readUatTargetFromPath` matches one exact path and returns `null` for every
+ * other, so this can never intercept a learner route even in development.
+ */
+const UatHarness = import.meta.env.DEV
+  ? lazy(() => import("./uat/UatHarness"))
+  : null;
 
 export function App() {
   const { loading, authState, recoveryMode, profileError, user } = useAuth();
+
+  // Development UAT, checked before the auth branches for the same reason the
+  // verification surface is: it needs no session, and waiting on one would put
+  // a sign-in prompt in front of a reviewer who has no account.
+  //
+  // It is unreachable in production, where `UatHarness` is null.
+  const uatTarget = readUatTargetFromPath(window.location.pathname);
+
+  if (uatTarget !== null && UatHarness !== null) {
+    return (
+      <Suspense
+        fallback={
+          <main className="shell">
+            <section className="card" aria-live="polite">
+              <p className="eyebrow">Development UAT surface</p>
+              <h1>Loading the review harness…</h1>
+            </section>
+          </main>
+        }
+      >
+        <UatHarness />
+      </Suspense>
+    );
+  }
 
   // CERT-005 — public certificate verification is the one surface that must
   // render without a session. It is checked before every auth branch, including

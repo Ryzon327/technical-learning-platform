@@ -325,6 +325,23 @@ export function describeCommandOutputLabel(): string {
 }
 
 /**
+ * What a learner is told when a figure's image will not load.
+ *
+ * WP-E guarantees a referenced asset RESOLVES; it cannot guarantee the URL
+ * loads. Before the WP-I correction that case rendered as the browser's alt
+ * text alone, which read as a stray sentence and gave no sign that a figure was
+ * intended — Founder UAT reported it as a meaningless visual, which it was.
+ *
+ * The wording states the condition and nothing else. It names no host, no URL
+ * and no internal cause, because none of that changes what a learner does next,
+ * and it does not apologise for a lesson that is not broken: the description of
+ * what the figure depicts and the teaching it carries are both still on screen.
+ */
+export function describeFigureUnavailable(): string {
+  return "This figure could not be loaded. It is described below.";
+}
+
+/**
  * The label for a `practice` step.
  *
  * A practice step names an assessment; it does not carry one, and WP-F does not

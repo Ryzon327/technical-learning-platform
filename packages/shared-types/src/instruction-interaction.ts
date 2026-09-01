@@ -160,6 +160,20 @@ export const INTERACTION_KEY = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 export interface PacketJourneyAttribute {
   readonly label: string;
   readonly value: string;
+  /**
+   * Display metadata: show this fact on a compact device face, not only under
+   * full inspection.
+   *
+   * Authored, because the alternative is a renderer that recognises which facts
+   * matter — matching a label against "VLAN" or "Mode" — which is domain
+   * knowledge in the presentation layer and works for exactly one subject.
+   *
+   * It grants no meaning and no behaviour. Flagging an attribute does not make
+   * it a VLAN, does not relate it to another device's attribute, and does not
+   * imply anything can reach anything. Every attribute stays inspectable
+   * whether or not it is flagged.
+   */
+  readonly prominent?: boolean;
 }
 
 export interface PacketJourneyInterface {
@@ -217,6 +231,16 @@ export interface PacketJourneyPrediction {
  *
  * `decision` is the teaching — what the device decided and why. It is
  * answer-revealing, and the projection drops it at protected levels.
+ *
+ * `viaLinkId` names the authored link the traffic traversed to ARRIVE at this
+ * stage. It is authored beside the stage for the same reason the fault's stop
+ * point is authored beside the fault (CURR-011 section 10.1): so that no
+ * consumer has to work it out. A renderer searching the link list for one that
+ * joins two consecutive stages would be inferring a path element, which is the
+ * forwarding computation section 10.1 forbids.
+ *
+ * It is optional. The first stage of a journey is where the traffic
+ * originates, so nothing was traversed to reach it.
  */
 export interface PacketJourneyStage {
   readonly stageId: string;
@@ -224,6 +248,7 @@ export interface PacketJourneyStage {
   readonly narration: string;
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
+  readonly viaLinkId?: string;
   readonly prediction?: PacketJourneyPrediction;
 }
 
@@ -407,7 +432,8 @@ function reportDuplicates(
   }
 }
 
-const ATTRIBUTE_KEYS = ["label", "value"] as const;
+const ATTRIBUTE_KEYS = ["label", "value", "prominent"] as const;
+const ATTRIBUTE_REQUIRED = ["label", "value"] as const;
 const INTERFACE_KEYS = ["interfaceId", "label", "attributes"] as const;
 const NODE_KEYS = ["nodeId", "label", "role", "interfaces"] as const;
 const LINK_KEYS = ["linkId", "label", "endpoints"] as const;
@@ -424,6 +450,7 @@ const STAGE_KEYS = [
   "narration",
   "decision",
   "outcome",
+  "viaLinkId",
   "prediction"
 ] as const;
 const FAULT_KEYS = [
@@ -535,7 +562,7 @@ export function validatePacketJourneyParameters(
             !checkKeys(
               attribute,
               ATTRIBUTE_KEYS,
-              ATTRIBUTE_KEYS,
+              ATTRIBUTE_REQUIRED,
               attributeLabel,
               at
             )
@@ -544,6 +571,15 @@ export function validatePacketJourneyParameters(
           }
           checkText(attribute, "label", attributeLabel, at);
           checkText(attribute, "value", attributeLabel, at);
+
+          // Display metadata, and strictly a boolean. A truthy string here
+          // would be an author reaching for a value the flag cannot carry.
+          if (
+            attribute.prominent !== undefined &&
+            typeof attribute.prominent !== "boolean"
+          ) {
+            at(`${attributeLabel}.prominent must be true or false`);
+          }
         });
       });
     });
@@ -586,6 +622,8 @@ export function validatePacketJourneyParameters(
   }
 
   reportDuplicates(linkIds, `${label}.links`, at);
+
+  const knownLinks = new Set(linkIds.filter((id): id is string => !!id));
 
   // --- traffic ----------------------------------------------------------
   if (checkKeys(value.traffic, TRAFFIC_KEYS, TRAFFIC_KEYS, `${label}.traffic`, at)) {
@@ -638,6 +676,18 @@ export function validatePacketJourneyParameters(
         at(
           `${stageLabel}.outcome must be proceeds or stops, not "${String(entry.outcome)}"`
         );
+      }
+
+      // The traversed link is a cross-reference like every other identifier in
+      // this block: it must name a link declared in the SAME parameters. A
+      // dangling one would leave a renderer with a link to highlight that does
+      // not exist, and the honest place to catch that is authoring.
+      if (entry.viaLinkId !== undefined) {
+        if (!nonEmpty(entry.viaLinkId) || !knownLinks.has(entry.viaLinkId)) {
+          at(
+            `${stageLabel}.viaLinkId names a link that is not declared: ${String(entry.viaLinkId)}`
+          );
+        }
       }
 
       if (entry.prediction !== undefined) {
@@ -887,7 +937,11 @@ function projectInterface(iface: PacketJourneyInterface): ObservationInterface {
     attributes: iface.attributes.map((attribute) => ({
       label: attribute.label,
       value: attribute.value,
-      availability: "available" as const
+      availability: "available" as const,
+      // Copied. The projection never decides which facts matter.
+      ...(attribute.prominent !== undefined
+        ? { prominent: attribute.prominent }
+        : {})
     }))
   };
 }
@@ -974,6 +1028,9 @@ export function buildPacketJourneyObservationModel(
       ...(stage.decision !== undefined ? { decision: stage.decision } : {}),
       outcome:
         isFaultStage && faultResolved ? ("proceeds" as const) : stage.outcome,
+      // Copied, never chosen. Which link was traversed is the same fact
+      // whether the fault is present or repaired.
+      ...(stage.viaLinkId !== undefined ? { viaLinkId: stage.viaLinkId } : {}),
       availability: observed ? ("available" as const) : ("unknown" as const)
     };
   });
@@ -1051,6 +1108,13 @@ export interface LearnerPacketJourneyStage {
   /** Answer-revealing. Dropped at protected support levels. */
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
+  /**
+   * The authored link traversed to arrive here. Carried at EVERY support
+   * level: it says no more than `atNodeId` already does, and withholding it
+   * would remove the learner's ability to see where the traffic went without
+   * withholding the knowledge of where it ended up.
+   */
+  readonly viaLinkId?: string;
   readonly prediction?: PacketJourneyPrediction;
 }
 

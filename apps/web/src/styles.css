@@ -410,6 +410,35 @@ dd {
   color: #64748b;
 }
 
+/* An image that resolved but would not load.
+
+   Deliberately quiet. The lesson is not broken — the description and the
+   teaching are both still on the page — so this states the condition and gets
+   out of the way rather than shouting an error at a learner. */
+
+.instruction-figure-missing {
+  padding: 1rem 1.1rem;
+  border: 1px dashed var(--tlp-line-strong);
+  border-radius: var(--tlp-radius);
+  background: var(--tlp-surface-sunken);
+}
+
+.instruction-figure-missing p {
+  margin: 0;
+}
+
+.instruction-figure-missing p + p {
+  margin-top: 0.45rem;
+}
+
+.instruction-figure-missing-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
 /* Command and result.
 
    `overflow-x: auto` sits on the <pre>, so a long line scrolls inside its own
@@ -444,46 +473,117 @@ dd {
 }
 
 /* ------------------------------------------------------------------ *
-   WP-H — the Packet Journey interaction.
+   WP-H, corrected by WP-I — the Packet Journey interaction.
 
    The markup is semantic first: every fact below is readable as text, and the
-   only decorative element (.packet-journey-map) is aria-hidden and carries
-   nothing of its own.
+   only decorative elements — the SVG wire layer and the packet marker — are
+   aria-hidden and carry nothing of their own.
 
    Colour is never the only signal. A stopped stage gets a left border AND the
    words "Stopped here" from the view model, so the consequence survives
    monochrome, high-contrast and screen-reader presentation alike.
  * ------------------------------------------------------------------ */
 
+/* Design tokens, scoped to the instructional surface.
+
+   Scoped deliberately. The rest of the product still uses literal colours, and
+   retrofitting a themed palette across auth, certificates, search, evidence and
+   notes is a bounded design project of its own that WP-I is not. Defining the
+   tokens on .mission-instruction means the instructional surface can be
+   redesigned, and later themed, without touching a single unrelated page.
+
+   These are DARK-MODE READY and dark mode is deliberately NOT enabled. Every
+   colour the corrected surface uses is a token, so a future dark theme is a
+   block that redefines these names. Adding that block now would make the
+   instructional surface dark inside a product that is light everywhere else,
+   which is worse than the honest absence the runbook already records. */
+
+.mission-instruction {
+  --tlp-surface: #ffffff;
+  --tlp-surface-raised: #ffffff;
+  --tlp-surface-sunken: #f7f9fc;
+  --tlp-ink: #0f172a;
+  --tlp-ink-soft: #334155;
+  --tlp-muted: #64748b;
+  --tlp-line: #e8edf4;
+  --tlp-line-strong: #cbd5e1;
+  --tlp-accent: #1d4ed8;
+  --tlp-accent-soft: #eff4ff;
+  --tlp-stop: #b91c1c;
+  --tlp-stop-soft: #fef4f4;
+  --tlp-success: #15803d;
+  --tlp-success-soft: #f1fdf5;
+  --tlp-focus: #1d4ed8;
+  --tlp-radius: 12px;
+  --tlp-radius-sm: 8px;
+}
+
+/* One visible focus treatment for every control the instructional surface
+   owns, so "you can always tell where you are" is a property of the surface
+   rather than something each control remembers. */
+
+.mission-instruction :focus-visible {
+  outline: 2px solid var(--tlp-focus);
+  outline-offset: 2px;
+  border-radius: var(--tlp-radius-sm);
+}
+
 .packet-journey {
-  margin: 1rem 0;
-  padding: 1rem;
-  border: 1px solid #d8dee6;
-  border-radius: 6px;
-  background: #fbfcfd;
+  margin: 1.25rem 0;
+  padding: 1.25rem;
+  border: 1px solid var(--tlp-line);
+  border-radius: var(--tlp-radius);
+  background: var(--tlp-surface-sunken);
 }
 
 .packet-journey h5 {
-  margin: 1rem 0 0.35rem;
-  font-size: 0.95rem;
+  margin: 1.25rem 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+/* The workspace toggle. One control in two states, so opening the workspace
+   never has to move focus and closing it never has to restore it: the button
+   the learner pressed is the first control inside what it opened. */
+
+.packet-journey-workspace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-radius: 999px;
+  background: var(--tlp-surface);
+  color: var(--tlp-ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.packet-journey-workspace-toggle:hover {
+  border-color: var(--tlp-accent);
+  color: var(--tlp-accent);
 }
 
 /* Says this is a taught example and not a live environment (DEC-058). */
 
 .packet-journey-source {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  color: #4a5568;
-  font-style: italic;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--tlp-muted);
 }
 
 .packet-journey-traffic {
   margin: 0 0 0.5rem;
+  color: var(--tlp-ink);
+  font-size: 1.02rem;
   font-weight: 600;
 }
 
 .packet-journey-nodes,
-.packet-journey-links,
 .packet-journey-stages {
   margin: 0;
   padding-left: 1.1rem;
@@ -507,52 +607,498 @@ dd {
   font-size: 0.9rem;
 }
 
-.packet-journey-node dl div {
+.packet-journey-node dl div,
+.packet-journey-inspector dl div {
   display: flex;
   gap: 0.4rem;
 }
 
-.packet-journey-node dt {
+.packet-journey-node dt,
+.packet-journey-inspector dt {
   font-weight: 600;
-  color: #4a5568;
+  color: var(--tlp-muted);
 }
 
-.packet-journey-node dd {
+.packet-journey-node dd,
+.packet-journey-inspector dd {
+  margin: 0;
+  color: var(--tlp-ink-soft);
+}
+
+/* The connections list.
+
+   Each row names both devices AND both ports, resolved once in
+   topology-layout.ts and shared with the drawing, so the picture and the words
+   cannot disagree. It is a list, not a table: it reads the same way to a screen
+   reader as it does on screen.
+
+   It now lives in the reference rail behind a disclosure. Founder UAT found it
+   competing with the topology for attention, and it was winning — a dozen
+   equally-weighted rows beside one picture. The information is unchanged and
+   still one keystroke away; only its claim on the eye is reduced. What a
+   learner needs mid-journey — which connection the traffic just crossed — is
+   said in the current-event card instead, where they are already looking. */
+
+.packet-journey-connections {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.packet-journey-links {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.packet-journey-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--tlp-line);
+  border-radius: 0 var(--tlp-radius-sm) var(--tlp-radius-sm) 0;
+  background: var(--tlp-surface);
+  font-size: 0.9rem;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-link.is-traversed {
+  border-left-color: var(--tlp-ink-soft);
+}
+
+.packet-journey-link.is-current {
+  border-left-color: var(--tlp-accent);
+  background: var(--tlp-accent-soft);
+  color: var(--tlp-ink);
+}
+
+.packet-journey-link-endpoints {
+  font-weight: 550;
+}
+
+.packet-journey-link-state {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--tlp-accent);
+}
+
+.packet-journey-devices {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.packet-journey-devices summary,
+.packet-journey-connections summary,
+.packet-journey-trace summary,
+.packet-journey-why-disclosure summary {
+  cursor: pointer;
+  color: var(--tlp-ink-soft);
+  font-weight: 600;
+}
+
+/* The device inspector. Progressive disclosure: the topology stays readable,
+   and the detail appears for the one device the learner asked about. */
+
+.packet-journey-inspector {
+  margin: 0.75rem 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--tlp-line);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+}
+
+.packet-journey-inspector h5 {
+  margin-top: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--tlp-ink);
+}
+
+.packet-journey-inspector p {
+  margin: 0.2rem 0;
+}
+
+.packet-journey-inspector-state {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-inspector-links,
+.packet-journey-inspector-interfaces {
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+}
+
+.packet-journey-inspector-links li {
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-inspector-interface {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--tlp-ink);
+}
+
+/* A commitment that has not been observed yet.
+
+   The whole point of the WP-I correction: this appears the instant a
+   prediction is committed and stays until its stage is revealed, so committing
+   can never read as the interaction having discarded the answer. */
+
+.packet-journey-commitment {
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-left: 3px solid var(--tlp-accent);
+  border-radius: 0 var(--tlp-radius-sm) var(--tlp-radius-sm) 0;
+  background: var(--tlp-surface);
+}
+
+.packet-journey-commitment p {
   margin: 0;
 }
 
-/* Decorative. Every label here also appears in the list above. */
+.packet-journey-commitment p + p {
+  margin-top: 0.3rem;
+}
 
-.packet-journey-map {
+.packet-journey-commitment-label,
+.packet-journey-compare-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-commitment-option {
+  color: var(--tlp-ink);
+  font-weight: 600;
+}
+
+.packet-journey-commitment-note {
+  font-size: 0.82rem;
+  color: var(--tlp-muted);
+}
+
+/* Prediction beside observation. No verdict, by design: the authored content
+   carries no answer key, and the observation is the reveal. */
+
+.packet-journey-compare {
+  display: grid;
+  gap: 0.1rem;
+  margin: 0.35rem 0 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+}
+
+.packet-journey-compare p {
+  margin: 0;
+}
+
+.packet-journey-compare-label + .packet-journey-compare-value {
+  margin-bottom: 0.5rem;
+}
+
+.packet-journey-compare-value {
+  color: var(--tlp-ink);
+}
+
+.packet-journey-compare
+  .packet-journey-compare-value:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------------------------------------------------------------- *
+   The topology.
+
+   Three constants are shared with TopologyView.tsx and must stay in step:
+   the device band is 112px tall, its centre is at 56px, and each routed lane
+   below it adds 34px. The SVG viewBox uses the same numbers, which is what
+   makes a wire meet a device instead of floating near it.
+
+   The scroll container is the OUTER element so that the drawing and the
+   devices scroll as one. The page body never scrolls sideways.
+ * ---------------------------------------------------------------- */
+
+.topology-scroll {
+  margin: 0.5rem 0 1.25rem;
+  overflow-x: auto;
+}
+
+.topology {
+  position: relative;
+  min-width: calc(var(--tlp-topology-columns, 1) * 138px);
+  padding-bottom: calc(var(--tlp-topology-lanes, 0) * 34px);
+}
+
+/* Decorative. Every wire is also a row in the connections list, in words. */
+
+.topology-wires {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.topology-wire {
+  fill: none;
+  stroke: var(--tlp-line-strong);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  transition: stroke 200ms ease, stroke-width 200ms ease;
+}
+
+.topology-wire.is-traversed {
+  stroke: var(--tlp-ink-soft);
+}
+
+.topology-wire.is-current {
+  stroke: var(--tlp-accent);
+  stroke-width: 3;
+}
+
+.topology-devices {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--tlp-topology-columns, 1), minmax(0, 1fr));
+  align-items: center;
+  gap: 0 0.75rem;
+  min-height: 112px;
+}
+
+/* A device is a real button: focusable, announced, and operable by keyboard
+   without a single line of synthetic key handling. */
+
+.topology-device {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+  text-align: left;
+  color: var(--tlp-ink);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.topology-device:hover {
+  border-color: var(--tlp-accent);
+}
+
+.topology-device-role {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.topology-device-name {
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+/* The state in words. Colour below is reinforcement, never the carrier. */
+
+.topology-device-state {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--tlp-ink-soft);
+}
+
+/* Ports, and the facts the AUTHOR flagged as worth showing on the face.
+
+   This is what lets a learner follow VLAN 10 from PC-A to the access port to
+   the trunk to the router subinterface without reading a single panel. Which
+   facts appear is an authoring decision carried through the observation model;
+   nothing here recognises what any of them mean. */
+
+.topology-device-ports {
+  display: grid;
+  gap: 0.18rem;
+  margin-top: 0.3rem;
+  width: 100%;
+}
+
+.topology-port-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.75rem 0;
+  align-items: baseline;
+  gap: 0.25rem;
 }
 
-.map-node {
-  padding: 0.25rem 0.6rem;
-  border: 1px solid #cbd5e0;
+.topology-port {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--tlp-line);
+  border-radius: 4px;
+  background: var(--tlp-surface-sunken);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  color: var(--tlp-ink-soft);
+}
+
+.topology-fact {
+  font-size: 0.68rem;
+  color: var(--tlp-ink-soft);
+  white-space: nowrap;
+}
+
+.topology-fact-label {
+  color: var(--tlp-muted);
+}
+
+.topology-device.is-visited {
+  border-color: var(--tlp-line-strong);
+  background: var(--tlp-surface-sunken);
+}
+
+.topology-device.is-current {
+  border-color: var(--tlp-accent);
+  box-shadow: 0 0 0 3px var(--tlp-accent-soft);
+}
+
+.topology-device.is-current .topology-device-state {
+  color: var(--tlp-accent);
+}
+
+.topology-device.is-stopped {
+  border-color: var(--tlp-stop);
+  box-shadow: 0 0 0 3px var(--tlp-stop-soft);
+}
+
+.topology-device.is-stopped .topology-device-state {
+  color: var(--tlp-stop);
+}
+
+.topology-device.is-confirmed {
+  border-color: var(--tlp-success);
+  box-shadow: 0 0 0 3px var(--tlp-success-soft);
+}
+
+.topology-device.is-confirmed .topology-device-state {
+  color: var(--tlp-success);
+}
+
+.topology-device.is-selected {
+  border-color: var(--tlp-ink);
+}
+
+/* The packet. Decorative: its position and its state are both stated in words
+   by the live region and by the journey account, so a learner who never sees
+   it moving loses nothing. */
+
+.topology-packet {
+  position: absolute;
+  top: 56px;
+  left: calc(
+    (var(--tlp-packet-column, 0) + 0.5) / var(--tlp-topology-columns, 1) * 100%
+  );
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
   border-radius: 999px;
-  font-size: 0.85rem;
-  background: #ffffff;
-  transition: background-color 160ms ease, border-color 160ms ease;
+  background: var(--tlp-accent);
+  box-shadow: 0 0 0 4px var(--tlp-accent-soft);
+  transition: left 480ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 200ms ease, box-shadow 200ms ease;
 }
 
-.map-node.is-current {
-  border-color: #2b6cb0;
-  background: #ebf4ff;
+.topology-packet.is-waiting {
+  background: var(--tlp-line-strong);
+  box-shadow: 0 0 0 4px var(--tlp-surface-sunken);
+}
+
+.topology-packet.is-stopped {
+  background: var(--tlp-stop);
+  box-shadow: 0 0 0 4px var(--tlp-stop-soft);
+}
+
+.topology-packet.is-confirmed {
+  background: var(--tlp-success);
+  box-shadow: 0 0 0 4px var(--tlp-success-soft);
+}
+
+/* The transient emphasis.
+
+   A separate element from the marker on purpose: the marker must NOT be keyed,
+   or React would hand it a fresh node already at its destination and the packet
+   would teleport instead of travelling. This one is keyed, so its animation
+   replays on every observable change, and it is the only thing that does.
+
+   One calm ring, once, 700ms. No flashing, no repetition, no colour cycling —
+   and nothing depends on it: the headline, the announcement, the device state
+   text and the marker position all carry the same fact without it. */
+
+.topology-pulse {
+  position: absolute;
+  top: 56px;
+  left: calc(
+    (var(--tlp-packet-column, 0) + 0.5) / var(--tlp-topology-columns, 1) * 100%
+  );
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 999px;
+  border: 2px solid var(--tlp-accent);
+  opacity: 0;
+  pointer-events: none;
+  animation: topology-pulse 700ms ease-out 1;
+}
+
+.topology-pulse.is-stopped {
+  border-color: var(--tlp-stop);
+}
+
+.topology-pulse.is-confirmed {
+  border-color: var(--tlp-success);
+}
+
+@keyframes topology-pulse {
+  from {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(4.5);
+  }
+}
+
+.topology-unavailable {
+  margin: 0.5rem 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed var(--tlp-line-strong);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+  color: var(--tlp-ink-soft);
 }
 
 .packet-journey-stage {
-  margin-bottom: 0.75rem;
-  padding-left: 0.6rem;
-  border-left: 3px solid #cbd5e0;
+  margin-bottom: 0.9rem;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--tlp-line-strong);
   animation: packet-journey-reveal 200ms ease-out;
 }
 
 .packet-journey-stage.is-stopped {
-  border-left-color: #c53030;
+  border-left-color: var(--tlp-stop);
 }
 
 .packet-journey-stage p {
@@ -560,56 +1106,154 @@ dd {
 }
 
 .packet-journey-stage-node {
-  font-weight: 600;
+  color: var(--tlp-ink);
+  font-weight: 650;
 }
 
 .packet-journey-why {
-  color: #4a5568;
+  color: var(--tlp-ink-soft);
   font-size: 0.92rem;
+}
+
+.packet-journey-why-disclosure {
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
 }
 
 .packet-journey-outcome {
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: #4a5568;
+  letter-spacing: 0.1em;
+  color: var(--tlp-muted);
 }
 
-.packet-journey-committed {
-  font-size: 0.88rem;
-  color: #4a5568;
+.packet-journey-stage.is-stopped .packet-journey-outcome {
+  color: var(--tlp-stop);
 }
+
+/* ---------------------------------------------------------------- *
+   The current event.
+
+   Founder UAT: the learner acted in the right-hand rail while the packet, the
+   wire and the device changed on the left, and could click through the whole
+   journey without once looking at the network.
+
+   This card is the anchor. It sits DIRECTLY under the topology, it changes on
+   every observable event, and the decision and the controls now sit beneath it
+   — so the act and its consequence are within a glance of each other. Its left
+   edge takes the colour of the state, which is reinforcement only: the headline
+   says the same thing in words.
+ * ---------------------------------------------------------------- */
+
+.packet-journey-event {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--tlp-line);
+  border-left: 3px solid var(--tlp-line-strong);
+  border-radius: 0 var(--tlp-radius-sm) var(--tlp-radius-sm) 0;
+  background: var(--tlp-surface);
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+.packet-journey-event.is-moving {
+  border-left-color: var(--tlp-accent);
+}
+
+.packet-journey-event.is-stopped {
+  border-left-color: var(--tlp-stop);
+  background: var(--tlp-stop-soft);
+}
+
+.packet-journey-event.is-repaired,
+.packet-journey-event.is-confirmed {
+  border-left-color: var(--tlp-success);
+  background: var(--tlp-success-soft);
+}
+
+.packet-journey-event p {
+  margin: 0;
+}
+
+.packet-journey-event p + p {
+  margin-top: 0.3rem;
+}
+
+/* The headline is the only keyed element in the card, so its settle animation
+   replays on every event. The live region beneath it is deliberately NOT keyed:
+   remounting a live region risks a missed or duplicated announcement, which
+   would cost a screen-reader learner the very fact this card exists to carry. */
+
+.packet-journey-event-headline {
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--tlp-ink);
+  animation: packet-journey-event-settle 500ms ease-out;
+}
+
+.packet-journey-event-via {
+  font-size: 0.78rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--tlp-muted);
+}
+
+/* The live region. It is the one place that always says what just changed —
+   including the moment a prediction is committed, which used to change nothing
+   here at all. */
 
 .packet-journey-announcement {
-  margin: 0.75rem 0;
-  padding: 0.5rem 0.75rem;
-  background: #edf2f7;
-  border-radius: 4px;
+  color: var(--tlp-ink-soft);
   font-size: 0.92rem;
 }
 
+@keyframes packet-journey-event-settle {
+  from {
+    opacity: 0.35;
+    transform: translateY(-3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .packet-journey-symptom {
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-stop-soft);
+  color: var(--tlp-ink);
   font-weight: 600;
 }
 
 .packet-journey-explanation,
 .packet-journey-confirmation {
-  padding: 0.5rem 0.75rem;
-  border-radius: 4px;
-  background: #f0fff4;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-success-soft);
+  color: var(--tlp-ink);
+}
+
+/* "It works now", not "Correct." The confirmation is the authored account of
+   what was wrong and why the fix works, so it is given room. */
+
+.packet-journey-confirmation {
+  border-left: 3px solid var(--tlp-success);
+  font-size: 1rem;
 }
 
 .packet-journey-prediction {
   margin: 0.75rem 0;
-  padding: 0.75rem;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
 }
 
 .packet-journey-prediction legend {
-  font-weight: 600;
   padding: 0 0.35rem;
+  color: var(--tlp-ink);
+  font-weight: 600;
 }
 
 .packet-journey-option {
@@ -626,8 +1270,80 @@ dd {
   margin: 0.75rem 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 0.4rem;
+}
+
+.packet-journey-actions button {
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+  color: var(--tlp-ink);
+  text-align: left;
+}
+
+.packet-journey-actions button:hover {
+  border-color: var(--tlp-accent);
+}
+
+/* What to do next.
+
+   Sits immediately after the journey history, because that is where the
+   learner's reading has got to. Founder UAT found the alternative: with the
+   control above the history, continuing meant scrolling up to click and back
+   down to read, once per remaining stage. */
+
+.packet-journey-next {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: start;
+  margin-top: 0.25rem;
+}
+
+.packet-journey-next > * {
+  margin: 0;
+  max-width: 100%;
+}
+
+.packet-journey-next .packet-journey-prediction,
+.packet-journey-next .packet-journey-commitment,
+.packet-journey-next .packet-journey-actions,
+.packet-journey-next .packet-journey-symptom,
+.packet-journey-next .packet-journey-explanation,
+.packet-journey-next .packet-journey-confirmation {
+  width: 100%;
+}
+
+/* The primary next step. It says what it does — the authored start label for
+   the first reveal — and it is the only filled control on the surface, so a
+   learner never has to work out which control moves the lesson forward. */
+
+.packet-journey-advance {
+  margin: 0.5rem 0;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--tlp-accent);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Secondary on purpose. Starting over is a legitimate thing to want and a
+   terrible thing to reach for by accident. */
+
+.packet-journey-restart {
+  margin-top: 1rem;
+  padding: 0.3rem 0;
+  border: 0;
+  background: none;
+  color: var(--tlp-muted);
+  font-size: 0.82rem;
+  text-decoration: underline;
+}
+
+.packet-journey-restart:hover {
+  color: var(--tlp-ink-soft);
 }
 
 .packet-journey-trace {
@@ -635,9 +1351,106 @@ dd {
   font-size: 0.9rem;
 }
 
-.packet-journey-trace summary {
-  cursor: pointer;
-  font-weight: 600;
+/* ---------------------------------------------------------------- *
+   The expanded workspace.
+
+   Same component instance, same state, same tree — one class. There is no
+   second mount and nothing to synchronise, so opening or closing this cannot
+   lose a prediction, a revealed stage, a remediation or a selected device.
+ * ---------------------------------------------------------------- */
+
+.packet-journey--workspace {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 1.25rem clamp(1rem, 4vw, 2.5rem) 2rem;
+  background: var(--tlp-surface-sunken);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.packet-journey--workspace .topology {
+  min-width: calc(var(--tlp-topology-columns, 1) * 170px);
+}
+
+/* ---------------------------------------------------------------- *
+   Responsive.
+
+   Phone first, because that is the width the surface had never been designed
+   for. The topology and any wide block scroll inside their own container; the
+   page body never scrolls sideways at any width.
+ * ---------------------------------------------------------------- */
+
+@media (min-width: 48em) {
+  .packet-journey {
+    padding: 1.5rem;
+  }
+
+  .packet-journey-actions {
+    align-items: flex-start;
+  }
+
+  /* Pin the picture and the current-event statement, in BOTH modes.
+
+     The progression control now sits below the journey history, where the
+     learner's reading has got to. That is the right place for the action and
+     the wrong place for the observation, so the observation is pinned instead
+     of the learner being scrolled to it: press the control at the bottom, and
+     the packet moves in a picture that never left the screen.
+
+     A view, not a control — pinning it duplicates nothing, which is why this is
+     not the "sticky duplicate control" shortcut.
+
+     Below this width the viewport is too short to give a sticky block that much
+     of it. There the picture scrolls away, and the new authored narration
+     appearing directly above the button carries the consequence instead. */
+
+  .packet-journey-visual {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding-top: 0.5rem;
+    padding-bottom: 0.25rem;
+    background: var(--tlp-surface-sunken);
+  }
+}
+
+@media (min-width: 64em) {
+  /* The workspace becomes two columns only when there is genuinely room for
+     both. Below this it stays stacked rather than becoming an unusably narrow
+     split, which is worse than scrolling.
+
+     Column one is the journey — picture, current event, decision, controls,
+     history. Column two is reference. The split is by ROLE, which is what stops
+     the reference material competing with the network for attention. */
+
+  .packet-journey--workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 0 2rem;
+    align-content: start;
+  }
+
+  .packet-journey--workspace .packet-journey-workspace-toggle {
+    grid-column: 1 / -1;
+  }
+
+  .packet-journey--workspace .packet-journey-network,
+  .packet-journey--workspace .packet-journey-rail {
+    min-width: 0;
+    align-self: start;
+  }
+
+  .packet-journey--workspace .packet-journey-rail {
+    position: sticky;
+    top: 0;
+    max-height: calc(100vh - 5rem);
+    overflow-y: auto;
+  }
 }
 
 @keyframes packet-journey-reveal {
@@ -664,9 +1477,89 @@ dd {
     animation: none;
   }
 
-  .map-node {
+  /* The packet still MOVES — it is still placed at the current device, in the
+     current colour, with its state still written beside it. What is dropped is
+     the travelling, not the arriving. CURR-011 s14.5 requires reduced motion to
+     preserve both the information and the operation, and it does here by
+     construction: no JavaScript branch reads a motion preference, so the markup,
+     the text and every control are byte-identical either way. */
+
+  .topology-packet,
+  .topology-wire,
+  .topology-device,
+  .packet-journey-event,
+  .packet-journey-workspace-toggle {
     transition: none;
   }
+
+  /* The transient emphasis goes entirely. Nothing depends on it: the event
+     headline, the live region, the device state text and the marker's position
+     all still say what changed and where. What is lost is the ring and the
+     settle, which are attention aids, never carriers of a fact. */
+
+  .topology-pulse,
+  .packet-journey-event-headline {
+    animation: none;
+  }
+
+  /* And the ring, which exists only to be animated, is removed rather than
+     left as a permanent static circle over the packet. */
+
+  .topology-pulse {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+   WP-I — the development-only UAT surface.
+
+   These rules ship in the stylesheet even though the surface they style does
+   not ship in the bundle: one stylesheet is emitted for the app, and it is not
+   pruned by component usage. That is a few hundred bytes of unused CSS in
+   production, accepted deliberately rather than solved by inlining styles into
+   a component, which would be worse practice for a gain this small.
+
+   The banner is styled to be unmissable on purpose. A reviewer must never
+   mistake the architecture fixture for learner curriculum.
+ * ------------------------------------------------------------------ */
+
+.uat-notice {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 4px solid #b7791f;
+  background: #fffbeb;
+  border-radius: 4px;
+}
+
+.uat-controls {
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.uat-control-group {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.uat-control-label {
+  font-weight: 600;
+  min-width: 8rem;
+}
+
+.uat-control-group button[aria-pressed="true"] {
+  outline: 2px solid #2b6cb0;
+  outline-offset: 1px;
+}
+
+.uat-state {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: #4a5568;
 }
 
 /* Browser-native printing. No PDF library and no image rendering: the printed
