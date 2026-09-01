@@ -113,7 +113,7 @@
                       "attributes": [
                         { "label": "IP address", "value": "192.168.10.10/24" },
                         { "label": "Default gateway", "value": "192.168.10.1" },
-                        { "label": "VLAN", "value": "10" }
+                        { "label": "VLAN", "value": "10", "prominent": true }
                       ]
                     }
                   ]
@@ -127,16 +127,16 @@
                       "interfaceId": "sw-1-fa0-1",
                       "label": "Fa0/1",
                       "attributes": [
-                        { "label": "Mode", "value": "access" },
-                        { "label": "VLAN", "value": "10" }
+                        { "label": "Mode", "value": "access", "prominent": true },
+                        { "label": "VLAN", "value": "10", "prominent": true }
                       ]
                     },
                     {
                       "interfaceId": "sw-1-fa0-24",
                       "label": "Fa0/24",
                       "attributes": [
-                        { "label": "Mode", "value": "trunk" },
-                        { "label": "Allowed VLANs", "value": "10,20" }
+                        { "label": "Mode", "value": "trunk", "prominent": true },
+                        { "label": "Allowed VLANs", "value": "10,20", "prominent": true }
                       ]
                     }
                   ]
@@ -150,7 +150,11 @@
                       "interfaceId": "r-1-gi0-0-10",
                       "label": "Gi0/0.10",
                       "attributes": [
-                        { "label": "Encapsulation", "value": "dot1Q 10" },
+                        {
+                          "label": "Encapsulation",
+                          "value": "dot1Q 10",
+                          "prominent": true
+                        },
                         { "label": "IP address", "value": "192.168.10.1/24" }
                       ]
                     }
@@ -166,7 +170,7 @@
                       "label": "eth0",
                       "attributes": [
                         { "label": "IP address", "value": "192.168.20.10/24" },
-                        { "label": "VLAN", "value": "20" }
+                        { "label": "VLAN", "value": "20", "prominent": true }
                       ]
                     }
                   ]
@@ -215,7 +219,8 @@
                   "atNodeId": "sw-1",
                   "narration": "Switch-1 receives the frame on an access port in VLAN 10 and sends it up the trunk.",
                   "decision": "The trunk carries VLANs 10 and 20, so the frame leaves tagged for VLAN 10.",
-                  "outcome": "proceeds"
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a"
                 },
                 {
                   "stageId": "s3-router",
@@ -223,6 +228,7 @@
                   "narration": "The frame arrives at Router-1 and is discarded. No reply comes back.",
                   "decision": "Router-1 has a subinterface for VLAN 10 but none for VLAN 20, so it has no interface in the destination network to route towards.",
                   "outcome": "stops",
+                  "viaLinkId": "link-trunk",
                   "prediction": {
                     "prompt": "Router-1 has one subinterface, Gi0/0.10. What happens to a frame destined for VLAN 20?",
                     "options": [
@@ -230,6 +236,54 @@
                       "It is discarded, because there is no interface in that network"
                     ]
                   }
+                },
+                {
+                  "stageId": "s4-switch-vlan20",
+                  "atNodeId": "sw-1",
+                  "narration": "Router-1 sends the request back down the trunk, now tagged for VLAN 20, and Switch-1 receives it.",
+                  "decision": "The trunk already allowed VLAN 20. What was missing was an interface on Router-1 to route into it.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-trunk"
+                },
+                {
+                  "stageId": "s5-pc-b",
+                  "atNodeId": "pc-b",
+                  "narration": "PC-B received the request.",
+                  "decision": "Switch-1 delivers the frame to PC-B's access port in VLAN 20. The request has arrived at its destination.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-b"
+                },
+                {
+                  "stageId": "s6-reply-switch",
+                  "atNodeId": "sw-1",
+                  "narration": "PC-B answers, and its reply arrives at Switch-1 on the same access port.",
+                  "decision": "A reply is ordinary traffic. It takes the same path in reverse because that is how this network is built.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-b"
+                },
+                {
+                  "stageId": "s7-reply-router",
+                  "atNodeId": "r-1",
+                  "narration": "The reply crosses the trunk tagged for VLAN 20 and reaches Router-1.",
+                  "decision": "Router-1 now has an interface in VLAN 20, so it can receive the reply and route it back towards VLAN 10.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-trunk"
+                },
+                {
+                  "stageId": "s8-reply-switch-vlan10",
+                  "atNodeId": "sw-1",
+                  "narration": "Router-1 sends the reply back down the trunk tagged for VLAN 10, and Switch-1 receives it.",
+                  "decision": "The trunk carries the reply a second time. Traffic between two VLANs crosses it once in each direction.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-trunk"
+                },
+                {
+                  "stageId": "s9-reply-pc-a",
+                  "atNodeId": "pc-a",
+                  "narration": "Reply received from PC-B.",
+                  "decision": "The ping now succeeds. The request reached PC-B and the reply came back along the same path.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a"
                 }
               ],
               "fault": {
@@ -290,10 +344,10 @@
           "stableId": "fixture-topology",
           "assetType": "diagram",
           "title": "Fixture topology",
-          "uri": "https://example.test/fixtures/topology.svg",
+          "uri": "http://localhost:5173/uat-fixtures/fixture-topology.svg",
           "position": 0,
           "required": true,
-          "altText": "Two boxes labelled lo and eth0, connected to a single network segment."
+          "altText": "PC-A is in VLAN 10 and connects to Switch-1 port Fa0/1, an access port in VLAN 10. Switch-1's port Fa0/24 is a trunk carrying VLANs 10 and 20, and connects to Router-1 on Gi0/0. Router-1 has one subinterface, Gi0/0.10 with dot1Q 10, and no subinterface for VLAN 20. PC-B is in VLAN 20 and also connects to Switch-1."
         }
       ]
     },

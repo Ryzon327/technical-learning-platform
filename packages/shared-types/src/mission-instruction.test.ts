@@ -8,9 +8,10 @@ import {
 } from "./mission-instruction";
 import { MISSION_STEP_TYPES, type MissionStep } from "./mission-steps";
 import type { CurriculumAssetReference } from "./curriculum-assets";
-import type {
-  InteractionParameters,
-  InteractionSupportLevel
+import {
+  INTERACTION_SUPPORT_LEVELS,
+  type InteractionParameters,
+  type InteractionSupportLevel
 } from "./instruction-interaction";
 
 /**
@@ -56,7 +57,10 @@ const packetJourneyFixture: InteractionParameters = {
         {
           interfaceId: "pc-a-eth0",
           label: "eth0",
-          attributes: [{ label: "IP address", value: "192.168.10.10/24" }]
+          attributes: [
+            { label: "VLAN", value: "10", prominent: true },
+            { label: "IP address", value: "192.168.10.10/24" }
+          ]
         }
       ]
     },
@@ -100,6 +104,7 @@ const packetJourneyFixture: InteractionParameters = {
       narration: "The frame arrives at Router-1 and is discarded.",
       decision: "The subinterface for VLAN 20 does not exist, so there is no route.",
       outcome: "stops",
+      viaLinkId: "link-a",
       prediction: {
         prompt: "What will Router-1 do with this frame?",
         options: ["Forward it to VLAN 20", "Discard it"]
@@ -219,6 +224,51 @@ describe("interaction support levels are enforced in the projection", () => {
     expect("confirmation" in parameters).toBe(false);
   });
 
+  it("keeps the traversed link at every level", () => {
+    // WP-I correction. `viaLinkId` is a topology fact of the same kind as
+    // `atNodeId`, which is also never withheld: both say where the traffic
+    // went, and neither says why. Dropping it would remove the visual account
+    // of the journey without protecting anything — over-withholding is a
+    // failure in its own right (DEC-059).
+    for (const level of INTERACTION_SUPPORT_LEVELS) {
+      const projected = projectMissionStep(interactionAt(level));
+      const content = projected.content as Extract<
+        typeof projected.content,
+        { type: "interaction" }
+      >;
+
+      // PROVE IT withholds the whole teaching interaction, so there is nothing
+      // to carry; every other level carries the link.
+      if (content.presentation.state !== "available") continue;
+
+      expect(content.presentation.parameters.stages[1]?.viaLinkId).toBe(
+        "link-a"
+      );
+    }
+  });
+
+  it("keeps display metadata on topology attributes at every level", () => {
+    // WP-I final correction. `prominent` says "show this fact on the device
+    // face"; it is not answer-revealing, and dropping it would quietly remove
+    // the VLAN context a learner correlates across the topology while
+    // protecting nothing at all.
+    for (const level of INTERACTION_SUPPORT_LEVELS) {
+      const projected = projectMissionStep(interactionAt(level));
+      const content = projected.content as Extract<
+        typeof projected.content,
+        { type: "interaction" }
+      >;
+
+      if (content.presentation.state !== "available") continue;
+
+      const attribute = content.presentation.parameters.nodes[0]?.interfaces[0]
+        ?.attributes[0];
+
+      expect(attribute?.label).toBe("VLAN");
+      expect(attribute?.prominent).toBe(true);
+    }
+  });
+
   it("keeps the environment, the symptom and the prediction at CHALLENGE ME", () => {
     // DEC-059: withholding assistance must never remove the means of
     // demonstrating. A legitimate observation is not tutoring merely because
@@ -236,7 +286,10 @@ describe("interaction support levels are enforced in the projection", () => {
     const parameters = content.presentation.parameters;
 
     expect(parameters.nodes).toHaveLength(2);
-    expect(parameters.nodes[0]?.interfaces[0]?.attributes).toHaveLength(1);
+    // Every authored attribute, flagged or not. Over-withholding is a failure
+    // in its own right: an observation is not tutoring because it describes
+    // state, and the topology is the environment, not the answer.
+    expect(parameters.nodes[0]?.interfaces[0]?.attributes).toHaveLength(2);
     expect(parameters.links).toHaveLength(1);
     expect(parameters.traffic.label).toBe("an ICMP echo request");
     expect(parameters.fault?.symptom).toContain("packet loss");

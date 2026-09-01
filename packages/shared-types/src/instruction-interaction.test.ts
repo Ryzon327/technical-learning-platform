@@ -84,6 +84,9 @@ const journey: InteractionParameters = {
       narration: "The frame arrives at Router-1 and is discarded.",
       decision: "There is no subinterface for VLAN 20.",
       outcome: "stops",
+      // The link traversed to arrive here. Authored beside the stage, so no
+      // consumer has to work it out from which devices happen to be adjacent.
+      viaLinkId: "link-a",
       prediction: {
         prompt: "What will Router-1 do?",
         options: ["Forward it", "Discard it"]
@@ -343,6 +346,99 @@ describe("cross-references inside one interaction must resolve", () => {
         "s01"
       ).join(" ")
     ).toContain("not declared on any node");
+  });
+
+  it("refuses a stage that arrives over an undeclared link", () => {
+    // WP-I correction. `viaLinkId` is a cross-reference like every other
+    // identifier here: a dangling one would leave a renderer highlighting a
+    // link that does not exist, and authoring is the honest place to catch it.
+    expect(
+      validateInteractionContent(
+        content({
+          parameters: params({
+            stages: [
+              journey.stages[0],
+              { ...journey.stages[1], viaLinkId: "link-99" }
+            ]
+          })
+        }),
+        "s01"
+      ).join(" ")
+    ).toContain("names a link that is not declared");
+  });
+
+  it("accepts an attribute flagged for the device face", () => {
+    // WP-I final correction. `prominent` is display metadata: it says show this
+    // fact early, and confers no meaning at all.
+    expect(
+      validateInteractionContent(
+        content({
+          parameters: params({
+            nodes: [
+              {
+                ...journey.nodes[0]!,
+                interfaces: [
+                  {
+                    interfaceId: "pc-a-eth0",
+                    label: "eth0",
+                    attributes: [
+                      { label: "VLAN", value: "10", prominent: true },
+                      { label: "IP address", value: "192.168.10.10/24" }
+                    ]
+                  }
+                ]
+              },
+              journey.nodes[1]
+            ]
+          })
+        }),
+        "s01"
+      )
+    ).toEqual([]);
+  });
+
+  it("refuses a display flag that is not a boolean", () => {
+    // A truthy string here would be an author reaching for a value the flag
+    // cannot carry — a label, a rank, a colour. It carries none of those.
+    expect(
+      validateInteractionContent(
+        content({
+          parameters: params({
+            nodes: [
+              {
+                ...journey.nodes[0]!,
+                interfaces: [
+                  {
+                    interfaceId: "pc-a-eth0",
+                    label: "eth0",
+                    attributes: [
+                      { label: "VLAN", value: "10", prominent: "yes" }
+                    ]
+                  }
+                ]
+              },
+              journey.nodes[1]
+            ]
+          })
+        }),
+        "s01"
+      ).join(" ")
+    ).toContain("prominent must be true or false");
+  });
+
+  it("accepts a stage that names no traversed link", () => {
+    // The first stage is where the traffic originates, so nothing was crossed
+    // to reach it. Absence is correct, not an authoring omission.
+    const { viaLinkId: _viaLinkId, ...withoutLink } = journey.stages[1]!;
+
+    expect(
+      validateInteractionContent(
+        content({
+          parameters: params({ stages: [journey.stages[0], withoutLink] })
+        }),
+        "s01"
+      )
+    ).toEqual([]);
   });
 
   it("refuses a fault whose stop point is not a declared stage", () => {
@@ -623,6 +719,67 @@ describe("the observation model describes authored truth", () => {
     });
 
     expect(model.stages.every((s) => s.availability === "available")).toBe(true);
+  });
+
+  it("carries the traversed link through unchanged", () => {
+    // WP-I correction. `viaLinkId` is copied from the authored stage, exactly
+    // like `atNodeId` and `outcome`. The builder decides nothing about it.
+    const model = buildPacketJourneyObservationModel(learnerParams, {
+      revealedStageCount: 2,
+      appliedActionId: null
+    });
+
+    expect(model.stages[0]?.viaLinkId).toBeUndefined();
+    expect(model.stages[1]?.viaLinkId).toBe("link-a");
+  });
+
+  it("keeps the traversed link the same once the repair is applied", () => {
+    // Which link was crossed is the same fact whether the fault is present or
+    // repaired. Only the authored outcome changes.
+    const repaired = buildPacketJourneyObservationModel(learnerParams, {
+      revealedStageCount: 2,
+      appliedActionId: "add-vlan-20"
+    });
+
+    expect(repaired.stages[1]?.viaLinkId).toBe("link-a");
+    expect(repaired.stages[1]?.outcome).toBe("proceeds");
+  });
+
+  it("carries the display flag through to the observation model", () => {
+    // Copied, like everything else. The projection never decides which facts
+    // matter, and a renderer that recognised "VLAN" by name would be networking
+    // knowledge in the presentation layer.
+    const flagged = {
+      ...journey,
+      nodes: [
+        {
+          ...journey.nodes[0]!,
+          interfaces: [
+            {
+              interfaceId: "pc-a-eth0",
+              label: "eth0",
+              attributes: [
+                { label: "VLAN", value: "10", prominent: true },
+                { label: "IP address", value: "192.168.10.10/24" }
+              ]
+            }
+          ]
+        },
+        journey.nodes[1]!
+      ]
+    } as unknown as LearnerPacketJourneyParameters;
+
+    const attributes = buildPacketJourneyObservationModel(
+      flagged,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    ).nodes[0]?.interfaces[0]?.attributes;
+
+    expect(attributes?.[0]?.prominent).toBe(true);
+    // Absent rather than false: nothing invents a default the author did not
+    // write, and "not flagged" is not the same statement as "flagged off".
+    expect(attributes?.[1] !== undefined && "prominent" in attributes[1]).toBe(
+      false
+    );
   });
 
   it("carries no competency, evidence, score or progress field", () => {

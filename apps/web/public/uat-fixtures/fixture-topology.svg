@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 320" width="760" height="320" role="img" aria-label="Fixture topology">
+  <!--
+    WP-I — the architecture fixture's Figure 1.
+
+    This is FIXTURE content, not production curriculum. It exists so a UAT
+    reviewer sees a real figure where the diagram step promises one, instead of
+    a broken image standing in for it.
+
+    It is served from apps/web/public, which vite.config.ts marks as a
+    DEVELOPMENT-ONLY static root (build.copyPublicDir is false), so this file
+    is reachable at http://localhost:5173 during UAT and is absent from every
+    production build — the same isolation the UAT harness itself has.
+
+    Drawn by hand, in plain SVG, with no library and no build step.
+  -->
+  <style>
+    .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; }
+    .name { font: 600 16px ui-sans-serif, system-ui, "Segoe UI", sans-serif; fill: #0f172a; }
+    .role { font: 500 11px ui-sans-serif, system-ui, "Segoe UI", sans-serif; fill: #64748b; letter-spacing: 0.08em; }
+    .detail { font: 11px ui-sans-serif, system-ui, "Segoe UI", sans-serif; fill: #475569; }
+    .vlan { font: 600 11px ui-sans-serif, system-ui, "Segoe UI", sans-serif; fill: #1d4ed8; }
+    .port { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #334155; }
+    .wire { stroke: #94a3b8; stroke-width: 2; fill: none; }
+  </style>
+
+  <rect width="760" height="320" fill="#f8fafc" />
+
+  <!-- links, drawn first so the device boxes sit on top of them -->
+  <path class="wire" d="M 180 96 H 285" />
+  <path class="wire" d="M 445 96 H 550" />
+  <path class="wire" d="M 365 136 V 216" />
+
+  <!-- PC-A -->
+  <rect class="box" x="30" y="56" width="150" height="80" rx="10" />
+  <text class="name" x="46" y="82">PC-A</text>
+  <text class="role" x="46" y="100">HOST</text>
+  <text class="detail" x="46" y="118">192.168.10.10/24</text>
+  <text class="vlan" x="46" y="132">VLAN 10</text>
+  <text class="port" x="188" y="90">eth0</text>
+
+  <!-- Switch-1 -->
+  <rect class="box" x="285" y="56" width="160" height="80" rx="10" />
+  <text class="name" x="301" y="82">Switch-1</text>
+  <text class="role" x="301" y="100">SWITCH</text>
+  <text class="detail" x="301" y="118">Fa0/1 access, VLAN 10</text>
+  <text class="detail" x="301" y="132">Fa0/24 trunk, VLANs 10,20</text>
+  <text class="port" x="240" y="90" text-anchor="end">Fa0/1</text>
+  <text class="port" x="453" y="90">Fa0/24</text>
+  <text class="port" x="375" y="160">Fa0/1</text>
+
+  <!-- Router-1 -->
+  <rect class="box" x="550" y="56" width="180" height="80" rx="10" />
+  <text class="name" x="566" y="82">Router-1</text>
+  <text class="role" x="566" y="100">ROUTER</text>
+  <text class="detail" x="566" y="118">Gi0/0.10 dot1Q 10</text>
+  <text class="vlan" x="566" y="132">no subinterface for VLAN 20</text>
+  <text class="port" x="542" y="90" text-anchor="end">Gi0/0</text>
+
+  <!-- PC-B -->
+  <rect class="box" x="285" y="216" width="160" height="80" rx="10" />
+  <text class="name" x="301" y="242">PC-B</text>
+  <text class="role" x="301" y="260">HOST</text>
+  <text class="detail" x="301" y="278">192.168.20.10/24</text>
+  <text class="vlan" x="301" y="292">VLAN 20</text>
+  <text class="port" x="375" y="212">eth0</text>
+</svg>

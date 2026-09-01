@@ -40,6 +40,12 @@ DOCUMENT="packages/shared-types/src/curriculum-document.ts"
 PRESENTATION="apps/web/src/learning/packet-journey-presentation.ts"
 JOURNEY="apps/web/src/learning/PacketJourney.tsx"
 SURFACE="apps/web/src/learning/InteractionSurface.tsx"
+# WP-I correction. The drawing is part of the frontend this gate scans: a
+# topology renderer is exactly where a second networking model would be written,
+# so it is held to the same absence checks as everything else here.
+LAYOUT="apps/web/src/learning/topology-layout.ts"
+TOPOLOGY="apps/web/src/learning/TopologyView.tsx"
+DEVICE="apps/web/src/learning/DeviceNode.tsx"
 RENDERER="apps/web/src/learning/MissionInstruction.tsx"
 STYLES="apps/web/src/styles.css"
 FIXTURE="content/fixtures/curriculum-architecture-example.json"
@@ -53,7 +59,8 @@ echo ""
 
 for required in "$REGISTRY" "$MODEL" "$STEPS" "$PROJECTION" "$DOCUMENT" \
                 "$PRESENTATION" "$JOURNEY" "$SURFACE" "$RENDERER" "$STYLES" \
-                "$FIXTURE" "$SELECTOR" "$PROVIDER"; do
+                "$FIXTURE" "$SELECTOR" "$PROVIDER" "$LAYOUT" "$TOPOLOGY" \
+                "$DEVICE"; do
   # `-f` and never `-x`: verifiers are invoked with `bash`, so an execute-bit
   # test would let a mode accident silently skip a gate while reporting success.
   [ -f "$required" ] || fail "missing required file: $required"
@@ -67,6 +74,10 @@ MODEL_LOGIC="$SCAN_DIR/model-logic.txt"
 PRESENTATION_LOGIC="$SCAN_DIR/presentation-logic.txt"
 JOURNEY_LOGIC="$SCAN_DIR/journey-logic.txt"
 SURFACE_LOGIC="$SCAN_DIR/surface-logic.txt"
+LAYOUT_LOGIC="$SCAN_DIR/layout-logic.txt"
+TOPOLOGY_LOGIC="$SCAN_DIR/topology-logic.txt"
+DEVICE_LOGIC="$SCAN_DIR/device-logic.txt"
+DRAWING_LOGIC="$SCAN_DIR/drawing-logic.txt"
 FRONTEND_LOGIC="$SCAN_DIR/frontend-logic.txt"
 WPH_LOGIC="$SCAN_DIR/wph-logic.txt"
 
@@ -77,8 +88,13 @@ code_of "$MODEL" > "$MODEL_LOGIC"
 code_of "$PRESENTATION" > "$PRESENTATION_LOGIC"
 code_of "$JOURNEY" > "$JOURNEY_LOGIC"
 code_of "$SURFACE" > "$SURFACE_LOGIC"
+code_of "$LAYOUT" > "$LAYOUT_LOGIC"
+code_of "$TOPOLOGY" > "$TOPOLOGY_LOGIC"
+code_of "$DEVICE" > "$DEVICE_LOGIC"
 
-cat "$PRESENTATION_LOGIC" "$JOURNEY_LOGIC" "$SURFACE_LOGIC" > "$FRONTEND_LOGIC"
+cat "$LAYOUT_LOGIC" "$TOPOLOGY_LOGIC" "$DEVICE_LOGIC" > "$DRAWING_LOGIC"
+cat "$PRESENTATION_LOGIC" "$JOURNEY_LOGIC" "$SURFACE_LOGIC" "$DRAWING_LOGIC" \
+  > "$FRONTEND_LOGIC"
 cat "$REGISTRY_LOGIC" "$MODEL_LOGIC" "$FRONTEND_LOGIC" > "$WPH_LOGIC"
 
 # ------------------------------------------------------------
@@ -228,14 +244,37 @@ grep -Fq 'withholdsEntireInteraction' "$PROJECTION" \
 grep -Fq 'withholdsAnswerRevealingContent' "$PROJECTION" \
   || fail "the projection does not apply answer-revealing withholding"
 
-# The client must not decide what may be seen. A support-level comparison in
+# The client must not decide what may be SEEN. A protected-level comparison in
 # the browser would be a control the browser still holds.
+#
+# WP-I correction, and the distinction is the whole point of this check:
+#
+#   SEQUENCING  — how much a learner is asked to do before the next authored
+#                 observation. The client owns it over content the server has
+#                 already authorised and already sent (CURR-011 s7, DEC-059,
+#                 Architect decision 11), and it is what makes SHOW ME, HELP ME
+#                 and ASK ME three different experiences rather than one.
+#   ENFORCEMENT — deciding what may be sent at all. Server-side, always.
+#
+# So the three levels that withhold NOTHING may be named in the frontend, and
+# the two that protect content may not. That is not a weakening: at a protected
+# level the answer-bearing fields are absent from the payload, so there is
+# nothing in the browser for any branch to reveal. Naming one there could only
+# ever be an attempt to enforce, which is what this refuses.
 for forbidden in withholdsEntireInteraction withholdsAnswerRevealingContent \
                  'prove_it' 'challenge_me'; do
   if grep -qF -e "$forbidden" "$FRONTEND_LOGIC"; then
     fail "the frontend enforces a support level: $forbidden"
   fi
 done
+
+# And the sequencing decision must be an ALLOWLIST with a strict default, so
+# that adding a protected level to the shared contract can never loosen the
+# client by falling through to the permissive arm.
+grep -Fq 'export function resolveSequencing' "$PRESENTATION" \
+  || fail "there is no single place where sequencing is decided"
+grep -Fq 'return "commit_first"' "$PRESENTATION" \
+  || fail "sequencing has no strict default arm"
 
 # Answer-revealing authored fields must never reach a learner type.
 for forbidden in expectedOptionIndex correctOption answerKey isCorrect; do
@@ -362,10 +401,13 @@ grep -Fq '<legend' "$JOURNEY" \
   || fail "the prediction group carries no accessible name"
 
 # Every learner action is a real control. `<div onClick>` is not operable by
-# keyboard and is not announced as a control.
-if grep -qE '<(div|span|li|p)[^>]*onClick' "$JOURNEY_LOGIC"; then
-  fail "a learner action is not a real semantic control"
-fi
+# keyboard and is not announced as a control. Checked across the drawing too:
+# a topology is precisely where a clickable non-control is likely to appear.
+for scanned in "$JOURNEY_LOGIC" "$DRAWING_LOGIC"; do
+  if grep -qE '<(div|span|li|p|g|rect|circle|path)[^>]*onClick' "$scanned"; then
+    fail "a learner action is not a real semantic control"
+  fi
+done
 
 BUTTONS="$(grep -c '<button' "$JOURNEY_LOGIC" || true)"
 [ "$BUTTONS" -ge 4 ] \
@@ -378,13 +420,19 @@ if grep -qE '<button[^>]*disabled' "$JOURNEY_LOGIC"; then
 fi
 
 # Hover must never be the only way to reach information.
-if grep -qF 'onMouseOver' "$JOURNEY_LOGIC"; then
-  fail "the interaction requires hover"
-fi
+for scanned in "$JOURNEY_LOGIC" "$DRAWING_LOGIC"; do
+  if grep -qF 'onMouseOver' "$scanned"; then
+    fail "the interaction requires hover"
+  fi
+done
 
 # The decorative layer must be hidden from assistive technology, so it can
 # never be the only carrier of a fact.
-grep -Fq 'aria-hidden="true"' "$JOURNEY" \
+#
+# WP-I moved that layer out of the component and into the topology view, which
+# is where the SVG now lives. The PROPERTY is unchanged and is checked where it
+# now applies, rather than pinned to the file that used to hold it.
+grep -Fq 'aria-hidden="true"' "$TOPOLOGY" \
   || fail "the decorative visual layer is not hidden from assistive technology"
 
 # The consequence must be words, not colour. `outcomeLabel` is that text.
@@ -396,6 +444,124 @@ grep -Fq 'textTrace' "$JOURNEY" \
   || fail "the required text trace is not rendered"
 
 echo "PASS: 11. the accessible representation is primary and operable"
+
+# ------------------------------------------------------------
+# 11b. The drawing is an addition, never a second model (WP-I)
+# ------------------------------------------------------------
+# A topology renderer is the single most likely place for a second networking
+# model to appear, and the most likely place for a control to stop being a
+# control. Both are checked here.
+
+# Every SVG in the interaction lives in the topology view, and it is hidden.
+# An SVG anywhere else could carry a fact the text does not.
+for scanned in "$PRESENTATION_LOGIC" "$JOURNEY_LOGIC" "$SURFACE_LOGIC" \
+               "$DEVICE_LOGIC" "$LAYOUT_LOGIC"; do
+  if grep -qF '<svg' "$scanned"; then
+    fail "a drawn layer exists outside the topology view"
+  fi
+done
+
+# Devices are native controls. The whole accessibility strategy rests on this:
+# what a learner operates is a button, and what a learner reads is text.
+grep -Fq '<button' "$DEVICE" \
+  || fail "a topology device is not a real button"
+
+if grep -qE 'tabIndex' "$DRAWING_LOGIC"; then
+  fail "the drawing imitates a control with tabIndex instead of using one"
+fi
+
+if grep -qE '<button[^>]*disabled' "$DRAWING_LOGIC"; then
+  fail "the drawing offers a disabled control"
+fi
+
+# The layout consumes the shared observation model and nothing else. Reading
+# authored parameters directly would bypass the seam CURR-011 s8 requires.
+grep -Fq 'ObservationModel' "$LAYOUT" \
+  || fail "the topology layout does not consume the shared observation model"
+
+if grep -qF 'buildPacketJourneyObservationModel' "$DRAWING_LOGIC"; then
+  fail "the drawing builds its own observation model"
+fi
+
+if grep -qE 'PacketJourneyParameters|parameters\.' "$DRAWING_LOGIC"; then
+  fail "the drawing reads authored parameters instead of the observation model"
+fi
+
+# The traversed link is CARRIED, never worked out. A search of the link list
+# for one joining two consecutive stages is forwarding inference, and it is
+# also wrong on a topology with two links between the same pair of devices.
+grep -Fq 'viaLinkId' "$MODEL" \
+  || fail "the observation model carries no traversed link"
+grep -Fq 'viaLinkId' "$LAYOUT" \
+  || fail "the topology layout does not read the traversed link"
+grep -Fq 'names a link that is not declared' "$REGISTRY" \
+  || fail "a traversed link is not cross-referenced at authoring time"
+
+if grep -qE 'links\.(find|filter|some)\([^)]*(atNodeId|previous|prior)' \
+     "$LAYOUT_LOGIC"; then
+  fail "the layout searches the link list for a path instead of reading one"
+fi
+
+# Failure is loud. A picture missing one device still looks finished, and a
+# learner reasons from what they can see.
+grep -Fq 'describeTopologyUnavailable' "$LAYOUT" \
+  || fail "an unresolvable topology has no honest unavailable state"
+grep -Fq 'state: "unavailable"' "$LAYOUT" \
+  || fail "the topology layout cannot refuse to draw"
+
+echo "PASS: 11b. the drawing adds a control surface and no second model"
+
+# ------------------------------------------------------------
+# 11c. Display facts are carried, never recognised (WP-I final)
+# ------------------------------------------------------------
+# Which facts appear on a compact device face is an AUTHORING decision carried
+# through the observation model. A renderer that instead recognised them by
+# name — matching a label against "VLAN", "Mode" or "Encapsulation" — would be
+# networking knowledge in the presentation layer, would work for exactly one
+# subject, and is the first step towards a renderer that understands what a
+# VLAN is.
+grep -Fq 'readonly prominent?: boolean' "$MODEL" \
+  || fail "the observation model carries no display-emphasis metadata"
+grep -Fq 'readonly prominent?: boolean' "$REGISTRY" \
+  || fail "the authored contract carries no display-emphasis metadata"
+grep -Fq 'prominent must be true or false' "$REGISTRY" \
+  || fail "the display-emphasis flag is not strictly validated"
+grep -Fq 'attribute.prominent === true' "$LAYOUT" \
+  || fail "the layout does not select display facts by the carried flag"
+
+# The networking vocabulary must appear nowhere in the drawing's logic. These
+# are the exact labels the fixture authors, and finding one here would mean a
+# renderer had started recognising them.
+for forbidden in '"VLAN"' "'VLAN'" '"Mode"' '"Encapsulation"' '"trunk"' \
+                 '"access"' '"Allowed VLANs"'; do
+  if grep -qF -e "$forbidden" "$FRONTEND_LOGIC"; then
+    fail "the presentation recognises a networking label by name: $forbidden"
+  fi
+done
+
+echo "PASS: 11c. display facts are carried by flag, never matched by name"
+
+# ------------------------------------------------------------
+# 11d. The journey may not be clicked past its stop (WP-I final)
+# ------------------------------------------------------------
+# The fixture now authors stages BEYOND the fault, so that a repaired journey
+# visibly reaches its destination. That makes this load-bearing: without it a
+# learner could advance straight past the failure they came to diagnose.
+#
+# Whether the journey still stops is read from the OBSERVATION MODEL, never
+# from the authored outcome directly — the authored outcome describes the
+# journey while the fault is present, and only the model accounts for an
+# applied remediation.
+grep -Fq 'model.consequence?.state === "stopped"' "$PRESENTATION" \
+  || fail "the journey can be advanced past an authored stop"
+
+# And the reveal gate must not learn which action repairs what. That is
+# answer-bearing, and is not sent at every support level.
+if grep -qF 'resolvesFault' "$PRESENTATION_LOGIC"; then
+  fail "the reveal gate reads the authored answer key"
+fi
+
+echo "PASS: 11d. an authored stop halts the reveal until the model says otherwise"
 
 # ------------------------------------------------------------
 # 12. Reduced motion preserves information and operation

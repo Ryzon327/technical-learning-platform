@@ -5,6 +5,7 @@ import {
   type ObservationModel,
   type PacketJourneyProgress
 } from "@tlp/shared-types";
+import { buildTopologyLayout, type TopologyLayout } from "./topology-layout";
 
 /**
  * WP-H — the Packet Journey's behaviour, as total functions over plain values.
@@ -44,6 +45,50 @@ import {
  * actions; only CSS differs. Parity is therefore structural rather than a
  * behaviour two code paths have to remember to keep.
  */
+
+/* ------------------------------------------------------------------ *
+ * Sequencing — the client's share of progressive support
+ * ------------------------------------------------------------------ */
+
+/**
+ * How much the learner is asked to do before the next authored observation.
+ *
+ * ## What this is, and precisely what it is not
+ *
+ * It is SEQUENCING over content the server has ALREADY AUTHORISED and already
+ * sent. CURR-011 section 7 and DEC-059 place withholding server-side, and note
+ * that ordering already-authorised content is the client's concern
+ * (`instruction-interaction.ts`, Architect decision 11): "the expected result is
+ * withheld until commitment, which is a SEQUENCING concern the client owns".
+ *
+ * It is **not** enforcement, and it cannot become enforcement. Protected levels
+ * do not appear in this file at all. They do not need to: at a protected level
+ * the answer-bearing fields are ABSENT from the payload, so there is nothing
+ * for any branch here to reveal or conceal. The default arm below is the strict
+ * one, so a level this module does not name gets the most participation
+ * required and the least assistance offered — which is the safe direction for
+ * anything unrecognised.
+ *
+ *   demonstrate    the system walks the learner through it
+ *   guide          the learner is prompted to look before each reveal
+ *   commit_first   a prediction must be committed before the reveal
+ */
+export type InteractionSequencing = "demonstrate" | "guide" | "commit_first";
+
+/**
+ * Which sequencing an authorised support level asks for.
+ *
+ * An ALLOWLIST, deliberately. Only the three levels that withhold nothing are
+ * named; everything else — including every level that protects content, and
+ * including a value this build does not recognise — falls through to the
+ * strictest arm. Written this way, adding a protected level to the contract can
+ * never accidentally loosen the client.
+ */
+export function resolveSequencing(supportLevel: string): InteractionSequencing {
+  if (supportLevel === "show_me") return "demonstrate";
+  if (supportLevel === "help_me") return "guide";
+  return "commit_first";
+}
 
 /* ------------------------------------------------------------------ *
  * Learner state
@@ -98,9 +143,10 @@ export function commitPrediction(
  */
 export function advance(
   state: PacketJourneyViewState,
-  parameters: LearnerPacketJourneyParameters
+  parameters: LearnerPacketJourneyParameters,
+  sequencing: InteractionSequencing = "commit_first"
 ): PacketJourneyViewState {
-  if (!canAdvance(state, parameters)) return state;
+  if (!canAdvance(state, parameters, sequencing)) return state;
 
   return {
     ...state,
@@ -161,14 +207,50 @@ export function pendingPrediction(
   };
 }
 
-/** Whether another authored observation may be revealed right now. */
+/**
+ * Whether another authored observation may be revealed right now.
+ *
+ * The prediction gate is what `commit_first` sequencing MEANS: the reveal
+ * cannot be reached around, so predicting is participation rather than an
+ * optional detour.
+ *
+ * At `demonstrate` and `guide` the gate is lifted. The prediction is still
+ * offered, still committed the same way and still compared against what
+ * happened — the learner simply is not required to answer before the system
+ * shows them. That is the difference between being taught something and being
+ * asked to work it out, and it is the whole of what separates those levels here.
+ *
+ * Nothing about this is a security boundary and none is claimed: the server
+ * decided what may be sent, and this decides only when the learner sees it.
+ */
 export function canAdvance(
   state: PacketJourneyViewState,
-  parameters: LearnerPacketJourneyParameters
+  parameters: LearnerPacketJourneyParameters,
+  sequencing: InteractionSequencing = "commit_first"
 ): boolean {
   if (state.progress.revealedStageCount >= parameters.stages.length) {
     return false;
   }
+
+  // The journey stopped where the source said it stopped, so there is nothing
+  // further to observe until that changes.
+  //
+  // This became load-bearing when the fixture gained the stages that carry the
+  // journey through to its destination. Before that, the stop point happened to
+  // be the last authored stage, so running out of stages did the job by
+  // accident. With stages beyond it, a learner could otherwise have advanced
+  // straight past the failure without diagnosing anything.
+  //
+  // Whether it still stops is read from the OBSERVATION MODEL, never from the
+  // authored outcome directly: the authored outcome describes the journey while
+  // the fault is present, and the model is what accounts for an applied
+  // remediation. Reading the authored field here would need this module to know
+  // which action repairs what, which is answer-bearing and is not sent at every
+  // support level.
+  const model = buildPacketJourneyObservationModel(parameters, state.progress);
+  if (model.consequence?.state === "stopped") return false;
+
+  if (sequencing !== "commit_first") return true;
   return pendingPrediction(state, parameters) === null;
 }
 
@@ -178,12 +260,81 @@ export function canAdvance(
 
 export interface PacketJourneyStageView {
   readonly stageId: string;
+  readonly nodeId: string;
   readonly nodeLabel: string;
   readonly narration: string;
   readonly decision?: string;
   readonly outcomeLabel: string;
   readonly stopped: boolean;
   readonly committedPrediction?: string;
+}
+
+/**
+ * A prediction the learner has committed to for a stage they have NOT yet
+ * revealed.
+ *
+ * ## The Founder UAT defect this exists to fix
+ *
+ * Committing a prediction on the first stage used to make it VANISH. The
+ * fieldset unmounted because the commitment had been recorded, the commitment
+ * had nowhere else to render because stage views are built only from revealed
+ * stages, the live region still read "Ready to start." because nothing had been
+ * revealed, and the advance control was labelled "Start". Four separate
+ * presentation facts combined into one wrong impression: that committing a
+ * wrong prediction had reset the interaction.
+ *
+ * Nothing had reset. `revealedStageCount` never moved, `resetJourney` was never
+ * called, and the commitment was recorded correctly the whole time — it simply
+ * had no home on screen until the stage it belonged to appeared.
+ *
+ * So a commitment is now a first-class view object from the instant it is made.
+ * It stays visible, it changes what is announced, and when the stage is revealed
+ * it pairs with the authored narration as prediction beside observation.
+ */
+export interface PacketJourneyCommitmentView {
+  readonly stageId: string;
+  readonly option: string;
+}
+
+/**
+ * What just happened, as one object rendered beside the topology.
+ *
+ * ## The Founder UAT finding this exists to fix
+ *
+ * In the expanded workspace the learner decided and acted in the right-hand
+ * rail while the packet, the wire and the device changed on the left. It was
+ * possible to click through the whole journey without once looking at the
+ * network — which defeats the entire method, because the observation IS the
+ * teaching.
+ *
+ * The correction is spatial: the decision, the action and this event object all
+ * sit with the picture, and the reference material moves out of the way. This
+ * object is what makes that possible — a single, changing, prominent statement
+ * of the current state that can be rendered directly under the topology.
+ *
+ * `token` changes whenever anything observable changes. It drives the transient
+ * emphasis and nothing else: no branch reads it, and a presentation that
+ * ignored it entirely would lose only the emphasis, never a fact.
+ */
+export const PACKET_JOURNEY_EVENT_KINDS = [
+  "waiting",
+  "moving",
+  "stopped",
+  "repaired",
+  "confirmed"
+] as const;
+
+export type PacketJourneyEventKind =
+  (typeof PACKET_JOURNEY_EVENT_KINDS)[number];
+
+export interface PacketJourneyEventView {
+  readonly kind: PacketJourneyEventKind;
+  /** Where the traffic is and what state it is in, in words. */
+  readonly headline: string;
+  /** The link crossed to arrive here, in words. Null when none was named. */
+  readonly via: string | null;
+  /** A new value means something observable just changed. */
+  readonly token: string;
 }
 
 export interface PacketJourneyActionView {
@@ -209,17 +360,48 @@ export interface PacketJourneyNodeView {
   readonly interfaces: readonly PacketJourneyInterfaceView[];
 }
 
+export interface PacketJourneyLinkView {
+  readonly linkId: string;
+  readonly label: string;
+  /**
+   * Both ends in words: "PC-A eth0 to Switch-1 Fa0/1".
+   *
+   * Absent only when the topology could not be resolved, in which case the
+   * authored `label` is all there is and is shown alone rather than replaced by
+   * something invented.
+   */
+  readonly endpointSummary?: string;
+  readonly current: boolean;
+  readonly traversed: boolean;
+}
+
 export interface PacketJourneyView {
   /** Says what the learner is looking at. DEC-058 requires this on screen. */
   readonly sourceNotice: string;
   readonly trafficSummary: string;
   readonly startLabel: string;
   readonly nodes: readonly PacketJourneyNodeView[];
-  readonly links: readonly { readonly linkId: string; readonly label: string }[];
+  readonly links: readonly PacketJourneyLinkView[];
+  /**
+   * The drawable picture of the same observation model, or an explicit refusal
+   * to draw one. Never a second source of state — it is built from the model
+   * this view already read.
+   */
+  readonly topology: TopologyLayout;
   readonly stages: readonly PacketJourneyStageView[];
+  /** What just happened, rendered beside the topology it happened in. */
+  readonly currentEvent: PacketJourneyEventView;
   readonly pendingPrediction: ReturnType<typeof pendingPrediction>;
+  /** A commitment made for a stage that has not been revealed yet. */
+  readonly pendingCommitment: PacketJourneyCommitmentView | null;
   readonly canAdvance: boolean;
   readonly advanceLabel: string;
+  /** Whether the authored reason sits inline or behind a disclosure. */
+  readonly decisionDisclosed: boolean;
+  /** Set at the guided level: what to do before asking for the next reveal. */
+  readonly inspectionPrompt: string | null;
+  /** Whether committing a prediction is required before the next reveal. */
+  readonly predictionRequired: boolean;
   readonly actions: readonly PacketJourneyActionView[];
   readonly symptom: string | null;
   readonly explanation: string | null;
@@ -243,7 +425,8 @@ export interface PacketJourneyView {
  */
 export function buildPacketJourneyView(
   parameters: LearnerPacketJourneyParameters,
-  state: PacketJourneyViewState
+  state: PacketJourneyViewState,
+  sequencing: InteractionSequencing = "commit_first"
 ): PacketJourneyView {
   const model: ObservationModel = buildPacketJourneyObservationModel(
     parameters,
@@ -258,6 +441,7 @@ export function buildPacketJourneyView(
 
   const stages: PacketJourneyStageView[] = revealed.map((stage) => ({
     stageId: stage.stageId,
+    nodeId: stage.atNodeId,
     nodeLabel: nodeLabels.get(stage.atNodeId) ?? stage.atNodeId,
     narration: stage.narration,
     ...(stage.decision !== undefined ? { decision: stage.decision } : {}),
@@ -303,19 +487,112 @@ export function buildPacketJourneyView(
 
   const textTrace = buildTextTrace(parameters, state, stages, appliedAction);
 
+  // Built from the model this view already read, never from the authored
+  // parameters and never from a second walk of the topology.
+  const topology = buildTopologyLayout(model, parameters.traffic.sourceNodeId);
+
+  // Endpoint resolution has one home. The drawn wires and the written
+  // connection list read from the same resolved links, so the picture and the
+  // text cannot disagree about what is plugged into what.
+  const resolvedLinks =
+    topology.state === "available" ? topology.links : undefined;
+
+  const links: PacketJourneyLinkView[] = model.links.map((link) => {
+    const resolved = resolvedLinks?.find(
+      (candidate) => candidate.linkId === link.linkId
+    );
+
+    return {
+      linkId: link.linkId,
+      label: link.label,
+      ...(resolved === undefined
+        ? {}
+        : { endpointSummary: resolved.endpointSummary }),
+      current: resolved?.current ?? false,
+      traversed: resolved?.traversed ?? false
+    };
+  });
+
+  const openPrediction = pendingPrediction(state, parameters);
+  const pendingCommitment = resolvePendingCommitment(parameters, state);
+
+  const latestStage = stages[stages.length - 1];
+
+  // The link crossed to arrive where the traffic is now, in words. Read from
+  // the already-resolved links so the sentence and the highlighted wire cannot
+  // describe different connections.
+  const currentStage =
+    model.currentStageId === null
+      ? undefined
+      : model.stages.find((stage) => stage.stageId === model.currentStageId);
+
+  const via =
+    currentStage?.viaLinkId === undefined
+      ? null
+      : (resolvedLinks?.find(
+          (link) => link.linkId === currentStage.viaLinkId
+        )?.endpointSummary ?? null);
+
+  // The remediation's own observation belongs to the MOMENT it was applied, at
+  // the stage it repaired. Once the learner advances past that stage, the new
+  // observation is what happened next — not a stale account of the repair.
+  const atRemediatedStage =
+    appliedAction !== undefined &&
+    parameters.fault !== undefined &&
+    model.currentStageId === parameters.fault.stopsAtStageId;
+
+  const currentEvent: PacketJourneyEventView = {
+    kind: confirmed
+      ? "confirmed"
+      : stopped
+        ? "stopped"
+        : atRemediatedStage
+          ? "repaired"
+          : latestStage === undefined
+            ? "waiting"
+            : "moving",
+    headline: describeEventHeadline(
+      confirmed,
+      stopped,
+      atRemediatedStage,
+      latestStage?.nodeLabel,
+      pendingCommitment !== null
+    ),
+    via,
+    // Every observable change moves this on: a reveal, a commitment, a
+    // remediation. Nothing branches on it; it exists so a presentation can
+    // replay a transient emphasis when the picture changes.
+    token: [
+      state.progress.revealedStageCount,
+      model.currentStageId ?? "none",
+      state.progress.appliedActionId ?? "none",
+      Object.keys(state.committedPredictions).length
+    ].join(":")
+  };
+
   return {
     sourceNotice: describeSourceNotice(model.sourceKind),
     trafficSummary: describeTrafficSummary(parameters, nodeLabels),
     startLabel: parameters.traffic.startActionLabel,
     nodes,
-    links: model.links.map((link) => ({
-      linkId: link.linkId,
-      label: link.label
-    })),
+    links,
+    topology,
     stages,
-    pendingPrediction: pendingPrediction(state, parameters),
-    canAdvance: canAdvance(state, parameters),
-    advanceLabel: describeAdvanceLabel(state),
+    currentEvent,
+    pendingPrediction: openPrediction,
+    pendingCommitment,
+    canAdvance: canAdvance(state, parameters, sequencing),
+    advanceLabel: describeAdvanceLabel(state, parameters),
+    // At the guided level the authored reason is available but is not pushed at
+    // the learner: they open it when they want it, which is what a graduated
+    // hint is. Elsewhere it reads inline, or is simply absent because the
+    // server never sent it.
+    decisionDisclosed: sequencing === "guide",
+    inspectionPrompt:
+      sequencing === "guide" && (openPrediction !== null || stages.length === 0)
+        ? describeInspectionPrompt()
+        : null,
+    predictionRequired: sequencing === "commit_first",
     actions: model.actions.map((action) => ({
       actionId: action.actionId,
       label: action.label,
@@ -336,11 +613,39 @@ export function buildPacketJourneyView(
       stopped && (parameters.actions ?? []).length === 0
         ? describeRemediationWithheld()
         : null,
-    announcement: describeAnnouncement(model, stages, appliedAction),
+    announcement: describeAnnouncement(
+      model,
+      stages,
+      appliedAction,
+      pendingCommitment,
+      parameters.traffic.startActionLabel,
+      atRemediatedStage,
+      via
+    ),
     textTrace,
     finished: confirmed || (model.currentStageId !== null && !stopped &&
       state.progress.revealedStageCount >= parameters.stages.length)
   };
+}
+
+/**
+ * The commitment the learner has made for a stage they have not yet revealed.
+ *
+ * Only the next stage can be in this position: committing is what releases the
+ * reveal, so a commitment further ahead cannot exist. Reading exactly that one
+ * slot keeps the rule visible rather than implied by a search.
+ */
+function resolvePendingCommitment(
+  parameters: LearnerPacketJourneyParameters,
+  state: PacketJourneyViewState
+): PacketJourneyCommitmentView | null {
+  const next = parameters.stages[state.progress.revealedStageCount];
+  if (next === undefined) return null;
+
+  const option = state.committedPredictions[next.stageId];
+  if (option === undefined) return null;
+
+  return { stageId: next.stageId, option };
 }
 
 /* ------------------------------------------------------------------ *
@@ -365,9 +670,17 @@ function buildTextTrace(
   appliedAction: { readonly label: string; readonly observation: string } | undefined
 ): string[] {
   const trace: string[] = [];
+  const pending = resolvePendingCommitment(parameters, state);
 
   if (stages.length === 0) {
     trace.push(`Nothing has been sent yet. ${parameters.traffic.startActionLabel} to begin.`);
+    // A commitment made before anything was sent belongs in the account from
+    // the moment it is made, not from the moment its stage appears. Leaving it
+    // out is what made a committed prediction look like it had been discarded.
+    if (pending !== null) {
+      trace.push(`You predicted: ${pending.option}`);
+      trace.push("That prediction has not been observed yet.");
+    }
     return trace;
   }
 
@@ -380,6 +693,11 @@ function buildTextTrace(
     if (stage.decision !== undefined) {
       trace.push(`Why: ${stage.decision}`);
     }
+  }
+
+  if (pending !== null) {
+    trace.push(`You predicted: ${pending.option}`);
+    trace.push("That prediction has not been observed yet.");
   }
 
   if (appliedAction !== undefined) {
@@ -442,10 +760,66 @@ export function describeTrafficSummary(
   return `Following ${parameters.traffic.label} from ${from} to ${to}.`;
 }
 
-export function describeAdvanceLabel(state: PacketJourneyViewState): string {
+/**
+ * The label on the control that reveals the next observation.
+ *
+ * The first one is the AUTHORED start label — "Send the ping from PC-A" — and
+ * not the word "Start". The authored label was already carried in the view
+ * model and was simply never used, while the control read "Start" instead;
+ * after committing a prediction, a learner who had not moved anywhere was shown
+ * a button that looked like it was offering to begin again. Saying what the
+ * action actually does removes that reading entirely.
+ */
+export function describeAdvanceLabel(
+  state: PacketJourneyViewState,
+  parameters: LearnerPacketJourneyParameters
+): string {
   return state.progress.revealedStageCount === 0
-    ? "Start"
+    ? parameters.traffic.startActionLabel
     : "Show what happens next";
+}
+
+/** The two halves of the prediction comparison, named in words. */
+export function describePredictionLabel(): string {
+  return "Your prediction";
+}
+
+export function describeObservationLabel(): string {
+  return "What actually happened";
+}
+
+/**
+ * What a committed prediction says while its stage is still unrevealed.
+ *
+ * It is deliberately not a verdict. The learner is told their answer is
+ * recorded and that the network has not been observed yet — the observation is
+ * the reveal, and it is what teaches.
+ */
+export function describeUnobservedCommitment(): string {
+  return "Recorded. Nothing has been observed yet.";
+}
+
+/**
+ * The guided level's nudge.
+ *
+ * Generic on purpose. It points at the act of inspecting, and carries no
+ * networking guidance of its own: authored teaching lives in authored fields,
+ * and a hint invented here would be curriculum written by the renderer.
+ */
+export function describeInspectionPrompt(): string {
+  return (
+    "Before you continue, select a device to inspect what it is connected to " +
+    "and what its interfaces say."
+  );
+}
+
+/** Names the workspace control, in both directions. */
+export function describeWorkspaceOpenLabel(): string {
+  return "Open the network workspace";
+}
+
+export function describeWorkspaceCloseLabel(): string {
+  return "Close the network workspace";
 }
 
 /**
@@ -455,16 +829,61 @@ export function describeAdvanceLabel(state: PacketJourneyViewState): string {
  * is never conveyed by colour or motion alone (CURR-011 section 14.7): whatever
  * the animation shows, this says in words.
  */
+/**
+ * The current-event headline: where the traffic is, and what state it is in.
+ *
+ * Kept short. It sits directly above the live region, which carries the
+ * authored narration, so this is the glanceable half and that is the detail.
+ * Every state it names is also carried by a class on the device and by the
+ * announcement below it, so nothing here is the sole carrier of a fact.
+ */
+export function describeEventHeadline(
+  confirmed: boolean,
+  stopped: boolean,
+  atRemediatedStage: boolean,
+  nodeLabel: string | undefined,
+  hasPendingCommitment: boolean
+): string {
+  if (confirmed) return "The journey is complete.";
+  if (nodeLabel === undefined) {
+    return hasPendingCommitment
+      ? "Prediction recorded. Nothing has been sent yet."
+      : "Nothing has been sent yet.";
+  }
+  if (stopped) return `Stopped at ${nodeLabel}.`;
+  if (atRemediatedStage) {
+    return `Repaired at ${nodeLabel}. The journey can continue.`;
+  }
+  return `The traffic is at ${nodeLabel}.`;
+}
+
 export function describeAnnouncement(
   model: ObservationModel,
   stages: readonly PacketJourneyStageView[],
-  appliedAction: { readonly observation: string } | undefined
+  appliedAction: { readonly observation: string } | undefined,
+  pendingCommitment: PacketJourneyCommitmentView | null,
+  startActionLabel: string,
+  atRemediatedStage: boolean,
+  via: string | null
 ): string {
   if (model.availability === "unavailable") {
     return "The state of this environment is unavailable.";
   }
 
-  if (stages.length === 0) return "Ready to start.";
+  // Committing used to change this string not at all, so a screen-reader
+  // learner was told nothing had happened at exactly the moment a sighted
+  // learner thought the interaction had reset. A commitment is an event, and
+  // an event that changes nothing announced is an event that did not occur as
+  // far as assistive technology is concerned.
+  if (pendingCommitment !== null) {
+    return stages.length === 0
+      ? `Prediction recorded: ${pendingCommitment.option}. Nothing has been sent yet. ${startActionLabel} to see what actually happens.`
+      : `Prediction recorded: ${pendingCommitment.option}. Ask to see what happens next.`;
+  }
+
+  if (stages.length === 0) {
+    return `Ready to start. ${startActionLabel} when you are ready.`;
+  }
 
   const consequence = model.consequence;
 
@@ -474,13 +893,28 @@ export function describeAnnouncement(
 
   if (consequence?.state === "stopped") {
     const symptom = consequence.symptom ?? "";
-    return `Stopped at ${stages[stages.length - 1]?.nodeLabel}. ${consequence.narration} ${symptom}`.trim();
+    // The connection is named here too, and especially here: where the traffic
+    // came from is part of understanding where it stopped.
+    const across = via === null ? "" : `, across ${via}`;
+    return `Stopped at ${stages[stages.length - 1]?.nodeLabel}${across}. ${consequence.narration} ${symptom}`.trim();
   }
 
-  if (appliedAction !== undefined) return appliedAction.observation;
+  // The repair's own observation belongs to the moment it was applied. Once the
+  // learner moves on, announcing it again would report the fix as though it had
+  // just happened while the traffic was somewhere else entirely.
+  if (appliedAction !== undefined && atRemediatedStage) {
+    return appliedAction.observation;
+  }
 
   const latest = stages[stages.length - 1];
-  return `At ${latest?.nodeLabel}. ${latest?.narration}`;
+
+  // Naming the link crossed is what keeps the correlation in TEXT. The wire
+  // that lights up is decorative and hidden from assistive technology, so if
+  // this sentence did not say which connection was used, that fact would exist
+  // only in the picture.
+  const across = via === null ? "" : `, across ${via}`;
+
+  return `At ${latest?.nodeLabel}${across}. ${latest?.narration}`;
 }
 
 /**
@@ -510,8 +944,10 @@ export function describeRemediationWithheld(): string {
  */
 export function describeWithheldInteraction(): string {
   return (
-    "The guided walkthrough is not available during a protected demonstration. " +
-    "The objective, your environment and your own tools are unchanged."
+    "The guided walkthrough and its network workspace are withheld during a " +
+    "protected demonstration. That is deliberate, not a fault: the teaching " +
+    "visualisation would show you the answer. Your objective, your " +
+    "environment and your own tools are unchanged."
   );
 }
 

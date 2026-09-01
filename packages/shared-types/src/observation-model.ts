@@ -126,11 +126,29 @@ export function isObservationAvailability(
  * `label` is authored words ("IP address", "VLAN"), never a storage key, so
  * both presentations can show it directly. `value` is text: an address is a
  * string here and is never parsed, compared or arithmetic'd.
+ *
+ * `prominent` is DISPLAY METADATA and nothing else: it says this fact is worth
+ * showing on a compact device face as well as in a full inspection. The source
+ * decides; a presentation obeys.
+ *
+ * ## Why this is a flag rather than the renderer choosing
+ *
+ * A renderer that picked which facts to surface would have to recognise them —
+ * matching a label against "VLAN", or "Mode", or "Encapsulation". That is
+ * domain knowledge in the presentation layer: it would work only for
+ * networking, would silently show nothing for the next interaction type, and
+ * would be the first step towards a renderer that understands what a VLAN IS.
+ *
+ * It confers no meaning. It does not say a fact is a VLAN, that two devices
+ * share one, that a port is a trunk, or that anything can reach anything. It
+ * says "show this one early". Every fact remains available at full inspection
+ * whether or not it is flagged, so nothing is hidden by omitting it.
  */
 export interface ObservationAttribute {
   readonly label: string;
   readonly value: string | null;
   readonly availability: ObservationAvailability;
+  readonly prominent?: boolean;
 }
 
 export interface ObservationInterface {
@@ -212,6 +230,24 @@ export function isObservationStageOutcome(
  * `decision` is the teaching — what the device decided and why. It is
  * answer-revealing, so it is optional here and the server drops it at
  * protected support levels. Its absence is a withholding, never a defect.
+ *
+ * `viaLinkId` is the link the unit of traffic traversed to ARRIVE here.
+ *
+ * ## Why that field is not inference
+ *
+ * It is a CARRIED FACT, exactly like `atNodeId` and `outcome` beside it. The
+ * source states which link was used; nothing here and nothing downstream works
+ * it out. A renderer that instead searched `links` for one joining the previous
+ * stage's node to this one would be deriving a path element the source never
+ * reported — the forwarding inference DEC-058 exists to forbid, and wrong
+ * outright on a topology carrying two links between the same pair of devices.
+ *
+ * It is optional because a stage need not have been arrived at over a link: the
+ * first stage is where the traffic originates, and a live source may report a
+ * hop without reporting which link carried it.
+ *
+ * It reveals no more than `atNodeId` already does, so it is not
+ * answer-revealing and is carried at every support level.
  */
 export interface ObservationStage {
   readonly stageId: string;
@@ -219,6 +255,7 @@ export interface ObservationStage {
   readonly narration: string;
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
+  readonly viaLinkId?: string;
   readonly availability: ObservationAvailability;
 }
 

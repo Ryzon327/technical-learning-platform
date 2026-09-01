@@ -51,7 +51,17 @@ export function InteractionSurface({
 
   switch (parameters.interactionType) {
     case "packet_journey":
-      return <PacketJourney parameters={parameters} instanceId={instanceId} />;
+      return (
+        <PacketJourney
+          parameters={parameters}
+          instanceId={instanceId}
+          // Sequencing input, not an authorization input. The server has
+          // already decided what `parameters` contains; this only decides how
+          // much the learner is asked to do before seeing the next authored
+          // observation. Nothing downstream can reveal what is not here.
+          supportLevel={content.supportLevel}
+        />
+      );
     default:
       // Unreachable while every registered type has a component above. It
       // stays because "unreachable" is a claim about today's registry, and the

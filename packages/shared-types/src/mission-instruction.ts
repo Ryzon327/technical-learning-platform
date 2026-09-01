@@ -344,6 +344,11 @@ function projectPacketJourneyParameters(
       ? { decision: stage.decision }
       : {}),
     outcome: stage.outcome,
+    // Carried unconditionally. `viaLinkId` is a topology fact of the same kind
+    // as `atNodeId`, which is also never withheld: both say where the traffic
+    // went, and neither says why. Dropping it would remove the visual account
+    // of the journey without protecting anything.
+    ...(stage.viaLinkId !== undefined ? { viaLinkId: stage.viaLinkId } : {}),
     ...(stage.prediction !== undefined ? { prediction: stage.prediction } : {})
   }));
 
