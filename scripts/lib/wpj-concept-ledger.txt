@@ -1,0 +1,80 @@
+# WP-J — the Networking Foundations concept ledger.
+#
+# ## What this is
+#
+# The audit source for TEACH-BEFORE-USE. It records, for each concept the course
+# teaches, the EARLIEST mission at which that concept may be used, and — where a
+# single reliable word exists — the word that marks it.
+#
+# It is NOT learner-facing curriculum. Nothing renders it and no learner reaches
+# it. It exists so that `scripts/verify-wpj.sh` can check authored text against
+# an explicit, reviewable ordering instead of a heuristic.
+#
+# ## Why a ledger and not a language checker
+#
+# BEGINNER-COMPLETE-1 is a human-authoritative requirement (CURR-009 s14a) and
+# cannot be decided by counting words. What CAN be decided mechanically is
+# narrow and worth having: whether a term appears in a mission that comes before
+# the mission which introduces it. That is an objective question, and this file
+# is the only thing that makes it answerable.
+#
+# The check is deliberately one-directional. A term appearing LATER than its
+# ledger mission is fine — that is ordinary reuse. A term appearing EARLIER is a
+# forward reference, which is the exact defect BEGINNER-COMPLETE-1 found in
+# Router-on-a-Stick Mission 1.
+#
+# ## What is scanned
+#
+#   course description       must contain NO ledger term. It is read before any
+#   module descriptions      mission, so every term would be a forward reference.
+#   mission titles           scanned against the ordering below.
+#   mission descriptions
+#
+# Competency titles and descriptions are NOT scanned. Four of them are reused
+# from Router-on-a-Stick byte-for-byte and cannot be reworded here; they are
+# metadata describing a capability, not instruction a learner reads in sequence.
+#
+# Matching is WHOLE-WORD and case-insensitive, so "report" does not match "port"
+# and "important" does not match "port". A `-` in the term column means the
+# concept has no single word that reliably marks it; it is ordered here for
+# review and for the future step-level audit, and is not machine-checked.
+#
+# ## Its real job is ahead of it
+#
+# J1 authors no steps, so most terms appear nowhere yet and most rows pass
+# trivially. That is expected. This ledger is a GUARD placed before the writing
+# starts, so that when J3 onward author eighty instructional steps, a forward
+# reference fails a gate instead of reaching a beginner.
+#
+# ## Format
+#
+#   order|missionStableId|concept|term
+#
+# `order` is the review ordering and must not decrease down the file.
+
+1|nf-m1-what-a-network-is|network purpose|-
+2|nf-m1-what-a-network-is|host|host
+3|nf-m1-what-a-network-is|switch|switch
+4|nf-m1-what-a-network-is|router|router
+5|nf-m1-what-a-network-is|interface|interface
+6|nf-m1-what-a-network-is|port|port
+7|nf-m1-what-a-network-is|topology|topology
+8|nf-m2-inside-one-network|local delivery|-
+9|nf-m2-inside-one-network|frame|frame
+10|nf-m2-inside-one-network|MAC address|MAC
+11|nf-m2-inside-one-network|switch learning and forwarding|-
+12|nf-m2-inside-one-network|broadcast|broadcast
+13|nf-m3-ipv4-the-second-identity|IPv4|IPv4
+14|nf-m4-the-prefix-and-the-decision|prefix length|prefix
+15|nf-m4-the-prefix-and-the-decision|network portion and host portion|-
+16|nf-m4-the-prefix-and-the-decision|same network or remote network|-
+17|nf-m4-the-prefix-and-the-decision|ARP|ARP
+18|nf-m5-the-default-gateway|default gateway|gateway
+19|nf-m6-routers-and-the-journey|routing|routing
+20|nf-m6-routers-and-the-journey|frame versus packet|packet
+21|nf-m6-routers-and-the-journey|Layer 2 and Layer 3|-
+22|nf-m7-testing-whether-it-works|ICMP and ping|ping
+23|nf-m7-testing-whether-it-works|reachability observation|-
+24|nf-m8-when-it-does-not-work|simple failure reasoning|-
+25|nf-m8-when-it-does-not-work|bounded repair|-
+26|nf-m8-when-it-does-not-work|confirmation after repair|-

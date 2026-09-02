@@ -1,0 +1,41 @@
+# WP-J — the Networking Foundations to Router-on-a-Stick transition model.
+#
+# ## What this is
+#
+# The machine-readable half of the transition recorded in
+# `docs/Engineering-OS/WP_J_CROSS_COURSE_TRANSITION.md`. It declares what
+# Router-on-a-Stick's competency links WILL become once Networking Foundations
+# is the development origin, and it changes nothing today.
+#
+# ## Why it exists
+#
+# DEC-053 approved the hybrid: Networking Foundations develops the foundational
+# competencies, Router-on-a-Stick reinforces them. J1 is forbidden from mutating
+# Router-on-a-Stick, so at this moment three competencies would be developed
+# TWICE across the learning path — once in each course. That is exactly the
+# integrity failure the path-level check exists to catch, and it would be
+# reported as a defect rather than as a planned transition unless the plan is
+# written down somewhere the check can read.
+#
+# So the check reads THIS file, applies it to Router-on-a-Stick's real links,
+# and asserts path-level integrity against the RESULT. The invariant proved is:
+#
+#   a competency is developed exactly once in the learning path, and reinforced
+#   only after the mission that develops it.
+#
+# What it proves is that the plan is coherent. It does not pretend the plan has
+# been executed, and `verify-wpj.sh` separately asserts that Router-on-a-Stick's
+# source still holds its CURRENT relationships.
+#
+# ## Format
+#
+#   missionStableId|competencyStableId|currentRelationship|futureRelationship
+#
+# Every row must match a link that really exists in `roas-curriculum.ts` with
+# the stated current relationship, or the check fails — a transition plan
+# describing links that do not exist is worse than none.
+
+ros-m1-understand-the-network|net.ip-addressing|develops|reinforces
+ros-m1-understand-the-network|net.subnet-boundaries|develops|reinforces
+ros-m1-understand-the-network|net.default-gateway|develops|reinforces
+ros-m5-verify-the-network|net.connectivity-verification|develops|reinforces
