@@ -1,0 +1,353 @@
+{
+  "documentKind": "production",
+  "learningPath": {
+    "stableId": "connected-learning-mvp",
+    "title": "Connected Learning",
+    "description": "The connected learning path. Competencies demonstrated in one course are reused by later courses rather than duplicated."
+  },
+  "course": {
+    "stableId": "networking-foundations",
+    "title": "Networking Foundations",
+    "description": "Start from nothing and build a working mental model of how two machines reach each other. You will meet the devices a network is made of, watch traffic move inside one network, learn the two identities a machine carries, work out the decision every machine makes about where to send something, follow a message across a boundary and back, test whether it truly arrived, and repair a simple failure. Before this course you need only the ability to operate a computer, use a keyboard and mouse, navigate a web application, and compare two numbers. No networking vocabulary is assumed: every term you need is introduced here, after you have already seen the behaviour it names.",
+    "position": 0,
+    "estimatedMinutes": 410
+  },
+  "modules": [
+    {
+      "stableId": "nf-mod1-one-network",
+      "title": "One Network",
+      "description": "What a network is made of, and how something gets from one machine to another when both are on the same network. Everything here happens inside a single network; boundaries come later.",
+      "position": 0,
+      "estimatedMinutes": 95
+    },
+    {
+      "stableId": "nf-mod2-addresses-and-boundaries",
+      "title": "Addresses and Boundaries",
+      "description": "The second identity a machine carries, and the decision it makes with it: is what I am trying to reach on my own network, or somewhere else? This is the question the rest of the course depends on.",
+      "position": 1,
+      "estimatedMinutes": 110
+    },
+    {
+      "stableId": "nf-mod3-reaching-another-network",
+      "title": "Reaching Another Network",
+      "description": "What a machine does when the answer is \"somewhere else\": who it hands the message to, what that device does with it, and what the whole trip looks like from one end to the other.",
+      "position": 2,
+      "estimatedMinutes": 110
+    },
+    {
+      "stableId": "nf-mod4-prove-it-and-fix-it",
+      "title": "Prove It and Fix It",
+      "description": "Establishing whether something genuinely works rather than appears to, and what to do when it does not. The failure here is bounded and visible; finding a fault you were not shown belongs to a later course.",
+      "position": 3,
+      "estimatedMinutes": 95
+    }
+  ],
+  "missions": [
+    {
+      "stableId": "nf-m1-what-a-network-is",
+      "moduleStableId": "nf-mod1-one-network",
+      "title": "Mission 1 — What a network is, and what is in it",
+      "description": "Before this mission you should be able to: operate a computer, and compare two numbers. Nothing else.\n\nA network exists because one machine has something another machine wants. Everything you will learn in this course is an answer to a single question: how does a thing get from here to there?\n\nStart by looking at what a small network is made of. Three kinds of device do three different jobs. Some are the machines people actually use. One connects machines together so they can reach each other. One connects whole groups of machines to other groups. You will not be given the names first — you will look at what each one is attached to and what passes through it, and the names will follow.\n\nEvery device has one or more places where a cable arrives. On a diagram those connections are drawn as lines, and each line ends somewhere specific on each device. Being able to say which connection on which device is the one that matters is not a detail; it is the whole skill of reading a network, and it is the difference between a diagram that is decoration and a diagram you can reason with.\n\nBy the end you will be able to look at a small network, say what each device is for, name the connections between them, and say which device is responsible for which part of a trip between two machines. You will use that ability in every mission that follows, and you will need it again in later courses.\n\nNothing is configured or changed here. You are learning to read before you are asked to write.",
+      "position": 0,
+      "estimatedMinutes": 40,
+      "competencies": [
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": true,
+          "relationship": "develops"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m2-inside-one-network",
+      "moduleStableId": "nf-mod1-one-network",
+      "title": "Mission 2 — Inside one network: how a switch delivers",
+      "description": "Before this mission you should be able to: read a small network and name its devices and connections (Mission 1).\n\nTwo machines are connected to the same device in the middle. One sends something to the other. Watch what happens the first time, and then watch what happens the second time. They are not the same, and the difference is the whole of this mission.\n\nThe first time, the device in the middle does not know where the destination is, so it sends the message everywhere and lets the right machine answer. That is wasteful, and it does not stay that way. The device pays attention to where answers come back from, writes it down, and the next message goes to exactly one place.\n\nOnce you have seen that happen, you get the words for it. Each machine has a built-in identity burned in at the factory, written in a notation you will recognise but do not need to calculate with. The unit of traffic that carries one of these identities to another has a name. The list the middle device builds up has a name. Sending to everyone because you do not yet know better has a name too.\n\nYou will also meet the first thing that looks like a failure and is not. Traffic reaching every machine instead of one looks wrong the first time you see it. It is correct, it is temporary, and telling the difference between \"broken\" and \"working as designed\" is a habit worth forming early.\n\nBy the end you will be able to explain how one machine reaches another inside a single network, why the second attempt behaves differently from the first, and what happens when the destination is not known.",
+      "position": 1,
+      "estimatedMinutes": 55,
+      "competencies": [
+        {
+          "competencyStableId": "net.local-delivery",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": true,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m3-ipv4-the-second-identity",
+      "moduleStableId": "nf-mod2-addresses-and-boundaries",
+      "title": "Mission 3 — IPv4 addresses: the second identity",
+      "description": "Before this mission you should be able to: explain how one machine reaches another inside a single network, and what the built-in factory identity is for (Mission 2).\n\nEvery machine you have looked at already has an identity. So why does it need a second one?\n\nThe factory identity has a problem: it says nothing about where the machine is. It cannot be changed, it follows the hardware, and it is useless for organising anything. A second identity fixes that. It is assigned rather than built in, it is written as four numbers separated by dots, and unlike the first one it can be chosen to say something about which group a machine belongs to.\n\nYou will look at real output from a machine and find its second identity, sitting next to the name of the connection that holds it. Reading that output is a small skill with a large payoff: it is how you confirm what a machine actually has, rather than what someone told you it has.\n\nThis mission does not yet tell you how a machine uses the second identity to decide anything. That decision needs one more piece of information, and it is the whole of the next mission. Here you are establishing the fact that the identity exists, that it is assigned, that it can be read, and that it is a different kind of thing from the one you met in Mission 2.\n\nAddresses can be set by hand or handed out automatically by another machine. This course sets them by hand so you can see exactly what is where. Machines can also be reached by name rather than by address; that is a separate system, and this course works in addresses deliberately.\n\nBy the end you will be able to read a machine's assigned address from real output, say which connection holds it, and explain how it differs from the identity you met in Mission 2. You will use that in every mission that follows, and in every later course that asks you to check what a machine actually has.",
+      "position": 0,
+      "estimatedMinutes": 45,
+      "competencies": [
+        {
+          "competencyStableId": "net.address-identification",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.local-delivery",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m4-the-prefix-and-the-decision",
+      "moduleStableId": "nf-mod2-addresses-and-boundaries",
+      "title": "Mission 4 — The prefix, and the decision every host makes",
+      "description": "Before this mission you should be able to: read a machine's assigned address from real output (Mission 3), and compare two numbers.\n\nThis is the mission the rest of the course rests on.\n\nAn assigned address is written with a second number after it. That number says how much of the address names the group the machine belongs to, and how much names the machine itself. A larger number means more of the address is fixed and the group is smaller. You will compare two of them so the number stops being decoration and starts being a quantity.\n\nWith that, a machine can answer the only question that matters before it sends anything: is what I am trying to reach part of my own group, or not? Watch a machine answer it both ways. When the answer is yes, it delivers directly, using what you learned in Mission 2 — and you will see the small exchange it performs first to turn an assigned address into the factory identity it actually needs to address the traffic. When the answer is no, it does something you have not seen before: it hands the traffic to a different device entirely, one it was not trying to reach.\n\nThat hand-off will look wrong. Nothing was delivered to the destination, and yet nothing is broken. Deciding whether what you are watching is a fault or correct behaviour is the most useful question in this course, and this is the first place you get to ask it with enough information to answer.\n\nYou will not be told what that other device is called yet. You will see what it receives and why, and the name comes next.\n\nBy the end you will be able to take two machines' addresses and say whether one will deliver to the other directly, and say what it does instead when it will not.",
+      "position": 1,
+      "estimatedMinutes": 65,
+      "competencies": [
+        {
+          "competencyStableId": "net.ip-addressing",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.subnet-boundaries",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.address-identification",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.local-delivery",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m5-the-default-gateway",
+      "moduleStableId": "nf-mod3-reaching-another-network",
+      "title": "Mission 5 — The default gateway",
+      "description": "Before this mission you should be able to: decide from two addresses whether a machine will deliver directly, and describe what it does instead when it will not (Mission 4).\n\nIn Mission 4 you watched a machine hand traffic to a device it was not trying to reach. That device has a name, and the machine did not guess at it — the address was configured in advance, and it is the machine's answer to \"this is not for my group, so it is your problem now\".\n\nYou will read that configuration from real output. There is one line in it that matters here, and you will learn to find that line and ignore the rest, which is a skill in itself.\n\nThen you will work out why that address and not another. The device a machine hands traffic to has to be one the machine can reach directly, or the hand-off could never happen — which means it must be in the machine's own group. That single constraint explains almost every mistake people make with this setting, and you will meet one of those mistakes in Mission 8.\n\nThis is the smallest mission in the course, and deliberately so. It introduces one idea and one line of output. What that device actually does with the traffic once it has it is the next mission.\n\nBy the end you will be able to identify which address a machine will hand off to, and explain why that address has to be the one it is.",
+      "position": 0,
+      "estimatedMinutes": 45,
+      "competencies": [
+        {
+          "competencyStableId": "net.default-gateway",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.subnet-boundaries",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.ip-addressing",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m6-routers-and-the-journey",
+      "moduleStableId": "nf-mod3-reaching-another-network",
+      "title": "Mission 6 — Routers, and the journey end to end",
+      "description": "Before this mission you should be able to: identify the device a machine hands off to and explain why it must be reachable directly (Mission 5).\n\nEverything so far has been one half of a trip. Now you follow a whole one.\n\nA message leaves a machine in one group, crosses to a device that belongs to two groups at once, and comes out the other side into a group it was never part of. Watch what changes at that device and what does not. The destination does not change — it was decided before the message left and it survives the whole trip. What wraps around it is thrown away and rebuilt at every step, because each step is a different local delivery of the kind you learned in Mission 2.\n\nThat distinction — the part that survives the journey and the part that is rebuilt for each leg — is the single most useful idea in this course, and it only makes sense once you have watched it happen. You have now watched local delivery twice and a hand-off once, so it is time.\n\nThen the reply comes back, the same way in reverse, and you watch that too. A trip that only goes one way is not communication.\n\nAt the end of this mission, and not before, you get two labels. The decisions about reaching someone in your own group have a common name. The decisions about reaching another group have a different one. These are names for behaviour you have already understood, not a framework to memorise. There are formal models that number these layers; you will meet them when you have a reason to, and this course does not give you one.\n\nThis mission introduces no new responsibility of its own. It puts five missions together into one continuous story, which is why nothing new is developed here and everything is used.",
+      "position": 1,
+      "estimatedMinutes": 65,
+      "competencies": [
+        {
+          "competencyStableId": "net.default-gateway",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.subnet-boundaries",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.local-delivery",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.ip-addressing",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.address-identification",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m7-testing-whether-it-works",
+      "moduleStableId": "nf-mod4-prove-it-and-fix-it",
+      "title": "Mission 7 — Testing whether it actually works",
+      "description": "Before this mission you should be able to: follow a message from one group to another and back, and say what changes at each step (Mission 6).\n\nSo far you have been shown what happens. Now you find out for yourself.\n\nThere is a small test that asks a machine to answer, and reports whether it did. You will run it and read what comes back. Reading it is not the interesting part; deciding what to test is.\n\nHere is the trap. A test that succeeds proves something specific, and it is almost never the thing people assume it proves. If a machine can reach the device it hands off to, that proves the first step works and says nothing about the rest of the trip. If it cannot reach that device, then nothing beyond it can possibly work, and testing anything further is wasted effort. Choosing what to test, in what order, so that each result actually narrows things down, is a different skill from running the test.\n\nYou will practise the difference between a result that confirms what you believe and a result that is merely consistent with it. Those feel identical in the moment and are not the same, and telling them apart is what separates someone who is checking from someone who is guessing.\n\nBy the end you will be able to choose which address to test in order to establish a specific claim, and say what a successful result does and does not prove.",
+      "position": 0,
+      "estimatedMinutes": 45,
+      "competencies": [
+        {
+          "competencyStableId": "net.connectivity-verification",
+          "required": true,
+          "relationship": "develops"
+        },
+        {
+          "competencyStableId": "net.default-gateway",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    },
+    {
+      "stableId": "nf-m8-when-it-does-not-work",
+      "moduleStableId": "nf-mod4-prove-it-and-fix-it",
+      "title": "Mission 8 — When it does not work",
+      "description": "Before this mission you should be able to: choose a test that establishes a specific claim, and say what its result proves (Mission 7).\n\nSomething is wrong, and this time it really is wrong.\n\nA message leaves and does not arrive. You will watch where it stops. You are shown the stopping point in this mission — you are not yet being asked to find a failure nobody has located for you, which is a harder skill and belongs to a later course. What you are asked to do here is reason about what a visible stopping point tells you.\n\nWork backwards from it. The last thing that behaved correctly tells you what is still intact. The first thing that did not tells you where to look. Everything you have built across seven missions is what makes that reasoning possible: you know what should have happened at each step, so you can tell which step did not do it.\n\nThe cause is a single wrong setting, of a kind you were warned about in Mission 5. Correct it, and then — this is the part that matters — watch the message go the whole way and the reply come back. A repair you did not confirm is not a repair; it is a hope. The confirmation is not a formality at the end of the mission, it is the point of it.\n\nBy the end you will have taken a bounded failure from symptom to evidence to correction to proof, which is the shape of every piece of troubleshooting you will ever do.\n\nThis mission develops no new responsibility. It is where everything the course built gets used at once, which is the only honest test of whether it was built properly.",
+      "position": 1,
+      "estimatedMinutes": 50,
+      "competencies": [
+        {
+          "competencyStableId": "net.connectivity-verification",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.default-gateway",
+          "required": true,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.subnet-boundaries",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.local-delivery",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.ip-addressing",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.address-identification",
+          "required": false,
+          "relationship": "reinforces"
+        },
+        {
+          "competencyStableId": "net.topology-literacy",
+          "required": false,
+          "relationship": "reinforces"
+        }
+      ],
+      "steps": [],
+      "assets": []
+    }
+  ],
+  "competencies": [
+    {
+      "stableId": "net.topology-literacy",
+      "title": "Network topology literacy",
+      "description": "Identify the hosts, switches and routers in a network topology, name the interfaces and ports that connect them, and state which device is responsible for each part of a path between two machines."
+    },
+    {
+      "stableId": "net.local-delivery",
+      "title": "Local network delivery",
+      "description": "Explain how a switch delivers traffic to one host within a single network, how it learns where hosts are, what it does with a destination it has not learned, and why traffic for another network is handed elsewhere."
+    },
+    {
+      "stableId": "net.address-identification",
+      "title": "IPv4 address identification",
+      "description": "Identify the IPv4 address assigned to a host's interface, read it from device or operating-system output, and distinguish an assigned address from the interface's built-in hardware identity."
+    },
+    {
+      "stableId": "net.ip-addressing",
+      "title": "IPv4 addressing",
+      "description": "Assign and interpret an IPv4 address and prefix length, and determine which addresses a host can reach without assistance from a router."
+    },
+    {
+      "stableId": "net.subnet-boundaries",
+      "title": "Subnet boundaries",
+      "description": "Determine from an address and prefix length whether two hosts share a subnet, and recognise the boundary at which forwarding becomes a router's responsibility."
+    },
+    {
+      "stableId": "net.default-gateway",
+      "title": "Default gateway relationships",
+      "description": "Identify the correct default gateway for a host and explain why off-subnet traffic depends on it."
+    },
+    {
+      "stableId": "net.connectivity-verification",
+      "title": "Connectivity verification",
+      "description": "Choose verification steps that establish what actually works, and distinguish a test that confirms a hypothesis from one merely consistent with it."
+    }
+  ],
+  "competencyPrerequisites": [
+    {
+      "competencyStableId": "net.local-delivery",
+      "prerequisiteCompetencyStableId": "net.topology-literacy"
+    },
+    {
+      "competencyStableId": "net.address-identification",
+      "prerequisiteCompetencyStableId": "net.local-delivery"
+    },
+    {
+      "competencyStableId": "net.ip-addressing",
+      "prerequisiteCompetencyStableId": "net.address-identification"
+    },
+    {
+      "competencyStableId": "net.subnet-boundaries",
+      "prerequisiteCompetencyStableId": "net.ip-addressing"
+    },
+    {
+      "competencyStableId": "net.default-gateway",
+      "prerequisiteCompetencyStableId": "net.subnet-boundaries"
+    }
+  ],
+  "prerequisiteRules": []
+}

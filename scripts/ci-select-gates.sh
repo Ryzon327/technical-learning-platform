@@ -114,6 +114,15 @@ apps/web/vite.config.ts|scripts/verify-wpi.sh
 apps/web/src/styles.css|scripts/verify-wpi.sh
 packages/shared-types/src/mission-instruction*|scripts/verify-wpi.sh
 scripts/verify-wpi.sh|scripts/verify-wpi.sh
+content/curriculum/*|scripts/verify-wpj.sh
+scripts/lib/wpj-*|scripts/verify-wpj.sh
+docs/Engineering-OS/WP_J_CROSS_COURSE_TRANSITION.md|scripts/verify-wpj.sh
+services/api/src/networking-foundations*|scripts/verify-wpj.sh
+packages/shared-types/src/roas-curriculum*|scripts/verify-wpj.sh
+packages/shared-types/src/curriculum-document*|scripts/verify-wpj.sh
+scripts/verify-wpj.sh|scripts/verify-wpj.sh
+content/curriculum/*|scripts/verify-wpi.sh
+content/curriculum/*|scripts/verify-wph.sh
 apps/web/src/learning/topology-layout*|scripts/verify-wph.sh
 apps/web/src/learning/TopologyView.tsx|scripts/verify-wph.sh
 apps/web/src/learning/DeviceNode.tsx|scripts/verify-wph.sh

@@ -639,9 +639,16 @@ grep -Fq '"documentKind": "architecture_fixture"' "$FIXTURE" \
   || fail "the architecture fixture is no longer marked as a fixture"
 
 # WP-J owns production networking curriculum. WP-H authors none.
-PRODUCTION_DOCS="$(find content -name '*.json' -not -path 'content/fixtures/*' 2>/dev/null | wc -l | tr -d ' ')"
-[ "$PRODUCTION_DOCS" = "0" ] \
-  || fail "WP-H authored $PRODUCTION_DOCS production curriculum document(s); that is WP-J"
+#
+# This asserted zero documents until WP-J/J1 authored Networking Foundations.
+# It is now pinned to the approved SET rather than to a count, which is the same
+# guarantee expressed against the current baseline: WP-H still cannot author
+# curriculum, and an unreviewed course still fails here. Relaxing it to "one or
+# more" would have been the weakening; naming the file is not.
+PRODUCTION_DOCS="$(find content -name '*.json' -not -path 'content/fixtures/*' 2>/dev/null \
+  | LC_ALL=C sort | tr '\n' ' ')"
+[ "$PRODUCTION_DOCS" = "content/curriculum/networking-foundations.json " ] \
+  || fail "unexpected production curriculum documents: ${PRODUCTION_DOCS:-none}. WP-H authors none, and a new course is WP-J's to approve."
 
 echo "PASS: 16. the fixture exercises the contract and publishes nowhere"
 
