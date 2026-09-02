@@ -121,6 +121,12 @@ services/api/src/networking-foundations*|scripts/verify-wpj.sh
 packages/shared-types/src/roas-curriculum*|scripts/verify-wpj.sh
 packages/shared-types/src/curriculum-document*|scripts/verify-wpj.sh
 scripts/verify-wpj.sh|scripts/verify-wpj.sh
+apps/web/src/learning/curriculum-course-projection*|scripts/verify-wpj15.sh
+apps/web/src/learning/LearningView.tsx|scripts/verify-wpj15.sh
+apps/web/src/learning/roas-course-content*|scripts/verify-wpj15.sh
+apps/web/src/learning/learning-service.ts|scripts/verify-wpj15.sh
+packages/shared-types/src/curriculum.ts|scripts/verify-wpj15.sh
+scripts/verify-wpj15.sh|scripts/verify-wpj15.sh
 content/curriculum/*|scripts/verify-wpi.sh
 content/curriculum/*|scripts/verify-wph.sh
 apps/web/src/learning/topology-layout*|scripts/verify-wph.sh

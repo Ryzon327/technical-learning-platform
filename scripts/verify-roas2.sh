@@ -505,15 +505,56 @@ grep -Fq 'target="scripts/verify-${command_name}.sh"' scripts/run-gate.sh \
 
 # (b) ROAS-2's own paths select this gate. Without this the curriculum could be
 #     merged unchecked — the DEV-FLOW-1 failure, in ROAS-2's shape.
+#
+#     The invariant is MEMBERSHIP: a ROAS-2-owned path must select this gate.
+#     It is not position. The selector legitimately returns every gate relevant
+#     to a path — `roas-curriculum*` selects the WP-J gate too, because WP-J
+#     reads that contract — and the gates then run independently, so the order
+#     they are listed in carries no meaning. An earlier form of this check
+#     matched the output as a PREFIX, which silently also required this gate to
+#     be listed FIRST; adding an unrelated mapping above the ROAS-2 one then
+#     failed a gate that was in fact still selected.
+#
+#     Exact-line membership, not substring: a substring test would accept a
+#     longer gate filename that merely contains this one.
+selects_gate() {
+  case "
+$1
+" in
+    *"
+$2
+"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 for roas2_path in packages/shared-types/src/roas-curriculum.ts \
                   packages/shared-types/src/roas-curriculum.test.ts \
                   scripts/verify-roas2.sh; do
   SELECTED="$(bash scripts/ci-select-gates.sh "$roas2_path")"
-  case "$SELECTED" in
-    scripts/verify-roas2.sh*) ;;
-    *) fail "$roas2_path does not select this gate; it selected: $SELECTED" ;;
-  esac
+  selects_gate "$SELECTED" "scripts/verify-roas2.sh" \
+    || fail "$roas2_path does not select this gate; it selected: $SELECTED"
 done
+
+# (c) The membership test itself, in the two directions (b) cannot reach.
+#
+#     (b) only ever exercises paths that pass, so on its own it would still pass
+#     if `selects_gate` were ordering-sensitive again, or if it accepted
+#     everything. Both orderings of a real multi-gate result must be accepted,
+#     and a path that genuinely does not select this gate must still be rejected.
+selects_gate "scripts/verify-wpj.sh
+scripts/verify-roas2.sh" "scripts/verify-roas2.sh" \
+  || fail "the selector assertion rejects this gate when another gate is listed before it"
+selects_gate "scripts/verify-roas2.sh
+scripts/verify-wpj.sh" "scripts/verify-roas2.sh" \
+  || fail "the selector assertion rejects this gate when another gate is listed after it"
+
+# A real path, not a literal: this proves the assertion is still capable of
+# failing against actual selector output, which is the whole point of (b).
+NON_ROAS2_SELECTED="$(bash scripts/ci-select-gates.sh package.json)"
+if selects_gate "$NON_ROAS2_SELECTED" "scripts/verify-roas2.sh"; then
+  fail "the selector assertion accepts a path that does not select this gate; it selected: $NON_ROAS2_SELECTED"
+fi
 
 echo "PASS: 11. the gate resolves through the verifier namespace and owns its paths"
 

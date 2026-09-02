@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LearningPathProgressSummary,
   LearningResumeTarget,
+  PublishedLearningPathTree,
   RecommendedNextAction
 } from "@tlp/shared-types";
 import { useAuth } from "../auth/AuthProvider";
@@ -51,6 +52,10 @@ import {
   describeMissionPracticeAuthority,
   describePracticeAuthority
 } from "./roas-practice";
+import {
+  LEARNER_PATH_STABLE_ID,
+  selectLearnerCourse
+} from "./curriculum-course-projection";
 
 /**
  * ROAS-3 — the learner's Router-on-a-Stick course experience.
@@ -266,12 +271,27 @@ export function LearningView() {
   const { session } = useAuth();
   const accessToken = session?.access_token ?? "";
 
-  // Authored content. Stable for the life of the bundle, so it is built once
-  // and never refetched: it is repository content, not learner state.
-  const course = useMemo(() => buildRoasLearnerCourse(), []);
+  // The transitional compiled-in course. Stable for the life of the bundle, so
+  // it is built once: it is repository content, not learner state.
+  //
+  // Router-on-a-Stick still comes from here, and only Router-on-a-Stick. Its
+  // bundle supplies competency links, the lab demonstration marker and practice
+  // placement, none of which the published tree carries yet; projecting it from
+  // the tree today would silently drop all three.
+  const bundledCourse = useMemo(() => buildRoasLearnerCourse(), []);
 
   const [loading, setLoading] = useState(true);
   const [errorCode, setErrorCode] = useState<string | undefined>(undefined);
+
+  // WP-J / J1.5. The authoritative published hierarchy, RETAINED.
+  //
+  // This request was always made, and its answer was always reduced to a flat
+  // list of published mission ids before anything else could read it. Keeping
+  // the tree is the whole of this slice: course, module and mission structure
+  // now come from the Curriculum Engine for every course except the one still
+  // being served from its bundle.
+  const [publishedTree, setPublishedTree] =
+    useState<PublishedLearningPathTree | null>(null);
   const [publishedMissionStableIds, setPublishedMissionStableIds] = useState<
     string[] | null
   >(null);
@@ -306,7 +326,18 @@ export function LearningView() {
   const [instructionRequest, setInstructionRequest] =
     useState<MissionInstructionRequest>({ status: "idle" });
 
-  const pathStableId = course.learningPathStableId;
+  // Which course the learner reads. Bundled for Router-on-a-Stick, projected
+  // from the published tree for anything else, and null when the tree names a
+  // course that cannot be projected — see `selectLearnerCourse`, which refuses
+  // to substitute one course for another.
+  const course = useMemo(
+    () => selectLearnerCourse({ tree: publishedTree, bundledCourse }),
+    [publishedTree, bundledCourse]
+  );
+
+  // The path identity is a named constant, not a field read off the compiled-in
+  // course. Taking it from a course is what made this surface course-shaped.
+  const pathStableId = LEARNER_PATH_STABLE_ID;
 
   // `background` distinguishes the FIRST load from a post-write revalidation.
   //
@@ -334,6 +365,7 @@ export function LearningView() {
           pathStableId,
           { signal }
         );
+        setPublishedTree(tree);
         setPublishedMissionStableIds(collectPublishedMissionStableIds(tree));
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === "AbortError") {
@@ -341,6 +373,10 @@ export function LearningView() {
         }
         // The curriculum read is what decides availability. Its failure is
         // recorded as a code and classified once, in one place.
+        //
+        // The tree is cleared with it: a stale tree would keep projecting a
+        // course the server can no longer confirm is published.
+        setPublishedTree(null);
         setPublishedMissionStableIds(null);
         setErrorCode(
           caught instanceof ApiRequestError ? caught.code : "INTERNAL_ERROR"
@@ -457,11 +493,6 @@ export function LearningView() {
     ...(errorCode ? { errorCode } : {})
   });
 
-  const selectedMission = resolveSelectedMission(
-    course,
-    selectedMissionStableId
-  );
-
   // UAT-PROGRESS-FEEDBACK-1. Opening a different mission ends the previous
   // operation's feedback.
   //
@@ -477,6 +508,38 @@ export function LearningView() {
     setSelectedMissionStableId(missionStableId);
     setFeedback(null);
   }, []);
+
+  // WP-J / J1.5 — fail closed, after every hook has run.
+  //
+  // The published tree names a course this surface cannot project: the course
+  // is published, and nothing inside it is. `selectLearnerCourse` refuses to
+  // substitute the compiled-in course here, because doing so would tell a
+  // learner that a course they did not ask for is theirs. So the state is
+  // stated plainly instead, and nothing pretends to be a working course.
+  //
+  // This is deliberately not the "we could not load your progress" state: the
+  // curriculum read succeeded, and what it returned is simply not yet usable.
+  if (course === null) {
+    return (
+      <section className="card" aria-labelledby="learning-course-title">
+        <p className="eyebrow">Learning</p>
+        <h2 id="learning-course-title">Your next course is not ready yet</h2>
+        <p>
+          The next course in your learning path has been published, but its
+          missions have not been yet. There is nothing to work through here
+          until they are.
+        </p>
+        <p className="mission-note">
+          Nothing you have already completed has been lost.
+        </p>
+      </section>
+    );
+  }
+
+  const selectedMission = resolveSelectedMission(
+    course,
+    selectedMissionStableId
+  );
 
   const courseReview = selectCourseReview(
     course,
