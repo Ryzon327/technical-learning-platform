@@ -1,89 +1,96 @@
 import type { CSSProperties } from "react";
 import { DeviceNode } from "./DeviceNode";
-import type { TopologyLayout, TopologyLink } from "./topology-layout";
+import type { TopologyDevice, TopologyLayout, TopologyLink } from "./topology-layout";
 
 /**
- * WP-I correction — the network, drawn.
+ * WP-I, corrected by WP-J Module 1 — the network, drawn.
  *
  * ## What is drawn, and what is not
  *
- * Devices are HTML buttons (`DeviceNode`). Wires are SVG paths. The packet is
- * one absolutely-positioned HTML element. That split is deliberate and is the
- * whole accessibility strategy:
+ * Devices are HTML buttons (`DeviceNode`). Wires are SVG paths. The traffic
+ * marker is one absolutely-positioned HTML element. That split is deliberate
+ * and is the whole accessibility strategy:
  *
  *   - everything a learner OPERATES is a native control;
- *   - everything a learner READS exists as text in the semantic account that
- *     `PacketJourney` renders around this component;
+ *   - everything a learner READS exists as text — in the semantic account that
+ *     `PacketJourney` renders around this component, and, for the ARRANGEMENT
+ *     itself, in the description this component renders for assistive
+ *     technology;
  *   - the SVG layer therefore carries nothing of its own, and is marked
  *     `aria-hidden="true"` truthfully rather than as a formality.
  *
- * Deleting the SVG would cost a learner no information. That is the test
- * CURR-011 section 14.6 implies, and it is met by construction.
+ * ## This component computes no geometry
+ *
+ * Every coordinate arrives from `topology-layout.ts` already decided: each
+ * device's box, each wire's corner points, the marker's position, and the size
+ * of the canvas. This file positions elements at numbers it is given.
+ *
+ * That is the correction Founder UAT forced. The previous revision put devices
+ * in a CSS grid and drew wires into an SVG that scaled independently with
+ * `preserveAspectRatio="none"` — two coordinate systems that agreed only by
+ * arithmetic kept in step by hand, in a component and a stylesheet. The wires
+ * met the cards when the constants happened to agree and drifted when they did
+ * not, and the whole picture was locked into one horizontal band because a grid
+ * row was the only thing both systems could describe.
+ *
+ * There is now ONE coordinate space. The SVG is the same width and height as
+ * the canvas in CSS pixels, with a matching `viewBox`, so its units are CSS
+ * pixels and the scale is 1:1 in both axes. A wire cannot drift off a device,
+ * because both are placed from the same numbers.
  *
  * ## Geometry, not networking
  *
- * Column positions and lane depths arrive from `topology-layout.ts` already
- * decided. This file converts them to coordinates and nothing else: it does not
- * know what a VLAN is, does not read an address, and cannot tell whether
- * traffic would flow between two boxes it happens to draw side by side.
+ * Nothing here knows what a VLAN is, reads an address, or can tell whether
+ * traffic would flow between two boxes it happens to draw near each other.
  *
- * ## Why `preserveAspectRatio="none"`
+ * A group boundary is drawn only where an author declared one, and around
+ * exactly the devices the author put in it. This file does not decide who
+ * belongs together and has nothing to decide it from: it renders a rectangle
+ * and a caption the layout computed from authored membership. A group is not a
+ * subnet, a VLAN or a broadcast domain, and nothing here reads one to decide
+ * anything at all.
  *
- * The wire layer stretches to whatever width the topology occupies, so the
- * horizontal scale is responsive while the vertical scale stays 1:1 with the
- * CSS pixel heights the stylesheet uses. Only straight segments are drawn, so
- * non-uniform scaling changes nothing visible, and
- * `vector-effect="non-scaling-stroke"` keeps the stroke width constant at every
- * width. The three constants below are mirrored by the stylesheet, and the two
- * must agree or the wires would not meet the devices.
+ * ## Painting order, and why it is the accessibility story too
+ *
+ * Boundaries first, then wires, then cards, then the ring, then the marker.
+ * A boundary is a FIELD behind the drawing, so it can never hide a wire, cover
+ * a device, or sit over the traffic marker — which was a Founder requirement
+ * rather than a preference. Every boundary is `aria-hidden`, because the same
+ * membership is stated in words in the description above it.
+ *
+ * ## The marker, and the ring
+ *
+ * They are different claims and are drawn as different things.
+ *
+ *   `.topology-packet`  information IN TRANSIT. It sits on a wire, clear of
+ *                       every card — never over a device's name, category,
+ *                       interface facts, symbol or the button itself.
+ *   `.topology-pulse`   the device that has the traffic NOW. A ring around
+ *                       that card, which is device state rather than traffic.
+ *
+ * Collapsing the two is what put a dot on top of PC-A's text at Founder UAT.
  *
  * ## Motion
  *
- * There is none here. The packet element carries a CSS transition, which the
- * stylesheet drops under `prefers-reduced-motion`. No branch in this file reads
- * a motion preference, so a reduced-motion learner receives identical markup,
- * identical information and identical controls.
+ * There is none here. The marker carries a CSS transition, which the stylesheet
+ * drops under `prefers-reduced-motion`. No branch in this file reads a motion
+ * preference, so a reduced-motion learner receives identical markup, identical
+ * information and identical controls.
  */
-
-/** Vertical centre of the device band, in viewBox units and CSS pixels. */
-const BAND_CENTRE = 56;
-
-/** Height of the device band. Mirrored by `.topology-devices` min-height. */
-const BAND_HEIGHT = 112;
-
-/** Height of one routed lane. Mirrored by `.topology` padding-bottom. */
-const LANE_HEIGHT = 34;
-
-/** Horizontal centre of one column, in viewBox units. */
-function columnCentre(column: number, columns: number): number {
-  return ((column + 0.5) / columns) * 1000;
-}
-
-/**
- * One wire.
- *
- * Lane 0 is a straight run along the device band, which is what a link between
- * neighbouring devices looks like. Anything spanning further drops below the
- * band, crosses, and comes back up — sharp corners, because a curve under
- * non-uniform scaling is the one shape that would visibly distort.
- */
-function wirePath(link: TopologyLink, columns: number): string {
-  const from = columnCentre(link.fromColumn, columns);
-  const to = columnCentre(link.toColumn, columns);
-
-  if (link.lane === 0) {
-    return `M ${from} ${BAND_CENTRE} H ${to}`;
-  }
-
-  const depth = BAND_HEIGHT + (link.lane - 0.5) * LANE_HEIGHT;
-
-  return `M ${from} ${BAND_CENTRE} V ${depth} H ${to} V ${BAND_CENTRE}`;
-}
 
 function wireClassName(link: TopologyLink): string {
   if (link.current) return "topology-wire is-current";
   if (link.traversed) return "topology-wire is-traversed";
   return "topology-wire";
+}
+
+function deviceStyle(device: TopologyDevice): CSSProperties {
+  return {
+    left: `${device.box.x}px`,
+    top: `${device.box.y}px`,
+    width: `${device.box.width}px`,
+    height: `${device.box.height}px`
+  };
 }
 
 export function TopologyView({
@@ -120,94 +127,140 @@ export function TopologyView({
     return <p className="topology-unavailable">{layout.reason}</p>;
   }
 
-  const height = BAND_HEIGHT + layout.lanes * LANE_HEIGHT;
+  const currentDevice =
+    layout.packet === null
+      ? undefined
+      : layout.devices.find(
+          (device) => device.nodeId === layout.packet?.nodeId
+        );
 
   const frame = {
-    "--tlp-topology-columns": layout.columns,
-    "--tlp-topology-lanes": layout.lanes
+    width: `${layout.frame.width}px`,
+    height: `${layout.frame.height}px`
   } as CSSProperties;
 
   return (
     /*
       The scroll container is the OUTER element on purpose. A narrow viewport
-      cannot shrink four devices into something readable, so the topology keeps
-      a minimum width and scrolls inside its own box, and the page body never
-      scrolls sideways. The wire layer is positioned against the inner element,
-      so the drawing and the devices scroll together and cannot drift apart.
+      cannot shrink a hierarchy into something readable, and shrinking the cards
+      until their labels stop being legible would trade one unusable picture for
+      another. So the drawing keeps its true size and scrolls inside its own
+      box, the relationships survive at every width, and the page body never
+      scrolls sideways.
     */
     <div className="topology-scroll">
       <div className="topology" style={frame}>
         {/*
+          The arrangement, in words.
+
+          The rows and the branches ARE information — that is the whole point of
+          the correction — so they cannot be available only to people who can
+          see them. Visually hidden because the picture states the same thing to
+          anyone looking at it.
+        */}
+        <p className="topology-description">{layout.description}</p>
+
+        {/*
+          The authored groups, drawn as fields behind everything else.
+
+          Decorative, and honestly so: the description above states the same
+          membership in words, and it states it from the same authored field.
+          Removing these elements would cost a learner no fact.
+        */}
+        {layout.groups.map((group) => (
+          <span
+            key={group.groupId}
+            className="topology-group"
+            aria-hidden="true"
+            style={{
+              left: `${group.box.x}px`,
+              top: `${group.box.y}px`,
+              width: `${group.box.width}px`,
+              height: `${group.box.height}px`
+            }}
+          >
+            <span
+              className="topology-group-label"
+              style={{
+                left: `${group.labelAt.x - group.box.x}px`,
+                top: `${group.labelAt.y - group.box.y}px`
+              }}
+            >
+              {group.label}
+            </span>
+          </span>
+        ))}
+
+        {/*
           Decorative. Every wire it draws is also a row in the connections list
-          that `PacketJourney` renders, with both endpoints in words, so
-          removing this element loses a learner nothing.
+          that `PacketJourney` renders, with both endpoints in words, and the
+          description above says which pairs are joined.
         */}
         <svg
           className="topology-wires"
           aria-hidden="true"
           focusable="false"
-          viewBox={`0 0 1000 ${height}`}
-          preserveAspectRatio="none"
+          width={layout.frame.width}
+          height={layout.frame.height}
+          viewBox={`0 0 ${layout.frame.width} ${layout.frame.height}`}
         >
           <g key={eventToken}>
             {layout.links.map((link) => (
               <path
                 key={link.linkId}
                 className={wireClassName(link)}
-                d={wirePath(link, layout.columns)}
+                d={link.path}
                 vectorEffect="non-scaling-stroke"
               />
             ))}
           </g>
         </svg>
 
-        <div className="topology-devices">
-          {layout.devices.map((device) => (
-            <DeviceNode
-              key={device.nodeId}
-              device={device}
-              selected={selectedNodeId === device.nodeId}
-              panelId={inspectorId}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
+        {layout.devices.map((device) => (
+          <DeviceNode
+            key={device.nodeId}
+            device={device}
+            selected={selectedNodeId === device.nodeId}
+            panelId={inspectorId}
+            style={deviceStyle(device)}
+            onSelect={onSelect}
+          />
+        ))}
 
         {/*
-          The packet. Also decorative: where it is, and what state it is in, are
-          both stated in words by the live region and by the journey account.
+          The ring around the device that has the traffic now.
+
+          Device state, not traffic: it is drawn on the CARD, and it says "the
+          journey is here". Keyed, so its animation replays on every observable
+          change, and it is the only thing that does.
+        */}
+        {currentDevice !== undefined && layout.packet !== null && (
+          <span
+            key={eventToken}
+            className={`topology-pulse is-${layout.packet.state}`}
+            aria-hidden="true"
+            style={deviceStyle(currentDevice)}
+          />
+        )}
+
+        {/*
+          The traffic marker. Also decorative: where it is, and what state it is
+          in, are both stated in words by the live region and by the journey
+          account.
+
+          Deliberately NOT keyed. Remounting it would give React a fresh element
+          starting at its destination, and the CSS transition — the marker
+          visibly travelling — would never run. Its movement is the whole point.
         */}
         {layout.packet !== null && (
-          <>
-            {/*
-              The marker is deliberately NOT keyed. Remounting it would give
-              React a fresh element starting at its destination, and the CSS
-              `left` transition — the packet visibly travelling — would never
-              run. Its movement is the whole point.
-            */}
-            <span
-              className={`topology-packet is-${layout.packet.state}`}
-              aria-hidden="true"
-              style={
-                { "--tlp-packet-column": layout.packet.column } as CSSProperties
-              }
-            />
-
-            {/*
-              The transient emphasis, as its own element so that keying it
-              costs nothing: one calm ring at the device the traffic just
-              reached. It exists only to catch peripheral vision when the
-              learner's eyes are on the control they pressed.
-            */}
-            <span
-              key={eventToken}
-              className={`topology-pulse is-${layout.packet.state}`}
-              aria-hidden="true"
-              style={
-                { "--tlp-packet-column": layout.packet.column } as CSSProperties
-              }
-            />
-          </>
+          <span
+            className={`topology-packet is-${layout.packet.state}`}
+            aria-hidden="true"
+            style={{
+              left: `${layout.packet.at.x}px`,
+              top: `${layout.packet.at.y}px`
+            }}
+          />
         )}
       </div>
     </div>

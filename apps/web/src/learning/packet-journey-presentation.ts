@@ -103,14 +103,55 @@ export function resolveSequencing(supportLevel: string): InteractionSequencing {
  * progress follows from it.
  */
 export interface PacketJourneyViewState {
+  /**
+   * Whether the learner has deliberately begun the activity.
+   *
+   * ## Why this exists
+   *
+   * Founder UAT asked for an obvious Start. Before this field, an interaction
+   * began the moment it rendered: the first prediction and the first control
+   * were simply present, so "what am I supposed to do" had to be inferred from
+   * whichever control happened to be on screen.
+   *
+   * A deliberate not-started state answers that question instead. The learner
+   * reads two lines, sees the environment, and presses one obviously primary
+   * control.
+   *
+   * ## What it is NOT
+   *
+   * Engagement, and nothing else. Starting a teaching interaction is not
+   * competency, not evidence, not lab success, not progress and not
+   * publication state — this object holds none of those and cannot acquire
+   * them, because it is component state that outlives nothing.
+   *
+   * It is also not a second progression engine. It gates the FIRST reveal in
+   * exactly the way an uncommitted prediction gates the next one, through the
+   * same `canAdvance` function.
+   */
+  readonly started: boolean;
   readonly progress: PacketJourneyProgress;
   readonly committedPredictions: Readonly<Record<string, string>>;
 }
 
 export const INITIAL_PACKET_JOURNEY_VIEW_STATE: PacketJourneyViewState = {
+  started: false,
   progress: INITIAL_PACKET_JOURNEY_PROGRESS,
   committedPredictions: {}
 };
+
+/**
+ * Begin the activity.
+ *
+ * Idempotent, and it reveals nothing on its own: it moves no stage, commits no
+ * prediction and applies no remediation. All it does is release the controls
+ * the learner needs in order to take the first step themselves.
+ */
+export function startJourney(
+  state: PacketJourneyViewState
+): PacketJourneyViewState {
+  if (state.started) return state;
+  return { ...state, started: true };
+}
 
 /**
  * Commit a prediction for one stage.
@@ -228,6 +269,12 @@ export function canAdvance(
   parameters: LearnerPacketJourneyParameters,
   sequencing: InteractionSequencing = "commit_first"
 ): boolean {
+  // Nothing is revealed until the learner has deliberately begun. The same
+  // gate that stops the reveal being reached around an uncommitted prediction
+  // stops it being reached around the Start the Founder asked for — one
+  // function, one place, rather than a second rule elsewhere.
+  if (!state.started) return false;
+
   if (state.progress.revealedStageCount >= parameters.stages.length) {
     return false;
   }
@@ -343,6 +390,170 @@ export interface PacketJourneyActionView {
   readonly available: boolean;
 }
 
+/* ------------------------------------------------------------------ *
+ * The current task
+ *
+ * WP-J Module 1 Founder UAT — instructional flow.
+ *
+ * ## The finding
+ *
+ * At a normal viewport the Founder "did not know what to do". The first
+ * learner action was below the fold, reachable only by scrolling and
+ * comfortable only after zooming the browser out. Worse, once the topology was
+ * pinned, scrolling could leave a persistent picture on screen with the control
+ * that advances it somewhere else entirely — a visualisation with no visible
+ * way forward.
+ *
+ * ## Why the answer is a view object rather than a layout tweak
+ *
+ * "What should I do right now" was previously implied by which controls
+ * happened to be rendered, and by where they happened to sit. That is not
+ * something a test without a DOM can read, and it is not something a learner
+ * can read either.
+ *
+ * So the current task is now a NAMED, derived fact. It is computed from the
+ * state this module already holds — an open prediction, an available
+ * remediation, whether another observation may be revealed, how many have been
+ * revealed, whether remediation was withheld — and from nothing else. There is
+ * no second progression engine and no second source of instructional truth:
+ * every input is a value `buildPacketJourneyView` had already resolved.
+ *
+ * The renderer keeps the task beside the picture, and a test can assert which
+ * task is current at every point of the journey.
+ * ------------------------------------------------------------------ */
+
+export const PACKET_JOURNEY_TASK_KINDS = [
+  "start",
+  "predict",
+  "send",
+  "continue",
+  "repair",
+  "blocked",
+  "finished"
+] as const;
+
+export type PacketJourneyTaskKind = (typeof PACKET_JOURNEY_TASK_KINDS)[number];
+
+export interface PacketJourneyTaskView {
+  readonly kind: PacketJourneyTaskKind;
+  /**
+   * The heading above the current task.
+   *
+   * Deliberately short. The authored prompt, the authored start label and the
+   * authored narration all say more, and all of them are rendered beneath it —
+   * a heading that restated them would be the duplication this correction
+   * exists to remove.
+   */
+  readonly label: string;
+  /** True while the learner has something to do. False when nothing remains. */
+  readonly actionable: boolean;
+}
+
+/**
+ * Which task is current.
+ *
+ * Precedence is the instructional method in order: PREDICT before OBSERVE, and
+ * a repair before continuing past the failure it caused. Where a level offers
+ * both a prediction and the reveal — SHOW ME lifts the commit gate — predicting
+ * is still named as the task, because it is still the step that teaches.
+ */
+export function resolveCurrentTask(
+  hasStarted: boolean,
+  hasOpenPrediction: boolean,
+  hasAvailableRepair: boolean,
+  canRevealMore: boolean,
+  revealedCount: number,
+  remediationWasWithheld: boolean
+): PacketJourneyTaskKind {
+  if (!hasStarted) return "start";
+  if (hasOpenPrediction) return "predict";
+  if (hasAvailableRepair) return "repair";
+  if (canRevealMore) return revealedCount === 0 ? "send" : "continue";
+  if (remediationWasWithheld) return "blocked";
+  return "finished";
+}
+
+export function describeTaskLabel(kind: PacketJourneyTaskKind): string {
+  if (kind === "start") return "Before you begin";
+  if (kind === "predict") return "Current step: predict";
+  if (kind === "send") return "Current step: send";
+  if (kind === "continue") return "Current step: continue";
+  if (kind === "repair") return "Current step: choose a change";
+  if (kind === "blocked") return "Current step: nothing further to apply";
+  return "Walkthrough complete";
+}
+
+/**
+ * The label on the one obviously primary control in the not-started state.
+ *
+ * Plain and professional. The authored `startActionLabel` says what the FIRST
+ * REVEAL does — "Send something from PC-A" — and is used on that control when
+ * the learner reaches it. This one says only that the activity begins, because
+ * beginning and sending are two different acts and naming them the same thing
+ * is what made the earlier surface ambiguous.
+ */
+export function describeStartLabel(): string {
+  return "Start";
+}
+
+/**
+ * What the learner is told before they begin.
+ *
+ * One sentence. It says what they will do and that they will be asked to
+ * predict first, and it reveals no answer: it names no destination, no device
+ * and no outcome.
+ */
+export function describeStartInstruction(trafficLabel: string): string {
+  return (
+    `Look at the network on the left. When you start, you will predict which ` +
+    `device ${trafficLabel} reaches first.`
+  );
+}
+
+export function isTaskActionable(kind: PacketJourneyTaskKind): boolean {
+  return kind !== "blocked" && kind !== "finished";
+}
+
+/** Whether the learner has not begun yet, for a renderer that must not guess. */
+export function isNotStarted(kind: PacketJourneyTaskKind): boolean {
+  return kind === "start";
+}
+
+/**
+ * The orientation shown when the learner arrives at the interaction.
+ *
+ * Three questions, answered before any scrolling: what am I looking at, what am
+ * I supposed to do, and where do I do it. The third is answered by structure —
+ * the task sits inside the same workspace as the picture — so this object
+ * carries only the first two, in two short lines.
+ *
+ * `summary` is built from the AUTHORED start label, which is the course's own
+ * words for the action this interaction is about.
+ *
+ * ## What it deliberately does not say
+ *
+ * It does not name the destination. `trafficSummary` does — "from PC-A to
+ * Switch-1" — and that sentence used to sit directly above a prediction asking
+ * which device the traffic reaches first, with Switch-1 among the options. The
+ * orientation printed the answer above the question. It now says what is being
+ * sent and from where, and stops there.
+ */
+export interface PacketJourneyOrientationView {
+  readonly title: string;
+  readonly summary: string;
+}
+
+export function describeOrientationTitle(trafficLabel: string): string {
+  return `Follow ${trafficLabel}`;
+}
+
+export function describeOrientationSummary(
+  trafficLabel: string,
+  sourceLabel: string
+): string {
+  return `${capitaliseFirst(trafficLabel)} starts at ${sourceLabel}.`;
+}
+
 export interface PacketJourneyInterfaceView {
   readonly interfaceId: string;
   readonly label: string;
@@ -357,6 +568,19 @@ export interface PacketJourneyNodeView {
   readonly label: string;
   readonly roleLabel: string;
   readonly current: boolean;
+  /**
+   * One sentence on what this CATEGORY of device is, derived from the authored
+   * role. Absent for a role this presentation has no sentence for, in which
+   * case nothing stands in for it.
+   */
+  readonly purpose?: string;
+  /**
+   * Authored prose on what this device is doing in this scenario. Absent when
+   * the author wrote none; nothing is composed to fill the gap.
+   */
+  readonly about?: string;
+  /** This device's relationship to the current journey, in one phrase. */
+  readonly journeyStatus: JourneyStatusView;
   readonly interfaces: readonly PacketJourneyInterfaceView[];
 }
 
@@ -378,6 +602,17 @@ export interface PacketJourneyLinkView {
 export interface PacketJourneyView {
   /** Says what the learner is looking at. DEC-058 requires this on screen. */
   readonly sourceNotice: string;
+  /** Two short lines answering "what is this" and "what do I do". */
+  readonly orientation: PacketJourneyOrientationView;
+  /** What the learner should do RIGHT NOW, named rather than implied. */
+  readonly currentTask: PacketJourneyTaskView;
+  /**
+   * The one obviously primary control, before the learner has begun.
+   *
+   * Null once the activity is under way, so a renderer cannot show a second
+   * way to begin something that has already begun.
+   */
+  readonly startAction: { readonly label: string; readonly instruction: string } | null;
   readonly trafficSummary: string;
   readonly startLabel: string;
   readonly nodes: readonly PacketJourneyNodeView[];
@@ -466,12 +701,29 @@ export function buildPacketJourneyView(
   const stopped = consequence?.state === "stopped";
   const confirmed = consequence?.state === "confirmed";
 
+  // Only the stages the learner has actually observed. `model.stages` also
+  // carries the unrevealed ones, each with its `atNodeId` — reading those
+  // here would let device inspection answer a question the walkthrough has
+  // not reached, including one the learner is about to be asked to predict.
+  const revealedNodeIds = revealed.map((stage) => stage.atNodeId);
+
   const nodes: PacketJourneyNodeView[] = model.nodes.map((node) => ({
     nodeId: node.nodeId,
     label: node.label,
     roleLabel: describeNodeRole(node.role),
     current: model.currentStageId !== null &&
       revealed[revealed.length - 1]?.atNodeId === node.nodeId,
+    ...(describeRolePurpose(node.role) !== undefined
+      ? { purpose: describeRolePurpose(node.role) as string }
+      : {}),
+    ...(node.about !== undefined ? { about: node.about } : {}),
+    journeyStatus: resolveNodeJourneyStatus({
+      nodeId: node.nodeId,
+      revealedNodeIds,
+      confirmed,
+      stopped,
+      trafficLabel: parameters.traffic.label
+    }),
     interfaces: node.interfaces.map((iface) => ({
       interfaceId: iface.interfaceId,
       label: iface.label,
@@ -556,7 +808,8 @@ export function buildPacketJourneyView(
       stopped,
       atRemediatedStage,
       latestStage?.nodeLabel,
-      pendingCommitment !== null
+      pendingCommitment !== null,
+      parameters.traffic.label
     ),
     via,
     // Every observable change moves this on: a reveal, a commitment, a
@@ -570,8 +823,43 @@ export function buildPacketJourneyView(
     ].join(":")
   };
 
+  const advanceAvailable = canAdvance(state, parameters, sequencing);
+  const repairAvailable = model.actions.some((action) => action.available);
+  const remediationWithheld =
+    stopped && (parameters.actions ?? []).length === 0;
+
+  // Derived from values this function already resolved. No new state, no
+  // second progression engine, and nothing read from a label.
+  const taskKind = resolveCurrentTask(
+    state.started,
+    openPrediction !== null,
+    repairAvailable,
+    advanceAvailable,
+    stages.length,
+    remediationWithheld
+  );
+
   return {
     sourceNotice: describeSourceNotice(model.sourceKind),
+    orientation: {
+      title: describeOrientationTitle(parameters.traffic.label),
+      summary: describeOrientationSummary(
+        parameters.traffic.label,
+        nodeLabels.get(parameters.traffic.sourceNodeId) ??
+          parameters.traffic.sourceNodeId
+      )
+    },
+    currentTask: {
+      kind: taskKind,
+      label: describeTaskLabel(taskKind),
+      actionable: isTaskActionable(taskKind)
+    },
+    startAction: state.started
+      ? null
+      : {
+          label: describeStartLabel(),
+          instruction: describeStartInstruction(parameters.traffic.label)
+        },
     trafficSummary: describeTrafficSummary(parameters, nodeLabels),
     startLabel: parameters.traffic.startActionLabel,
     nodes,
@@ -579,9 +867,12 @@ export function buildPacketJourneyView(
     topology,
     stages,
     currentEvent,
-    pendingPrediction: openPrediction,
+    // Withheld until the learner begins. Before Start there is exactly one
+    // thing to do, and a question sitting beside it would compete with the
+    // control the Founder asked to be unmistakable.
+    pendingPrediction: state.started ? openPrediction : null,
     pendingCommitment,
-    canAdvance: canAdvance(state, parameters, sequencing),
+    canAdvance: advanceAvailable,
     advanceLabel: describeAdvanceLabel(state, parameters),
     // At the guided level the authored reason is available but is not pushed at
     // the learner: they open it when they want it, which is what a graduated
@@ -609,10 +900,9 @@ export function buildPacketJourneyView(
     // Said only when the journey has stopped and no remediation was sent, so
     // the learner is told why there is nothing to click rather than meeting a
     // dead end.
-    remediationWithheld:
-      stopped && (parameters.actions ?? []).length === 0
-        ? describeRemediationWithheld()
-        : null,
+    remediationWithheld: remediationWithheld
+      ? describeRemediationWithheld()
+      : null,
     announcement: describeAnnouncement(
       model,
       stages,
@@ -735,11 +1025,171 @@ export function describeSourceNotice(sourceKind: string): string {
   );
 }
 
+/**
+ * The device category, in the word a learner reads.
+ *
+ * `host` is deliberately "Host" and not "Workstation": Networking Foundations
+ * teaches that a printer and a server are hosts too, so the general word has to
+ * stay general. `printer` narrows it without contradicting it.
+ */
 export function describeNodeRole(role: string): string {
   if (role === "host") return "Host";
   if (role === "switch") return "Switch";
   if (role === "router") return "Router";
+  if (role === "printer") return "Printer";
   return role;
+}
+
+/**
+ * One sentence saying what a device of this CATEGORY is, for a beginner.
+ *
+ * ## Why this is derived and `about` is authored
+ *
+ * The two halves of "what is this and why is it here?" have different owners.
+ * "A router connects one network to another" is a property of the category the
+ * author already declared, in the same way that the word "Router" and the
+ * symbol drawn on the card are — deriving it from `role` invents nothing.
+ * "Router-1 sits at the edge of THIS network and this print request does not
+ * use it" is a property of the scenario, and is authored.
+ *
+ * The line between them is the same one the whole observation model is built
+ * on. This function may say what a category is. It may not say what a
+ * particular device is doing, which mission explains it, or what would happen
+ * if the topology were different.
+ *
+ * ## Deliberately short of the mechanism
+ *
+ * Each sentence names a purpose and stops. A learner who selects Router-1 in
+ * Mission 1 can reasonably wonder why a router is on the screen at all, and
+ * "it connects one network to another" answers that. How it decides where to
+ * send anything is Mission 5's, and saying so here would turn device
+ * inspection into a second, out-of-order curriculum.
+ *
+ * An unrecognised role returns nothing rather than a generic filler sentence.
+ * The learner then reads the category word, the connections and the journey
+ * status, none of which were invented.
+ */
+export function describeRolePurpose(role: string): string | undefined {
+  if (role === "host") {
+    return "A host is a machine that sends or receives information over a network, such as a desktop computer, a laptop or a server.";
+  }
+  if (role === "printer") {
+    return "A printer is a host that produces documents. It receives print requests from other devices and prints them.";
+  }
+  if (role === "switch") {
+    return "A switch connects the devices inside one local network so they can exchange information with each other.";
+  }
+  if (role === "router") {
+    return "A router connects one network to another and moves traffic between them.";
+  }
+  return undefined;
+}
+
+/**
+ * What this device's relationship to the CURRENT journey is, in one phrase.
+ *
+ * ## The defect this replaces
+ *
+ * Device inspection used to show the topology card's state caption, whose idle
+ * wording said the journey had not got here YET. Founder UAT found that
+ * ambiguous, and it was: on PC-B and Router-1 it read as "wait, and the print
+ * request will arrive", when the authored truth is that the print request
+ * never goes near either of them.
+ *
+ * ## The distinction, and where each half comes from
+ *
+ * "Not observed yet" and "not on this journey's path" are genuinely different
+ * facts, and only one of them is knowable at any given moment:
+ *
+ * - While the journey is running, a device that has not appeared in a revealed
+ *   stage is simply not something the learner has seen yet. Saying it is off
+ *   the path would be a claim about stages that have not been revealed — and
+ *   for a walkthrough whose next step is the subject of a prediction, it would
+ *   also hand over the answer.
+ * - Once the authored journey has COMPLETED, no further stage will ever be
+ *   revealed, so a device that never appeared is a device the journey never
+ *   used. That is a fact about the finished authored path, not a deduction
+ *   about networking.
+ *
+ * So the off-path phrase is gated on `confirmed`, which is the authored
+ * completion the model reports, and on nothing else.
+ *
+ * ## What is deliberately not consulted
+ *
+ * Unrevealed stages, though they are right there in the model carrying their
+ * `atNodeId`. Reading them would answer "is this device on the path?" earlier
+ * and more cheaply, and it would be exactly the spoiler the reveal sequence
+ * exists to prevent.
+ *
+ * Links, roles, labels, group membership and positions are not consulted
+ * either. Nothing here walks the topology, and there is no case in which the
+ * answer depends on what a device is or what it is attached to.
+ */
+export type JourneyStatusKind =
+  | "not-started"
+  | "here-now"
+  | "passed-through"
+  | "delivered"
+  | "stopped"
+  | "not-yet"
+  | "off-path";
+
+export interface JourneyStatusView {
+  readonly kind: JourneyStatusKind;
+  readonly label: string;
+}
+
+export function resolveNodeJourneyStatus({
+  nodeId,
+  revealedNodeIds,
+  confirmed,
+  stopped,
+  trafficLabel
+}: {
+  nodeId: string;
+  /** `atNodeId` of every REVEALED stage, in order. Never the unrevealed ones. */
+  readonly revealedNodeIds: readonly string[];
+  /** The authored journey ran to its authored end. */
+  confirmed: boolean;
+  /** The authored journey halted at an authored fault. */
+  stopped: boolean;
+  trafficLabel: string;
+}): JourneyStatusView {
+  if (revealedNodeIds.length === 0) {
+    return {
+      kind: "not-started",
+      label: `${capitaliseFirst(trafficLabel)} has not been sent yet.`
+    };
+  }
+
+  const observed = revealedNodeIds.includes(nodeId);
+  const atLast = revealedNodeIds[revealedNodeIds.length - 1] === nodeId;
+
+  if (observed && atLast && confirmed) {
+    return { kind: "delivered", label: "Delivered here." };
+  }
+  if (observed && atLast && stopped) {
+    return { kind: "stopped", label: `${capitaliseFirst(trafficLabel)} stopped here.` };
+  }
+  if (observed && atLast) {
+    return { kind: "here-now", label: `${capitaliseFirst(trafficLabel)} is here now.` };
+  }
+  if (observed) {
+    return { kind: "passed-through", label: "Passed through here." };
+  }
+
+  // Complete: no further stage will be revealed, so absence is now a fact
+  // about the finished path rather than a gap in what has been observed.
+  if (confirmed) {
+    return {
+      kind: "off-path",
+      label: `Not part of the path ${trafficLabel} took.`
+    };
+  }
+
+  // Still running. This says only what has been observed, and predicts
+  // nothing about the stages still to come.
+  return { kind: "not-yet", label: "Not involved so far." };
 }
 
 export function describeStageOutcome(outcome: string): string {
@@ -842,19 +1292,45 @@ export function describeEventHeadline(
   stopped: boolean,
   atRemediatedStage: boolean,
   nodeLabel: string | undefined,
-  hasPendingCommitment: boolean
+  hasPendingCommitment: boolean,
+  /**
+   * What is moving, in the AUTHORED words — "the print request", not "the
+   * traffic".
+   *
+   * Founder UAT rejected placeholder nouns in learner-facing instruction. "The
+   * traffic is at Switch-1" told a beginner nothing about what had arrived; the
+   * course already names the thing, so the headline names it too.
+   */
+  trafficLabel: string
 ): string {
-  if (confirmed) return "The journey is complete.";
   if (nodeLabel === undefined) {
     return hasPendingCommitment
       ? "Prediction recorded. Nothing has been sent yet."
       : "Nothing has been sent yet.";
   }
-  if (stopped) return `Stopped at ${nodeLabel}.`;
+
+  const subject = capitaliseFirst(trafficLabel);
+
+  // Success is stated in WORDS, not only by the green treatment the drawing
+  // uses. A learner who cannot see colour reads the same fact.
+  if (confirmed) return `${subject} was delivered to ${nodeLabel}.`;
+  if (stopped) return `${subject} stopped at ${nodeLabel}.`;
   if (atRemediatedStage) {
-    return `Repaired at ${nodeLabel}. The journey can continue.`;
+    return `${subject} can continue from ${nodeLabel}.`;
   }
-  return `The traffic is at ${nodeLabel}.`;
+  return `${subject} reached ${nodeLabel}.`;
+}
+
+/**
+ * The authored traffic label at the start of a sentence.
+ *
+ * Authors write "the print request", which is right in the middle of a
+ * sentence and wrong at the beginning of one. Capitalising here keeps the
+ * authored words authored and the sentences readable, without asking an author
+ * to write the same noun twice in two cases.
+ */
+function capitaliseFirst(value: string): string {
+  return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
 }
 
 export function describeAnnouncement(

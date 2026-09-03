@@ -514,6 +514,13 @@ dd {
   --tlp-success: #15803d;
   --tlp-success-soft: #f1fdf5;
   --tlp-focus: #1d4ed8;
+  /* An authored topology group: a ground and a hairline, both deliberately
+     NEUTRAL. Accent, stop and success are spoken for — they carry journey
+     state — and a large tinted field in any of them would compete with the
+     one device the learner is meant to be watching. A group is context, so it
+     recedes. */
+  --tlp-group-field: #eef2f8;
+  --tlp-group-line: #d7dfeb;
   --tlp-radius: 12px;
   --tlp-radius-sm: 8px;
 }
@@ -570,9 +577,122 @@ dd {
 
 /* Says this is a taught example and not a live environment (DEC-058). */
 
+/* ---------------------------------------------------------------- *
+   The instructional workspace.
+
+   WP-J Module 1 Founder UAT: at a normal viewport the Founder did not know
+   what to do, because the first learner action was below the fold; and once
+   the topology was pinned, scrolling could leave the picture on screen with
+   the control that advances it somewhere else.
+
+   `.packet-journey-visual` is now the whole workspace — orientation, topology,
+   what just happened, and the current task — and it is the workspace that is
+   pinned. That is UAT-INTERACTION-CONTINUITY-1 expressed as one element: the
+   current task cannot be separated from the picture it belongs to, because
+   they are the same block.
+
+   Everything already read sits below it and may grow freely; it can no longer
+   push the next action off the screen.
+ * ---------------------------------------------------------------- */
+
+.packet-journey-visual {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-areas:
+    "orient"
+    "environment"
+    "task";
+}
+
+.packet-journey-orientation {
+  grid-area: orient;
+}
+
+.packet-journey-environment {
+  grid-area: environment;
+  min-width: 0;
+}
+
+.packet-journey-next {
+  grid-area: task;
+}
+
+/* The one obviously primary control, before the learner has begun.
+
+   Founder UAT: "This would include an obvious start button as well." So it is
+   the only thing to press on the surface at that moment — larger than every
+   later control, on its own, with one sentence above it and no prediction, no
+   reveal and no remediation competing with it. */
+
+.packet-journey-start {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+  width: 100%;
+}
+
+.packet-journey-start-instruction {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-start-action {
+  min-width: 9rem;
+  padding: 0.8rem 1.6rem;
+  border: 0;
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-accent);
+  color: #ffffff;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.packet-journey-orientation {
+  display: grid;
+  gap: 0.15rem;
+}
+
+/* Two short lines, and then the picture. This is the whole of the reading a
+   learner must do before they can act. */
+
+.packet-journey-orientation-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--tlp-ink);
+}
+
+.packet-journey-orientation-summary {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--tlp-ink-soft);
+}
+
+/* DEC-058 requires teaching mode to be identified on screen. Quiet, permanent,
+   and never behind a disclosure — but it is not the first thing to read. */
+
 .packet-journey-source {
-  margin: 0 0 0.35rem;
-  font-size: 0.8rem;
+  margin: 0;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--tlp-muted);
+}
+
+/* The eyebrow above the current task. It names the step the learner is on, so
+   "what should I do right now" is a label rather than an inference from which
+   controls happen to be present. */
+
+.packet-journey-task-label {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   color: var(--tlp-muted);
 }
 
@@ -581,6 +701,24 @@ dd {
   color: var(--tlp-ink);
   font-size: 1.02rem;
   font-weight: 600;
+}
+
+/* Everything below the workspace is what has already happened. It is reading,
+   it is secondary, and it is separated from the workspace by a rule rather
+   than competing with it for weight. */
+
+.packet-journey-history-title {
+  margin: 1.25rem 0 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--tlp-line);
+  font-size: 0.95rem;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-closing {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 .packet-journey-nodes,
@@ -699,6 +837,106 @@ dd {
   font-weight: 600;
 }
 
+/* The reference rail is DEEP REFERENCE, and it now reads as such.
+
+   Founder UAT: the supplemental material had too much visual equality with the
+   current task. Nothing was removed — the complete connection list, the
+   complete device and interface listing and the full text account are all
+   still here, still reachable, still keyboard-operable. They are simply
+   quieter than the thing the learner is doing, and they are labelled so a
+   learner knows what this column is for before opening anything. */
+
+.packet-journey-reference-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+/* The authored text equivalent, below the activity and closed.
+
+   Present, reachable and in the accessibility tree — but no longer the first
+   several hundred words a learner meets, and no longer narrating the outcome
+   they are about to predict. */
+
+.instruction-text-equivalent {
+  margin-top: 1rem;
+  font-size: 0.9rem;
+}
+
+.instruction-text-equivalent > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--tlp-ink-soft, #334155);
+}
+
+/* The instructor pane's own inspector.
+
+   Contextual: it says "select a device" until the learner selects one, and it
+   answers where they asked rather than sending them to a column below the
+   workspace. Quiet by default so it never competes with the current step. */
+
+.packet-journey-next .packet-journey-inspector {
+  margin: 0.25rem 0 0;
+  padding: 0.7rem 0.85rem;
+  background: var(--tlp-surface);
+}
+
+.packet-journey-next .packet-journey-inspector h5 {
+  margin: 0 0 0.2rem;
+  font-size: 0.92rem;
+}
+
+.packet-journey-next .packet-journey-inspector .instruction-note {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+/* The complete record, closed until asked for.
+
+   Founder UAT: the account growing beneath the workspace was never noticed,
+   because the learner was working above it. It is the same information, in the
+   same order, behind one summary that does not move until it is opened. */
+
+.packet-journey-history {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--tlp-line);
+  font-size: 0.92rem;
+}
+
+.packet-journey-history > summary {
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-history .packet-journey-stages {
+  margin-top: 0.75rem;
+}
+
+/* Below the workspace at every width, never beside it.
+
+   Founder UAT found reference material holding prime space above the learner's
+   current action. The current task owns that space now; this is what a learner
+   opens when they want more, and its separation is a rule and some quiet type
+   rather than a column of its own. */
+
+.packet-journey-rail {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--tlp-line);
+  font-size: 0.92rem;
+}
+
+.packet-journey-rail summary {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
 /* The device inspector. Progressive disclosure: the topology stays readable,
    and the detail appears for the one device the learner asked about. */
 
@@ -723,10 +961,90 @@ dd {
   margin: 0.2rem 0;
 }
 
-.packet-journey-inspector-state {
-  font-size: 0.82rem;
+/* Device inspection — UNDERSTAND first, INSPECT behind a disclosure.
+
+   Founder UAT: clicking a device "presents too much information at once", and
+   a beginner "may not understand what they are looking at". The repair is
+   ordering and restraint rather than deletion — the same interfaces, ports and
+   attributes are still here, one deliberate interaction away.
+
+   Deliberately absent: cards, badges, icons, tables, and any second heading
+   level. The panel is a name, two short paragraphs, one status line and one
+   disclosure, in that order, which is what "calm" has to mean when a learner
+   has ten seconds and one question. */
+.packet-journey-inspector-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+/* The category, beside the name rather than repeated beneath it. */
+.packet-journey-inspector-role {
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-inspector-purpose,
+.packet-journey-inspector-about {
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--tlp-ink-soft);
+}
+
+.packet-journey-inspector-about {
+  margin-top: 0.45rem;
+}
+
+/* The journey status.
+
+   One line, with its own quiet label so the phrase after it cannot be read as
+   a continuation of the paragraph above. The state is carried by the WORDS;
+   the colour only agrees with them. */
+.packet-journey-inspector-status {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--tlp-line);
+  font-size: 0.88rem;
   font-weight: 600;
   color: var(--tlp-ink-soft);
+}
+
+.packet-journey-inspector-status-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-inspector-status.is-delivered {
+  color: var(--tlp-success);
+}
+
+.packet-journey-inspector-status.is-here-now {
+  color: var(--tlp-accent);
+}
+
+.packet-journey-inspector-status.is-stopped {
+  color: var(--tlp-stop);
+}
+
+/* The one disclosure. Closed by default, and the only one in this panel. */
+.packet-journey-inspector-details {
+  margin-top: 0.7rem;
+}
+
+.packet-journey-inspector-details > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--tlp-accent);
 }
 
 .packet-journey-inspector-links,
@@ -824,13 +1142,32 @@ dd {
 /* ---------------------------------------------------------------- *
    The topology.
 
-   Three constants are shared with TopologyView.tsx and must stay in step:
-   the device band is 112px tall, its centre is at 56px, and each routed lane
-   below it adds 34px. The SVG viewBox uses the same numbers, which is what
-   makes a wire meet a device instead of floating near it.
+   ONE coordinate space, and this is the WP-J Module 1 correction.
 
-   The scroll container is the OUTER element so that the drawing and the
-   devices scroll as one. The page body never scrolls sideways.
+   `topology-layout.ts` computes every position and every size in CSS pixels
+   and hands them to the renderer: each card's box, each wire's corners, the
+   marker's point, and the canvas the whole drawing needs. The SVG is given the
+   same width, the same height and a matching viewBox, so its units ARE CSS
+   pixels at 1:1 in both axes.
+
+   Nothing below positions a device or a wire. What is here is appearance, plus
+   the card's INTERNAL heights — and those are mirrored by four constants in
+   `topology-layout.ts`, because the layout sizes each box from the number of
+   facts on the face and a card taller than its box would be drawn across the
+   wires beneath it:
+
+     NODE_BASE_HEIGHT          112px   symbol, category, name, state
+     NODE_FACTS_HEADER_HEIGHT   16px   the rule above the facts
+     NODE_FACT_ROW_HEIGHT       20px   one authored fact, one line
+     NODE_WIDTH                176px   every card
+
+   Each is a small margin larger than the content it holds, so a font that
+   renders a pixel taller than expected has somewhere to go. `overflow: hidden`
+   on the card is the backstop, not the plan.
+
+   `verify-wpj-m1.sh` pins both sides. The scroll container is the OUTER
+   element so the drawing and the devices scroll as one, and the page body
+   never scrolls sideways at any width.
  * ---------------------------------------------------------------- */
 
 .topology-scroll {
@@ -840,17 +1177,76 @@ dd {
 
 .topology {
   position: relative;
-  min-width: calc(var(--tlp-topology-columns, 1) * 138px);
-  padding-bottom: calc(var(--tlp-topology-lanes, 0) * 34px);
+  /* Width and height are set from the layout's frame. Centred when the
+     viewport has room, scrolled inside this box when it does not — the cards
+     never shrink, because a label nobody can read is not a smaller picture,
+     it is a broken one. */
+  margin: 0 auto;
 }
 
-/* Decorative. Every wire is also a row in the connections list, in words. */
+/* The arrangement in words, for anyone who cannot see it.
+
+   Rows and branches carry information here — that is the whole point of the
+   hierarchy — so the drawing may not be the only place they exist. Visually
+   hidden rather than removed: the picture says the same thing to a learner
+   looking at it. */
+
+.topology-description {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* An authored group.
+
+   A FIELD, not a box drawn over the drawing. It is the first thing painted, so
+   it can never hide a wire, cover a device, obscure the traffic marker or
+   compete with the state colours — all of which were Founder requirements, and
+   all of which are satisfied by paint order rather than by tuning opacity.
+
+   The treatment is deliberately quiet: a tinted ground, a hairline edge and a
+   small capital caption in the strip along the top. What makes membership
+   obvious is not the weight of the line, it is that the members sit together
+   inside a field and everything else sits outside it. A heavy rectangle would
+   read as a container of cards rather than as a network being studied. */
+
+.topology-group {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--tlp-group-line);
+  border-radius: calc(var(--tlp-radius) + 6px);
+  background: var(--tlp-group-field);
+  pointer-events: none;
+}
+
+.topology-group-label {
+  position: absolute;
+  transform: translateY(-50%);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--tlp-muted);
+}
+
+/* Decorative. Every wire is also a row in the connections list, in words, and
+   the description above names which pairs are joined.
+
+   No width or height here on purpose. Both are attributes on the element,
+   equal to the layout's frame, and a percentage would reintroduce exactly the
+   independent scaling that used to slide the wires off the devices. */
 
 .topology-wires {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: 0;
+  left: 0;
 }
 
 .topology-wire {
@@ -870,56 +1266,124 @@ dd {
   stroke-width: 3;
 }
 
-.topology-devices {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(var(--tlp-topology-columns, 1), minmax(0, 1fr));
-  align-items: center;
-  gap: 0 0.75rem;
-  min-height: 112px;
-}
-
 /* A device is a real button: focusable, announced, and operable by keyboard
-   without a single line of synthetic key handling. */
+   without a single line of synthetic key handling.
+
+   Absolutely positioned at the box the layout computed, and exactly that size.
+   `box-sizing: border-box` and `overflow: hidden` together are what make "the
+   card never grows past its box" true rather than intended — the wires are
+   drawn in the clear band between two rows, and a card that spilled would be
+   drawn across them.
+
+   Every card in a row takes the same height, decided by the tallest. That is
+   not tidiness: it is what keeps the band between rows genuinely empty, so no
+   branch line can pass through a device body.
+
+   The face reads top to bottom in the order the course teaches: the SYMBOL a
+   beginner can recognise before they have any vocabulary, the CATEGORY word,
+   then the device's own NAME, then whatever the journey has done to it. */
 
 .topology-device {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
-  padding: 0.65rem 0.75rem;
+  position: absolute;
+  box-sizing: border-box;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 2px;
+  padding: 8px 10px 10px;
+  overflow: hidden;
   border: 1px solid var(--tlp-line-strong);
-  border-radius: var(--tlp-radius-sm);
+  border-radius: var(--tlp-radius);
   background: var(--tlp-surface);
-  text-align: left;
+  text-align: center;
   color: var(--tlp-ink);
-  transition: border-color 200ms ease, box-shadow 200ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease,
+    background-color 200ms ease;
 }
 
 .topology-device:hover {
   border-color: var(--tlp-accent);
 }
 
+/* The symbol sits on a quiet plate so it reads as equipment rather than as a
+   glyph dropped into a paragraph. The plate is the only filled shape on the
+   card, which is what gives the row its focal rhythm. */
+
+.topology-device-figure {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--tlp-surface-sunken);
+  color: var(--tlp-ink-soft);
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.topology-device-symbol {
+  width: 22px;
+  height: 22px;
+}
+
+/* Fixed line heights, and one line each.
+
+   The layout computes the card's box from these numbers, so a wrapped label
+   would push the card past the box the wires were drawn around. A name too
+   long for the card is ellipsised on the face and shown in full in the
+   inspector — never clipped without a mark saying it was. */
+
 .topology-device-role {
+  height: 12px;
+  max-width: 100%;
+  overflow: hidden;
   font-size: 0.62rem;
   font-weight: 700;
+  line-height: 12px;
   letter-spacing: 0.1em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
   color: var(--tlp-muted);
 }
 
 .topology-device-name {
+  height: 18px;
+  max-width: 100%;
+  overflow: hidden;
   font-size: 0.95rem;
   font-weight: 650;
-  line-height: 1.2;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* The state in words. Colour below is reinforcement, never the carrier. */
+/* The state in words. Colour below is reinforcement, never the carrier.
+
+   `is-unreached` is the idle state: carried in the accessible name, kept off
+   the face. Five devices all captioned "Not involved so far" before anything
+   has been sent is noise, and the absence of a caption is not a colour. */
 
 .topology-device-state {
-  font-size: 0.7rem;
+  height: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.68rem;
   font-weight: 600;
+  line-height: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--tlp-ink-soft);
+}
+
+.topology-device-state.is-unreached {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Ports, and the facts the AUTHOR flagged as worth showing on the face.
@@ -929,43 +1393,78 @@ dd {
    facts appear is an authoring decision carried through the observation model;
    nothing here recognises what any of them mean. */
 
+/* 2px of the card's own grid gap, then 6 + 7 + 1 = 16px, mirroring
+   NODE_FACTS_HEADER_HEIGHT. */
+
 .topology-device-ports {
   display: grid;
-  gap: 0.18rem;
-  margin-top: 0.3rem;
+  gap: 0;
   width: 100%;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--tlp-line);
 }
+
+/* One fact, one line, 20px — mirroring NODE_FACT_ROW_HEIGHT.
+
+   It does NOT wrap. The layout computes the card's height from the number of
+   these rows, so a wrapped value would make the card taller than the box the
+   wires were drawn around, and a wire would cross a device. A value too long
+   for the card is ellipsised here and shown in full in the inspector and in
+   the complete device listing, so nothing is lost — only shortened, with the
+   ellipsis saying so. */
 
 .topology-port-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 19px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .topology-port {
-  padding: 0.05rem 0.35rem;
+  flex: none;
+  padding: 1px 5px;
   border: 1px solid var(--tlp-line);
   border-radius: 4px;
   background: var(--tlp-surface-sunken);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
+  line-height: 14px;
   color: var(--tlp-ink-soft);
 }
 
 .topology-fact {
+  overflow: hidden;
   font-size: 0.68rem;
+  line-height: 18px;
+  text-overflow: ellipsis;
   color: var(--tlp-ink-soft);
-  white-space: nowrap;
 }
 
 .topology-fact-label {
   color: var(--tlp-muted);
 }
 
+/* Journey state.
+
+   Every one of these is captioned in words by `DeviceNode`; what follows is
+   reinforcement so the row can be scanned, never the carrier of the fact.
+
+   `visited` is deliberately the quietest treatment that is still visible. It
+   means the traffic passed through here — an observation, not an achievement —
+   so it must not read as success. Only `confirmed` is allowed to look like
+   something concluded. */
+
 .topology-device.is-visited {
   border-color: var(--tlp-line-strong);
   background: var(--tlp-surface-sunken);
+}
+
+.topology-device.is-visited .topology-device-figure {
+  background: var(--tlp-surface);
 }
 
 .topology-device.is-current {
@@ -974,6 +1473,11 @@ dd {
 }
 
 .topology-device.is-current .topology-device-state {
+  color: var(--tlp-accent);
+}
+
+.topology-device.is-current .topology-device-figure {
+  background: var(--tlp-accent-soft);
   color: var(--tlp-accent);
 }
 
@@ -986,6 +1490,11 @@ dd {
   color: var(--tlp-stop);
 }
 
+.topology-device.is-stopped .topology-device-figure {
+  background: var(--tlp-stop-soft);
+  color: var(--tlp-stop);
+}
+
 .topology-device.is-confirmed {
   border-color: var(--tlp-success);
   box-shadow: 0 0 0 3px var(--tlp-success-soft);
@@ -995,28 +1504,56 @@ dd {
   color: var(--tlp-success);
 }
 
-.topology-device.is-selected {
-  border-color: var(--tlp-ink);
+/* The completion mark. Decorative, and additive to the caption beside it —
+   never the carrier of the fact, and never the only thing that is green. */
+
+.topology-device-mark {
+  margin-right: 0.25rem;
+  font-weight: 700;
 }
 
-/* The packet. Decorative: its position and its state are both stated in words
-   by the live region and by the journey account, so a learner who never sees
-   it moving loses nothing. */
+.topology-device.is-confirmed .topology-device-figure {
+  background: var(--tlp-success-soft);
+  color: var(--tlp-success);
+}
+
+/* Selection is what the LEARNER is looking at. Journey state is what the
+   TRAFFIC did. They are different claims and must stay separately readable, so
+   selection is drawn as an offset ring rather than by recolouring the border —
+   the old treatment overrode `is-current`'s border and made the current device
+   stop looking current the moment it was inspected.
+
+   `aria-expanded` on the button carries the same fact without any of this. */
+
+.topology-device.is-selected {
+  outline: 2px solid var(--tlp-ink);
+  outline-offset: 2px;
+}
+
+/* The traffic marker — information IN TRANSIT.
+
+   Founder UAT found it sitting on top of PC-A's card, over the text inside it.
+   The correction is architectural rather than cosmetic: the marker rides a
+   LINK and is placed by the layout at a point clear of every card, and which
+   device HAS the traffic is a separate claim carried by that device's own
+   state, its own caption and the ring below.
+
+   `left` and `top` come from the layout. Decorative: its position and its
+   state are both stated in words by the live region and by the journey
+   account, so a learner who never sees it moving loses nothing. */
 
 .topology-packet {
   position: absolute;
-  top: 56px;
-  left: calc(
-    (var(--tlp-packet-column, 0) + 0.5) / var(--tlp-topology-columns, 1) * 100%
-  );
   width: 12px;
   height: 12px;
   margin: -6px 0 0 -6px;
   border-radius: 999px;
   background: var(--tlp-accent);
   box-shadow: 0 0 0 4px var(--tlp-accent-soft);
+  pointer-events: none;
   transition: left 480ms cubic-bezier(0.4, 0, 0.2, 1),
-    background-color 200ms ease, box-shadow 200ms ease;
+    top 480ms cubic-bezier(0.4, 0, 0.2, 1), background-color 200ms ease,
+    box-shadow 200ms ease;
 }
 
 .topology-packet.is-waiting {
@@ -1034,28 +1571,25 @@ dd {
   box-shadow: 0 0 0 4px var(--tlp-success-soft);
 }
 
-/* The transient emphasis.
+/* The transient emphasis — DEVICE STATE, drawn on the card.
 
-   A separate element from the marker on purpose: the marker must NOT be keyed,
-   or React would hand it a fresh node already at its destination and the packet
-   would teleport instead of travelling. This one is keyed, so its animation
-   replays on every observable change, and it is the only thing that does.
+   A separate element from the marker on two counts. It is a different claim:
+   the marker is traffic in transit on a link, and this ring is the device the
+   traffic has reached. And it is keyed, so its animation replays on every
+   observable change, while the marker must NOT be keyed — React would hand it
+   a fresh node already at its destination and it would teleport instead of
+   travelling.
 
-   One calm ring, once, 700ms. No flashing, no repetition, no colour cycling —
-   and nothing depends on it: the headline, the announcement, the device state
-   text and the marker position all carry the same fact without it. */
+   One calm ring, once, 700ms, sized to the card it belongs to. No flashing, no
+   repetition, no colour cycling — and nothing depends on it: the headline, the
+   announcement, the device state text and the marker position all carry the
+   same fact without it. */
 
 .topology-pulse {
   position: absolute;
-  top: 56px;
-  left: calc(
-    (var(--tlp-packet-column, 0) + 0.5) / var(--tlp-topology-columns, 1) * 100%
-  );
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
-  border-radius: 999px;
+  box-sizing: border-box;
   border: 2px solid var(--tlp-accent);
+  border-radius: var(--tlp-radius);
   opacity: 0;
   pointer-events: none;
   animation: topology-pulse 700ms ease-out 1;
@@ -1071,13 +1605,13 @@ dd {
 
 @keyframes topology-pulse {
   from {
-    opacity: 0.85;
+    opacity: 0.9;
     transform: scale(1);
   }
 
   to {
     opacity: 0;
-    transform: scale(4.5);
+    transform: scale(1.09);
   }
 }
 
@@ -1147,8 +1681,8 @@ dd {
  * ---------------------------------------------------------------- */
 
 .packet-journey-event {
-  margin: 0 0 1rem;
-  padding: 0.75rem 0.95rem;
+  margin: 0;
+  padding: 0.6rem 0.8rem;
   border: 1px solid var(--tlp-line);
   border-left: 3px solid var(--tlp-line-strong);
   border-radius: 0 var(--tlp-radius-sm) var(--tlp-radius-sm) 0;
@@ -1185,7 +1719,8 @@ dd {
    would cost a screen-reader learner the very fact this card exists to carry. */
 
 .packet-journey-event-headline {
-  font-size: 1.02rem;
+  font-size: 0.98rem;
+  line-height: 1.35;
   font-weight: 650;
   color: var(--tlp-ink);
   animation: packet-journey-event-settle 500ms ease-out;
@@ -1242,28 +1777,60 @@ dd {
   font-size: 1rem;
 }
 
+/* The prediction: question, then choices.
+
+   Founder UAT found the question overlapping the border of the answer box. A
+   `<legend>` is painted ON the fieldset's top border by default, so a prompt
+   long enough to wrap straddles it — and no amount of padding fixes that,
+   because the border runs through where the text is.
+
+   So the FIELDSET carries no border and no padding. There is nothing left for
+   the legend to overlap, and the legend becomes an ordinary block heading. The
+   border moves inward onto `.packet-journey-options`, which is also the
+   hierarchy the instructor pane wants: the question reads first, the choices
+   sit in their own quiet box beneath it.
+
+   `width: 100%` on the legend is what keeps it a full-width block in every
+   engine rather than shrink-wrapping to its text, which is the one legend
+   behaviour that still differs across browsers. */
+
 .packet-journey-prediction {
-  margin: 0.75rem 0;
-  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.packet-journey-prediction-question {
+  width: 100%;
+  padding: 0;
+  color: var(--tlp-ink);
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.packet-journey-options {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
   border: 1px solid var(--tlp-line-strong);
   border-radius: var(--tlp-radius-sm);
   background: var(--tlp-surface);
 }
 
-.packet-journey-prediction legend {
-  padding: 0 0.35rem;
-  color: var(--tlp-ink);
-  font-weight: 600;
-}
-
 .packet-journey-option {
-  display: block;
-  margin: 0.35rem 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  line-height: 1.4;
   cursor: pointer;
 }
 
 .packet-journey-option input {
-  margin-right: 0.5rem;
+  flex: none;
 }
 
 .packet-journey-actions {
@@ -1372,9 +1939,9 @@ dd {
   overscroll-behavior: contain;
 }
 
-.packet-journey--workspace .topology {
-  min-width: calc(var(--tlp-topology-columns, 1) * 170px);
-}
+/* Nothing to widen. The drawing is the size the layout says it is at every
+   breakpoint, in the workspace and in the lesson alike — the workspace gives
+   it more room to sit in, never a different shape. */
 
 /* ---------------------------------------------------------------- *
    Responsive.
@@ -1393,63 +1960,127 @@ dd {
     align-items: flex-start;
   }
 
-  /* Pin the picture and the current-event statement, in BOTH modes.
+  .packet-journey-network {
+    min-width: 0;
+  }
+}
 
-     The progression control now sits below the journey history, where the
-     learner's reading has got to. That is the right place for the action and
-     the wrong place for the observation, so the observation is pinned instead
-     of the learner being scrolled to it: press the control at the bottom, and
-     the packet moves in a picture that never left the screen.
+/* ---------------------------------------------------------------- *
+   The wide-viewport learning workspace.
 
-     A view, not a control — pinning it duplicates nothing, which is why this is
-     not the "sticky duplicate control" shortcut.
+   Founder UAT, third round: "the layout should be side by side. For example,
+   the lab on one side and the instructions on another at scale of course."
 
-     Below this width the viewport is too short to give a sticky block that much
-     of it. There the picture scrolls away, and the new authored narration
-     appearing directly above the button carries the consequence instead. */
+   The previous correction put the environment and the task in one vertical
+   block. That fixed the continuity defect and left a second one: a tall stack
+   that forces the learner downwards instead of using the width they already
+   have.
 
+   So at a genuinely wide viewport the workspace becomes two panes under one
+   shared orientation:
+
+     LEFT   the interactive environment
+     RIGHT  the current instruction, the learner's response, the primary action
+
+   The orientation spans both, which is what makes the two panes read as ONE
+   workspace rather than two unrelated cards. There is one set of controls and
+   one state at every width; nothing is duplicated to build a second layout.
+
+   ## Why the interaction is wider than the reading column
+
+   The lesson card is `min(760px, 100%)`, which is the right measure for prose
+   and too narrow for an environment beside an instructor pane. So at this
+   breakpoint the interaction — and only the interaction — is centred on the
+   viewport instead of on the column. `.card` is centred by `.shell`, so
+   `50%` of this element's containing block is the viewport centre, and the
+   block expands symmetrically around it up to a cap.
+
+   Below the breakpoint nothing breaks out: the interaction stays inside the
+   reading column and reflows to one column. */
+
+@media (min-width: 78em) {
+  .packet-journey {
+    width: min(1240px, calc(100vw - 3rem));
+    margin-inline: calc(50% - min(620px, 50vw - 1.5rem));
+  }
+
+  .packet-journey-visual {
+    grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
+    grid-template-areas:
+      "orient orient"
+      "environment task";
+    gap: 0.75rem 2.25rem;
+    align-items: start;
+  }
+
+  /* A hairline between the panes, not a box around each. The two halves are
+     one surface; a border on each would make them look like two widgets. */
+
+  .packet-journey-next {
+    padding-left: 2.25rem;
+    border-left: 1px solid var(--tlp-line);
+    margin-left: -2.25rem;
+  }
+}
+
+/* Pin the workspace — the picture AND the current task — in BOTH modes.
+
+   The `min-height` condition is deliberate rather than defensive. Pinning a
+   block taller than the viewport is worse than not pinning it at all: the top
+   stays and the bottom is cut off, which is exactly the failure Founder UAT
+   reported — a persistent topology with the control that advances it out of
+   reach.
+
+   Two panes make the workspace SHORTER as well as wider, so it fits pinned at
+   more viewport heights than the stacked arrangement did. It is still pinned
+   only where it fits; below that it scrolls normally and continuity is
+   preserved by adjacency, which the two-pane composition also gives for free.
+
+   No nested scrolling, no capped height, no floating control detached from its
+   instructional context, and never two competing sticky regions — this is the
+   only `position: sticky` on the surface. */
+
+@media (min-width: 48em) and (min-height: 48em) {
   .packet-journey-visual {
     position: sticky;
     top: 0;
     z-index: 1;
     padding-top: 0.5rem;
-    padding-bottom: 0.25rem;
+    padding-bottom: 0.5rem;
     background: var(--tlp-surface-sunken);
+  }
+
+  /* A pinned block must never cover the thing the learner just tabbed to.
+
+     Everything below the workspace reserves space above itself when it is
+     scrolled into view, so a focused control in the history or the reference
+     region lands BELOW the pinned workspace rather than underneath it. It
+     costs nothing when the element is already visible, because the browser
+     does not scroll at all in that case.
+
+     Scoped to the same query that pins the workspace: where nothing is pinned,
+     nothing needs clearing. */
+
+  .packet-journey-stages :focus-visible,
+  .packet-journey-closing :focus-visible,
+  .packet-journey-rail :focus-visible,
+  .packet-journey-stages summary,
+  .packet-journey-rail summary {
+    scroll-margin-top: 60vh;
   }
 }
 
+/* The expanded workspace is the SAME composition with more room around it.
+
+   It used to put the reference column beside the journey, which Founder UAT
+   found occupying prime space above the learner's current action — and which
+   also made the rail a second sticky region competing with the workspace. Both
+   are gone. The environment and the instructor pane are the two panes; the
+   reference is below them, in expanded mode exactly as in the lesson. */
+
 @media (min-width: 64em) {
-  /* The workspace becomes two columns only when there is genuinely room for
-     both. Below this it stays stacked rather than becoming an unusably narrow
-     split, which is worse than scrolling.
-
-     Column one is the journey — picture, current event, decision, controls,
-     history. Column two is reference. The split is by ROLE, which is what stops
-     the reference material competing with the network for attention. */
-
-  .packet-journey--workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 0 2rem;
-    align-content: start;
-  }
-
-  .packet-journey--workspace .packet-journey-workspace-toggle {
-    grid-column: 1 / -1;
-  }
-
-  .packet-journey--workspace .packet-journey-network,
-  .packet-journey--workspace .packet-journey-rail {
+  .packet-journey--workspace .packet-journey-network {
     min-width: 0;
-    align-self: start;
-  }
-
-  .packet-journey--workspace .packet-journey-rail {
-    position: sticky;
-    top: 0;
-    max-height: calc(100vh - 5rem);
-    overflow-y: auto;
   }
 }
 
@@ -1487,6 +2118,7 @@ dd {
   .topology-packet,
   .topology-wire,
   .topology-device,
+  .topology-device-figure,
   .packet-journey-event,
   .packet-journey-workspace-toggle {
     transition: none;

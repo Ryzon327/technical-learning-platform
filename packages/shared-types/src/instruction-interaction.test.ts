@@ -806,3 +806,340 @@ describe("interaction keys are scoped to one interaction", () => {
     expect(INTERACTION_KEY.test("")).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Authored topology groups
+ *
+ * The Architect-approved additive fact: an author may declare groups and place
+ * devices in them. It exists so a presentation can SHOW which devices are being
+ * studied together without working it out — the inference the previous revision
+ * correctly refused to make.
+ *
+ * These tests pin three things: the contract is strict, it is optional, and it
+ * means nothing beyond membership.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The fixture's devices as plain objects.
+ *
+ * These tests hand the validator DELIBERATELY MALFORMED input — an unknown
+ * field, a dangling reference — which the authored type exists to make
+ * unrepresentable. Widening once here keeps that intent in one place instead of
+ * a cast at every call site.
+ */
+const journeyNodes = journey.nodes as unknown as readonly Record<
+  string,
+  unknown
+>[];
+
+/** The same journey, with both devices placed in one authored group. */
+const grouped = params({
+  groups: [{ groupId: "local-network", label: "Local network" }],
+  nodes: journeyNodes.map((node) => ({ ...node, groupId: "local-network" }))
+});
+
+describe("authored groups are optional and additive", () => {
+  it("accepts an interaction that declares none", () => {
+    // Every interaction authored before groups existed. If this ever fails,
+    // the field stopped being additive.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+    expect((journey as { groups?: unknown }).groups).toBeUndefined();
+  });
+
+  it("accepts an interaction that declares one and places devices in it", () => {
+    expect(
+      validateInteractionContent(content({ parameters: grouped }), "step")
+    ).toEqual([]);
+  });
+
+  it("accepts a declared group nothing belongs to", () => {
+    // Odd, but not invalid: an author may declare a group before authoring the
+    // devices for it. The presentation simply draws no boundary.
+    expect(
+      validateInteractionContent(
+        content({
+          parameters: params({
+            groups: [{ groupId: "local-network", label: "Local network" }]
+          })
+        }),
+        "step"
+      )
+    ).toEqual([]);
+  });
+});
+
+describe("group references must resolve, and fail closed when they do not", () => {
+  it("refuses a device naming a group that was never declared", () => {
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          nodes: journeyNodes.map((node) => ({ ...node, groupId: "no-such-group" }))
+        })
+      }),
+      "step"
+    );
+
+    // The tempting repair — inventing the group the author meant — is exactly
+    // the inferred membership this contract removes, so authoring refuses.
+    expect(errors.join(" ")).toContain("names a group that is not declared");
+  });
+
+  it("refuses two groups sharing an identifier", () => {
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          groups: [
+            { groupId: "local-network", label: "Local network" },
+            { groupId: "local-network", label: "The other one" }
+          ]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain("duplicate identifier");
+  });
+
+  it("refuses an empty or malformed group identifier", () => {
+    for (const groupId of ["", "Local Network", "local network"]) {
+      const errors = validateInteractionContent(
+        content({ parameters: params({ groups: [{ groupId, label: "x" }] }) }),
+        "step"
+      );
+
+      expect(errors.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("refuses a group with no label", () => {
+    // The label is drawn on the boundary and read aloud in the arrangement
+    // description. An unnamed boundary asserts a grouping without saying what
+    // it is, which is worse than no boundary.
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({ groups: [{ groupId: "local-network", label: "  " }] })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain("must be non-empty text");
+  });
+
+  it("refuses an unknown field on a group", () => {
+    // The same rule as everywhere else in this contract, and it is what keeps
+    // a group from quietly acquiring a subnet.
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          groups: [
+            { groupId: "local-network", label: "Local network", subnet: "10.0.0.0/24" }
+          ]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain('unknown field "subnet"');
+  });
+
+  it("refuses a group nested inside a group", () => {
+    // There is no nesting in this slice, so a parent reference is an unknown
+    // field rather than a relationship with undefined meaning.
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          groups: [
+            { groupId: "campus", label: "Campus" },
+            { groupId: "local-network", label: "Local network", parentGroupId: "campus" }
+          ]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain('unknown field "parentGroupId"');
+  });
+
+  it("still refuses an unknown field on a node", () => {
+    // `groupId` became allowed; nothing else did.
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          nodes: [
+            { ...journeyNodes[0], subnet: "10.0.0.0/24" },
+            journeyNodes[1]
+          ]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain('unknown field "subnet"');
+  });
+});
+
+describe("the projection copies group membership and never assigns it", () => {
+  it("carries the declared groups into the observation model", () => {
+    const model = buildPacketJourneyObservationModel(
+      grouped as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.groups).toEqual([
+      { groupId: "local-network", label: "Local network" }
+    ]);
+    expect(model.nodes.map((node) => node.groupId)).toEqual([
+      "local-network",
+      "local-network"
+    ]);
+  });
+
+  it("reports an empty list when the author declared none", () => {
+    // Empty rather than absent, so a consumer never has to decide what a
+    // missing list means.
+    const model = buildPacketJourneyObservationModel(
+      journey as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.groups).toEqual([]);
+    expect(model.nodes.every((node) => node.groupId === undefined)).toBe(true);
+  });
+
+  it("leaves an ungrouped device ungrouped", () => {
+    // Router-1 is attached to PC-A and is in no group. Nothing promotes it on
+    // the strength of being connected to a member.
+    const partial = params({
+      groups: [{ groupId: "local-network", label: "Local network" }],
+      nodes: [
+        {
+          ...journeyNodes[0],
+          groupId: "local-network"
+        },
+        journeyNodes[1]
+      ]
+    });
+
+    expect(validateInteractionContent(content({ parameters: partial }), "step")).toEqual(
+      []
+    );
+
+    const model = buildPacketJourneyObservationModel(
+      partial as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.nodes[0]?.groupId).toBe("local-network");
+    expect(model.nodes[1]?.groupId).toBeUndefined();
+  });
+
+  it("adds no networking meaning to a group", () => {
+    const model = buildPacketJourneyObservationModel(
+      grouped as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    // A group is an id and a label. There is nothing else in one to read, so
+    // no consumer can recover a subnet, a domain or a reachability claim.
+    expect(Object.keys(model.groups[0] ?? {}).sort()).toEqual([
+      "groupId",
+      "label"
+    ]);
+
+    const serialised = JSON.stringify(model.groups);
+    for (const forbidden of [
+      "subnet",
+      "mask",
+      "vlan",
+      "broadcast",
+      "routing",
+      "gateway",
+      "reachable"
+    ]) {
+      expect(serialised.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+});
+
+describe("an authored device explanation is optional, validated and copied", () => {
+  /**
+   * WP-J Module 1, Founder UAT — device inspection.
+   *
+   * `about` is one optional authored string per node, carrying what that
+   * device is doing in this scenario. Like every other authored string here it
+   * is checked for shape and never for content: the validator is not a
+   * proofreader, and what the sentence teaches is a Human UAT judgement.
+   */
+  const explained = params({
+    nodes: journeyNodes.map((node) => ({
+      ...node,
+      about: "This device is here for a reason the author explains."
+    }))
+  });
+
+  it("accepts an interaction that authors none", () => {
+    // The additive test. Every interaction written before this field existed
+    // must still validate exactly as it did.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts an authored explanation", () => {
+    expect(
+      validateInteractionContent(content({ parameters: explained }), "step")
+    ).toEqual([]);
+  });
+
+  it("refuses an explanation that is present but empty", () => {
+    // A blank string is an authoring accident, not a decision to write none.
+    // Absent and empty must not mean the same thing.
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          nodes: [{ ...journeyNodes[0], about: "   " }, journeyNodes[1]]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain("about");
+  });
+
+  it("refuses an explanation past the authored text ceiling", () => {
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          nodes: [
+            { ...journeyNodes[0], about: "x".repeat(100_000) },
+            journeyNodes[1]
+          ]
+        })
+      }),
+      "step"
+    );
+
+    expect(errors.join(" ")).toContain("about");
+  });
+
+  it("copies it into the observation model verbatim", () => {
+    // Copied, never composed, summarised or supplied. What the learner reads
+    // is exactly what the author wrote.
+    const model = buildPacketJourneyObservationModel(
+      explained as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.nodes.map((node) => node.about)).toEqual([
+      "This device is here for a reason the author explains.",
+      "This device is here for a reason the author explains."
+    ]);
+  });
+
+  it("leaves an unexplained device unexplained", () => {
+    const model = buildPacketJourneyObservationModel(
+      journey as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.nodes.every((node) => node.about === undefined)).toBe(true);
+  });
+});

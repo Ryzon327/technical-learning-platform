@@ -2,18 +2,28 @@ import { describe, expect, it } from "vitest";
 import type { LearnerPacketJourneyParameters } from "@tlp/shared-types";
 import {
   INITIAL_PACKET_JOURNEY_VIEW_STATE,
+  PACKET_JOURNEY_TASK_KINDS,
   advance,
   applyAction,
   buildPacketJourneyView,
   canAdvance,
   commitPrediction,
   describeAdvanceLabel,
+  describeRolePurpose,
   describeSourceNotice,
+  describeStartInstruction,
+  describeStartLabel,
+  describeTaskLabel,
   describeUnsupportedInteraction,
   describeWithheldInteraction,
+  isTaskActionable,
   pendingPrediction,
   resetJourney,
+  resolveCurrentTask,
+  resolveNodeJourneyStatus,
   resolveSequencing,
+  startJourney,
+  type PacketJourneyView,
   type PacketJourneyViewState
 } from "./packet-journey-presentation";
 
@@ -118,9 +128,22 @@ const journey: LearnerPacketJourneyParameters = {
   }
 };
 
+/**
+ * The state a learner is in immediately after pressing Start.
+ *
+ * Every walk below begins here rather than at the initial state, because
+ * nothing progresses until the learner has deliberately begun — the same gate
+ * that stops an uncommitted prediction being reached around. Tests that are
+ * genuinely ABOUT the not-started state keep using
+ * `INITIAL_PACKET_JOURNEY_VIEW_STATE`.
+ */
+const BEGUN: PacketJourneyViewState = startJourney(
+  INITIAL_PACKET_JOURNEY_VIEW_STATE
+);
+
 /** Walk to the authored failure, committing the prediction on the way. */
 function walkToFailure(): PacketJourneyViewState {
-  let state = advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey);
+  let state = advance(BEGUN, journey);
   state = commitPrediction(state, "s2", "Discard it");
   return advance(state, journey);
 }
@@ -130,7 +153,7 @@ function walkToFailure(): PacketJourneyViewState {
  * ------------------------------------------------------------------ */
 
 describe("the journey starts unrevealed", () => {
-  const view = buildPacketJourneyView(journey, INITIAL_PACKET_JOURNEY_VIEW_STATE);
+  const view = buildPacketJourneyView(journey, BEGUN);
 
   it("shows no stage before the learner starts", () => {
     expect(view.stages).toEqual([]);
@@ -157,7 +180,7 @@ describe("the journey starts unrevealed", () => {
 
 describe("prediction gates the reveal", () => {
   it("blocks the next observation until the prediction is committed", () => {
-    const started = advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey);
+    const started = advance(BEGUN, journey);
 
     expect(pendingPrediction(started, journey)?.stageId).toBe("s2");
     expect(canAdvance(started, journey)).toBe(false);
@@ -168,7 +191,7 @@ describe("prediction gates the reveal", () => {
 
   it("releases the reveal once committed", () => {
     const committed = commitPrediction(
-      advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey),
+      advance(BEGUN, journey),
       "s2",
       "Discard it"
     );
@@ -179,7 +202,7 @@ describe("prediction gates the reveal", () => {
 
   it("does not let a commitment be revised", () => {
     const first = commitPrediction(
-      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
       "s2",
       "Discard it"
     );
@@ -196,7 +219,7 @@ describe("prediction gates the reveal", () => {
 
   it("asks nothing on a stage that authors no prediction", () => {
     expect(
-      pendingPrediction(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey)
+      pendingPrediction(BEGUN, journey)
     ).toBeNull();
   });
 });
@@ -227,7 +250,7 @@ const predictFirstJourney: LearnerPacketJourneyParameters = {
 
 describe("committing a prediction never resets the journey", () => {
   const committed = commitPrediction(
-    INITIAL_PACKET_JOURNEY_VIEW_STATE,
+    BEGUN,
     "s1",
     "Straight to Router-1"
   );
@@ -250,7 +273,7 @@ describe("committing a prediction never resets the journey", () => {
   it("changes what the live region announces", () => {
     const before = buildPacketJourneyView(
       predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
+      BEGUN
     ).announcement;
 
     const after = buildPacketJourneyView(
@@ -351,7 +374,7 @@ describe("support level changes sequencing, never authorization", () => {
   it("requires a commitment before the reveal when asked to", () => {
     const view = buildPacketJourneyView(
       predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
       "commit_first"
     );
 
@@ -364,7 +387,7 @@ describe("support level changes sequencing, never authorization", () => {
     for (const sequencing of ["demonstrate", "guide"] as const) {
       const view = buildPacketJourneyView(
         predictFirstJourney,
-        INITIAL_PACKET_JOURNEY_VIEW_STATE,
+        BEGUN,
         sequencing
       );
 
@@ -412,7 +435,7 @@ describe("support level changes sequencing, never authorization", () => {
   it("prompts the guided learner to inspect before a reveal", () => {
     const guide = buildPacketJourneyView(
       predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
       "guide"
     );
 
@@ -554,7 +577,7 @@ const completingJourney: LearnerPacketJourneyParameters = {
 /** Advance to the authored stop, committing nothing on the way. */
 function walkToStop(): PacketJourneyViewState {
   return advance(
-    advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney),
+    advance(BEGUN, completingJourney),
     completingJourney
   );
 }
@@ -667,7 +690,11 @@ describe("every action produces a current-event change", () => {
   it("describes where the traffic is, and over which connection", () => {
     const view = buildPacketJourneyView(completingJourney, walkToStop());
 
-    expect(view.currentEvent.headline).toBe("Stopped at Router-1.");
+    // The headline names WHAT stopped, in the authored words — not "the
+    // traffic", which told a beginner nothing about what had arrived.
+    expect(view.currentEvent.headline).toBe(
+      "An ICMP echo request stopped at Router-1."
+    );
     // The wire that lights up is decorative and hidden, so the connection has
     // to be named in words or the fact exists only in the picture.
     expect(view.currentEvent.via).toBe("PC-A eth0 to Router-1 Gi0/0.10");
@@ -675,7 +702,7 @@ describe("every action produces a current-event change", () => {
   });
 
   it("names no connection for a stage the source did not attribute to one", () => {
-    const started = advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney);
+    const started = advance(BEGUN, completingJourney);
 
     expect(buildPacketJourneyView(completingJourney, started).currentEvent.via)
       .toBeNull();
@@ -685,7 +712,7 @@ describe("every action produces a current-event change", () => {
     const tokenOf = (state: PacketJourneyViewState) =>
       buildPacketJourneyView(completingJourney, state).currentEvent.token;
 
-    const start = INITIAL_PACKET_JOURNEY_VIEW_STATE;
+    const start = BEGUN;
     const revealed = advance(start, completingJourney);
     const stopped = advance(revealed, completingJourney);
     const repaired = applyAction(stopped, "add-vlan-20");
@@ -699,12 +726,12 @@ describe("every action produces a current-event change", () => {
   it("moves the token when a prediction is committed and nothing else changes", () => {
     const before = buildPacketJourneyView(
       predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
+      BEGUN
     ).currentEvent.token;
 
     const after = buildPacketJourneyView(
       predictFirstJourney,
-      commitPrediction(INITIAL_PACKET_JOURNEY_VIEW_STATE, "s1", "To its default gateway")
+      commitPrediction(BEGUN, "s1", "To its default gateway")
     ).currentEvent.token;
 
     expect(after).not.toBe(before);
@@ -718,8 +745,8 @@ describe("every action produces a current-event change", () => {
     const repaired = applyAction(stopped, "add-vlan-20");
     const arrived = advance(repaired, completingJourney);
 
-    expect(kindOf(INITIAL_PACKET_JOURNEY_VIEW_STATE)).toBe("waiting");
-    expect(kindOf(advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney)))
+    expect(kindOf(BEGUN)).toBe("waiting");
+    expect(kindOf(advance(BEGUN, completingJourney)))
       .toBe("moving");
     expect(kindOf(stopped)).toBe("stopped");
     expect(kindOf(repaired)).toBe("repaired");
@@ -775,7 +802,7 @@ describe("every action produces a current-event change", () => {
 
 describe("the whole authored journey is walkable in one direction", () => {
   it("offers exactly one next step at every point, until there is none", () => {
-    let state = INITIAL_PACKET_JOURNEY_VIEW_STATE;
+    let state = BEGUN;
     const offered: boolean[] = [];
     const headlines: string[] = [];
 
@@ -810,9 +837,9 @@ describe("the whole authored journey is walkable in one direction", () => {
     expect(offered.filter((available) => !available)).toHaveLength(2);
 
     // And the learner passed through every authored device in authored order.
-    expect(headlines).toContain("Stopped at Router-1.");
-    expect(headlines).toContain("The traffic is at PC-B.");
-    expect(headlines).toContain("The journey is complete.");
+    expect(headlines).toContain("An ICMP echo request stopped at Router-1.");
+    expect(headlines).toContain("An ICMP echo request reached PC-B.");
+    expect(headlines).toContain("An ICMP echo request was delivered to PC-A.");
   });
 
   it("keeps offering the next step after every advance that has one", () => {
@@ -823,7 +850,10 @@ describe("the whole authored journey is walkable in one direction", () => {
 
     // Arriving at the destination, then the authored reply. The last headline
     // is the completion rather than a location, which is the point of it.
-    for (const expected of ["The traffic is at PC-B.", "The journey is complete."]) {
+    for (const expected of [
+      "An ICMP echo request reached PC-B.",
+      "An ICMP echo request was delivered to PC-A."
+    ]) {
       expect(buildPacketJourneyView(completingJourney, state).canAdvance).toBe(
         true
       );
@@ -836,28 +866,34 @@ describe("the whole authored journey is walkable in one direction", () => {
 
   it("moves the picture on every advance, not only the text", () => {
     // The control is at the bottom now, so the consequence has to be real: the
-    // packet column and the change token must both move each time.
+    // device the marker belongs to, the point it is drawn at and the change
+    // token must all move each time.
     let state = applyAction(walkToStop(), "add-vlan-20");
-    const columns: number[] = [];
+    const nodes: string[] = [];
+    const points: string[] = [];
     const tokens: string[] = [];
 
     for (let step = 0; step < 3; step += 1) {
       const view = buildPacketJourneyView(completingJourney, state);
       if (view.topology.state !== "available") throw new Error("expected a layout");
 
-      columns.push(view.topology.packet?.column ?? -1);
+      nodes.push(view.topology.packet?.nodeId ?? "none");
+      points.push(
+        `${view.topology.packet?.at.x ?? -1},${view.topology.packet?.at.y ?? -1}`
+      );
       tokens.push(view.currentEvent.token);
       state = advance(state, completingJourney);
     }
 
     // Router-1, then PC-B, then back to PC-A on the authored reply.
-    expect(columns).toEqual([1, 2, 0]);
+    expect(nodes).toEqual(["r-1", "pc-b", "pc-a"]);
+    expect(new Set(points).size).toBe(3);
     expect(new Set(tokens).size).toBe(3);
   });
 
   it("carries a commitment through the whole walk without resetting it", () => {
     let state = commitPrediction(
-      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
       "c1",
       "To its default gateway"
     );
@@ -947,7 +983,7 @@ describe("the failure boundary", () => {
   it("offers remediation only after the failure has been seen", () => {
     const early = buildPacketJourneyView(
       journey,
-      advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey)
+      advance(BEGUN, journey)
     );
 
     expect(early.actions.every((action) => !action.available)).toBe(true);
@@ -1012,7 +1048,11 @@ describe("remediation and confirmation", () => {
   });
 
   it("starts over cleanly", () => {
+    // All the way back, including the deliberate start. A learner who starts
+    // over meets the same orientation and the same Start they met the first
+    // time, rather than landing mid-activity.
     expect(resetJourney()).toEqual(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    expect(resetJourney().started).toBe(false);
   });
 });
 
@@ -1086,7 +1126,7 @@ describe("the accessible account carries the whole journey", () => {
     // drawn next to each other. Adjacency is not traversal.
     const early = buildPacketJourneyView(
       journey,
-      advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, journey)
+      advance(BEGUN, journey)
     );
 
     expect(early.links[0]?.current).toBe(false);
@@ -1178,7 +1218,7 @@ describe("withheld teaching content simply is not there", () => {
   });
 
   it("still lets the learner predict and follow the journey", () => {
-    const started = advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, challengeMeJourney);
+    const started = advance(BEGUN, challengeMeJourney);
 
     expect(pendingPrediction(started, challengeMeJourney)?.prompt).toBe(
       "What will Router-1 do?"
@@ -1248,5 +1288,885 @@ describe("honest wording for the states with nothing to render", () => {
     expect(describeSourceNotice("authored_teaching")).toContain(
       "Instructional simulation"
     );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-J Module 1 Founder UAT — instructional flow
+ *
+ * The finding: at a normal viewport the Founder did not know what to do. The
+ * first learner action was below the fold, discoverable only by scrolling and
+ * comfortable only after zooming out; and once the topology was pinned,
+ * scrolling could leave the picture on screen with the control that advances it
+ * somewhere else entirely.
+ *
+ * WHERE something renders is a structural property this repository proves in a
+ * gate, on source order. What is proven HERE is the half that is behaviour:
+ * that the interaction now NAMES what the learner is looking at and what they
+ * should do, that the named task changes as the journey progresses instead of
+ * accumulating, and that the orientation does not give away the answer to the
+ * question it is introducing.
+ * ------------------------------------------------------------------ */
+
+describe("the interaction orients the learner immediately", () => {
+  it("names what this is and what to do, before anything is sent", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.orientation.title.length).toBeGreaterThan(0);
+    expect(view.orientation.summary.length).toBeGreaterThan(0);
+
+    // Built from the AUTHORED traffic, so the course's own words say what is
+    // moving and where it starts — never a placeholder noun.
+    expect(view.orientation.title).toContain(predictFirstJourney.traffic.label);
+    expect(view.orientation.summary).toContain(
+      predictFirstJourney.traffic.label.slice(1)
+    );
+    expect(view.orientation.summary).toContain("PC-A");
+  });
+
+  it("does not print the answer above the question", () => {
+    // `trafficSummary` names the destination — "from PC-A to Router-1" — and it
+    // used to sit directly above a prediction asking which device the traffic
+    // reaches, with that device among the options. The orientation says what is
+    // being sent and from where, and stops there.
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    const destination = predictFirstJourney.nodes.find(
+      (node) => node.nodeId === predictFirstJourney.traffic.destinationNodeId
+    );
+
+    expect(destination).toBeDefined();
+    expect(view.orientation.summary).not.toContain(destination?.label ?? "");
+  });
+
+  it("still identifies teaching mode on screen", () => {
+    // DEC-058. The orientation is shorter; the source notice is not one of the
+    // things that was shortened away.
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.sourceNotice).toBe(describeSourceNotice("authored_teaching"));
+    expect(view.sourceNotice.length).toBeGreaterThan(0);
+  });
+});
+
+describe("the current task is named, not inferred", () => {
+  it("asks for a prediction first when one is authored", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      BEGUN
+    );
+
+    expect(view.currentTask.kind).toBe("predict");
+    expect(view.currentTask.label).toBe(describeTaskLabel("predict"));
+    expect(view.currentTask.actionable).toBe(true);
+  });
+
+  it("asks the learner to send once the prediction is committed", () => {
+    const committed = commitPrediction(
+      BEGUN,
+      "s1",
+      "To its default gateway"
+    );
+
+    const view = buildPacketJourneyView(predictFirstJourney, committed);
+
+    // Nothing has been revealed yet, so the task is to send — named with the
+    // first-reveal wording rather than "continue".
+    expect(view.currentTask.kind).toBe("send");
+    expect(view.canAdvance).toBe(true);
+  });
+
+  it("asks for the next prediction once the first one has been observed", () => {
+    // The workspace replaces one task with the next rather than showing both.
+    let state = commitPrediction(
+      BEGUN,
+      "s1",
+      "To its default gateway"
+    );
+    state = advance(state, predictFirstJourney);
+
+    expect(
+      buildPacketJourneyView(predictFirstJourney, state).currentTask.kind
+    ).toBe("predict");
+  });
+
+  it("changes to continue once something has been observed", () => {
+    const started = advance(BEGUN, completingJourney);
+
+    expect(
+      buildPacketJourneyView(completingJourney, BEGUN)
+        .currentTask.kind
+    ).toBe("send");
+    expect(
+      buildPacketJourneyView(completingJourney, started).currentTask.kind
+    ).toBe("continue");
+  });
+
+  it("asks for a repair once the journey has stopped", () => {
+    const view = buildPacketJourneyView(completingJourney, walkToStop());
+
+    expect(view.currentTask.kind).toBe("repair");
+    expect(view.currentTask.actionable).toBe(true);
+    expect(view.actions.some((action) => action.available)).toBe(true);
+  });
+
+  it("reports nothing to do once the journey is complete", () => {
+    const finished = advance(walkToArrival(), completingJourney);
+    const view = buildPacketJourneyView(completingJourney, finished);
+
+    expect(view.currentTask.kind).toBe("finished");
+    expect(view.currentTask.actionable).toBe(false);
+    expect(view.canAdvance).toBe(false);
+  });
+
+  it("says so when the journey stopped and no repair was sent", () => {
+    // A protected level withholds the remediation. The learner is told there is
+    // nothing to apply rather than meeting a dead end, and the task says the
+    // same thing rather than pretending an action exists.
+    const withheld: LearnerPacketJourneyParameters = {
+      ...completingJourney,
+      actions: []
+    };
+
+    const stopped = advance(
+      advance(BEGUN, withheld),
+      withheld
+    );
+
+    const view = buildPacketJourneyView(withheld, stopped);
+
+    expect(view.currentTask.kind).toBe("blocked");
+    expect(view.currentTask.actionable).toBe(false);
+    expect(view.remediationWithheld).not.toBeNull();
+  });
+
+  it("holds exactly one task at a time, all the way through", () => {
+    // The workspace evolves rather than accumulates. At every point of a
+    // complete journey there is exactly one current task, and it is one of the
+    // registered kinds — never a set of them, and never none.
+    const seen: string[] = [];
+    let state = BEGUN;
+
+    for (let step = 0; step < 6; step += 1) {
+      const view = buildPacketJourneyView(completingJourney, state);
+      seen.push(view.currentTask.kind);
+
+      expect(PACKET_JOURNEY_TASK_KINDS).toContain(view.currentTask.kind);
+      expect(view.currentTask.label).toBe(
+        describeTaskLabel(view.currentTask.kind)
+      );
+
+      state = view.currentTask.kind === "repair"
+        ? applyAction(state, "add-vlan-20")
+        : advance(state, completingJourney);
+    }
+
+    // It moved: send, then continue, then a stop that needs a repair, then on
+    // to the end. A task that never changed would mean the workspace was
+    // showing a stale instruction.
+    expect(seen[0]).toBe("send");
+    expect(new Set(seen).size).toBeGreaterThan(1);
+    expect(seen[seen.length - 1]).toBe("finished");
+  });
+
+  it("names every registered task kind", () => {
+    for (const kind of PACKET_JOURNEY_TASK_KINDS) {
+      expect(describeTaskLabel(kind).length).toBeGreaterThan(0);
+    }
+
+    // No two steps may read identically, or a learner using the words rather
+    // than the controls could not tell which step they were on.
+    const labels = PACKET_JOURNEY_TASK_KINDS.map(describeTaskLabel);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+});
+
+describe("task precedence follows the instructional method", () => {
+  it("puts starting ahead of everything", () => {
+    // Nothing the journey could otherwise offer outranks the first deliberate
+    // act. Even with a prediction open and a reveal available, an activity the
+    // learner has not begun has exactly one task.
+    expect(resolveCurrentTask(false, true, true, true, 0, true)).toBe("start");
+  });
+
+  it("puts predicting ahead of revealing, even where the gate is lifted", () => {
+    // SHOW ME lifts the commit gate, so a prediction and the reveal are both
+    // offered at once. Predicting is still the step that teaches, so it is
+    // still the named task.
+    expect(resolveCurrentTask(true, true, false, true, 0, false)).toBe("predict");
+  });
+
+  it("puts repairing ahead of continuing", () => {
+    expect(resolveCurrentTask(true, false, true, false, 2, false)).toBe("repair");
+  });
+
+  it("distinguishes the first reveal from every later one", () => {
+    expect(resolveCurrentTask(true, false, false, true, 0, false)).toBe("send");
+    expect(resolveCurrentTask(true, false, false, true, 1, false)).toBe("continue");
+  });
+
+  it("falls to blocked only when a withheld remediation explains it", () => {
+    expect(resolveCurrentTask(true, false, false, false, 2, true)).toBe("blocked");
+    expect(resolveCurrentTask(true, false, false, false, 2, false)).toBe("finished");
+  });
+
+  it("marks exactly the kinds that give the learner something to do", () => {
+    expect(isTaskActionable("predict")).toBe(true);
+    expect(isTaskActionable("send")).toBe(true);
+    expect(isTaskActionable("continue")).toBe(true);
+    expect(isTaskActionable("repair")).toBe(true);
+    expect(isTaskActionable("blocked")).toBe(false);
+    expect(isTaskActionable("finished")).toBe(false);
+  });
+});
+
+describe("the reference material survives the new hierarchy", () => {
+  it("still carries every connection, device and trace line", () => {
+    // Progressive disclosure means quieter, never deleted. The Founder asked
+    // for the detail to remain available; this is the half of that promise a
+    // test can hold.
+    const view = buildPacketJourneyView(completingJourney, walkToArrival());
+
+    expect(view.links.length).toBe(completingJourney.links.length);
+    expect(view.nodes.length).toBe(completingJourney.nodes.length);
+    expect(view.textTrace.length).toBeGreaterThan(0);
+    expect(view.trafficSummary.length).toBeGreaterThan(0);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-J Module 1 Founder UAT — the deliberate start
+ *
+ * "the layout should be side by side … This would include an obvious start
+ * button as well."
+ *
+ * The composition half of that is structural and is pinned in the gate, on
+ * source order. What is proven here is the STATE half: that an activity does
+ * not begin merely because a component rendered, that nothing progresses until
+ * the learner says so, that starting reveals no answer, and that starting is
+ * engagement rather than evidence.
+ * ------------------------------------------------------------------ */
+
+describe("an activity does not begin until the learner begins it", () => {
+  it("starts in a deliberate not-started state", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(INITIAL_PACKET_JOURNEY_VIEW_STATE.started).toBe(false);
+    expect(view.currentTask.kind).toBe("start");
+    expect(view.currentTask.label).toBe(describeTaskLabel("start"));
+    expect(view.currentTask.actionable).toBe(true);
+  });
+
+  it("offers exactly one primary control before anything else", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.startAction).not.toBeNull();
+    expect(view.startAction?.label).toBe(describeStartLabel());
+    expect(view.startAction?.instruction).toBe(
+      describeStartInstruction(predictFirstJourney.traffic.label)
+    );
+
+    // It names what will move, in the AUTHORED words. "predict what happens"
+    // told a beginner nothing; naming the thing is the whole correction.
+    expect(view.startAction?.instruction).toContain(
+      predictFirstJourney.traffic.label
+    );
+
+    // And nothing else to press. No reveal, no prediction, no remediation —
+    // one obvious action, which is the whole point of the state.
+    expect(view.canAdvance).toBe(false);
+    expect(view.pendingPrediction).toBeNull();
+    expect(view.actions.every((action) => !action.available)).toBe(true);
+  });
+
+  it("refuses to progress until it is started", () => {
+    // Not merely undrawn. The state machine refuses, through the same gate
+    // that refuses an uncommitted prediction.
+    expect(canAdvance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney))
+      .toBe(false);
+    expect(advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney))
+      .toBe(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    expect(
+      buildPacketJourneyView(
+        completingJourney,
+        INITIAL_PACKET_JOURNEY_VIEW_STATE
+      ).stages
+    ).toEqual([]);
+  });
+
+  it("reveals no answer before the learner begins", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    const serialised = JSON.stringify({
+      orientation: view.orientation,
+      startAction: view.startAction,
+      currentTask: view.currentTask
+    });
+
+    // Nothing the learner is about to be asked to predict may appear in what
+    // they can read before they start: not the options, not the destination,
+    // and not the first authored narration.
+    const prediction = predictFirstJourney.stages[0]?.prediction;
+    for (const option of prediction?.options ?? []) {
+      expect(serialised).not.toContain(option);
+    }
+    expect(serialised).not.toContain(predictFirstJourney.stages[0]?.narration);
+    expect(serialised).not.toContain("Router-1");
+  });
+
+  it("starts on request, and only then offers the first step", () => {
+    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    const view = buildPacketJourneyView(predictFirstJourney, started);
+
+    expect(started.started).toBe(true);
+    expect(view.startAction).toBeNull();
+    expect(view.currentTask.kind).toBe("predict");
+    expect(view.pendingPrediction).not.toBeNull();
+  });
+
+  it("starting reveals nothing by itself", () => {
+    // It releases the controls. It does not move the traffic, commit a
+    // prediction or apply a remediation.
+    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+
+    expect(started.progress.revealedStageCount).toBe(0);
+    expect(started.progress.appliedActionId).toBeNull();
+    expect(started.committedPredictions).toEqual({});
+    expect(
+      buildPacketJourneyView(predictFirstJourney, started).stages
+    ).toEqual([]);
+  });
+
+  it("is idempotent", () => {
+    const once = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    expect(startJourney(once)).toBe(once);
+  });
+
+  it("produces no competency, evidence, score or progress", () => {
+    // Engagement, and nothing else. Starting a teaching interaction cannot
+    // contribute to a competency claim, and there is no field here that could
+    // carry one.
+    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    const serialised = JSON.stringify(started);
+
+    for (const forbidden of [
+      "competency",
+      "evidence",
+      "score",
+      "passed",
+      "attempt",
+      "lab",
+      "session",
+      "published"
+    ]) {
+      expect(serialised.toLowerCase()).not.toContain(forbidden);
+    }
+
+    expect(Object.keys(started).sort()).toEqual([
+      "committedPredictions",
+      "progress",
+      "started"
+    ]);
+  });
+
+  it("keeps the environment readable and described before the start", () => {
+    // The learner must be able to see enough of the environment to understand
+    // what the activity concerns. The topology and its accessible description
+    // are both present before anything is pressed.
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.topology.state).toBe("available");
+    if (view.topology.state !== "available") return;
+
+    expect(view.topology.devices.length).toBe(predictFirstJourney.nodes.length);
+    expect(view.topology.description.length).toBeGreaterThan(0);
+  });
+
+  it("still identifies teaching mode before the start", () => {
+    expect(
+      buildPacketJourneyView(
+        predictFirstJourney,
+        INITIAL_PACKET_JOURNEY_VIEW_STATE
+      ).sourceNotice
+    ).toBe(describeSourceNotice("authored_teaching"));
+  });
+
+  it("runs the whole sequence once started", () => {
+    // ORIENT -> START -> PREDICT -> SEND -> OBSERVE -> ... -> FINISH, through
+    // the existing state and nothing else.
+    const seen: string[] = [];
+    let state: PacketJourneyViewState = INITIAL_PACKET_JOURNEY_VIEW_STATE;
+
+    for (let step = 0; step < 7; step += 1) {
+      const view = buildPacketJourneyView(completingJourney, state);
+      seen.push(view.currentTask.kind);
+
+      state =
+        view.currentTask.kind === "start"
+          ? startJourney(state)
+          : view.currentTask.kind === "repair"
+            ? applyAction(state, "add-vlan-20")
+            : advance(state, completingJourney);
+    }
+
+    expect(seen[0]).toBe("start");
+    expect(seen[1]).toBe("send");
+    expect(seen[seen.length - 1]).toBe("finished");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-J Module 1 Founder UAT — completion confirmation
+ *
+ * The finding: the walkthrough modelled someone printing a document and then
+ * stopped halfway, at the switch. The learner was told an intermediate step was
+ * correct and sent away to Mission 2.
+ *
+ * The principle this formalises: where instruction models a real-world goal,
+ * the modelled system should visibly REACH that goal, and say so.
+ *
+ *   ACTION -> VISIBLE CONSEQUENCE -> PROGRESSION -> GOAL REACHED -> CONFIRMATION
+ *
+ * These tests pin the presentation half: that a journey with no fault can now
+ * reach its authored conclusion at all, that the success state is distinct from
+ * being in transit, and that success is carried in WORDS rather than by a
+ * colour the drawing happens to use.
+ * ------------------------------------------------------------------ */
+
+/** Three stages, no fault, no remediation — the shape Module 1 authors. */
+const deliveryJourney: LearnerPacketJourneyParameters = {
+  ...journey,
+  traffic: {
+    label: "the print request",
+    sourceNodeId: "pc-a",
+    destinationNodeId: "r-1",
+    startActionLabel: "Send the print request"
+  },
+  stages: [
+    {
+      stageId: "d1",
+      atNodeId: "pc-a",
+      narration: "The print request leaves PC-A.",
+      outcome: "proceeds",
+      prediction: {
+        prompt: "Which device does the print request reach first?",
+        options: ["Router-1", "PC-A"]
+      }
+    },
+    {
+      stageId: "d2",
+      atNodeId: "r-1",
+      narration: "The print request arrives at Router-1.",
+      decision: "Continue to see where it goes next.",
+      outcome: "proceeds",
+      viaLinkId: "link-a"
+    }
+  ],
+  fault: undefined,
+  actions: [],
+  confirmation: {
+    narration: "The print request reached Router-1 and was accepted.",
+    summary: "You followed one request from its source to its destination."
+  }
+};
+
+function walkDelivery(): PacketJourneyViewState {
+  let state = commitPrediction(BEGUN, "d1", "Router-1");
+  state = advance(state, deliveryJourney);
+  return advance(state, deliveryJourney);
+}
+
+describe("a journey that authors no fault can still be completed", () => {
+  it("reaches the authored conclusion when every stage is revealed", () => {
+    // The defect: completion used to require a repaired fault, so a
+    // walkthrough with nothing to repair could never confirm. Module 1 is
+    // exactly that walkthrough, which is why it appeared to stop rather than
+    // to succeed.
+    const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
+
+    expect(view.finished).toBe(true);
+    expect(view.currentEvent.kind).toBe("confirmed");
+    expect(view.confirmation).toBe(deliveryJourney.confirmation?.summary);
+  });
+
+  it("still refuses to confirm a fault journey that was never repaired", () => {
+    // The condition that was removed was redundant, never load-bearing: a
+    // stop point still blocks the reveal until the authored repair is applied,
+    // so an unrepaired journey cannot reach its last stage at all.
+    const stopped = walkToStop();
+    const view = buildPacketJourneyView(completingJourney, stopped);
+
+    expect(view.currentEvent.kind).toBe("stopped");
+    expect(view.finished).toBe(false);
+    expect(view.confirmation).toBeNull();
+  });
+
+  it("says nothing was confirmed when the level withheld the conclusion", () => {
+    // At a protected level the authored conclusion is absent from the payload.
+    // The honest state is that the journey is proceeding — not a confirmation
+    // with no words to show.
+    const withheld: LearnerPacketJourneyParameters = {
+      ...deliveryJourney,
+      confirmation: undefined
+    };
+
+    const view = buildPacketJourneyView(withheld, walkDelivery());
+
+    expect(view.currentEvent.kind).not.toBe("confirmed");
+    expect(view.confirmation).toBeNull();
+  });
+});
+
+describe("successful delivery is stated, never only coloured", () => {
+  it("names what was delivered and where, in words", () => {
+    const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
+
+    expect(view.currentEvent.headline).toBe(
+      "The print request was delivered to Router-1."
+    );
+    expect(view.currentEvent.headline).toContain(
+      deliveryJourney.traffic.label.slice(4)
+    );
+  });
+
+  it("reads differently from being in transit", () => {
+    // Requirement: the successful state must differ from the moving state.
+    // A learner who cannot see the colour change reads two different
+    // sentences.
+    let state = commitPrediction(BEGUN, "d1", "Router-1");
+    state = advance(state, deliveryJourney);
+
+    const inTransit = buildPacketJourneyView(deliveryJourney, state);
+    const delivered = buildPacketJourneyView(deliveryJourney, walkDelivery());
+
+    expect(inTransit.currentEvent.kind).toBe("moving");
+    expect(delivered.currentEvent.kind).toBe("confirmed");
+    expect(inTransit.currentEvent.headline).not.toBe(
+      delivered.currentEvent.headline
+    );
+  });
+
+  it("marks the destination device as delivered, in words", () => {
+    const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
+    if (view.topology.state !== "available") throw new Error("expected a layout");
+
+    const destination = view.topology.devices.find(
+      (device) => device.nodeId === "r-1"
+    );
+
+    expect(destination?.state).toBe("confirmed");
+    expect(destination?.stateLabel).toBe("Delivered here");
+
+    // And it is the ONLY device in that state — success belongs to the device
+    // the journey completed at, not to every device it passed.
+    expect(
+      view.topology.devices.filter((device) => device.state === "confirmed")
+    ).toHaveLength(1);
+  });
+
+  it("moves the marker to the delivered state as well", () => {
+    const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
+    if (view.topology.state !== "available") throw new Error("expected a layout");
+
+    expect(view.topology.packet?.state).toBe("confirmed");
+    expect(view.topology.packet?.stateLabel).toBe("Arrived");
+  });
+
+  it("carries the completion in the accessible account too", () => {
+    // Reduced motion, screen readers and the text trace all read the same
+    // completion: nothing about success depends on seeing the marker change.
+    const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
+
+    expect(view.announcement.length).toBeGreaterThan(0);
+    expect(view.textTrace.join(" ")).toContain("Router-1");
+    expect(view.confirmation).not.toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------------ *
+   WP-J Module 1, Founder UAT — device inspection.
+
+   Two defects. Selecting a device dumped every interface and attribute at a
+   beginner who had asked a much smaller question, and the journey status it
+   showed said "Not reached yet" on devices the print request never goes near,
+   which reads as an instruction to wait for an arrival that is never coming.
+
+   These prove the parts that must not drift. Whether the resulting panel is
+   calm and well written is Human UAT's to judge, so nothing here pins prose
+   the reviewer is the authority on.
+ * ------------------------------------------------------------------------ */
+
+/** The delivery journey, plus a device no stage ever names. */
+const inspectionJourney: LearnerPacketJourneyParameters = {
+  ...deliveryJourney,
+  nodes: [
+    ...deliveryJourney.nodes,
+    {
+      nodeId: "pc-b",
+      label: "PC-B",
+      role: "host",
+      about: "PC-B is a second computer on this network.",
+      interfaces: [
+        {
+          interfaceId: "pc-b-eth0",
+          label: "eth0",
+          attributes: [{ label: "Connects to", value: "Switch-1, port 2" }]
+        }
+      ]
+    }
+  ]
+};
+
+function nodeOf(view: PacketJourneyView, nodeId: string) {
+  const node = view.nodes.find((entry) => entry.nodeId === nodeId);
+  if (node === undefined) throw new Error(`no node view for ${nodeId}`);
+  return node;
+}
+
+function walkInspection(): PacketJourneyViewState {
+  let state = commitPrediction(BEGUN, "d1", "Router-1");
+  state = advance(state, inspectionJourney);
+  return advance(state, inspectionJourney);
+}
+
+describe("device inspection answers what a device is before what it holds", () => {
+  it("derives the category sentence from the authored role, and only that", () => {
+    // The one half of "what is this?" that is safe to derive: a property of
+    // the category the author already declared, not of this device.
+    expect(describeRolePurpose("router")).toContain("router");
+    expect(describeRolePurpose("switch")).toContain("switch");
+    expect(describeRolePurpose("host")).toContain("host");
+    expect(describeRolePurpose("printer")).toContain("printer");
+  });
+
+  it("invents nothing for a role it has no sentence for", () => {
+    // Silence, not a filler sentence. A learner reads the category word, the
+    // connections and the journey status, none of which were made up.
+    expect(describeRolePurpose("firewall")).toBeUndefined();
+  });
+
+  it("does not teach the mechanism a later mission owns", () => {
+    // The router sentence may say what a router is FOR, because a learner who
+    // sees one in Mission 1 can reasonably ask. How it decides anything is
+    // Mission 5's, and device inspection must not become a second curriculum
+    // running out of order.
+    const purpose = describeRolePurpose("router") ?? "";
+
+    for (const deferred of [
+      "routing table",
+      "forwarding table",
+      "default gateway",
+      "subnet",
+      "prefix",
+      "ARP",
+      "MAC",
+      "broadcast"
+    ]) {
+      expect(purpose.toLowerCase()).not.toContain(deferred.toLowerCase());
+    }
+  });
+
+  it("carries authored scenario prose through unchanged", () => {
+    const view = buildPacketJourneyView(inspectionJourney, BEGUN);
+
+    expect(nodeOf(view, "pc-b").about).toBe(
+      "PC-B is a second computer on this network."
+    );
+  });
+
+  it("says nothing where the author wrote no explanation", () => {
+    // Absence is a fact, not a gap to fill. Nothing composes an explanation
+    // out of the role, the connections or the label.
+    const view = buildPacketJourneyView(inspectionJourney, BEGUN);
+
+    expect(nodeOf(view, "pc-a").about).toBeUndefined();
+  });
+
+  it("still carries every interface and attribute for the disclosure", () => {
+    // Simplifying the default view must not delete anything from the model.
+    // The technical detail is one interaction away, not gone.
+    const view = buildPacketJourneyView(inspectionJourney, BEGUN);
+    const pcA = nodeOf(view, "pc-a");
+
+    expect(pcA.interfaces).toHaveLength(1);
+    expect(pcA.interfaces[0]?.attributes.map((a) => a.label)).toEqual([
+      "IP address",
+      "VLAN"
+    ]);
+  });
+});
+
+describe("journey status separates what was observed from what was never used", () => {
+  it("claims nothing before the learner sends anything", () => {
+    const view = buildPacketJourneyView(
+      inspectionJourney,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    for (const node of view.nodes) {
+      expect(node.journeyStatus.kind).toBe("not-started");
+    }
+  });
+
+  it("never says a device is off the path while the journey is still running", () => {
+    // The whole point of the distinction. Mid-journey, absence from the
+    // revealed stages means "not seen yet" and nothing stronger.
+    const running = advance(commitPrediction(BEGUN, "d1", "Router-1"), inspectionJourney);
+    const view = buildPacketJourneyView(inspectionJourney, running);
+
+    expect(nodeOf(view, "pc-b").journeyStatus.kind).toBe("not-yet");
+    expect(nodeOf(view, "pc-b").journeyStatus.label.toLowerCase()).not.toContain(
+      "not part of"
+    );
+  });
+
+  it("does not read unrevealed stages to answer early", () => {
+    // One stage revealed, one still to come. Router-1 is authored as that
+    // next arrival, and its `atNodeId` is sitting in the model right now
+    // marked unknown. Reading it would answer the learner's question a step
+    // early — and, on a stage carrying a prediction, hand over the answer.
+    const running = advance(commitPrediction(BEGUN, "d1", "Router-1"), inspectionJourney);
+    const view = buildPacketJourneyView(inspectionJourney, running);
+
+    expect(nodeOf(view, "r-1").journeyStatus.kind).toBe("not-yet");
+  });
+
+  it("reports where the request is while it is still moving", () => {
+    const running = advance(commitPrediction(BEGUN, "d1", "Router-1"), inspectionJourney);
+    const view = buildPacketJourneyView(inspectionJourney, running);
+
+    expect(nodeOf(view, "pc-a").journeyStatus.kind).toBe("here-now");
+  });
+
+  it("names the device the completed journey ended at as delivered", () => {
+    const view = buildPacketJourneyView(inspectionJourney, walkInspection());
+
+    expect(nodeOf(view, "r-1").journeyStatus.kind).toBe("delivered");
+    expect(nodeOf(view, "r-1").journeyStatus.label).toMatch(/delivered/i);
+  });
+
+  it("names a device the journey crossed as passed through", () => {
+    const view = buildPacketJourneyView(inspectionJourney, walkInspection());
+
+    expect(nodeOf(view, "pc-a").journeyStatus.kind).toBe("passed-through");
+  });
+
+  it("only once the journey is complete calls an unused device off the path", () => {
+    // Authored completion is what makes this sayable: no further stage will
+    // ever be revealed, so a device that never appeared is a device this
+    // journey never used. That is a fact about the finished authored path,
+    // not a deduction about networking.
+    const view = buildPacketJourneyView(inspectionJourney, walkInspection());
+    const status = nodeOf(view, "pc-b").journeyStatus;
+
+    expect(status.kind).toBe("off-path");
+    expect(status.label).toContain(inspectionJourney.traffic.label);
+  });
+
+  it("retires the ambiguous wording entirely", () => {
+    // Founder UAT: "Not reached yet" sounds like an instruction to wait.
+    for (const state of [
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
+      walkInspection()
+    ]) {
+      const view = buildPacketJourneyView(inspectionJourney, state);
+      for (const node of view.nodes) {
+        expect(node.journeyStatus.label).not.toContain("Not reached yet");
+      }
+    }
+  });
+
+  it("reports an authored stop at the device it stopped at", () => {
+    expect(
+      resolveNodeJourneyStatus({
+        nodeId: "sw-1",
+        revealedNodeIds: ["pc-a", "sw-1"],
+        confirmed: false,
+        stopped: true,
+        trafficLabel: "the print request"
+      }).kind
+    ).toBe("stopped");
+  });
+
+  it("decides participation from stages alone, never from roles or labels", () => {
+    // The structural guarantee. Rewrite what every device IS and what it is
+    // CALLED, leave the authored stages untouched, and every status must be
+    // identical — because nothing consulted the things that changed.
+    const renamed: LearnerPacketJourneyParameters = {
+      ...inspectionJourney,
+      nodes: inspectionJourney.nodes.map((node) => ({
+        ...node,
+        label: `${node.label} (renamed)`,
+        role: "switch" as const
+      }))
+    };
+
+    const before = buildPacketJourneyView(inspectionJourney, walkInspection());
+    const after = buildPacketJourneyView(renamed, walkInspection());
+
+    expect(after.nodes.map((n) => n.journeyStatus.kind)).toEqual(
+      before.nodes.map((n) => n.journeyStatus.kind)
+    );
+  });
+
+  it("decides participation without walking a single link", () => {
+    // Remove the topology's connections entirely. The journey is authored
+    // stages, so the answers cannot change — if they did, something was
+    // traversing the graph.
+    const unlinked: LearnerPacketJourneyParameters = {
+      ...inspectionJourney,
+      links: []
+    };
+
+    const before = buildPacketJourneyView(inspectionJourney, walkInspection());
+    const after = buildPacketJourneyView(unlinked, walkInspection());
+
+    expect(after.nodes.map((n) => n.journeyStatus.kind)).toEqual(
+      before.nodes.map((n) => n.journeyStatus.kind)
+    );
+  });
+});
+
+describe("inspecting a device is not progress", () => {
+  it("has nowhere to record a selection, so it cannot be evidence", () => {
+    // Which device is selected lives in component state and never enters the
+    // journey's state. That is what keeps inspection free: it cannot advance
+    // a stage, satisfy a prediction, apply an action or produce a result.
+    expect(Object.keys(INITIAL_PACKET_JOURNEY_VIEW_STATE).sort()).toEqual([
+      "committedPredictions",
+      "progress",
+      "started"
+    ]);
+  });
+
+  it("derives every node view from the same state the journey already had", () => {
+    const first = buildPacketJourneyView(inspectionJourney, BEGUN);
+    const second = buildPacketJourneyView(inspectionJourney, BEGUN);
+
+    expect(second.nodes).toEqual(first.nodes);
+    expect(second.currentTask).toEqual(first.currentTask);
+    expect(second.stages).toEqual(first.stages);
   });
 });

@@ -10,14 +10,15 @@ import {
   loadUatDocument
 } from "./uat-instruction";
 import fixture from "../../../../content/fixtures/curriculum-architecture-example.json";
+import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
 
 /**
  * WP-I — the development-only UAT surface.
  *
  * ## What this is
  *
- * A viewport onto the real instructional pipeline. It parses the architecture
- * fixture with the real curriculum parser, projects it with the real learner
+ * A viewport onto the real instructional pipeline. It parses a curriculum
+ * document with the real curriculum parser, projects it with the real learner
  * projection, and renders it with the real `MissionInstruction` — which
  * dispatches to the real `InteractionSurface` and `PacketJourney`.
  *
@@ -25,25 +26,40 @@ import fixture from "../../../../content/fixtures/curriculum-architecture-exampl
  * contracts. Nothing below draws a step, and nothing below knows what a packet
  * journey is.
  *
- * ## Why the fixture is imported HERE and not in the entry path
+ * ## Two documents, and why the real one is here
+ *
+ * WP-J Module 1 added the production Networking Foundations document alongside
+ * the architecture fixture. That was the point of the slice: the fixture proves
+ * the CONTRACT works, and only real authored curriculum can be reviewed for
+ * whether it TEACHES. Copying Module 1 into a second fixture would have created
+ * a second curriculum truth that drifts the moment either side changes, so the
+ * authored file is read directly.
+ *
+ * ## Why both are imported HERE and not in the entry path
  *
  * `App.tsx` reaches this module through a `lazy(() => import(...))` that exists
  * only inside an `import.meta.env.DEV` branch. In a production build Vite
  * replaces that with `false`, the branch folds away, the dynamic import
- * disappears, and neither this component nor the fixture is emitted.
+ * disappears, and neither this component nor either document is emitted.
  *
- * A static import of either in `App.tsx` would defeat that and ship fixture
+ * A static import of any of them in `App.tsx` would defeat that and ship
  * curriculum inside the learner bundle. `scripts/verify-wpi.sh` asserts both
  * halves — the guard here and the absence of a static import there — and, when
- * a build is present, greps the emitted bundle for fixture markers.
+ * a build is present, greps the emitted bundle for fixture AND Networking
+ * Foundations markers. `scripts/verify-wpj15.sh` asserts the same from the
+ * other direction, because that bundle check is what pays for its source rule
+ * excluding this directory.
  *
- * ## This is not learner curriculum, and says so
+ * ## Which document is being reviewed, and says so
  *
- * The banner is not decoration. The architecture fixture was written to
- * exercise the CONTRACT, not to teach well, and a reviewer has to know that
- * before judging what they read — otherwise authored-content weaknesses get
- * reported as platform defects. The runbook's finding classification depends on
- * the same distinction.
+ * The banner is not decoration, and it is not the same sentence for both. The
+ * architecture fixture was written to exercise the CONTRACT rather than to
+ * teach, so its banner tells a reviewer not to judge teaching quality —
+ * otherwise fixture weaknesses get reported as platform defects. Carrying that
+ * sentence onto real curriculum would be exactly wrong, so the production
+ * document says the opposite: teaching quality IS what is under review. The
+ * runbook's finding classification depends on the reviewer knowing which one
+ * they are looking at.
  *
  * ## What this component deliberately cannot do
  *
@@ -60,8 +76,56 @@ const SUPPORT_LEVEL_LABELS: Readonly<Record<InteractionSupportLevel, string>> = 
   prove_it: "PROVE IT"
 };
 
+/**
+ * The documents a reviewer may open.
+ *
+ * ## Why two, and why the second is the REAL one
+ *
+ * The fixture exercises the contract; it was never written to teach. Judging
+ * instructional quality against it would produce findings about a test artefact.
+ * So the production Networking Foundations document is offered here directly —
+ * the same file the publication command reads, parsed by the same parser and
+ * projected by the same projection.
+ *
+ * It is deliberately NOT copied into a second UAT fixture. A copy would drift
+ * from the authored course the moment either changed, and a reviewer would be
+ * approving text that no learner will ever receive.
+ *
+ * ## Why the notice differs per document
+ *
+ * The fixture's banner tells a reviewer NOT to judge teaching quality. Carrying
+ * that sentence over to real curriculum would be exactly wrong: for Networking
+ * Foundations the teaching quality is the thing under review, and only the
+ * Founder can rule on it.
+ */
+const UAT_DOCUMENTS = [
+  {
+    key: "networking-foundations",
+    label: "Networking Foundations",
+    subtitle: "Production curriculum — Module 1",
+    value: networkingFoundations,
+    isProduction: true
+  },
+  {
+    key: "architecture-fixture",
+    label: "Architecture fixture",
+    subtitle: "Contract exercise — not curriculum",
+    value: fixture,
+    isProduction: false
+  }
+] as const;
+
+type UatDocumentKey = (typeof UAT_DOCUMENTS)[number]["key"];
+
 export function UatHarness() {
-  const outcome = loadUatDocument(fixture);
+  const [documentKey, setDocumentKey] =
+    useState<UatDocumentKey>("networking-foundations");
+
+  const selectedDocument =
+    UAT_DOCUMENTS.find((entry) => entry.key === documentKey) ??
+    UAT_DOCUMENTS[0];
+
+  const outcome = loadUatDocument(selectedDocument.value);
 
   const [missionStableId, setMissionStableId] = useState<string | null>(null);
   const [supportLevel, setSupportLevel] =
@@ -76,7 +140,7 @@ export function UatHarness() {
       <main className="shell">
         <section className="card" role="alert">
           <p className="eyebrow">Development UAT surface</p>
-          <h1>The architecture fixture does not parse</h1>
+          <h1>{selectedDocument.label} does not parse</h1>
           <p>
             The real curriculum parser refused this document. Nothing is
             rendered, because anything shown would be assembled from the parts
@@ -108,15 +172,53 @@ export function UatHarness() {
         <p className="eyebrow">Development UAT surface</p>
         <h1 id="uat-title">Instructional review harness</h1>
 
-        <p className="uat-notice" role="note">
-          This is a development and UAT surface, not learner curriculum. It
-          renders the <strong>architecture fixture</strong>, which exists to
-          exercise the curriculum contract rather than to teach well. Judge the
-          platform here; judge teaching quality only once real curriculum is
-          authored.
-        </p>
+        {selectedDocument.isProduction ? (
+          <p className="uat-notice" role="note">
+            You are reviewing <strong>{selectedDocument.label}</strong>, the
+            real production curriculum document — the same file the publication
+            command reads, parsed and projected exactly as a learner would
+            receive it. <strong>Teaching quality is in scope here.</strong> It
+            has not been published to any database; this surface reads the
+            authored file directly.
+          </p>
+        ) : (
+          <p className="uat-notice" role="note">
+            You are reviewing the <strong>architecture fixture</strong>, which
+            exists to exercise the curriculum contract rather than to teach
+            well. Judge the platform here; judge teaching quality on the
+            production document instead.
+          </p>
+        )}
 
         <div className="uat-controls">
+          <p
+            className="uat-control-group"
+            role="group"
+            aria-labelledby="uat-document-label"
+          >
+            <span id="uat-document-label" className="uat-control-label">
+              Document
+            </span>
+            {UAT_DOCUMENTS.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                aria-pressed={documentKey === entry.key}
+                onClick={() => {
+                  setDocumentKey(entry.key);
+                  // A mission id from the previous document names nothing in
+                  // this one, and a stale selection would surface as the
+                  // projection's content_error — a real fail-closed state
+                  // reported for an unreal reason.
+                  setMissionStableId(null);
+                  setResetKey((key) => key + 1);
+                }}
+              >
+                {entry.label} — {entry.subtitle}
+              </button>
+            ))}
+          </p>
+
           <p className="uat-control-group" role="group" aria-labelledby="uat-mission-label">
             <span id="uat-mission-label" className="uat-control-label">
               Mission
@@ -164,7 +266,8 @@ export function UatHarness() {
         </div>
 
         <p className="uat-state">
-          Showing <strong>{selected ?? "no mission"}</strong> at{" "}
+          Showing <strong>{selectedDocument.label}</strong> /{" "}
+          <strong>{selected ?? "no mission"}</strong> at{" "}
           <strong>{SUPPORT_LEVEL_LABELS[supportLevel]}</strong>.
         </p>
 

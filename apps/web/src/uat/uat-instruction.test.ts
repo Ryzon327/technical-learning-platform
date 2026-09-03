@@ -13,6 +13,7 @@ import {
   loadUatDocument
 } from "./uat-instruction";
 import fixture from "../../../../content/fixtures/curriculum-architecture-example.json";
+import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
 
 /**
  * WP-I — the UAT surface shows what a learner would actually receive.
@@ -289,5 +290,122 @@ describe("the harness adds no scenario and no nondeterminism", () => {
       EVERY_STEP_MISSION
     );
     expect(findUatMission(documentOrThrow(), "nope")).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The real course, through the same path
+ *
+ * WP-J Module 1 added a second document to the harness: the production
+ * Networking Foundations file. The fixture proves the harness handles the
+ * CONTRACT; this proves it handles the course the Founder is actually going to
+ * review.
+ *
+ * Worth having separately from the API-side Module 1 suite, which parses the
+ * same file. That suite proves the document is well-formed. This proves it
+ * survives the specific pipeline the harness uses — load, list, build — in the
+ * web workspace, where a bundler resolution or a JSON import could break it
+ * without the API suite noticing.
+ * ------------------------------------------------------------------ */
+
+const NF_M1 = "nf-m1-what-a-network-is";
+const NF_M2 = "nf-m2-inside-one-network";
+
+describe("the production course reaches the harness through the real parser", () => {
+  const outcome = loadUatDocument(networkingFoundations);
+
+  it("parses, so the Founder reviews authored curriculum and not a copy", () => {
+    // A parse failure must surface as a failure here rather than as an empty
+    // screen during UAT. `loadUatDocument` reports the parser's own errors.
+    expect(
+      outcome.state === "invalid" ? outcome.errors.join("\n") : "ready"
+    ).toBe("ready");
+  });
+
+  it("offers Module 1's missions with their authored steps", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const missions = listUatMissions(outcome.document);
+    const byId = new Map(missions.map((m) => [m.stableId, m]));
+
+    for (const stableId of [NF_M1, NF_M2]) {
+      const mission = byId.get(stableId);
+      expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
+      expect(mission?.hasInteraction).toBe(true);
+      // Architect Decision C: no standalone prediction step, so the harness's
+      // "this control is read-only" reviewer notice must not appear here.
+      expect(mission?.hasPassivePrediction).toBe(false);
+    }
+  });
+
+  it("lists the unauthored missions without pretending they have content", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const later = listUatMissions(outcome.document).filter(
+      (mission) => mission.stableId !== NF_M1 && mission.stableId !== NF_M2
+    );
+
+    expect(later.length).toBe(6);
+    for (const mission of later) {
+      expect(mission.stepCount).toBe(0);
+      expect(mission.hasInteraction).toBe(false);
+    }
+  });
+
+  it("builds a renderable instruction for both authored missions", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    for (const stableId of [NF_M1, NF_M2]) {
+      const instruction = buildUatInstruction(
+        outcome.document,
+        stableId,
+        "show_me"
+      );
+
+      expect(instruction.state).toBe("available");
+      if (instruction.state !== "available") continue;
+
+      expect(instruction.steps.length).toBeGreaterThan(0);
+      // No asset is authored, so none should be resolved — and the projection
+      // must not have failed closed on a reference that is not there.
+      expect(instruction.assets).toEqual([]);
+    }
+  });
+
+  it("withholds the whole simulation at PROVE IT, in both missions", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    for (const stableId of [NF_M1, NF_M2]) {
+      const instruction = buildUatInstruction(
+        outcome.document,
+        stableId,
+        "prove_it"
+      );
+
+      if (instruction.state !== "available") throw new Error("not available");
+
+      const interaction = instruction.steps.find(
+        (step) => step.content.type === "interaction"
+      );
+
+      if (interaction?.content.type !== "interaction") {
+        throw new Error(`${stableId} projected no interaction step`);
+      }
+
+      expect(interaction.content.presentation.state).toBe("withheld");
+      // Accessibility is not tutoring: it survives every level.
+      expect(interaction.content.textEquivalent.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("refuses a mission id from the other document", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    // Switching documents resets the harness's mission selection. If it ever
+    // stopped doing that, this is the state it would land in — a real
+    // fail-closed report for an unreal reason — so the behaviour is pinned.
+    expect(
+      buildUatInstruction(outcome.document, EVERY_STEP_MISSION, "show_me").state
+    ).toBe("content_error");
   });
 });

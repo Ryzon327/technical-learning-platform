@@ -157,8 +157,46 @@ export interface ObservationInterface {
   readonly attributes: readonly ObservationAttribute[];
 }
 
-/** What a device IS, for presentation. It confers no behaviour. */
-export const OBSERVATION_NODE_ROLES = ["host", "switch", "router"] as const;
+/**
+ * What a device IS, for presentation. It confers no behaviour.
+ *
+ * ## Why `printer` is here, next to the generic `host`
+ *
+ * A printer IS a host — Networking Foundations Mission 1 teaches exactly that,
+ * and nothing about delivery treats the two differently. This value therefore
+ * changes no networking truth whatsoever; it exists so that a presentation can
+ * tell the learner WHICH KIND of end device it is drawing.
+ *
+ * That distinction is instruction, not decoration. A topology in which PC-A and
+ * the Printer are the same shape teaches a beginner that a network is made of
+ * interchangeable boxes, which is the mental model the course exists to
+ * replace. A topology that distinguishes them lets a learner recognise device
+ * categories before they can name a single one.
+ *
+ * ## Why the renderer may not work this out instead
+ *
+ * The alternative is a presentation that recognises the string "Printer" in a
+ * label, or matches an authored attribute like "Kind of device". That is the
+ * same defect `ObservationAttribute.prominent` exists to prevent: domain
+ * knowledge in the presentation layer, correct for one course's wording and
+ * silently wrong for the next. The category a device belongs to is an AUTHORING
+ * decision, so it is carried as authored data and copied, never inferred.
+ *
+ * ## The boundary this does not cross
+ *
+ * A role selects a symbol and a word. It must never select a BEHAVIOUR. Nothing
+ * may read this field to decide forwarding, reachability, whether a frame is
+ * accepted or discarded, or what any device does with traffic — every one of
+ * those remains an authored observation (DEC-058). Adding a role is additive
+ * and presentational by construction; a role that meant something would be a
+ * second networking model.
+ */
+export const OBSERVATION_NODE_ROLES = [
+  "host",
+  "switch",
+  "router",
+  "printer"
+] as const;
 
 export type ObservationNodeRole = (typeof OBSERVATION_NODE_ROLES)[number];
 
@@ -171,10 +209,85 @@ export function isObservationNodeRole(
   );
 }
 
+/**
+ * An authored grouping of nodes, for presentation.
+ *
+ * ## What this is, and the exact size of the claim it makes
+ *
+ * It says: **these authored nodes belong to this authored group, and the group
+ * is called this.** That is the whole of it.
+ *
+ * It exists because Founder UAT required a learner to SEE which devices are
+ * being studied together, and because a renderer may not work that out. The
+ * previous revision refused to draw a boundary at all, and that refusal was
+ * correct: membership was not derivable from role, from link adjacency, from
+ * geometry, from the presence of a router, or from authored prose, and every
+ * one of those inferences would have been a networking fact invented by a
+ * picture. This field is the missing authored fact, so the picture can state
+ * something true instead of guessing.
+ *
+ * ## What a group does NOT mean
+ *
+ * A group is deliberately NOT an IP network, a subnet, a VLAN, a broadcast
+ * domain, a routing domain, a trust or security zone, a physical location, or a
+ * statement about reachability, forwarding or gateways. Nothing may read this
+ * field to decide any of them, and nothing may read it to decide behaviour of
+ * any kind.
+ *
+ * The naming is generic on purpose. Had this been called `ObservationNetwork`
+ * with a `subnet` field, the first consumer to need "which devices can reach
+ * each other" would have found something that looked like an answer. There is
+ * no answer here to find: an id, a label, and membership an author wrote down.
+ * A future contract may add a specific meaning; until one does, a group means
+ * what the author's `label` says and nothing more.
+ *
+ * ## Why membership lives on the node
+ *
+ * A node carries at most one `groupId`, so membership cannot contradict itself
+ * and there is no second list to keep in step. There is no nesting in this
+ * slice: a group has no parent, and a group is not a member of a group.
+ */
+export interface ObservationGroup {
+  readonly groupId: string;
+  /** Authored words, shown as the group's caption. Never a storage key. */
+  readonly label: string;
+}
+
 export interface ObservationNode {
   readonly nodeId: string;
   readonly label: string;
   readonly role: ObservationNodeRole;
+  /**
+   * Which authored group this node belongs to, if any.
+   *
+   * Absent means the author did not place it in a group — never "it is in the
+   * default one", and never "work it out from what it is attached to". A
+   * presentation draws an ungrouped node outside every group boundary, which is
+   * the honest reading and the only one available.
+   */
+  readonly groupId?: string;
+  /**
+   * Authored prose explaining what this node is doing in THIS scenario.
+   *
+   * This is the UNDERSTAND layer of device inspection. It exists because a
+   * beginner who selects a device is asking "what is this and why is it here?",
+   * and the answer is scenario-specific: Router-1's presence in a print-request
+   * walkthrough is worth explaining precisely because the print request does
+   * not use it.
+   *
+   * It is AUTHORED, and deliberately so. The category-level sentence ("a router
+   * connects one network to another") can be derived from `role`, because that
+   * is a property of the category. Everything after it — what this device does
+   * in this topology, and which later mission develops the part left unexplained
+   * — is course knowledge. Deriving it would mean teaching a presentation layer
+   * what a router does and which mission covers it, which is the inference this
+   * model exists to prevent.
+   *
+   * Optional. A node without one still inspects: the learner reads the
+   * category sentence, the connections and the journey status, and is told
+   * nothing invented to fill the gap.
+   */
+  readonly about?: string;
   readonly interfaces: readonly ObservationInterface[];
 }
 
@@ -316,6 +429,15 @@ export interface ObservationModel {
   readonly availability: ObservationAvailability;
   /** What the traffic is, in authored words. Never parsed. */
   readonly trafficLabel: string;
+  /**
+   * The authored groups, in authored order.
+   *
+   * Required rather than optional, and empty when the author declared none, so
+   * a consumer never has to decide what a missing list means. Every `groupId` a
+   * node names is declared here; validation refuses the document otherwise, so
+   * a presentation resolving one can rely on finding it.
+   */
+  readonly groups: readonly ObservationGroup[];
   readonly nodes: readonly ObservationNode[];
   readonly links: readonly ObservationLink[];
   readonly stages: readonly ObservationStage[];
@@ -343,6 +465,7 @@ export function unavailableObservationModel(
     sourceKind,
     availability: "unavailable",
     trafficLabel,
+    groups: [],
     nodes: [],
     links: [],
     stages: [],

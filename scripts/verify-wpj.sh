@@ -109,37 +109,85 @@ MISSION_COUNT="$(grep -c '"moduleStableId"' "$DOCUMENT" || true)"
 
 echo "PASS:  2. four modules and eight missions, as approved"
 
-# ------------------------------------------------------------
-# 3. J1 authored architecture and nothing else
-# ------------------------------------------------------------
-# Each mission carries an empty steps and assets array. Asserting the empty
-# form appears exactly once per mission is stronger than asserting the keys
-# exist: a populated array would not match.
-EMPTY_STEPS="$(grep -c '"steps": \[\]' "$DOCUMENT" || true)"
-EMPTY_ASSETS="$(grep -c '"assets": \[\]' "$DOCUMENT" || true)"
+SCAN_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCAN_DIR"' EXIT
 
-[ "$EMPTY_STEPS" = "8" ] \
-  || fail "$EMPTY_STEPS of 8 missions have empty steps; J1 authors no instructional content"
-[ "$EMPTY_ASSETS" = "8" ] \
-  || fail "$EMPTY_ASSETS of 8 missions have empty assets; J1 authors no assets"
+# ------------------------------------------------------------
+# 3. Instruction exists only where a slice authorised it
+# ------------------------------------------------------------
+# J1 asserted that all eight missions were instructionally empty, which was the
+# correct statement while J1 was the newest slice and no mission had been
+# authored. Module 1 authoring supersedes that, and the replacement is
+# deliberately NOT a permissive count.
+#
+# The invariant now has a name: STAGED AUTHORING. Instruction appears in the
+# missions a slice was approved to author, and in no other mission — so a later
+# mission silently acquiring a step is still a gate failure, which is the thing
+# the original check was protecting.
+#
+# Expressed as a file split rather than a total, because a total can be
+# satisfied by redistribution: eight empty arrays becoming six plus two
+# populated ones is the approved change, but six plus one plus one somewhere
+# else is not, and only a positional split can tell those apart. Mission order
+# in the document is fixed and is asserted by
+# `services/api/src/networking-foundations.test.ts`.
+AUTHORED_SLICE="$SCAN_DIR/authored-missions.json"
+UNAUTHORED_SLICE="$SCAN_DIR/unauthored-missions.json"
 
-# Interaction, Packet Journey, assessment and prerequisite-rule content are all
-# later slices. None may arrive by accident.
+M3_ANCHOR='"stableId": "nf-m3-ipv4-the-second-identity"'
+
+awk -v anchor="$M3_ANCHOR" '
+  index($0, anchor) { stop = 1 }
+  /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
+  start && !stop
+' "$DOCUMENT" > "$AUTHORED_SLICE"
+
+awk -v anchor="$M3_ANCHOR" '
+  index($0, anchor) { start = 1 }
+  start
+' "$DOCUMENT" > "$UNAUTHORED_SLICE"
+
+[ -s "$AUTHORED_SLICE" ] \
+  || fail "Module 1 could not be located in the document; the mission ordering this gate depends on has changed"
+[ -s "$UNAUTHORED_SLICE" ] \
+  || fail "Missions 3 to 8 could not be located in the document; the mission ordering this gate depends on has changed"
+
+# Module 1 is authored. Asserted positively, so reverting the authoring fails
+# here rather than passing quietly as a return to the old invariant.
+AUTHORED_STEPS="$(grep -c '"stableId": "m[12]-s' "$AUTHORED_SLICE" || true)"
+[ "$AUTHORED_STEPS" -ge 2 ] \
+  || fail "Module 1 carries $AUTHORED_STEPS authored steps; Missions 1 and 2 are authored in this slice"
+
+# Missions 3 to 8 are not. Six missions, six empty step arrays.
+LATER_EMPTY_STEPS="$(grep -c '"steps": \[\]' "$UNAUTHORED_SLICE" || true)"
+[ "$LATER_EMPTY_STEPS" = "6" ] \
+  || fail "$LATER_EMPTY_STEPS of 6 later missions have empty steps; Missions 3 to 8 are not authored yet"
+
+# No later mission may acquire instructional content of any kind.
 for forbidden in 'packet_journey' 'interactionType' 'interactionStableId' \
                  'assessmentStableId' 'textEquivalent' 'textAlternative' \
-                 'assetType'; do
-  if grep -qF -e "$forbidden" "$DOCUMENT"; then
-    fail "J1 authored content belonging to a later slice: $forbidden"
+                 'assetType' '"type": "concept"' '"type": "command"'; do
+  if grep -qF -e "$forbidden" "$UNAUTHORED_SLICE"; then
+    fail "a mission beyond Module 1 authored instructional content: $forbidden"
   fi
 done
 
+# Assets stay absent everywhere: there is no curriculum asset hosting, so a
+# diagram step could only name an asset served from a development host.
+EMPTY_ASSETS="$(grep -c '"assets": \[\]' "$DOCUMENT" || true)"
+[ "$EMPTY_ASSETS" = "8" ] \
+  || fail "$EMPTY_ASSETS of 8 missions have empty assets; no slice has authored an asset"
+
+# Assessments are not publishable as documents, so a practice step could only
+# name something nothing is able to resolve.
+if grep -qF 'assessmentStableId' "$DOCUMENT"; then
+  fail "the document names an assessment; assessments are not publishable as documents"
+fi
+
 grep -Fq '"prerequisiteRules": []' "$DOCUMENT" \
-  || fail "J1 authored a prerequisite rule; the cross-document rule is recorded, not authored"
+  || fail "a prerequisite rule was authored; the cross-document rule is recorded, not authored"
 
-echo "PASS:  3. no steps, assets, interactions, assessments or prerequisite rules"
-
-SCAN_DIR="$(mktemp -d)"
-trap 'rm -rf "$SCAN_DIR"' EXIT
+echo "PASS:  3. instruction exists only in the missions a slice authorised"
 
 # The document with its JSON escapes decoded, for prose checks.
 #
@@ -324,8 +372,9 @@ echo "curriculum document that parses through the real parser."
 echo "It declares four modules, eight missions and seven"
 echo "competencies, develops each exactly once, reinforces"
 echo "nothing before it is developed, and states what the learner"
-echo "needs before every mission. It authors no steps, assets,"
-echo "interactions, assessments or prerequisite rules."
+echo "needs before every mission. Instruction is authored in"
+echo "Module 1 and in no other mission; assets, assessments and"
+echo "prerequisite rules remain unauthored everywhere."
 echo ""
 echo "Router-on-a-Stick is unmodified. The cross-course"
 echo "transition is recorded, and proved coherent against a"
@@ -336,5 +385,6 @@ echo "It does NOT prove:"
 echo "  - that the course teaches well; that is Human UAT"
 echo "  - that any curriculum has been imported or published"
 echo "  - that the five pending migrations have been applied"
-echo "  - anything a learner would experience; no steps exist yet"
+echo "  - anything about Module 1's instruction beyond where it"
+echo "    sits; scripts/verify-wpj-m1.sh owns that"
 echo "=========================================================="

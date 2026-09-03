@@ -1,9 +1,11 @@
 import {
+  OBSERVATION_NODE_ROLES,
   isObservationNodeRole,
   isObservationSourceKind,
   isObservationStageOutcome,
   type ObservationAction,
   type ObservationConsequence,
+  type ObservationGroup,
   type ObservationInterface,
   type ObservationLink,
   type ObservationModel,
@@ -182,10 +184,42 @@ export interface PacketJourneyInterface {
   readonly attributes: readonly PacketJourneyAttribute[];
 }
 
+/**
+ * An authored grouping of devices, declared inside one interaction.
+ *
+ * The authoring half of `ObservationGroup`, and it means exactly the same
+ * thing: **these authored devices are being presented together, under this
+ * name.** It is not an IP network, a subnet, a VLAN, a broadcast domain, a
+ * routing domain, a trust zone or a location, and no consumer may read it as
+ * one — see the note on `ObservationGroup` for why the vocabulary is generic.
+ *
+ * Groups are optional. An interaction that declares none is exactly as valid as
+ * it was before this field existed, which is what keeps this additive.
+ */
+export interface PacketJourneyGroup {
+  readonly groupId: string;
+  /** Authored words the learner reads, e.g. "Local network". */
+  readonly label: string;
+}
+
 export interface PacketJourneyNode {
   readonly nodeId: string;
   readonly label: string;
   readonly role: ObservationNodeRole;
+  /**
+   * Which declared group this device belongs to.
+   *
+   * Optional, and its absence is a fact rather than a gap: the author did not
+   * put this device in a group. Nothing infers one from what the device is,
+   * what it is attached to, or where it ends up being drawn.
+   */
+  readonly groupId?: string;
+  /**
+   * Authored prose explaining what this device is doing in this scenario, read
+   * when a learner selects it. See `ObservationNode.about`, which this projects
+   * to unchanged.
+   */
+  readonly about?: string;
   readonly interfaces: readonly PacketJourneyInterface[];
 }
 
@@ -305,6 +339,8 @@ export interface PacketJourneyConfirmation {
  */
 export interface PacketJourneyParameters {
   readonly interactionType: "packet_journey";
+  /** Optional. Absent means this interaction groups nothing. */
+  readonly groups?: readonly PacketJourneyGroup[];
   readonly nodes: readonly PacketJourneyNode[];
   readonly links: readonly PacketJourneyLink[];
   readonly traffic: PacketJourneyTraffic;
@@ -435,7 +471,20 @@ function reportDuplicates(
 const ATTRIBUTE_KEYS = ["label", "value", "prominent"] as const;
 const ATTRIBUTE_REQUIRED = ["label", "value"] as const;
 const INTERFACE_KEYS = ["interfaceId", "label", "attributes"] as const;
-const NODE_KEYS = ["nodeId", "label", "role", "interfaces"] as const;
+const GROUP_KEYS = ["groupId", "label"] as const;
+/**
+ * `groupId` and `about` are allowed on a node and are not required; the rest
+ * are required.
+ */
+const NODE_KEYS = [
+  "nodeId",
+  "label",
+  "role",
+  "groupId",
+  "about",
+  "interfaces"
+] as const;
+const NODE_REQUIRED = ["nodeId", "label", "role", "interfaces"] as const;
 const LINK_KEYS = ["linkId", "label", "endpoints"] as const;
 const TRAFFIC_KEYS = [
   "label",
@@ -468,6 +517,7 @@ const ACTION_KEYS = [
 const CONFIRMATION_KEYS = ["narration", "summary"] as const;
 const PACKET_JOURNEY_KEYS = [
   "interactionType",
+  "groups",
   "nodes",
   "links",
   "traffic",
@@ -517,6 +567,35 @@ export function validatePacketJourneyParameters(
     );
   }
 
+  // --- groups -----------------------------------------------------------
+  //
+  // Validated BEFORE the nodes that reference them, so a node's `groupId` is
+  // checked against a set that is already known. A group is an id and a label;
+  // there is nothing else to check, because there is nothing else in one.
+  const groupIds: (string | undefined)[] = [];
+
+  if (value.groups !== undefined) {
+    if (!Array.isArray(value.groups)) {
+      at(`${label}.groups must be an array`);
+    } else {
+      value.groups.forEach((entry, index) => {
+        const groupLabel = `${label}.groups[${index}]`;
+        if (!checkKeys(entry, GROUP_KEYS, GROUP_KEYS, groupLabel, at)) return;
+
+        groupIds.push(checkKey(entry, "groupId", groupLabel, at));
+        // The label is what a learner reads on the boundary, so it goes
+        // through the same non-empty, within-ceiling rule as every other
+        // authored string. A blank caption would draw an unnamed box, which
+        // asserts a grouping without saying what it is.
+        checkText(entry, "label", groupLabel, at);
+      });
+    }
+  }
+
+  reportDuplicates(groupIds, `${label}.groups`, at);
+
+  const knownGroups = new Set(groupIds.filter((id): id is string => !!id));
+
   // --- nodes and their interfaces -------------------------------------
   const nodeIds: (string | undefined)[] = [];
   const interfaceIds: (string | undefined)[] = [];
@@ -526,16 +605,36 @@ export function validatePacketJourneyParameters(
   } else {
     value.nodes.forEach((entry, index) => {
       const nodeLabel = `${label}.nodes[${index}]`;
-      if (!checkKeys(entry, NODE_KEYS, NODE_KEYS, nodeLabel, at)) return;
+      if (!checkKeys(entry, NODE_KEYS, NODE_REQUIRED, nodeLabel, at)) return;
 
       nodeIds.push(checkKey(entry, "nodeId", nodeLabel, at));
       checkText(entry, "label", nodeLabel, at);
 
       if (!isObservationNodeRole(entry.role)) {
         at(
-          `${nodeLabel}.role must be host, switch or router, not "${String(entry.role)}"`
+          `${nodeLabel}.role must be one of ${OBSERVATION_NODE_ROLES.join(", ")}, not "${String(entry.role)}"`
         );
       }
+
+      // Membership is a cross-reference like every other identifier in this
+      // block, and it fails closed. A device naming a group that was never
+      // declared would leave a presentation with a boundary to draw and
+      // nothing to call it — and the tempting repair, inventing the group,
+      // is precisely the inferred membership this contract exists to
+      // prevent.
+      if (entry.groupId !== undefined) {
+        const named = checkKey(entry, "groupId", nodeLabel, at);
+        if (named !== undefined && !knownGroups.has(named)) {
+          at(
+            `${nodeLabel}.groupId names a group that is not declared: ${named}`
+          );
+        }
+      }
+
+      // Prose, checked as prose: present or absent, and non-empty within the
+      // ceiling when present. Nothing here reads what it says — an explanation
+      // is authored words, and the validator is not a proofreader.
+      checkOptionalText(entry, "about", nodeLabel, at);
 
       if (!Array.isArray(entry.interfaces)) {
         at(`${nodeLabel}.interfaces must be an array`);
@@ -951,8 +1050,19 @@ function projectNode(node: PacketJourneyNode): ObservationNode {
     nodeId: node.nodeId,
     label: node.label,
     role: node.role,
+    // Copied. The projection never assigns, defaults or infers membership —
+    // a node the author left ungrouped stays ungrouped all the way to the
+    // drawing, where it is drawn outside every boundary.
+    ...(node.groupId !== undefined ? { groupId: node.groupId } : {}),
+    // Copied verbatim, like every other authored string. The projection does
+    // not compose, summarise or supply one.
+    ...(node.about !== undefined ? { about: node.about } : {}),
     interfaces: node.interfaces.map(projectInterface)
   };
+}
+
+function projectGroup(group: PacketJourneyGroup): ObservationGroup {
+  return { groupId: group.groupId, label: group.label };
 }
 
 function projectLink(link: PacketJourneyLink): ObservationLink {
@@ -1053,15 +1163,36 @@ export function buildPacketJourneyObservationModel(
           }
         : completed
           ? {
-              // `confirmed` needs the authored confirmation to say anything.
-              // When the level withheld it, the honest state is that the
-              // journey is proceeding — not a confirmation with no words.
+              // ## What `confirmed` means, and why a repair is not part of it
+              //
+              // It means the authored journey ran to its authored end: every
+              // stage revealed, no stop point still in force, and an authored
+              // conclusion to say so.
+              //
+              // It used to require `faultResolved` as well, which quietly made
+              // completion unreachable for any journey that authors no fault.
+              // Networking Foundations Module 1 is exactly that journey — a
+              // print request that travels from PC-A to the printer and
+              // arrives — and it could therefore never reach its own
+              // conclusion, so Founder UAT saw a walkthrough that simply
+              // stopped rather than one that succeeded.
+              //
+              // Dropping the condition changes nothing for a journey that DOES
+              // author a fault: its stop point blocks the reveal until the
+              // authored remediation is applied, so reaching the last stage
+              // already implies the repair. The requirement was redundant
+              // there and wrong everywhere else.
+              //
+              // `confirmed` still needs the authored confirmation to say
+              // anything. When the support level withheld it, the honest state
+              // is that the journey is proceeding — not a confirmation with no
+              // words.
               state:
-                faultResolved && parameters.confirmation !== undefined
+                parameters.confirmation !== undefined
                   ? "confirmed"
                   : "proceeding",
               narration:
-                faultResolved && parameters.confirmation !== undefined
+                parameters.confirmation !== undefined
                   ? parameters.confirmation.narration
                   : currentStage.narration
             }
@@ -1082,6 +1213,9 @@ export function buildPacketJourneyObservationModel(
     sourceKind,
     availability: "available",
     trafficLabel: parameters.traffic.label,
+    // Empty rather than absent when nothing was authored, so a consumer never
+    // has to decide what a missing list means.
+    groups: (parameters.groups ?? []).map(projectGroup),
     nodes: parameters.nodes.map(projectNode),
     links: parameters.links.map(projectLink),
     stages,
@@ -1156,6 +1290,16 @@ export interface LearnerPacketJourneyFault {
  */
 export interface LearnerPacketJourneyParameters {
   readonly interactionType: "packet_journey";
+  /**
+   * Carried at EVERY support level.
+   *
+   * A group is a topology fact of the same kind as a node or a link: it says
+   * what the learner is looking at, never what the answer is. Withholding it
+   * would remove a device's place in the picture without protecting anything,
+   * and would leave the accessible description unable to say what the drawing
+   * shows.
+   */
+  readonly groups?: readonly PacketJourneyGroup[];
   readonly nodes: readonly PacketJourneyNode[];
   readonly links: readonly PacketJourneyLink[];
   readonly traffic: PacketJourneyTraffic;

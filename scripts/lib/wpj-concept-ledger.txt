@@ -41,10 +41,33 @@
 #
 # ## Its real job is ahead of it
 #
-# J1 authors no steps, so most terms appear nowhere yet and most rows pass
-# trivially. That is expected. This ledger is a GUARD placed before the writing
-# starts, so that when J3 onward author eighty instructional steps, a forward
-# reference fails a gate instead of reaching a beginner.
+# J1 authored no steps, so most terms appear nowhere yet and most rows still
+# pass trivially. This ledger is a GUARD placed before the writing starts, so
+# that as the remaining missions are authored, a forward reference fails a gate
+# instead of reaching a beginner. Module 1 is the first slice it has had real
+# work to do on.
+#
+# ## Why `broadcast` moved from Mission 2 to Mission 4
+#
+# Module 1 authoring found that what Mission 2 actually teaches is a switch
+# sending a copy out of its other ports because it has not yet learned which
+# one leads to the destination. That is unknown-destination FLOODING, and it is
+# not a broadcast: a broadcast is a frame deliberately addressed to every
+# machine at once.
+#
+# Teaching the first under the second's name would be a false simplification
+# the learner would later have to unlearn, so Mission 2 names flooding, which
+# is what it demonstrates, and the row here says so.
+#
+# `broadcast` moves to Mission 4 rather than to an arbitrary later point,
+# because Mission 4 is where the course itself makes it teachable. Its authored
+# description already promises "the small exchange it performs first to turn an
+# assigned address into the factory identity it actually needs" — that exchange
+# is ARP, ARP requests are broadcast, and row 17 already places ARP there. So
+# Mission 4 is both the first mission where a learner has the addressing
+# context for the term to be accurate, and the first mission that needs it.
+#
+# Mission 4 is NOT authored by that decision. Only the ordering is recorded.
 #
 # ## Format
 #
@@ -63,18 +86,19 @@
 9|nf-m2-inside-one-network|frame|frame
 10|nf-m2-inside-one-network|MAC address|MAC
 11|nf-m2-inside-one-network|switch learning and forwarding|-
-12|nf-m2-inside-one-network|broadcast|broadcast
+12|nf-m2-inside-one-network|unknown-destination flooding|flooding
 13|nf-m3-ipv4-the-second-identity|IPv4|IPv4
 14|nf-m4-the-prefix-and-the-decision|prefix length|prefix
 15|nf-m4-the-prefix-and-the-decision|network portion and host portion|-
 16|nf-m4-the-prefix-and-the-decision|same network or remote network|-
 17|nf-m4-the-prefix-and-the-decision|ARP|ARP
-18|nf-m5-the-default-gateway|default gateway|gateway
-19|nf-m6-routers-and-the-journey|routing|routing
-20|nf-m6-routers-and-the-journey|frame versus packet|packet
-21|nf-m6-routers-and-the-journey|Layer 2 and Layer 3|-
-22|nf-m7-testing-whether-it-works|ICMP and ping|ping
-23|nf-m7-testing-whether-it-works|reachability observation|-
-24|nf-m8-when-it-does-not-work|simple failure reasoning|-
-25|nf-m8-when-it-does-not-work|bounded repair|-
-26|nf-m8-when-it-does-not-work|confirmation after repair|-
+18|nf-m4-the-prefix-and-the-decision|broadcast|broadcast
+19|nf-m5-the-default-gateway|default gateway|gateway
+20|nf-m6-routers-and-the-journey|routing|routing
+21|nf-m6-routers-and-the-journey|frame versus packet|packet
+22|nf-m6-routers-and-the-journey|Layer 2 and Layer 3|-
+23|nf-m7-testing-whether-it-works|ICMP and ping|ping
+24|nf-m7-testing-whether-it-works|reachability observation|-
+25|nf-m8-when-it-does-not-work|simple failure reasoning|-
+26|nf-m8-when-it-does-not-work|bounded repair|-
+27|nf-m8-when-it-does-not-work|confirmation after repair|-
