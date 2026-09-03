@@ -354,6 +354,9 @@ function projectPacketJourneyParameters(
 
   return {
     interactionType: "packet_journey",
+    // Topology facts, carried at every level. A group says what the learner is
+    // looking at, never what the answer is.
+    ...(parameters.groups !== undefined ? { groups: parameters.groups } : {}),
     nodes: parameters.nodes,
     links: parameters.links,
     traffic: parameters.traffic,

@@ -290,8 +290,33 @@ function InteractionStep({
       {content.caption !== undefined && (
         <p className="instruction-command-caption">{content.caption}</p>
       )}
-      <p>{content.textEquivalent}</p>
+
       <InteractionSurface content={content} instanceId={instanceId} />
+
+      {/*
+        The authored text equivalent, behind a disclosure and BELOW the
+        interaction it describes.
+
+        It used to lead: a paragraph of several hundred words above the
+        activity, describing the whole network and then narrating the outcome
+        the learner is about to be asked to predict. Founder UAT found the
+        wall; it also gave away the answer.
+
+        It is not removed and it is not hidden from assistive technology —
+        `<details>` content stays in the accessibility tree, and CURR-011
+        s14.3 requires the equivalent to be PRESENT rather than to lead. What
+        changed is that it no longer competes with the interaction for the
+        learner's first read, and no longer pre-empts the prediction.
+
+        Everything it describes is also carried by the interaction itself: the
+        drawing has its own accessible arrangement description, the semantic
+        tree carries the state, the actions and the consequence, and the full
+        ordered account is one disclosure below.
+      */}
+      <details className="instruction-text-equivalent">
+        <summary>Full description of this activity</summary>
+        <p>{content.textEquivalent}</p>
+      </details>
     </>
   );
 }

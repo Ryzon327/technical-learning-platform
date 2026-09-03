@@ -1,35 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
+  OBSERVATION_NODE_ROLES,
   unavailableObservationModel,
   type ObservationModel
 } from "@tlp/shared-types";
 import {
+  GROUP_LABEL_HEIGHT,
+  MARKER_CLEARANCE,
+  NODE_BASE_HEIGHT,
+  NODE_WIDTH,
+  TOPOLOGY_HEIGHT_BUDGET,
+  TOPOLOGY_WIDTH_BUDGET,
   buildTopologyLayout,
   connectionsForDevice,
   describeConnectionFrom,
   describeDeviceState,
-  describePacketState
+  describePacketState,
+  describeTopologyRole,
+  distanceToBox
 } from "./topology-layout";
 
 /**
- * WP-I correction — the drawable topology, proven without a browser.
+ * WP-I, corrected by WP-J Module 1 — the drawable topology, proven without a
+ * browser.
  *
  * This repository has no rendered-DOM test harness, so the rules that decide
- * what the picture CONTAINS live in a pure module and are pinned here. The
- * failure these tests exist to prevent is the quiet one: a layout that silently
- * omits a device or a wire still renders, still looks finished, and leaves a
- * learner reasoning about a network that is not the one they were given.
+ * what the picture CONTAINS — and, since the Founder UAT correction, exactly
+ * WHERE every part of it sits — live in a pure module and are pinned here.
+ *
+ * Two failures are guarded. The quiet one: a layout that silently omits a
+ * device or a wire still renders, still looks finished, and leaves a learner
+ * reasoning about a network that is not the one they were given. And the loud
+ * one Founder UAT found: a drawing whose arrangement teaches nothing, whose
+ * wires cross the cards, and whose traffic marker covers a device's own text.
  */
 
-/**
- * Four devices and three links, shaped like the architecture fixture —
- * including the link that spans non-adjacent columns, which is what forces a
- * routed lane.
- */
+/** Four devices and three links, shaped like the architecture fixture. */
 const model: ObservationModel = {
   sourceKind: "authored_teaching",
   availability: "available",
   trafficLabel: "an ICMP echo request",
+  // Authored before groups existed, and still valid: an interaction that
+  // groups nothing draws no boundary.
+  groups: [],
   nodes: [
     {
       nodeId: "pc-a",
@@ -126,6 +139,186 @@ const model: ObservationModel = {
   }
 };
 
+/* ------------------------------------------------------------------ *
+ * Shapes the hierarchy has to handle
+ *
+ * Written by hand rather than generated, so what each one is TESTING is legible
+ * beside the assertion: Module 1's authored star, two intermediary devices side
+ * by side, and an end device attached across a row it does not touch.
+ * ------------------------------------------------------------------ */
+
+function node(
+  nodeId: string,
+  label: string,
+  role: ObservationModel["nodes"][number]["role"],
+  interfaceIds: readonly string[],
+  groupId?: string
+): ObservationModel["nodes"][number] {
+  return {
+    nodeId,
+    label,
+    role,
+    ...(groupId === undefined ? {} : { groupId }),
+    interfaces: interfaceIds.map((interfaceId) => ({
+      interfaceId,
+      label: interfaceId,
+      attributes: []
+    }))
+  };
+}
+
+function wire(
+  linkId: string,
+  from: string,
+  to: string
+): ObservationModel["links"][number] {
+  return {
+    linkId,
+    label: `${from} to ${to}`,
+    endpoints: [from, to],
+    availability: "available"
+  };
+}
+
+const emptyJourney = {
+  sourceKind: "authored_teaching" as const,
+  availability: "available" as const,
+  trafficLabel: "anything PC-A sends",
+  groups: [],
+  stages: [],
+  currentStageId: null,
+  actions: [],
+  consequence: null
+};
+
+/**
+ * Module 1's authored shape, and the one the Founder UAT correction is about:
+ * three end devices on a switch, and a router attached to the same switch.
+ */
+const moduleOne: ObservationModel = {
+  ...emptyJourney,
+  nodes: [
+    node("pc-a", "PC-A", "host", ["pc-a-nic"]),
+    node("pc-b", "PC-B", "host", ["pc-b-nic"]),
+    node("printer", "Printer", "printer", ["printer-nic"]),
+    node("sw-1", "Switch-1", "switch", [
+      "sw-1-p1",
+      "sw-1-p2",
+      "sw-1-p3",
+      "sw-1-p4"
+    ]),
+    node("r-1", "Router-1", "router", ["r-1-local", "r-1-outward"])
+  ],
+  links: [
+    wire("link-pc-a", "pc-a-nic", "sw-1-p1"),
+    wire("link-pc-b", "pc-b-nic", "sw-1-p2"),
+    wire("link-printer", "printer-nic", "sw-1-p3"),
+    wire("link-router", "r-1-local", "sw-1-p4")
+  ],
+  stages: [
+    {
+      stageId: "t1-pc-a",
+      atNodeId: "pc-a",
+      narration: "PC-A has one link.",
+      outcome: "proceeds",
+      availability: "available"
+    },
+    {
+      stageId: "t2-switch",
+      atNodeId: "sw-1",
+      narration: "It arrives at Switch-1.",
+      outcome: "proceeds",
+      viaLinkId: "link-pc-a",
+      availability: "available"
+    }
+  ],
+  currentStageId: "t2-switch",
+  consequence: { state: "proceeding", narration: "It arrives at Switch-1." }
+};
+
+/**
+ * Two intermediary devices in the same row, joined to each other.
+ *
+ * The shape the Founder asked the layout to stay compatible with: two separated
+ * groups of end devices that a later mission could draw side by side.
+ */
+const twoSwitches: ObservationModel = {
+  ...emptyJourney,
+  nodes: [
+    node("sw-a", "Switch-A", "switch", ["sw-a-p1", "sw-a-p2"]),
+    node("sw-b", "Switch-B", "switch", ["sw-b-p1", "sw-b-p2"]),
+    node("pc-a", "PC-A", "host", ["pc-a-nic"]),
+    node("pc-c", "PC-C", "host", ["pc-c-nic"])
+  ],
+  links: [
+    wire("link-pc-a", "pc-a-nic", "sw-a-p1"),
+    wire("link-pc-c", "pc-c-nic", "sw-b-p1"),
+    wire("link-sw-sw", "sw-a-p2", "sw-b-p2")
+  ]
+};
+
+/**
+ * Module 1 as it is now authored: the same five devices, with the four the
+ * curriculum studies together placed in one authored group, and Router-1
+ * deliberately left out of it.
+ */
+const moduleOneGrouped: ObservationModel = {
+  ...moduleOne,
+  groups: [{ groupId: "local-network", label: "Local network" }],
+  nodes: moduleOne.nodes.map((entry) =>
+    entry.nodeId === "r-1" ? entry : { ...entry, groupId: "local-network" }
+  )
+};
+
+/**
+ * Two authored groups side by side, each with its own switch and hosts, joined
+ * by a router that belongs to neither.
+ *
+ * This is the shape the Architect required the presentation to support without
+ * authoring any future curriculum to demonstrate it.
+ */
+const twoGroups: ObservationModel = {
+  ...emptyJourney,
+  trafficLabel: "anything PC-A sends",
+  groups: [
+    { groupId: "network-a", label: "Network A" },
+    { groupId: "network-b", label: "Network B" }
+  ],
+  nodes: [
+    node("sw-a", "Switch-A", "switch", ["sw-a-p1", "sw-a-p2", "sw-a-up"], "network-a"),
+    node("pc-a", "PC-A", "host", ["pc-a-nic"], "network-a"),
+    node("pc-b", "PC-B", "host", ["pc-b-nic"], "network-a"),
+    node("sw-b", "Switch-B", "switch", ["sw-b-p1", "sw-b-p2", "sw-b-up"], "network-b"),
+    node("pc-c", "PC-C", "host", ["pc-c-nic"], "network-b"),
+    node("pc-d", "PC-D", "host", ["pc-d-nic"], "network-b"),
+    node("r-1", "Router-1", "router", ["r-1-a", "r-1-b"])
+  ],
+  links: [
+    wire("link-pc-a", "pc-a-nic", "sw-a-p1"),
+    wire("link-pc-b", "pc-b-nic", "sw-a-p2"),
+    wire("link-pc-c", "pc-c-nic", "sw-b-p1"),
+    wire("link-pc-d", "pc-d-nic", "sw-b-p2"),
+    wire("link-up-a", "r-1-a", "sw-a-up"),
+    wire("link-up-b", "r-1-b", "sw-b-up")
+  ]
+};
+
+/** An end device attached straight to a router, across the switch row. */
+const hostToRouter: ObservationModel = {
+  ...emptyJourney,
+  nodes: [
+    node("r-1", "Router-1", "router", ["r-1-local", "r-1-direct"]),
+    node("sw-1", "Switch-1", "switch", ["sw-1-p1", "sw-1-p2"]),
+    node("pc-a", "PC-A", "host", ["pc-a-nic"]),
+    node("pc-b", "PC-B", "host", ["pc-b-nic", "pc-b-second"])
+  ],
+  links: [
+    wire("link-uplink", "r-1-local", "sw-1-p1"),
+    wire("link-pc-a", "pc-a-nic", "sw-1-p2"),
+    wire("link-direct", "pc-b-second", "r-1-direct")
+  ]
+};
+
 /** Narrow to the drawable case, so a test reads without a guard in every line. */
 function layoutOf(source: ObservationModel) {
   const layout = buildTopologyLayout(source, "pc-a");
@@ -146,7 +339,7 @@ describe("nothing is silently dropped", () => {
       "r-1",
       "pc-b"
     ]);
-    expect(layout.columns).toBe(4);
+    expect(layout.rows).toBe(3);
   });
 
   it("draws every link the model declares", () => {
@@ -160,12 +353,25 @@ describe("nothing is silently dropped", () => {
     ]);
   });
 
-  it("keeps devices in authored order rather than a tidier one", () => {
-    // Reordering to reduce crossings would be a layout opinion overriding the
-    // author's, and it would make the picture disagree with the written list.
-    expect(layoutOf(model).devices.map((device) => device.column)).toEqual([
-      0, 1, 2, 3
-    ]);
+  it("keeps the devices themselves in authored order", () => {
+    // Founder UAT required the ARRANGEMENT to change — a row of cards taught a
+    // beginner nothing about what was attached to what. What must not change is
+    // the set: the devices are still emitted in authored order, so the picture
+    // and every written list stay in the same sequence.
+    expect(layoutOf(model).devices.map((device) => device.nodeId)).toEqual(
+      model.nodes.map((node) => node.nodeId)
+    );
+  });
+
+  it("ties an equal placement back to authored order", () => {
+    // PC-A and PC-B are both attached to Switch-1 and nothing separates them,
+    // so the author's order decides. A layout that broke ties by anything else
+    // would draw a different picture from the same model on a different day.
+    const hosts = layoutOf(model)
+      .devices.filter((device) => device.role === "host")
+      .sort((left, right) => left.order - right.order);
+
+    expect(hosts.map((device) => device.nodeId)).toEqual(["pc-a", "pc-b"]);
   });
 
   it("is deterministic", () => {
@@ -240,21 +446,76 @@ describe("endpoints are resolved, never left as identifiers", () => {
   });
 });
 
-describe("routing lanes are packing, not pathfinding", () => {
-  it("runs adjacent links along the device band", () => {
-    const layout = layoutOf(model);
-
-    expect(layout.links[0]?.lane).toBe(0);
-    expect(layout.links[1]?.lane).toBe(0);
+describe("wires are routed geometry, not pathfinding", () => {
+  it("draws a link between neighbouring rows as one straight branch", () => {
+    for (const link of layoutOf(model).links) {
+      expect(link.shape).toBe("branch");
+      expect(link.points).toHaveLength(2);
+    }
   });
 
-  it("drops a link spanning further into a lane below", () => {
-    const layout = layoutOf(model);
+  it("routes a link between the same row through the band above it", () => {
+    const layout = layoutOf(twoSwitches);
+    const peer = layout.links.find((link) => link.linkId === "link-sw-sw");
 
-    // PC-B is at column 3 and Switch-1 at column 1, so this cannot run along
-    // the band without crossing Router-1.
-    expect(layout.links[2]?.lane).toBe(1);
-    expect(layout.lanes).toBe(1);
+    expect(peer?.shape).toBe("peer");
+
+    const switches = layout.devices.filter(
+      (device) => device.role === "switch"
+    );
+
+    // Up out of the top edge, across a lane above the row, and back down. The
+    // lane is inside the clear band, so it cannot cross either card.
+    for (const point of peer?.points ?? []) {
+      expect(point.y).toBeLessThanOrEqual(switches[0]?.box.y ?? 0);
+    }
+  });
+
+  it("routes a link across a row it does not touch out to a side channel", () => {
+    const layout = layoutOf(hostToRouter);
+    const bypass = layout.links.find((link) => link.linkId === "link-direct");
+
+    expect(bypass?.shape).toBe("bypass");
+
+    // The channel is beyond every card, which is what stops the wire being
+    // drawn through the row in between.
+    const rightMost = layout.devices.reduce(
+      (widest, device) => Math.max(widest, device.box.x + device.box.width),
+      0
+    );
+
+    expect(
+      Math.max(...(bypass?.points ?? []).map((point) => point.x))
+    ).toBeGreaterThan(rightMost);
+  });
+
+  it("gives every wire on a device its own point on that device's edge", () => {
+    // Three host links meeting a switch at one point is what made the previous
+    // drawing impossible to trace. Fanned across the edge, they are separate
+    // attachments a learner can follow one at a time.
+    const layout = layoutOf(moduleOne);
+
+    const atSwitch = layout.links.map((link) =>
+      link.from.nodeId === "sw-1"
+        ? link.points[0]
+        : link.to.nodeId === "sw-1"
+          ? link.points[link.points.length - 1]
+          : undefined
+    );
+
+    const anchors = atSwitch
+      .filter((point): point is { x: number; y: number } => point !== undefined)
+      .map((point) => `${point.x},${point.y}`);
+
+    expect(anchors).toHaveLength(4);
+    expect(new Set(anchors).size).toBe(4);
+  });
+
+  it("draws no two wires along the same line", () => {
+    for (const fixture of [model, moduleOne, twoSwitches, hostToRouter]) {
+      const paths = layoutOf(fixture).links.map((link) => link.path);
+      expect(new Set(paths).size).toBe(paths.length);
+    }
   });
 });
 
@@ -274,6 +535,18 @@ describe("journey state comes from fields, never from adjacency", () => {
     for (const device of layoutOf(model).devices) {
       expect(device.stateLabel).toBe(describeDeviceState(device.state));
       expect(device.stateLabel.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("carries every device category through to the drawing, in a word", () => {
+    // The renderer selects a symbol from `role` and a caption from `roleLabel`,
+    // so both have to survive the layout for a category to be recognisable.
+    for (const device of layoutOf(model).devices) {
+      expect(device.role).toBe(
+        model.nodes.find((node) => node.nodeId === device.nodeId)?.role
+      );
+      expect(device.roleLabel).toBe(describeTopologyRole(device.role));
+      expect(device.roleLabel.length).toBeGreaterThan(0);
     }
   });
 
@@ -327,19 +600,20 @@ describe("the packet reports position, not progress", () => {
 
     const layout = layoutOf(unstarted);
 
-    expect(layout.packet).toEqual({
+    expect(layout.packet).toMatchObject({
       nodeId: "pc-a",
-      column: 0,
       state: "waiting",
-      stateLabel: describePacketState("waiting")
+      stateLabel: describePacketState("waiting"),
+      // Waiting on the link it will leave by, not inside PC-A's card.
+      linkId: "link-pc-a"
     });
   });
 
-  it("sits at the current device while the journey proceeds", () => {
+  it("rides the link the source named, towards the device that has it", () => {
     expect(layoutOf(model).packet).toMatchObject({
       nodeId: "sw-1",
-      column: 1,
-      state: "moving"
+      state: "moving",
+      linkId: "link-pc-a"
     });
   });
 
@@ -609,13 +883,990 @@ describe("the layout is geometry and carries no networking truth", () => {
   });
 
   it("says nothing about whether two drawn neighbours can talk", () => {
-    // PC-A and Switch-1 are adjacent columns joined by a lane-0 wire, and PC-B
-    // is on the same switch. The layout still reports no traversal for either
-    // until a stage says so, because being drawn near something is not a fact
-    // about the network.
+    // PC-A is drawn directly beneath Switch-1 with a wire between them, and
+    // PC-B hangs off the same switch. The layout still reports no traversal for
+    // either until a stage says so, because being drawn under something is not
+    // a fact about the network.
     const layout = layoutOf({ ...model, stages: [], currentStageId: null });
 
     expect(layout.links.every((link) => !link.traversed)).toBe(true);
     expect(layout.devices.every((device) => device.state === "idle")).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Device categories
+ *
+ * WP-J Module 1 correction. The topology now draws a symbol per category, and
+ * the symbol is selected from `role` alone. These pin the two properties that
+ * makes that safe: every registered role has a word, and no role borrows
+ * another's.
+ * ------------------------------------------------------------------ */
+
+describe("every device category is nameable and distinct", () => {
+  it("gives each registered role its own word", () => {
+    const labels = OBSERVATION_NODE_ROLES.map((role) =>
+      describeTopologyRole(role)
+    );
+
+    for (const label of labels) {
+      expect(label.length).toBeGreaterThan(0);
+    }
+
+    // No two categories may share a caption. A duplicate would make two
+    // different kinds of device read identically to anyone using the words
+    // rather than the picture — which is the accessible path.
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it("keeps the general word general", () => {
+    // Mission 1 step 2 teaches that a printer is a host. Narrowing `host` to
+    // "Workstation" would put the topology in direct contradiction with the
+    // instruction printed beside it.
+    expect(describeTopologyRole("host")).toBe("Host");
+    expect(describeTopologyRole("printer")).toBe("Printer");
+  });
+
+  it("draws a printer through the layout as its own category", () => {
+    const withPrinter: ObservationModel = {
+      ...model,
+      nodes: model.nodes.map((node) =>
+        node.nodeId === "pc-b" ? { ...node, role: "printer" as const } : node
+      )
+    };
+
+    const layout = buildTopologyLayout(withPrinter, "pc-a");
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    const printer = layout.devices.find((device) => device.nodeId === "pc-b");
+
+    expect(printer?.role).toBe("printer");
+    expect(printer?.roleLabel).toBe("Printer");
+
+    // And it did not disturb anything else: same devices, same links, same
+    // geometry. A category is presentation and must change no relationship.
+    const before = buildTopologyLayout(model, "pc-a");
+    if (before.state !== "available") throw new Error("expected a layout");
+
+    expect(layout.devices.map((device) => device.nodeId)).toEqual(
+      before.devices.map((device) => device.nodeId)
+    );
+    expect(layout.devices.map((device) => device.box)).toEqual(
+      before.devices.map((device) => device.box)
+    );
+    expect(layout.links.map((link) => link.path)).toEqual(
+      before.links.map((link) => link.path)
+    );
+    expect(layout.devices.map((device) => device.state)).toEqual(
+      before.devices.map((device) => device.state)
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-J Module 1 Founder UAT correction — the topology as a hierarchy
+ *
+ * Founder UAT rejected the previous drawing on four counts: it read as a
+ * horizontal row of cards, relationships were not visible in the arrangement,
+ * wires overlapped and crossed the cards, and the traffic marker sat on top of
+ * a device's text.
+ *
+ * Every one of those is a property of GEOMETRY, and geometry is computed here,
+ * so every one of them can be pinned here. What cannot be pinned here is
+ * whether the result looks like a premium product; that is Founder UAT, and no
+ * assertion below claims otherwise.
+ * ------------------------------------------------------------------ */
+
+/** Whether a point is strictly inside a box, ignoring its boundary. */
+function inside(
+  point: { x: number; y: number },
+  box: { x: number; y: number; width: number; height: number }
+): boolean {
+  return (
+    point.x > box.x &&
+    point.x < box.x + box.width &&
+    point.y > box.y &&
+    point.y < box.y + box.height
+  );
+}
+
+/** Every wire, walked in small steps, so a crossing cannot hide between two
+ *  corner points. */
+function samplesAlong(points: readonly { x: number; y: number }[]) {
+  const samples: { x: number; y: number }[] = [];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1]!;
+    const to = points[index]!;
+    const steps = Math.max(
+      2,
+      Math.ceil(Math.hypot(to.x - from.x, to.y - from.y))
+    );
+
+    for (let step = 0; step <= steps; step += 1) {
+      const ratio = step / steps;
+      samples.push({
+        x: from.x + (to.x - from.x) * ratio,
+        y: from.y + (to.y - from.y) * ratio
+      });
+    }
+  }
+
+  return samples;
+}
+
+const everyShape: readonly [string, ObservationModel][] = [
+  ["the architecture fixture", model],
+  ["Module 1", moduleOne],
+  ["Module 1 with its authored group", moduleOneGrouped],
+  ["two authored groups", twoGroups],
+  ["two switches side by side", twoSwitches],
+  ["an end device attached across a row", hostToRouter]
+];
+
+describe("the drawing is a hierarchy, not a row of cards", () => {
+  it("puts Module 1's switch between its router and its end devices", () => {
+    const byId = new Map(
+      layoutOf(moduleOne).devices.map((device) => [device.nodeId, device])
+    );
+
+    const router = byId.get("r-1")!;
+    const switched = byId.get("sw-1")!;
+
+    // The Founder's target shape: Router-1 at the edge of the drawing,
+    // Switch-1 in the middle, the end devices branching below it.
+    expect(router.row).toBe(0);
+    expect(switched.row).toBe(1);
+
+    for (const endpoint of ["pc-a", "pc-b", "printer"]) {
+      expect(byId.get(endpoint)?.row).toBe(2);
+      expect(byId.get(endpoint)!.box.y).toBeGreaterThan(switched.box.y);
+    }
+
+    expect(switched.box.y).toBeGreaterThan(router.box.y);
+  });
+
+  it("centres an intermediary device over what is attached to it", () => {
+    const byId = new Map(
+      layoutOf(moduleOne).devices.map((device) => [device.nodeId, device])
+    );
+
+    const centre = (nodeId: string) => {
+      const box = byId.get(nodeId)!.box;
+      return box.x + box.width / 2;
+    };
+
+    // Switch-1 sits over PC-B, which sits between PC-A and the Printer. That
+    // is what makes "these three hang off that one" readable without reading.
+    expect(centre("sw-1")).toBeCloseTo(
+      (centre("pc-a") + centre("pc-b") + centre("printer")) / 3,
+      5
+    );
+    expect(centre("r-1")).toBeCloseTo(centre("sw-1"), 5);
+  });
+
+  it("never draws two rows on the same line", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+      const tops = new Map<number, number>();
+
+      for (const device of layout.devices) {
+        const seen = tops.get(device.row);
+        if (seen === undefined) {
+          tops.set(device.row, device.box.y);
+          continue;
+        }
+        expect(`${name}: ${device.box.y}`).toBe(`${name}: ${seen}`);
+      }
+
+      expect(new Set([...tops.values()]).size).toBe(tops.size);
+    }
+  });
+
+  it("leaves clear space between every pair of cards", () => {
+    for (const [name, fixture] of everyShape) {
+      const devices = layoutOf(fixture).devices;
+
+      for (const left of devices) {
+        for (const right of devices) {
+          if (left.nodeId === right.nodeId) continue;
+
+          const overlaps =
+            left.box.x < right.box.x + right.box.width &&
+            right.box.x < left.box.x + left.box.width &&
+            left.box.y < right.box.y + right.box.height &&
+            right.box.y < left.box.y + left.box.height;
+
+          expect(`${name}: ${left.nodeId}/${right.nodeId} ${overlaps}`).toBe(
+            `${name}: ${left.nodeId}/${right.nodeId} false`
+          );
+        }
+      }
+    }
+  });
+
+  it("keeps every card inside the canvas it asks the renderer to reserve", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const device of layout.devices) {
+        expect(device.box.x).toBeGreaterThanOrEqual(0);
+        expect(device.box.y).toBeGreaterThanOrEqual(0);
+        expect(`${name}: ${device.box.x + device.box.width <= layout.frame.width}`).toBe(
+          `${name}: true`
+        );
+        expect(
+          `${name}: ${device.box.y + device.box.height <= layout.frame.height}`
+        ).toBe(`${name}: true`);
+      }
+    }
+  });
+});
+
+describe("no wire is drawn through a device", () => {
+  it("keeps every wire clear of every card, in every shape", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const link of layout.links) {
+        for (const point of samplesAlong(link.points)) {
+          for (const device of layout.devices) {
+            expect(`${name} ${link.linkId} ${inside(point, device.box)}`).toBe(
+              `${name} ${link.linkId} false`
+            );
+          }
+        }
+      }
+    }
+  });
+
+  it("starts and ends each wire on the edge of the device it names", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+      const byId = new Map(
+        layout.devices.map((device) => [device.nodeId, device])
+      );
+
+      for (const link of layout.links) {
+        const first = link.points[0]!;
+        const last = link.points[link.points.length - 1]!;
+
+        // On the boundary — zero distance to the box, and not inside it. A
+        // wire that stopped short would show an attachment that is not made.
+        expect(
+          `${name} ${link.linkId} ${distanceToBox(first, byId.get(link.from.nodeId)!.box)}`
+        ).toBe(`${name} ${link.linkId} 0`);
+        expect(
+          `${name} ${link.linkId} ${distanceToBox(last, byId.get(link.to.nodeId)!.box)}`
+        ).toBe(`${name} ${link.linkId} 0`);
+      }
+    }
+  });
+
+  it("draws Module 1's host links as four separate branches", () => {
+    // The trace test: PC-A to Switch-1 has to be one line a learner can follow
+    // with their eye, not a shared corridor.
+    const layout = layoutOf(moduleOne);
+
+    for (const link of layout.links) {
+      expect(link.shape).toBe("branch");
+      expect(link.points).toHaveLength(2);
+    }
+
+    const midpoints = layout.links.map((link) => {
+      const [from, to] = [link.points[0]!, link.points[1]!];
+      return `${(from.x + to.x) / 2},${(from.y + to.y) / 2}`;
+    });
+
+    expect(new Set(midpoints).size).toBe(midpoints.length);
+  });
+});
+
+describe("the traffic marker never covers a device", () => {
+  it("sits outside every card, in every shape and at every point of the journey", () => {
+    for (const [name, fixture] of everyShape) {
+      for (let revealed = 0; revealed <= fixture.stages.length; revealed += 1) {
+        const walked: ObservationModel = {
+          ...fixture,
+          stages: fixture.stages.map((stage, index) => ({
+            ...stage,
+            availability:
+              index < revealed ? ("available" as const) : ("unknown" as const)
+          })),
+          currentStageId:
+            revealed === 0 ? null : (fixture.stages[revealed - 1]?.stageId ?? null)
+        };
+
+        const layout = layoutOf(walked);
+        const marker = layout.packet;
+        if (marker === null) continue;
+
+        for (const device of layout.devices) {
+          // Not merely outside the box — clear of it by more than the marker's
+          // own radius, so the dot itself never touches a card.
+          expect(
+            `${name} ${device.nodeId} ${distanceToBox(marker.at, device.box) > 6}`
+          ).toBe(`${name} ${device.nodeId} true`);
+        }
+      }
+    }
+  });
+
+  it("waits outside the origin rather than inside it", () => {
+    const unstarted: ObservationModel = {
+      ...moduleOne,
+      stages: moduleOne.stages.map((stage) => ({
+        ...stage,
+        availability: "unknown" as const
+      })),
+      currentStageId: null,
+      consequence: null
+    };
+
+    const layout = layoutOf(unstarted);
+    const origin = layout.devices.find((device) => device.nodeId === "pc-a")!;
+
+    expect(layout.packet?.state).toBe("waiting");
+    expect(layout.packet?.linkId).toBe("link-pc-a");
+    expect(distanceToBox(layout.packet!.at, origin.box)).toBeGreaterThanOrEqual(
+      MARKER_CLEARANCE
+    );
+  });
+
+  it("arrives beside the device that has the traffic, not on top of it", () => {
+    const layout = layoutOf(moduleOne);
+    const switched = layout.devices.find((device) => device.nodeId === "sw-1")!;
+
+    expect(layout.packet?.nodeId).toBe("sw-1");
+    expect(layout.packet?.linkId).toBe("link-pc-a");
+    expect(distanceToBox(layout.packet!.at, switched.box)).toBeGreaterThanOrEqual(
+      MARKER_CLEARANCE
+    );
+
+    // And the DEVICE, separately, says the traffic is here. Two claims, two
+    // presentations; the marker is transit and the state is arrival.
+    expect(switched.state).toBe("current");
+    expect(switched.stateLabel).toBe(describeDeviceState("current"));
+  });
+});
+
+describe("the arrangement is available without sight", () => {
+  it("names every row, every device's category and every line drawn", () => {
+    const layout = layoutOf(moduleOne);
+
+    expect(layout.description).toContain("3 rows");
+    expect(layout.description).toContain("Row 1: Router-1, a router.");
+    expect(layout.description).toContain("Row 2: Switch-1, a switch.");
+    expect(layout.description).toContain(
+      "Row 3: PC-A, a host; PC-B, a host; Printer, a printer."
+    );
+    expect(layout.description).toContain("PC-A and Switch-1");
+    expect(layout.description).toContain("Router-1 and Switch-1");
+  });
+
+  it("mentions every device and every link, in every shape", () => {
+    for (const [, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const device of layout.devices) {
+        expect(layout.description).toContain(device.label);
+      }
+      expect(layout.description.split(";").length).toBeGreaterThanOrEqual(
+        layout.links.length
+      );
+    }
+  });
+
+  it("claims no grouping when the author declared none", () => {
+    // The picture may not assert that a set of devices belongs together unless
+    // an author said so. A model with no groups therefore says nothing about
+    // membership at all — no "contains", no "outside", and no invented name.
+    for (const fixture of [model, moduleOne, twoSwitches, hostToRouter]) {
+      const layout = layoutOf(fixture);
+
+      expect(layout.groups).toEqual([]);
+
+      const description = layout.description.toLowerCase();
+
+      for (const claim of ["contains", "outside", "network", "subnet", "zone"]) {
+        expect(description).not.toContain(claim);
+      }
+    }
+  });
+});
+
+describe("geometry is presentation, and stays that way", () => {
+  it("puts a device in a row from its authored category alone", () => {
+    // Changing what a device IS moves where it is drawn. Changing what it is
+    // ATTACHED to does not change what it is. Neither is a claim about traffic.
+    const asSwitch: ObservationModel = {
+      ...moduleOne,
+      nodes: moduleOne.nodes.map((entry) =>
+        entry.nodeId === "printer" ? { ...entry, role: "switch" as const } : entry
+      )
+    };
+
+    const before = layoutOf(moduleOne).devices.find(
+      (device) => device.nodeId === "printer"
+    );
+    const after = layoutOf(asSwitch).devices.find(
+      (device) => device.nodeId === "printer"
+    );
+
+    expect(before?.row).toBe(2);
+    expect(after?.row).toBe(1);
+  });
+
+  it("exposes no coordinate a forwarding decision could be read from", () => {
+    const layout = layoutOf(moduleOne);
+
+    // Geometry answers "where is this drawn". It answers nothing else, and
+    // there is no field here from which a next hop could be recovered.
+    for (const forbidden of [
+      "nextHop",
+      "route",
+      "reachable",
+      "forwards",
+      "gateway",
+      "subnet",
+      "mask",
+      "group",
+      "network"
+    ]) {
+      expect(Object.keys(layout)).not.toContain(forbidden);
+      expect(Object.keys(layout.links[0]!)).not.toContain(forbidden);
+      expect(Object.keys(layout.devices[0]!)).not.toContain(forbidden);
+    }
+  });
+
+  it("draws the same picture whatever the journey has done", () => {
+    // State changes what a card LOOKS like. It may never change where anything
+    // is: a picture that rearranged itself as traffic moved would be asserting
+    // that the network changed.
+    const untouched = layoutOf({
+      ...moduleOne,
+      stages: [],
+      currentStageId: null,
+      consequence: null
+    });
+
+    const walked = layoutOf(moduleOne);
+
+    expect(walked.devices.map((device) => device.box)).toEqual(
+      untouched.devices.map((device) => device.box)
+    );
+    expect(walked.links.map((link) => link.path)).toEqual(
+      untouched.links.map((link) => link.path)
+    );
+    expect(walked.frame).toEqual(untouched.frame);
+  });
+
+  it("is the same layout at every viewport, because it has no viewport", () => {
+    // Responsiveness is the renderer's: the drawing keeps its true size and
+    // scrolls inside its own box on a narrow screen. Nothing here can produce
+    // a different structure at a different width, so a narrow layout cannot
+    // silently lose a relationship.
+    expect(buildTopologyLayout(moduleOne, "pc-a")).toEqual(
+      buildTopologyLayout(moduleOne, "pc-a")
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Authored topology groups
+ *
+ * The Architect approved one additive authored fact — `ObservationNode.groupId`
+ * against a declared `ObservationGroup` — precisely so the picture could stop
+ * refusing to show which devices belong together.
+ *
+ * The whole value of that decision rests on one property: **membership is
+ * authored and is never worked out.** These tests exist to make that property
+ * expensive to break, which is why several of them assert what the layout does
+ * NOT do rather than what it does.
+ * ------------------------------------------------------------------ */
+
+describe("group membership is authored, never inferred", () => {
+  it("draws a boundary only around the devices the author named", () => {
+    const layout = layoutOf(moduleOneGrouped);
+
+    expect(layout.groups).toHaveLength(1);
+    expect(layout.groups[0]?.groupId).toBe("local-network");
+    expect(layout.groups[0]?.label).toBe("Local network");
+    expect(layout.groups[0]?.nodeIds).toEqual([
+      "pc-a",
+      "pc-b",
+      "printer",
+      "sw-1"
+    ]);
+  });
+
+  it("carries each device's authored group through unchanged", () => {
+    const byId = new Map(
+      layoutOf(moduleOneGrouped).devices.map((device) => [device.nodeId, device])
+    );
+
+    for (const member of ["pc-a", "pc-b", "printer", "sw-1"]) {
+      expect(byId.get(member)?.groupId).toBe("local-network");
+    }
+
+    // The one the author left out stays out. Nothing promotes it on the basis
+    // of being attached to a member.
+    expect(byId.get("r-1")?.groupId).toBeNull();
+  });
+
+  it("groups nothing when the author grouped nothing", () => {
+    // The same five devices, the same links, the same roles — and no boundary,
+    // because the only thing that changed is the authored field. If any rule
+    // in the layout could work membership out, this fixture would grow a group.
+    expect(layoutOf(moduleOne).groups).toEqual([]);
+    expect(
+      layoutOf(moduleOne).devices.every((device) => device.groupId === null)
+    ).toBe(true);
+  });
+
+  it("does not group by role", () => {
+    // Two hosts and a printer share no group here, and the switch and router
+    // are not paired as "infrastructure". Category selects a row and a symbol
+    // and nothing else.
+    const layout = layoutOf(moduleOne);
+    expect(layout.groups).toEqual([]);
+    expect(layout.devices.map((device) => device.groupId)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null
+    ]);
+  });
+
+  it("does not group by what is connected to what", () => {
+    // Every device in `hostToRouter` is reachable from every other through the
+    // authored links. Connectivity is not membership, and nothing walks it.
+    expect(layoutOf(hostToRouter).groups).toEqual([]);
+  });
+
+  it("refuses to draw when a device names a group that was not declared", () => {
+    const dangling: ObservationModel = {
+      ...moduleOneGrouped,
+      groups: []
+    };
+
+    // Fail closed, in the same way a dangling link endpoint does. Inventing
+    // the missing group would be exactly the inference this contract removes.
+    expect(buildTopologyLayout(dangling, "pc-a").state).toBe("unavailable");
+  });
+
+  it("draws no boundary for a group nothing belongs to", () => {
+    const unused: ObservationModel = {
+      ...moduleOne,
+      groups: [{ groupId: "local-network", label: "Local network" }]
+    };
+
+    // Declared but empty. An empty boundary would assert a grouping with no
+    // members in it, so nothing is drawn.
+    expect(layoutOf(unused).groups).toEqual([]);
+  });
+});
+
+describe("group geometry follows membership, and never the other way round", () => {
+  it("encloses every member's card", () => {
+    for (const fixture of [moduleOneGrouped, twoGroups]) {
+      const layout = layoutOf(fixture);
+
+      for (const group of layout.groups) {
+        for (const nodeId of group.nodeIds) {
+          const device = layout.devices.find(
+            (candidate) => candidate.nodeId === nodeId
+          );
+          if (device === undefined) throw new Error(`no device ${nodeId}`);
+
+          expect(device.box.x).toBeGreaterThanOrEqual(group.box.x);
+          expect(device.box.y).toBeGreaterThanOrEqual(group.box.y);
+          expect(device.box.x + device.box.width).toBeLessThanOrEqual(
+            group.box.x + group.box.width
+          );
+          expect(device.box.y + device.box.height).toBeLessThanOrEqual(
+            group.box.y + group.box.height
+          );
+        }
+      }
+    }
+  });
+
+  it("encloses nobody else, in every shape", () => {
+    // The property the whole treatment rests on: a boundary that swallowed a
+    // non-member would assert a membership the author never wrote. A layout
+    // that cannot achieve this refuses to draw rather than drawing it wrong.
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const group of layout.groups) {
+        for (const device of layout.devices) {
+          if (device.groupId === group.groupId) continue;
+
+          const overlaps =
+            device.box.x < group.box.x + group.box.width &&
+            group.box.x < device.box.x + device.box.width &&
+            device.box.y < group.box.y + group.box.height &&
+            group.box.y < device.box.y + device.box.height;
+
+          expect(`${name} ${group.groupId}/${device.nodeId} ${overlaps}`).toBe(
+            `${name} ${group.groupId}/${device.nodeId} false`
+          );
+        }
+      }
+    }
+  });
+
+  it("keeps every boundary inside the canvas", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const group of layout.groups) {
+        expect(group.box.x).toBeGreaterThanOrEqual(0);
+        expect(group.box.y).toBeGreaterThanOrEqual(0);
+        expect(
+          `${name} ${group.box.x + group.box.width <= layout.frame.width}`
+        ).toBe(`${name} true`);
+        expect(
+          `${name} ${group.box.y + group.box.height <= layout.frame.height}`
+        ).toBe(`${name} true`);
+      }
+    }
+  });
+
+  it("puts the caption in the boundary's own header strip", () => {
+    const group = layoutOf(moduleOneGrouped).groups[0];
+    if (group === undefined) throw new Error("expected a group");
+
+    // Inside the box, above every member card, so it can never sit over a
+    // device or a wire.
+    expect(group.labelAt.x).toBeGreaterThan(group.box.x);
+    expect(group.labelAt.y).toBeGreaterThan(group.box.y);
+    expect(group.labelAt.y).toBeLessThan(group.box.y + GROUP_LABEL_HEIGHT);
+
+    for (const device of layoutOf(moduleOneGrouped).devices) {
+      if (device.groupId !== group.groupId) continue;
+      expect(group.labelAt.y).toBeLessThan(device.box.y);
+    }
+  });
+
+  it("cannot change who is in the group by moving the box", () => {
+    // Membership and geometry are independent in one direction only. Making a
+    // card taller moves every boundary — and moves nobody between groups.
+    const taller: ObservationModel = {
+      ...moduleOneGrouped,
+      nodes: moduleOneGrouped.nodes.map((entry) =>
+        entry.nodeId !== "sw-1"
+          ? entry
+          : {
+              ...entry,
+              interfaces: entry.interfaces.map((iface, index) =>
+                index !== 0
+                  ? iface
+                  : {
+                      ...iface,
+                      attributes: [
+                        {
+                          label: "Kind of device",
+                          value: "A device in the middle",
+                          availability: "available" as const,
+                          prominent: true
+                        }
+                      ]
+                    }
+              )
+            }
+      )
+    };
+
+    const before = layoutOf(moduleOneGrouped);
+    const after = layoutOf(taller);
+
+    expect(after.groups[0]?.box).not.toEqual(before.groups[0]?.box);
+    expect(after.groups[0]?.nodeIds).toEqual(before.groups[0]?.nodeIds);
+    expect(after.devices.map((device) => device.groupId)).toEqual(
+      before.devices.map((device) => device.groupId)
+    );
+  });
+
+  it("leaves the hierarchy and the wires exactly as they were", () => {
+    // Adding the authored group must not have disturbed the approved layout:
+    // same rows, same order, same wire shapes, same marker.
+    const plain = layoutOf(moduleOne);
+    const grouped = layoutOf(moduleOneGrouped);
+
+    expect(grouped.rows).toBe(plain.rows);
+    expect(grouped.devices.map((device) => [device.row, device.order])).toEqual(
+      plain.devices.map((device) => [device.row, device.order])
+    );
+    expect(grouped.links.map((link) => link.shape)).toEqual(
+      plain.links.map((link) => link.shape)
+    );
+    expect(grouped.packet?.nodeId).toBe(plain.packet?.nodeId);
+    expect(grouped.packet?.linkId).toBe(plain.packet?.linkId);
+  });
+});
+
+describe("two authored groups coexist", () => {
+  it("draws both, separately, with their own labels", () => {
+    const layout = layoutOf(twoGroups);
+
+    expect(layout.groups.map((group) => group.groupId)).toEqual([
+      "network-a",
+      "network-b"
+    ]);
+    expect(layout.groups.map((group) => group.label)).toEqual([
+      "Network A",
+      "Network B"
+    ]);
+    expect(layout.groups[0]?.nodeIds).toEqual(["sw-a", "pc-a", "pc-b"]);
+    expect(layout.groups[1]?.nodeIds).toEqual(["sw-b", "pc-c", "pc-d"]);
+  });
+
+  it("does not merge them", () => {
+    const [first, second] = layoutOf(twoGroups).groups;
+    if (first === undefined || second === undefined) {
+      throw new Error("expected two groups");
+    }
+
+    const overlaps =
+      first.box.x < second.box.x + second.box.width &&
+      second.box.x < first.box.x + first.box.width &&
+      first.box.y < second.box.y + second.box.height &&
+      second.box.y < first.box.y + first.box.height;
+
+    expect(overlaps).toBe(false);
+  });
+
+  it("does not let the two captions collide", () => {
+    const [first, second] = layoutOf(twoGroups).groups;
+    if (first === undefined || second === undefined) {
+      throw new Error("expected two groups");
+    }
+
+    expect(first.labelAt).not.toEqual(second.labelAt);
+
+    // The captions live in boxes that do not overlap, so the labels cannot
+    // either; this pins the horizontal separation directly as well.
+    expect(second.labelAt.x).toBeGreaterThan(first.box.x + first.box.width);
+  });
+
+  it("keeps the wires routable and clear of every card", () => {
+    const layout = layoutOf(twoGroups);
+
+    // Router-1 reaches both switches, and both are ordinary branches — the
+    // grouping changed the spacing, not the routing.
+    expect(layout.links.map((link) => link.shape)).toEqual([
+      "branch",
+      "branch",
+      "branch",
+      "branch",
+      "branch",
+      "branch"
+    ]);
+
+    for (const link of layout.links) {
+      for (const point of samplesAlong(link.points)) {
+        for (const device of layout.devices) {
+          expect(inside(point, device.box)).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("keeps each device in the group its author gave it", () => {
+    const byId = new Map(
+      layoutOf(twoGroups).devices.map((device) => [device.nodeId, device.groupId])
+    );
+
+    expect(byId.get("pc-a")).toBe("network-a");
+    expect(byId.get("pc-b")).toBe("network-a");
+    expect(byId.get("sw-a")).toBe("network-a");
+    expect(byId.get("pc-c")).toBe("network-b");
+    expect(byId.get("pc-d")).toBe("network-b");
+    expect(byId.get("sw-b")).toBe("network-b");
+
+    // The router is attached to both switches and belongs to neither group.
+    // Nothing about being connected to a member makes a device one.
+    expect(byId.get("r-1")).toBeNull();
+  });
+});
+
+describe("grouping is available without sight", () => {
+  it("states the authored membership in words", () => {
+    const description = layoutOf(moduleOneGrouped).description;
+
+    expect(description).toContain(
+      "Local network contains PC-A, PC-B, Printer and Switch-1."
+    );
+    expect(description).toContain("Router-1 is drawn outside Local network.");
+  });
+
+  it("names both groups when there are two", () => {
+    const description = layoutOf(twoGroups).description;
+
+    expect(description).toContain(
+      "Network A contains Switch-A, PC-A and PC-B."
+    );
+    expect(description).toContain(
+      "Network B contains Switch-B, PC-C and PC-D."
+    );
+    expect(description).toContain(
+      "Router-1 is drawn outside every group shown."
+    );
+  });
+
+  it("says nothing a boundary graphic says that the words do not", () => {
+    // Every group drawn is described, and every device named as a member is a
+    // device the author put in that group.
+    for (const [, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      for (const group of layout.groups) {
+        expect(layout.description).toContain(`${group.label} contains `);
+
+        for (const nodeId of group.nodeIds) {
+          const device = layout.devices.find(
+            (candidate) => candidate.nodeId === nodeId
+          );
+          expect(device?.groupId).toBe(group.groupId);
+          expect(layout.description).toContain(device?.label ?? "");
+        }
+      }
+    }
+  });
+
+  it("still describes the rows and the lines", () => {
+    // Grouping is added to the description, never instead of it.
+    const description = layoutOf(moduleOneGrouped).description;
+
+    expect(description).toContain("The diagram is drawn in 3 rows");
+    expect(description).toContain("Row 2: Switch-1, a switch.");
+    expect(description).toContain("A line is drawn between");
+  });
+});
+
+describe("a group carries no networking meaning", () => {
+  it("exposes only an id, a label, members and a rectangle", () => {
+    const group = layoutOf(moduleOneGrouped).groups[0];
+    if (group === undefined) throw new Error("expected a group");
+
+    expect(Object.keys(group).sort()).toEqual([
+      "box",
+      "groupId",
+      "label",
+      "labelAt",
+      "nodeIds"
+    ]);
+  });
+
+  it("offers no field a networking claim could be read from", () => {
+    const group = layoutOf(moduleOneGrouped).groups[0];
+    if (group === undefined) throw new Error("expected a group");
+
+    for (const forbidden of [
+      "subnet",
+      "mask",
+      "vlan",
+      "broadcastDomain",
+      "routingDomain",
+      "gateway",
+      "reachable",
+      "trustZone",
+      "location",
+      "parentGroupId"
+    ]) {
+      expect(Object.keys(group)).not.toContain(forbidden);
+    }
+  });
+
+  it("says nothing about whether two devices in one group can talk", () => {
+    // PC-A and the Printer are in the same authored group and are drawn inside
+    // the same field. The layout still reports no traversal between them until
+    // a stage says so, because being grouped is not a fact about traffic.
+    const idle = layoutOf({
+      ...moduleOneGrouped,
+      stages: [],
+      currentStageId: null,
+      consequence: null
+    });
+
+    expect(idle.links.every((link) => !link.traversed)).toBe(true);
+    expect(idle.devices.every((device) => device.state === "idle")).toBe(true);
+  });
+
+  it("does not nest", () => {
+    // No group is a member of a group in this slice, so there is no tree to
+    // walk and no containment to compute.
+    for (const [, fixture] of everyShape) {
+      for (const group of layoutOf(fixture).groups) {
+        expect(Object.keys(group)).not.toContain("groupId2");
+        expect(Object.keys(group)).not.toContain("parent");
+        expect(group.nodeIds.every((id) => typeof id === "string")).toBe(true);
+      }
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-J Module 1 Founder UAT — the drawing has to fit the workspace
+ *
+ * The finding was that the learner did not know what to do, because the first
+ * action was below the fold. A topology that fills the viewport is a large part
+ * of how that happens, and it is the part this module can be held to.
+ *
+ * These are budgets rather than measurements: they fail when a constant is
+ * tuned in a way that would push the current task off the screen again, which
+ * is a defect no browserless test could otherwise see.
+ * ------------------------------------------------------------------ */
+
+describe("the drawing leaves room for the task beside it", () => {
+  it("fits the lesson's reading column without scrolling sideways", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      // The two-group fixture is a synthetic worst case with seven devices and
+      // is allowed to scroll; the shapes Module 1 actually authors are not.
+      if (fixture === twoGroups) continue;
+
+      expect(`${name}: ${layout.frame.width <= TOPOLOGY_WIDTH_BUDGET}`).toBe(
+        `${name}: true`
+      );
+    }
+  });
+
+  it("leaves vertical room for the orientation above and the task below", () => {
+    for (const [name, fixture] of everyShape) {
+      const layout = layoutOf(fixture);
+
+      expect(`${name}: ${layout.frame.height <= TOPOLOGY_HEIGHT_BUDGET}`).toBe(
+        `${name}: true`
+      );
+    }
+  });
+
+  it("still draws every device large enough to read", () => {
+    // The budget must not be met by shrinking the cards until their labels stop
+    // being legible — the Founder ruled that out explicitly, and it would trade
+    // one unusable picture for another.
+    expect(NODE_WIDTH).toBeGreaterThanOrEqual(140);
+    expect(NODE_BASE_HEIGHT).toBeGreaterThanOrEqual(88);
+
+    for (const device of layoutOf(moduleOneGrouped).devices) {
+      expect(device.box.width).toBe(NODE_WIDTH);
+      expect(device.box.height).toBeGreaterThanOrEqual(NODE_BASE_HEIGHT);
+    }
+  });
+
+  it("keeps the hierarchy while it fits", () => {
+    // The budget is met by tuning spacing, never by collapsing the drawing:
+    // three rows, a central switch, three branches and a boundary are all
+    // still there at the smaller size.
+    const layout = layoutOf(moduleOneGrouped);
+
+    expect(layout.rows).toBe(3);
+    expect(layout.groups).toHaveLength(1);
+    expect(layout.links.every((link) => link.shape === "branch")).toBe(true);
   });
 });

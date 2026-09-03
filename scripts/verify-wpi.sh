@@ -204,8 +204,17 @@ if grep -qF 'example.test' "$FIXTURE"; then
 fi
 
 if [ -d apps/web/dist ]; then
+  # The harness now also selects the REAL Networking Foundations document, so
+  # that Founder instructional UAT reviews authored curriculum rather than a
+  # copy of it. That makes this check load-bearing in a way it was not before:
+  # it is the evidence that a development-only reader of production curriculum
+  # ships nothing. `scripts/verify-wpj15.sh` asserts the same fact from the
+  # other direction; both are cheap, and a compensating control that only one
+  # gate can see is a compensating control that gets lost.
   for marker in 'arch-fixture-path' 'arch-fixture-course' 'fixture-packet-journey' \
-                'Development UAT surface' 'Instructional review harness'; do
+                'Development UAT surface' 'Instructional review harness' \
+                'nf-m1-what-a-network-is' 'nf-m2-inside-one-network' \
+                'nf-pj1-topology-orientation' 'nf-pj2-local-delivery'; do
     if grep -rqF -e "$marker" apps/web/dist; then
       fail "the production build contains a development-only marker: $marker"
     fi
@@ -581,19 +590,31 @@ done
 echo "PASS: 10d. PROVE IT withholding is unchanged"
 
 # ------------------------------------------------------------
-# 10e. The next action is where the reading is (WP-I final flow)
+# 10e. One instructional workspace (UAT-INTERACTION-CONTINUITY-1)
 # ------------------------------------------------------------
-# Founder UAT: the progression control sat ABOVE the journey history. The
-# history grows downward, so a learner who had read as far as Router-1 had to
-# scroll UP to click, back DOWN to read the result, and up again — once for
-# every remaining authored stage.
+# This section previously required the progression control to sit BELOW the
+# journey history, so a learner who had read to the bottom did not have to
+# scroll up to continue.
 #
-# WHERE a control renders is a structural property no pure test can reach, and
+# WP-J Module 1 Founder UAT superseded that arrangement and recorded why. At a
+# normal viewport the first learner action was below the fold — discoverable
+# only by scrolling, comfortable only after zooming the browser out — and once
+# the topology was pinned, scrolling could leave the picture on screen while the
+# control that advances it disappeared. A persistent visualisation with no
+# visible way forward.
+#
+# The rule that replaces it is STRONGER, not weaker. The control no longer sits
+# after the history where the reading ends; it sits inside the pinned workspace
+# with the picture it changes, so the learner never has to scroll to reach it at
+# all. The original intent — never hunt for the way to continue — is satisfied
+# by construction rather than by ordering.
+#
+# WHERE something renders is a structural property no pure test can reach, and
 # this repository has no rendered-DOM harness. So it is checked here, on source
 # order, which is also document order and therefore tab order.
 
-# One progression control. Two would be worse than the original defect: a
-# learner would never know which of them was the live one.
+# One progression control. Two would be worse than either defect: a learner
+# would never know which of them was the live one.
 ADVANCE_COUNT="$(grep -c 'className="packet-journey-advance"' "$JOURNEY" || true)"
 [ "$ADVANCE_COUNT" = "1" ] \
   || fail "there are $ADVANCE_COUNT progression controls; there must be exactly one"
@@ -602,40 +623,315 @@ ADVANCE_LABEL_COUNT="$(grep -c 'view.advanceLabel' "$JOURNEY" || true)"
 [ "$ADVANCE_LABEL_COUNT" = "1" ] \
   || fail "the progression label is rendered $ADVANCE_LABEL_COUNT times; a duplicate control is being built"
 
-# And it comes AFTER the journey history, so it belongs to the latest event
-# rather than sitting above everything the learner has read.
-HISTORY_LINE="$(grep -n -m1 'className="packet-journey-stages"' "$JOURNEY" | cut -d: -f1)"
+VISUAL_LINE="$(grep -n -m1 'className="packet-journey-visual"' "$JOURNEY" | cut -d: -f1)"
+ORIENT_LINE="$(grep -n -m1 'className="packet-journey-orientation"' "$JOURNEY" | cut -d: -f1)"
+TOPOLOGY_LINE="$(grep -n -m1 '<TopologyView' "$JOURNEY" | cut -d: -f1)"
+NEXT_LINE="$(grep -n -m1 'className="packet-journey-next"' "$JOURNEY" | cut -d: -f1)"
 ADVANCE_LINE="$(grep -n -m1 'className="packet-journey-advance"' "$JOURNEY" | cut -d: -f1)"
-
-[ -n "$HISTORY_LINE" ] \
-  || fail "the journey history is no longer rendered"
-[ "$ADVANCE_LINE" -gt "$HISTORY_LINE" ] \
-  || fail "the progression control (line $ADVANCE_LINE) is above the journey history (line $HISTORY_LINE); the learner would have to scroll up to continue"
-
-# The decision belongs with the action, not back up beside the picture.
+HISTORY_LINE="$(grep -n -m1 'className="packet-journey-stages"' "$JOURNEY" | cut -d: -f1)"
 PREDICTION_LINE="$(grep -n -m1 'className="packet-journey-prediction"' "$JOURNEY" | cut -d: -f1)"
 ACTIONS_LINE="$(grep -n -m1 'className="packet-journey-actions"' "$JOURNEY" | cut -d: -f1)"
 
-[ "$PREDICTION_LINE" -gt "$HISTORY_LINE" ] \
-  || fail "the prediction is rendered above the journey history"
-[ "$ACTIONS_LINE" -gt "$HISTORY_LINE" ] \
-  || fail "the remediation controls are rendered above the journey history"
+for required in "$VISUAL_LINE" "$ORIENT_LINE" "$TOPOLOGY_LINE" "$NEXT_LINE" \
+                "$ADVANCE_LINE" "$HISTORY_LINE" "$PREDICTION_LINE" "$ACTIONS_LINE"; do
+  [ -n "$required" ] \
+    || fail "part of the instructional workspace is no longer rendered"
+done
 
-grep -Fq 'packet-journey-next' "$JOURNEY" \
-  || fail "there is no what-to-do-next group after the journey history"
+# ORIENT -> WATCH -> ACT, inside one block. The learner is told what this is and
+# what to do before the picture, and the controls follow it immediately.
+[ "$ORIENT_LINE" -gt "$VISUAL_LINE" ] \
+  || fail "the orientation is outside the workspace"
+[ "$TOPOLOGY_LINE" -gt "$ORIENT_LINE" ] \
+  || fail "the topology is rendered before the orientation that explains it"
+[ "$NEXT_LINE" -gt "$TOPOLOGY_LINE" ] \
+  || fail "the current task is rendered before the picture it is about"
+
+# The current task, the prediction and the remediation are all inside the
+# workspace — the block that is pinned — and all of them come BEFORE the
+# history. This is the continuity requirement: whatever else scrolls away, the
+# action cannot be separated from the visualisation.
+for control_line in "$NEXT_LINE" "$ADVANCE_LINE" "$PREDICTION_LINE" "$ACTIONS_LINE"; do
+  [ "$control_line" -gt "$VISUAL_LINE" ] \
+    || fail "a current-task control (line $control_line) is outside the pinned workspace"
+  [ "$control_line" -lt "$HISTORY_LINE" ] \
+    || fail "a current-task control (line $control_line) is below the journey history (line $HISTORY_LINE); scrolling could strand the learner with a picture and no way to advance"
+done
+
 grep -Fq 'packet-journey-next' "$STYLES" \
-  || fail "the what-to-do-next group has no layout"
+  || fail "the current-task group has no layout"
 
-# The observation surface is pinned instead of the learner being scrolled to
-# it, and pinned in BOTH modes — the embedded lesson has the same reading flow.
-# A view, not a control: pinning it duplicates nothing.
+# The workspace is pinned, in BOTH modes — the embedded lesson has the same
+# reading flow as the expanded one.
 grep -Fq 'position: sticky' "$STYLES" \
-  || fail "the observation surface is not pinned; advancing would change a picture nobody can see"
+  || fail "the workspace is not pinned; advancing would change a picture nobody can see"
 if grep -qF '.packet-journey--workspace .packet-journey-visual' "$STYLES"; then
-  fail "the observation surface is pinned only in the workspace; embedded mode has the same reading flow"
+  fail "the workspace is pinned only in the expanded mode; embedded mode has the same reading flow"
 fi
 
-echo "PASS: 10e. one progression control, and it follows the latest event"
+# And it is pinned only where it FITS. A sticky block taller than the viewport
+# reproduces the reported defect exactly — the top stays and the controls at the
+# bottom are cut off — so the sticky rule carries a viewport-height condition
+# and continuity falls back to adjacency below it.
+STYLES_FLAT_WPI="$(mktemp)"
+tr '\n' ' ' < "$STYLES" | tr -s ' ' > "$STYLES_FLAT_WPI"
+
+grep -Eq '@media \(min-width: [0-9.]+em\) and \(min-height: [0-9.]+em\) \{ \.packet-journey-visual \{[^}]*position: sticky' \
+  "$STYLES_FLAT_WPI" \
+  || fail "the workspace is pinned without a viewport-height condition; an oversized sticky panel would hide its own controls"
+
+# The reference material is still there. Progressive disclosure means quieter,
+# never deleted: the Founder asked for the detail to remain available.
+for reference in 'packet-journey-connections' 'packet-journey-devices' \
+                 'packet-journey-trace' 'packet-journey-inspector'; do
+  grep -Fq "$reference" "$JOURNEY" \
+    || fail "reference material was deleted rather than subordinated: $reference"
+done
+
+# ---- the two-pane composition, and the deliberate start ----------------
+#
+# Founder UAT, third round: "the layout should be side by side. For example,
+# the lab on one side and the instructions on another at scale of course. This
+# would include an obvious start button as well."
+#
+# The workspace is now an ENVIRONMENT pane and an INSTRUCTOR pane under one
+# shared orientation. What is checked here is that both regions exist, that the
+# task pane owns the prime space, that reference stays below it, and that one
+# set of controls serves every width — a second set built for a second layout
+# is the failure this repository must never ship.
+
+ENVIRONMENT_LINE="$(grep -n -m1 'className="packet-journey-environment"' "$JOURNEY" | cut -d: -f1)"
+RAIL_LINE="$(grep -n -m1 'className="packet-journey-rail"' "$JOURNEY" | cut -d: -f1)"
+START_LINE="$(grep -n -m1 'className="packet-journey-start-action"' "$JOURNEY" | cut -d: -f1)"
+
+for required in "$ENVIRONMENT_LINE" "$RAIL_LINE" "$START_LINE"; do
+  [ -n "$required" ] \
+    || fail "the two-pane workspace or its start control is not rendered"
+done
+
+# The environment holds the topology, and the instructor pane follows it.
+[ "$ENVIRONMENT_LINE" -lt "$TOPOLOGY_LINE" ] \
+  || fail "the topology is not inside the environment pane"
+[ "$NEXT_LINE" -gt "$ENVIRONMENT_LINE" ] \
+  || fail "the instructor pane is rendered before the environment it is about"
+
+# Reference is BELOW the whole workspace — never beside the current task, and
+# never above it. This is the "Reference occupies prime right-pane space"
+# defect, pinned so it cannot return.
+[ "$RAIL_LINE" -gt "$NEXT_LINE" ] \
+  || fail "reference material (line $RAIL_LINE) is rendered above the current task (line $NEXT_LINE)"
+[ "$RAIL_LINE" -gt "$HISTORY_LINE" ] \
+  || fail "reference material is rendered above the journey history"
+
+# One obvious Start, in the instructor pane, and exactly one of it.
+START_COUNT="$(grep -c 'className="packet-journey-start-action"' "$JOURNEY" || true)"
+[ "$START_COUNT" = "1" ] \
+  || fail "there are $START_COUNT start controls; there must be exactly one"
+[ "$START_LINE" -gt "$NEXT_LINE" ] \
+  || fail "the start control is outside the instructor pane"
+[ "$START_LINE" -lt "$HISTORY_LINE" ] \
+  || fail "the start control is below the journey history"
+
+# Starting is engagement state on the EXISTING view state, not a second engine.
+grep -Fq 'startJourney' "$JOURNEY" \
+  || fail "the start control does not use the shared journey state"
+grep -Fq 'readonly started: boolean;' "$PRESENTATION_MODULE" \
+  || fail "the deliberate start is not part of the shared view state"
+grep -Fq 'if (!state.started) return false;' "$PRESENTATION_MODULE" \
+  || fail "progression is not gated on the learner having started"
+
+for engine in 'useReducer' 'createContext' 'useSyncExternalStore'; do
+  if grep -Fq -e "$engine" "$JOURNEY"; then
+    fail "a second progression engine was introduced: $engine"
+  fi
+done
+
+# The panes are composed in CSS from ONE tree. A duplicated control set built
+# to serve a second layout is what this forbids.
+grep -Eq '@media \(min-width: [0-9.]+em\) \{ \.packet-journey \{[^}]*width: min' \
+  "$STYLES_FLAT_WPI" \
+  || fail "there is no wide-viewport composition for the interaction"
+grep -Eq '\.packet-journey-visual \{[^}]*grid-template-areas:[^}]*environment task' \
+  "$STYLES_FLAT_WPI" \
+  || fail "the wide workspace does not place the environment beside the task"
+grep -Eq '\.packet-journey-visual \{[^}]*grid-template-areas: "orient" "environment" "task"' \
+  "$STYLES_FLAT_WPI" \
+  || fail "the narrow workspace does not reflow to one column"
+
+# Exactly one sticky region on the whole surface. Two would compete, and the
+# reference rail used to be the second one.
+STICKY_COUNT="$(grep -c 'position: sticky;' "$STYLES" || true)"
+[ "$STICKY_COUNT" = "1" ] \
+  || fail "there are $STICKY_COUNT sticky regions on the interaction surface; there must be exactly one"
+
+# ---- what the learner needs NOW is in the pane they are looking at -----
+#
+# Founder UAT: "I did not even notice the bottom information expanding during
+# the exercise. I feel that the information should be placed in the right pane."
+#
+# So the current consequence, the reason for it, the diagnosis, the conclusion
+# and contextual device inspection all render INSIDE the instructor pane, and
+# the growing account moves behind a disclosure. Anything the learner must read
+# to take the next step is where they are already looking.
+
+WHY_LINE="$(grep -n -m1 'className="packet-journey-why"' "$JOURNEY" | cut -d: -f1)"
+INSPECTOR_LINE="$(grep -n -m1 'className="packet-journey-inspector"' "$JOURNEY" | cut -d: -f1)"
+CONFIRMATION_LINE="$(grep -n -m1 'className="packet-journey-confirmation"' "$JOURNEY" | cut -d: -f1)"
+EXPLANATION_LINE="$(grep -n -m1 'className="packet-journey-explanation"' "$JOURNEY" | cut -d: -f1)"
+
+for required in "$WHY_LINE" "$INSPECTOR_LINE" "$CONFIRMATION_LINE" \
+                "$EXPLANATION_LINE"; do
+  [ -n "$required" ] \
+    || fail "part of the current-step instruction is no longer rendered"
+done
+
+for pane_line in "$WHY_LINE" "$INSPECTOR_LINE" "$CONFIRMATION_LINE" \
+                 "$EXPLANATION_LINE"; do
+  [ "$pane_line" -gt "$NEXT_LINE" ] \
+    || fail "current-step instruction (line $pane_line) is rendered outside the instructor pane"
+  [ "$pane_line" -lt "$HISTORY_LINE" ] \
+    || fail "current-step instruction (line $pane_line) is below the journey history; the learner would have to notice a region beneath the workspace"
+done
+
+# One inspector, in the pane. Two would leave the device buttons' aria-controls
+# pointing at whichever came first.
+INSPECTOR_COUNT="$(grep -c 'className="packet-journey-inspector"' "$JOURNEY" || true)"
+[ "$INSPECTOR_COUNT" = "1" ] \
+  || fail "there are $INSPECTOR_COUNT device inspectors; there must be exactly one"
+
+# The account does not expand under the workspace unasked.
+grep -Fq '<details className="packet-journey-history">' "$JOURNEY" \
+  || fail "the journey account is not behind a disclosure; it would grow beneath the workspace unnoticed"
+grep -Fq '<details className="instruction-text-equivalent">' "$RENDERER" \
+  || fail "the authored text equivalent leads the interaction again; it buried the activity and pre-empted the prediction"
+
+# And it is still THERE. Progressive disclosure means quieter, never deleted.
+grep -Fq 'packet-journey-stages' "$JOURNEY" \
+  || fail "the journey account was deleted rather than subordinated"
+
+# ---- the question does not sit across the answers' border -------------
+#
+# Founder UAT: "the question is overlapping the box. i want the question above
+# the box or within the box, not overlapping."
+#
+# That is what a `<legend>` does by default — it is painted ON the fieldset's
+# top border, so a prompt long enough to wrap straddles it. The fix is
+# structural: the FIELDSET carries no border, so there is nothing to overlap,
+# and the border moves inward onto the choices.
+#
+# The fieldset and its legend stay, because they are the strongest available
+# grouping for a set of radios and `verify-wph.sh` requires them.
+
+grep -Fq '<fieldset className="packet-journey-prediction">' "$JOURNEY" \
+  || fail "the prediction is no longer a fieldset; radio grouping semantics were weakened"
+grep -Fq 'className="packet-journey-prediction-question"' "$JOURNEY" \
+  || fail "the prediction question is not a distinct element"
+grep -Fq 'className="packet-journey-options"' "$JOURNEY" \
+  || fail "the answer choices have no container of their own"
+
+STYLES_FLAT_PREDICTION="$(mktemp)"
+tr '\n' ' ' < "$STYLES" | tr -s ' ' > "$STYLES_FLAT_PREDICTION"
+
+# No border on the fieldset means the legend cannot cross one.
+grep -Eq '\.packet-journey-prediction \{[^}]*border: 0;' "$STYLES_FLAT_PREDICTION" \
+  || fail "the prediction fieldset carries a border again; its legend would sit across it"
+grep -Eq '\.packet-journey-options \{[^}]*border: 1px solid' "$STYLES_FLAT_PREDICTION" \
+  || fail "the answer choices lost the border that separates them from the question"
+
+# And it is not repaired by any of the fragile techniques that hide the symptom.
+for fragile in 'margin-top: -' 'margin-left: -' 'position: absolute'; do
+  if grep -Eq "\.packet-journey-prediction[a-z-]* \{[^}]*$fragile" \
+    "$STYLES_FLAT_PREDICTION"; then
+    fail "the question overlap is masked with a fragile offset rather than fixed: $fragile"
+  fi
+done
+
+rm -f "$STYLES_FLAT_PREDICTION"
+
+# ---- device inspection explains before it enumerates -------------------
+#
+# Founder UAT: clicking a device "presents too much information at once", and
+# a beginner "may not understand what they are looking at".
+#
+# The information architecture is UNDERSTAND -> EXPLORE -> INSPECT -> OPERATE.
+# The default surface serves the first two; interfaces, ports and attributes
+# stay whole and move behind ONE deliberate disclosure. That ordering is what
+# this checks, because it is the part a later edit could silently undo by
+# moving a list back up the panel.
+
+grep -Fq 'className="packet-journey-inspector-purpose"' "$JOURNEY" \
+  || fail "device inspection no longer leads with what the device IS"
+grep -Fq 'className="packet-journey-inspector-about"' "$JOURNEY" \
+  || fail "device inspection no longer carries the authored scenario explanation"
+grep -Fq 'className="packet-journey-inspector-status' "$JOURNEY" \
+  || fail "device inspection no longer states the device's relation to this journey"
+grep -Fq '<details className="packet-journey-inspector-details">' "$JOURNEY" \
+  || fail "the technical detail is not behind a deliberate disclosure"
+grep -Fq '<summary>View technical details</summary>' "$JOURNEY" \
+  || fail "the technical-detail disclosure lost its label"
+
+# Nothing was DELETED to simplify the panel. Later courses inspect,
+# troubleshoot and operate against exactly this data.
+for kept in 'packet-journey-inspector-links' 'packet-journey-inspector-interfaces'; do
+  grep -Fq "$kept" "$JOURNEY" \
+    || fail "authored technical detail was deleted rather than subordinated: $kept"
+done
+
+# One level of disclosure inside the inspector, not a nest of them. The
+# inspector's own <details> is the only one between the panel and the data.
+INSPECTOR_DETAILS="$(grep -c 'packet-journey-inspector-details' "$JOURNEY" || true)"
+if [ "$INSPECTOR_DETAILS" -gt 2 ]; then
+  fail "device inspection grew more than one disclosure ($INSPECTOR_DETAILS references)"
+fi
+
+# The ambiguous wording Founder UAT rejected, gone from the presentation.
+# "Not reached yet" reads as an instruction to wait on a device the journey
+# never uses.
+for source in "$JOURNEY" "$LAYOUT" "$PRESENTATION_MODULE"; do
+  if grep -Fq 'Not reached yet' "$source"; then
+    fail "the ambiguous journey wording is back in $source"
+  fi
+done
+
+# Participation comes from authored observation. If the presentation ever
+# starts reading UNREVEALED stages to answer it, it can tell the learner where
+# the traffic is going before they have been asked to predict it.
+grep -Fq 'revealedNodeIds' "$PRESENTATION_MODULE" \
+  || fail "journey status no longer resolves from revealed stages alone"
+
+# ---- a prediction is corrected, never scored ---------------------------
+#
+# "Mistakes receive clear factual correction without punitive presentation."
+# Recorded at Module 1 UAT closeout, and it has two halves.
+#
+# NOT PUNITIVE: an ordinary learning mistake is not a failure event, so there
+# is no score to lose, no streak to break and no hostile state to land in.
+# NOT HIDDEN EITHER: once authored observation makes the outcome known, the
+# learner must be able to tell whether their prediction matched it.
+#
+# Comparison satisfies both, so the two labels are pinned. Softening the
+# correction into ambiguity would be as wrong as punishing it.
+
+grep -Fq 'describePredictionLabel' "$PRESENTATION_MODULE" \
+  || fail "the learner's prediction is no longer named beside what happened"
+grep -Fq 'describeObservationLabel' "$PRESENTATION_MODULE" \
+  || fail "what actually happened is no longer named beside the prediction"
+
+# Grading is pinned as ABSENT by identifier, not by prose. A verifier cannot
+# judge tone, but it can prove that nothing in the interaction path computes
+# whether a learner was right — and without that computation, a punitive state
+# has nothing to fire on. This is deliberately not a word list: the wording is
+# Human UAT's to judge, and the machine's job is the mechanism underneath it.
+for graded in 'isCorrect' 'wasCorrect' 'gradePrediction' 'predictionScore' \
+              'pointsAwarded' 'streak'; do
+  if grep -qF -e "$graded" "$JOURNEY" "$SURFACE" "$PRESENTATION_MODULE"; then
+    fail "a prediction is being graded rather than compared: $graded"
+  fi
+done
+
+rm -f "$STYLES_FLAT_WPI"
+
+echo "PASS: 10e. two panes, one workspace, one start, one set of controls"
 
 # ------------------------------------------------------------
 # 11. The fixture still exercises what UAT must review

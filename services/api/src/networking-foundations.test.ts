@@ -189,33 +189,67 @@ describe("the authored course parses and is the approved architecture", () => {
  * What J1 must NOT contain
  * ------------------------------------------------------------------ */
 
-describe("J1 authors architecture and nothing else", () => {
-  it("authors no instructional steps", () => {
+/**
+ * The staged-authoring invariant.
+ *
+ * J1 asserted that ALL EIGHT missions carried no instruction, which was the
+ * right statement while J1 was the newest slice. Module 1 authoring supersedes
+ * it, and the replacement is deliberately not a weaker version of the same
+ * idea: instead of "nothing is authored", it is "exactly the authorized
+ * missions are authored, and every other mission is still empty".
+ *
+ * Written as an explicit allowlist rather than a count, so that authoring a
+ * ninth step in M1 stays legal while authoring a first step in M5 does not.
+ * A count would permit any redistribution that happened to total the same.
+ */
+const AUTHORED_MISSIONS = [
+  "nf-m1-what-a-network-is",
+  "nf-m2-inside-one-network"
+] as const;
+
+describe("only the authorized missions carry instruction", () => {
+  it("authors steps in Module 1 and nowhere else", () => {
     for (const mission of document.missions) {
-      expect(mission.steps).toEqual([]);
+      const authorized = (AUTHORED_MISSIONS as readonly string[]).includes(
+        mission.stableId
+      );
+
+      if (authorized) {
+        expect(mission.steps.length).toBeGreaterThan(0);
+      } else {
+        expect(mission.steps).toEqual([]);
+      }
     }
   });
 
-  it("authors no assets", () => {
+  it("authors no assets anywhere", () => {
+    // Unchanged by Module 1: there is no curriculum asset hosting, so a
+    // `diagram` step would have to name an asset whose URI could only be a
+    // development host. The interactive topology is the visual instead.
     for (const mission of document.missions) {
       expect(mission.assets).toEqual([]);
     }
   });
 
-  it("authors no Packet Journey and no interaction of any kind", () => {
-    // Steps are empty, so this cannot currently fail — which is the point of
-    // asserting it against the serialised file rather than the parsed steps.
-    // The first authored interaction must be a deliberate act in a later slice.
-    const raw = readFileSync(DOCUMENT_PATH, "utf8");
+  it("authors interactions only inside Module 1", () => {
+    for (const mission of document.missions) {
+      const authorized = (AUTHORED_MISSIONS as readonly string[]).includes(
+        mission.stableId
+      );
 
-    for (const marker of [
-      "packet_journey",
-      "interactionType",
-      "interactionStableId",
-      "assessmentStableId"
-    ]) {
-      expect(raw).not.toContain(marker);
+      const interactions = mission.steps.filter(
+        (step) => step.content.type === "interaction"
+      );
+
+      expect(interactions.length).toBe(authorized ? 1 : 0);
     }
+  });
+
+  it("authors no assessment reference anywhere", () => {
+    // Assessments are not publishable as documents, so a `practice` step could
+    // name an assessment that nothing is able to resolve.
+    const raw = readFileSync(DOCUMENT_PATH, "utf8");
+    expect(raw).not.toContain("assessmentStableId");
   });
 
   it("authors no prerequisite rule", () => {
@@ -649,6 +683,7 @@ describe("the concept ledger is a usable audit source", () => {
       "local delivery",
       "frame",
       "MAC address",
+      "unknown-destination flooding",
       "broadcast",
       "IPv4",
       "prefix length",

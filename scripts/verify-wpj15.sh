@@ -120,14 +120,36 @@ echo "PASS:  3. one transitional bundled builder, one call site"
 # 4. No second course is compiled into the browser
 # ------------------------------------------------------------
 # Networking Foundations is source-only curriculum. Its identities or authored
-# strings appearing in application source would mean a second curriculum truth
+# strings appearing in APPLICATION source would mean a second curriculum truth
 # had been bundled — the exact outcome this slice exists to prevent.
 #
-# Test sources are excluded deliberately: the projection's own tests ASSERT
-# these strings are absent, so the strings appear there by design.
+# Two directories are excluded, for two different reasons.
+#
+#   *.test.ts / *.test.tsx   the projection's own tests ASSERT these strings are
+#                            absent, so they appear there by design.
+#
+#   apps/web/src/uat/        the development-only UAT surface. It is behind
+#                            `import.meta.env.DEV` and reached through a dynamic
+#                            import, so it is not application source in any
+#                            sense that reaches a learner — Vite folds the
+#                            branch away and emits neither the module nor the
+#                            JSON it carries.
+#
+# The UAT exclusion is a narrowing, not a hole, and it is paid for immediately
+# below. Founder instructional UAT has to read the REAL authored course through
+# the real parser and the real projection; the alternative was to copy Module 1
+# into a second fixture, which would be a second curriculum truth of exactly the
+# kind this check exists to stop — and a drifting one.
+#
+# So the source-location heuristic is replaced, for that one directory, by a
+# stronger fact: what the production build actually contains. A heuristic says
+# where a string may be written; the bundle says what a learner receives.
 while IFS= read -r source; do
   [ -n "$source" ] || continue
-  case "$source" in *.test.ts|*.test.tsx) continue ;; esac
+  case "$source" in
+    *.test.ts|*.test.tsx) continue ;;
+    apps/web/src/uat/*) continue ;;
+  esac
 
   for bundled in 'networking-foundations' 'nf-mod' 'nf-m1-' 'nf-m2-'; do
     if grep -qF -e "$bundled" "$source"; then
@@ -138,7 +160,55 @@ done <<EOF
 $(find apps/web/src -name '*.ts' -o -name '*.tsx')
 EOF
 
-echo "PASS:  4. no second course tree is bundled into the application"
+# The UAT surface may READ the course. It may not become a second renderer or a
+# second course model: the harness must reach the document as a whole and hand
+# it to the real parser, never pick authored content out of it.
+#
+# Its own tests are excluded, and legitimately so: proving that Module 1 reaches
+# the harness pipeline means naming the missions that must arrive. The rule is
+# about the component that ships to a reviewer, not about what asserts on it.
+while IFS= read -r source; do
+  [ -n "$source" ] || continue
+  case "$source" in *.test.ts|*.test.tsx) continue ;; esac
+
+  if grep -qE 'nf-m[0-9]+-[a-z-]+"' "$source"; then
+    fail "the UAT surface names an individual Networking Foundations mission in $source; it must select whole documents and let the parser do the rest"
+  fi
+done <<EOF
+$(find apps/web/src/uat -name '*.ts' -o -name '*.tsx')
+EOF
+
+# 4b. And the production bundle carries none of it.
+#
+# This is the compensating control for the exclusion above, and it is a stronger
+# statement than the one it replaces: the source rule could only say that a
+# string was not written in a particular place, while this says the string is
+# not in what ships. Skipped politely when no build is present rather than
+# silently passing as though it had been checked.
+if [ -d apps/web/dist ]; then
+  for leaked in 'networking-foundations' 'nf-mod1-one-network' \
+                'nf-m1-what-a-network-is' 'nf-m2-inside-one-network' \
+                'nf-pj1-topology-orientation' 'nf-pj2-local-delivery'; do
+    if grep -rqF -e "$leaked" apps/web/dist; then
+      fail "the production build carries Networking Foundations curriculum: $leaked"
+    fi
+  done
+
+  # An authored sentence, not only an identifier. A bundler that inlined the
+  # document while mangling its keys would still carry the prose.
+  for prose in 'Why anything is connected at all' \
+               'One message, two machines' \
+               'is called flooding'; do
+    if grep -rqF -e "$prose" apps/web/dist; then
+      fail "the production build carries authored Networking Foundations prose: $prose"
+    fi
+  done
+
+  echo "PASS:  4. no second course tree is bundled into the application"
+else
+  echo "PASS:  4. no second course tree is bundled into the application"
+  echo "SKIP:  4b. no production build present; run 'npm run build' to check the bundle"
+fi
 
 # ------------------------------------------------------------
 # 5. The projection knows no course

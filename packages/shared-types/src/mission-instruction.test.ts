@@ -786,3 +786,68 @@ describe("assembleLearnerInstruction", () => {
     expect(JSON.stringify(instruction)).not.toContain("expectedOutcome");
   });
 });
+
+describe("authored groups survive the support-level projection", () => {
+  /** The same journey, with both devices placed in one authored group. */
+  const groupedStep = (supportLevel: InteractionSupportLevel): MissionStep =>
+    step({
+      type: "interaction",
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel,
+      parameters: {
+        ...packetJourneyFixture,
+        groups: [{ groupId: "local-network", label: "Local network" }],
+        nodes: packetJourneyFixture.nodes.map((node) => ({
+          ...node,
+          groupId: "local-network"
+        }))
+      },
+      textEquivalent: "Follow the request hop by hop and see where it stops."
+    });
+
+  for (const level of ["show_me", "help_me", "ask_me", "challenge_me"] as const) {
+    it(`carries the groups and the membership at ${level}`, () => {
+      // A group is a topology fact of the same kind as a node or a link: it
+      // says what the learner is LOOKING AT, never what the answer is.
+      // Withholding it would remove a device's place in the picture and leave
+      // the accessible description unable to say what the drawing shows,
+      // while protecting nothing.
+      const projected = projectMissionStep(groupedStep(level));
+      const content = projected.content as Extract<
+        typeof projected.content,
+        { type: "interaction" }
+      >;
+
+      if (content.presentation.state !== "available") {
+        throw new Error("expected an available interaction");
+      }
+
+      const parameters = content.presentation.parameters;
+
+      expect(parameters.groups).toEqual([
+        { groupId: "local-network", label: "Local network" }
+      ]);
+      expect(parameters.nodes.every((node) => node.groupId === "local-network")).toBe(
+        true
+      );
+    });
+  }
+
+  it("carries no groups when the author declared none", () => {
+    // ABSENT, not an empty array invented by the projection. The authored
+    // shape and the projected shape agree about what was written down.
+    const projected = projectMissionStep(interactionAt("show_me"));
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    expect("groups" in content.presentation.parameters).toBe(false);
+  });
+});
