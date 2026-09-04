@@ -58,9 +58,29 @@ const DOCUMENT_PATH = join(
 
 const M1 = "nf-m1-what-a-network-is";
 const M2 = "nf-m2-inside-one-network";
+const M3 = "nf-m3-ipv4-the-second-identity";
 
-/** The missions Module 1 authoring is authorized to touch. */
+/**
+ * The missions Module 1 authoring is authorized to touch.
+ *
+ * Every Module-1-specific rule in this file iterates this list — packet
+ * journeys, the One Network module, the Module 1 deferred vocabulary in which
+ * IPv4 is still a future term. Mission 3 must NOT be added here: it belongs to
+ * Module 2 and to its own gate, and asserting Module 1's rules about it would
+ * demand a journey Mission 3 has no reason to author and forbid the very term
+ * Mission 3 exists to teach.
+ */
 const AUTHORED = [M1, M2] as const;
+
+/**
+ * Every mission authored anywhere in the course so far.
+ *
+ * Used only by the two staged-authoring assertions below. They protect the
+ * emptiness of the missions NOBODY has authored yet, which is a course-wide
+ * fact rather than a Module 1 one, so it has to know about Mission 3 without
+ * dragging Mission 3 into Module 1's rules.
+ */
+const AUTHORED_ANYWHERE = [M1, M2, M3] as const;
 
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
@@ -227,17 +247,19 @@ function usesWord(haystack: string, word: string): boolean {
  * ------------------------------------------------------------------ */
 
 describe("Module 1 is authored and nothing beyond it is", () => {
-  it("authors instruction in exactly Missions 1 and 2", () => {
+  it("authors instruction in exactly the missions a slice has authored", () => {
     const authored = document.missions
       .filter((m) => m.steps.length > 0)
       .map((m) => m.stableId);
 
-    expect(authored).toEqual([...AUTHORED]);
+    expect(authored).toEqual([...AUTHORED_ANYWHERE]);
   });
 
-  it("leaves Missions 3 to 8 with no step of any kind", () => {
+  it("leaves Missions 4 to 8 with no step of any kind", () => {
     for (const m of document.missions) {
-      if ((AUTHORED as readonly string[]).includes(m.stableId)) continue;
+      if ((AUTHORED_ANYWHERE as readonly string[]).includes(m.stableId)) {
+        continue;
+      }
       expect(m.steps).toEqual([]);
     }
   });

@@ -201,14 +201,19 @@ describe("the authored course parses and is the approved architecture", () => {
  * Written as an explicit allowlist rather than a count, so that authoring a
  * ninth step in M1 stays legal while authoring a first step in M5 does not.
  * A count would permit any redistribution that happened to total the same.
+ *
+ * WP-J4 adds Mission 3. The allowlist grows by exactly the mission a slice
+ * authored, never by anticipation: Missions 4 to 8 stay off it, and the
+ * assertion below still fails if any of them acquires a step.
  */
 const AUTHORED_MISSIONS = [
   "nf-m1-what-a-network-is",
-  "nf-m2-inside-one-network"
+  "nf-m2-inside-one-network",
+  "nf-m3-ipv4-the-second-identity"
 ] as const;
 
 describe("only the authorized missions carry instruction", () => {
-  it("authors steps in Module 1 and nowhere else", () => {
+  it("authors steps in the authorized missions and nowhere else", () => {
     for (const mission of document.missions) {
       const authorized = (AUTHORED_MISSIONS as readonly string[]).includes(
         mission.stableId
@@ -231,17 +236,39 @@ describe("only the authorized missions carry instruction", () => {
     }
   });
 
-  it("authors interactions only inside Module 1", () => {
-    for (const mission of document.missions) {
-      const authorized = (AUTHORED_MISSIONS as readonly string[]).includes(
-        mission.stableId
-      );
+  /**
+   * Interactions are authored where the teaching needs one, not wherever
+   * authoring is permitted.
+   *
+   * Module 1's two missions each follow traffic across a topology, so each
+   * carries exactly one packet journey. Mission 3 reads a machine's own report
+   * instead, which the `command` step type already expresses honestly, so it
+   * carries none. Asserting "one per authorized mission" would have forced a
+   * journey into a mission that has nothing to animate.
+   *
+   * What must stay absolute is the other half: no unauthorized mission carries
+   * an interaction at all.
+   */
+  const JOURNEY_MISSIONS = [
+    "nf-m1-what-a-network-is",
+    "nf-m2-inside-one-network"
+  ] as const;
 
+  it("authors interactions only where a journey is the teaching", () => {
+    for (const mission of document.missions) {
       const interactions = mission.steps.filter(
         (step) => step.content.type === "interaction"
       );
 
-      expect(interactions.length).toBe(authorized ? 1 : 0);
+      const expected = (JOURNEY_MISSIONS as readonly string[]).includes(
+        mission.stableId
+      )
+        ? 1
+        : 0;
+
+      expect(`${mission.stableId} ${interactions.length}`).toBe(
+        `${mission.stableId} ${expected}`
+      );
     }
   });
 
