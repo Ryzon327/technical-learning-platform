@@ -181,6 +181,14 @@ export interface PacketJourneyAttribute {
 export interface PacketJourneyInterface {
   readonly interfaceId: string;
   readonly label: string;
+  /**
+   * Draw this interface's label on the picture, beside its connection.
+   *
+   * See `ObservationInterface.prominent`, which this projects to unchanged.
+   * The author decides which ends of which wires are worth naming; nothing
+   * works it out from a device's role, its position or the shape of the graph.
+   */
+  readonly prominent?: boolean;
   readonly attributes: readonly PacketJourneyAttribute[];
 }
 
@@ -283,7 +291,35 @@ export interface PacketJourneyStage {
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
   readonly viaLinkId?: string;
+  /**
+   * Further links occupied at the same moment as this stage.
+   *
+   * See `ObservationStage.alsoOnLinkIds`, which this projects to unchanged.
+   * Every id must name a link declared in the same parameters; a dangling one
+   * fails authoring rather than leaving a presentation with nothing to draw.
+   */
+  readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * Authored facts named devices display at this stage.
+   *
+   * See `ObservationStage.deviceFacts`. Every `nodeId` must name a device
+   * declared in the same parameters.
+   */
+  readonly deviceFacts?: readonly PacketJourneyDeviceFacts[];
   readonly prediction?: PacketJourneyPrediction;
+}
+
+/** One device's authored display at one stage. */
+export interface PacketJourneyDeviceFacts {
+  readonly nodeId: string;
+  /** Authored caption, e.g. "Switch-1 knows". Never a key. */
+  readonly label: string;
+  readonly facts: readonly PacketJourneyDeviceFact[];
+}
+
+export interface PacketJourneyDeviceFact {
+  readonly label: string;
+  readonly value: string;
 }
 
 /**
@@ -470,7 +506,19 @@ function reportDuplicates(
 
 const ATTRIBUTE_KEYS = ["label", "value", "prominent"] as const;
 const ATTRIBUTE_REQUIRED = ["label", "value"] as const;
-const INTERFACE_KEYS = ["interfaceId", "label", "attributes"] as const;
+/**
+ * `prominent` is allowed on an interface and is not required; the rest are
+ * required. Split into two lists for the same reason attributes are: a display
+ * flag that every interface had to carry would make it a property of the
+ * model rather than a decision the author makes about a few of them.
+ */
+const INTERFACE_KEYS = [
+  "interfaceId",
+  "label",
+  "prominent",
+  "attributes"
+] as const;
+const INTERFACE_REQUIRED = ["interfaceId", "label", "attributes"] as const;
 const GROUP_KEYS = ["groupId", "label"] as const;
 /**
  * `groupId` and `about` are allowed on a node and are not required; the rest
@@ -500,8 +548,12 @@ const STAGE_KEYS = [
   "decision",
   "outcome",
   "viaLinkId",
+  "alsoOnLinkIds",
+  "deviceFacts",
   "prediction"
 ] as const;
+const DEVICE_FACTS_KEYS = ["nodeId", "label", "facts"] as const;
+const DEVICE_FACT_KEYS = ["label", "value"] as const;
 const FAULT_KEYS = [
   "atNodeId",
   "symptom",
@@ -643,12 +695,24 @@ export function validatePacketJourneyParameters(
 
       entry.interfaces.forEach((iface, ifaceIndex) => {
         const ifaceLabel = `${nodeLabel}.interfaces[${ifaceIndex}]`;
-        if (!checkKeys(iface, INTERFACE_KEYS, INTERFACE_KEYS, ifaceLabel, at)) {
+        if (
+          !checkKeys(iface, INTERFACE_KEYS, INTERFACE_REQUIRED, ifaceLabel, at)
+        ) {
           return;
         }
 
         interfaceIds.push(checkKey(iface, "interfaceId", ifaceLabel, at));
         checkText(iface, "label", ifaceLabel, at);
+
+        // Display metadata, and strictly a boolean, exactly like the attribute
+        // flag below. It says only "draw this label on the wire" — it confers
+        // no meaning on the interface and no behaviour on the device.
+        if (
+          iface.prominent !== undefined &&
+          typeof iface.prominent !== "boolean"
+        ) {
+          at(`${ifaceLabel}.prominent must be true or false`);
+        }
 
         if (!Array.isArray(iface.attributes)) {
           at(`${ifaceLabel}.attributes must be an array`);
@@ -786,6 +850,104 @@ export function validatePacketJourneyParameters(
           at(
             `${stageLabel}.viaLinkId names a link that is not declared: ${String(entry.viaLinkId)}`
           );
+        }
+      }
+
+      // Links occupied at the same moment. Cross-referenced exactly like
+      // `viaLinkId`, and for the same reason: a presentation may draw these
+      // and may not work out what they should have been, so a dangling id has
+      // to fail here rather than silently draw nothing.
+      if (entry.alsoOnLinkIds !== undefined) {
+        if (!Array.isArray(entry.alsoOnLinkIds)) {
+          at(`${stageLabel}.alsoOnLinkIds must be a list of link identifiers`);
+        } else {
+          entry.alsoOnLinkIds.forEach((linkId, alsoIndex) => {
+            const alsoLabel = `${stageLabel}.alsoOnLinkIds[${alsoIndex}]`;
+
+            if (!nonEmpty(linkId) || !knownLinks.has(linkId)) {
+              at(
+                `${alsoLabel} names a link that is not declared: ${String(linkId)}`
+              );
+              return;
+            }
+
+            // The link the stage arrived on is already named by `viaLinkId`.
+            // Repeating it here would ask a presentation to draw one link
+            // twice, and would blur the distinction the two fields exist to
+            // keep: where this arrival came from, and what else was busy.
+            if (linkId === entry.viaLinkId) {
+              at(
+                `${alsoLabel} repeats viaLinkId (${linkId}); a stage names the link it arrived on once`
+              );
+            }
+          });
+
+          const named = entry.alsoOnLinkIds.filter(nonEmpty);
+          if (new Set(named).size !== named.length) {
+            at(`${stageLabel}.alsoOnLinkIds names the same link more than once`);
+          }
+        }
+      }
+
+      // Authored device display. Every node reference resolves, and the facts
+      // are label/value prose — nothing here reads what they say.
+      if (entry.deviceFacts !== undefined) {
+        if (!Array.isArray(entry.deviceFacts)) {
+          at(`${stageLabel}.deviceFacts must be a list`);
+        } else {
+          entry.deviceFacts.forEach((shown, shownIndex) => {
+            const shownLabel = `${stageLabel}.deviceFacts[${shownIndex}]`;
+            if (
+              !checkKeys(
+                shown,
+                DEVICE_FACTS_KEYS,
+                DEVICE_FACTS_KEYS,
+                shownLabel,
+                at
+              )
+            ) {
+              return;
+            }
+
+            if (!nonEmpty(shown.nodeId) || !knownNodes.has(shown.nodeId)) {
+              at(
+                `${shownLabel}.nodeId names a device that is not declared: ${String(shown.nodeId)}`
+              );
+            }
+
+            checkText(shown, "label", shownLabel, at);
+
+            if (!Array.isArray(shown.facts) || shown.facts.length === 0) {
+              at(`${shownLabel}.facts must state at least one fact`);
+              return;
+            }
+
+            shown.facts.forEach((fact, factIndex) => {
+              const factLabel = `${shownLabel}.facts[${factIndex}]`;
+              if (
+                !checkKeys(
+                  fact,
+                  DEVICE_FACT_KEYS,
+                  DEVICE_FACT_KEYS,
+                  factLabel,
+                  at
+                )
+              ) {
+                return;
+              }
+              checkText(fact, "label", factLabel, at);
+              checkText(fact, "value", factLabel, at);
+            });
+          });
+
+          const shownNodeIds = entry.deviceFacts
+            .map((shown) => (shown as { nodeId?: unknown }).nodeId)
+            .filter(nonEmpty);
+          if (new Set(shownNodeIds).size !== shownNodeIds.length) {
+            at(
+              `${stageLabel}.deviceFacts shows the same device twice; one device has one display per stage`
+            );
+          }
         }
       }
 
@@ -1031,6 +1193,9 @@ function projectInterface(iface: PacketJourneyInterface): ObservationInterface {
   return {
     interfaceId: iface.interfaceId,
     label: iface.label,
+    // Copied, like the attribute flag below it. The projection never decides
+    // which ends of which wires are worth naming.
+    ...(iface.prominent !== undefined ? { prominent: iface.prominent } : {}),
     // Authored parameters are, by definition, available: an author wrote them
     // down. Live mode is where `unavailable` and `unknown` earn their keep.
     attributes: iface.attributes.map((attribute) => ({
@@ -1141,6 +1306,16 @@ export function buildPacketJourneyObservationModel(
       // Copied, never chosen. Which link was traversed is the same fact
       // whether the fault is present or repaired.
       ...(stage.viaLinkId !== undefined ? { viaLinkId: stage.viaLinkId } : {}),
+      // Also copied, never chosen, and never assembled. Which further links
+      // were busy at this moment, and what a device was showing, are authored
+      // facts about the stage — this projection selects stages, it does not
+      // work out what happened on one.
+      ...(stage.alsoOnLinkIds !== undefined
+        ? { alsoOnLinkIds: stage.alsoOnLinkIds }
+        : {}),
+      ...(stage.deviceFacts !== undefined
+        ? { deviceFacts: stage.deviceFacts }
+        : {}),
       availability: observed ? ("available" as const) : ("unknown" as const)
     };
   });
@@ -1249,6 +1424,19 @@ export interface LearnerPacketJourneyStage {
    * withholding the knowledge of where it ended up.
    */
   readonly viaLinkId?: string;
+  /**
+   * Further links occupied at the same moment. Carried at EVERY support level,
+   * for the same reason as `viaLinkId`: it says WHERE traffic was, never why
+   * it was there. The reason lives in `decision`, which is withheld.
+   */
+  readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * What devices were showing at this stage. Carried at EVERY support level:
+   * this is a reading the learner takes off the screen, the same kind of fact
+   * as an interface attribute, and withholding it would remove an observation
+   * rather than an answer.
+   */
+  readonly deviceFacts?: readonly PacketJourneyDeviceFacts[];
   readonly prediction?: PacketJourneyPrediction;
 }
 

@@ -87,18 +87,19 @@
 10|nf-m2-inside-one-network|MAC address|MAC
 11|nf-m2-inside-one-network|switch learning and forwarding|-
 12|nf-m2-inside-one-network|unknown-destination flooding|flooding
-13|nf-m3-ipv4-the-second-identity|IPv4|IPv4
-14|nf-m4-the-prefix-and-the-decision|prefix length|prefix
-15|nf-m4-the-prefix-and-the-decision|network portion and host portion|-
-16|nf-m4-the-prefix-and-the-decision|same network or remote network|-
-17|nf-m4-the-prefix-and-the-decision|ARP|ARP
-18|nf-m4-the-prefix-and-the-decision|broadcast|broadcast
-19|nf-m5-the-default-gateway|default gateway|gateway
-20|nf-m6-routers-and-the-journey|routing|routing
-21|nf-m6-routers-and-the-journey|frame versus packet|packet
-22|nf-m6-routers-and-the-journey|Layer 2 and Layer 3|-
-23|nf-m7-testing-whether-it-works|ICMP and ping|ping
-24|nf-m7-testing-whether-it-works|reachability observation|-
-25|nf-m8-when-it-does-not-work|simple failure reasoning|-
-26|nf-m8-when-it-does-not-work|bounded repair|-
-27|nf-m8-when-it-does-not-work|confirmation after repair|-
+13|nf-m2-inside-one-network|MAC address table|-
+14|nf-m3-ipv4-the-second-identity|IPv4|IPv4
+15|nf-m4-the-prefix-and-the-decision|prefix length|prefix
+16|nf-m4-the-prefix-and-the-decision|network portion and host portion|-
+17|nf-m4-the-prefix-and-the-decision|same network or remote network|-
+18|nf-m4-the-prefix-and-the-decision|ARP|ARP
+19|nf-m4-the-prefix-and-the-decision|broadcast|broadcast
+20|nf-m5-the-default-gateway|default gateway|gateway
+21|nf-m6-routers-and-the-journey|routing|routing
+22|nf-m6-routers-and-the-journey|frame versus packet|packet
+23|nf-m6-routers-and-the-journey|Layer 2 and Layer 3|-
+24|nf-m7-testing-whether-it-works|ICMP and ping|ping
+25|nf-m7-testing-whether-it-works|reachability observation|-
+26|nf-m8-when-it-does-not-work|simple failure reasoning|-
+27|nf-m8-when-it-does-not-work|bounded repair|-
+28|nf-m8-when-it-does-not-work|confirmation after repair|-

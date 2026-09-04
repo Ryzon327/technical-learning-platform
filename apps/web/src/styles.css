@@ -961,6 +961,89 @@ dd {
   margin: 0.2rem 0;
 }
 
+/* An authored port label, beside the connection it names.
+
+   Subordinate to device identity on purpose: smaller, quieter and in the
+   muted ink, so the diagram still reads as devices-with-connections rather
+   than as a patch panel. It is centred on the point the layout computed and
+   carries a small ground so it stays legible where it crosses a wire. */
+.topology-port-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  background: var(--tlp-surface);
+  color: var(--tlp-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* What a device knows now — authored teaching state.
+
+   Two short columns and a quiet caption. Deliberately NOT a dashboard: no
+   card, no border box, no badge, no icon, no zebra striping, no monospace
+   grid. It reads as a short note the instructor has written beside the
+   picture, which is what it is.
+
+   The device name column is fixed so the values line up down the list — a
+   learner watching a second row appear should see it slot into a column, not
+   reflow the first one. */
+.packet-journey-knows {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0 0;
+  border-top: 1px solid var(--tlp-line);
+}
+
+.packet-journey-knows-label {
+  margin: 0 0 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-knows-facts {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.packet-journey-knows-facts > div {
+  display: grid;
+  grid-template-columns: minmax(0, 7rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.packet-journey-knows-facts dt {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--tlp-ink);
+}
+
+.packet-journey-knows-facts dd {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--tlp-ink-soft);
+}
+
+/* The same authored state inside the inspector, where it is supplemental. */
+.packet-journey-inspector-knows {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--tlp-line);
+}
+
+.packet-journey-inspector-knows .packet-journey-knows-label {
+  margin-top: 0;
+}
+
 /* Device inspection — UNDERSTAND first, INSPECT behind a disclosure.
 
    Founder UAT: clicking a device "presents too much information at once", and

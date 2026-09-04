@@ -81,7 +81,35 @@ DRAWING_LOGIC="$SCAN_DIR/drawing-logic.txt"
 FRONTEND_LOGIC="$SCAN_DIR/frontend-logic.txt"
 WPH_LOGIC="$SCAN_DIR/wph-logic.txt"
 
-code_of() { grep -vE '^\s*(//|\*|/\*|--)' "$1" || true; }
+# Comment-stripped source, for the absence checks below.
+#
+# ## Why this refuses to return nothing
+#
+# Every absence check in this gate asks "does this pattern appear in the code?"
+# and passes when it does not. That question is only meaningful if the scan
+# actually contains the code — an EMPTY scan answers "no" to every pattern and
+# passes everything, while examining nothing at all.
+#
+# That was not hypothetical. One stray NUL byte in `topology-layout.ts` made
+# grep classify the whole file as binary, so this function returned zero bytes
+# and `$LAYOUT_LOGIC` was empty. Every check reading it — including "the layout
+# searches the link list for a path", the single most important assertion this
+# gate makes about the drawing — passed while scanning an empty file.
+#
+# A non-empty source that scans to nothing is therefore a GATE FAILURE, not a
+# silent pass. The failure is loud and names the file, because the cause is
+# always something about the file itself rather than about the checks.
+code_of() {
+  local source="$1"
+  local scanned
+  scanned="$(grep -vE '^\s*(//|\*|/\*|--)' "$source" || true)"
+
+  if [ -s "$source" ] && [ -z "$scanned" ]; then
+    fail "scanning $source produced nothing, but the file is not empty — every absence check reading it would pass while examining no code (a stray non-text byte makes grep treat a source file as binary)"
+  fi
+
+  printf '%s\n' "$scanned"
+}
 
 code_of "$REGISTRY" > "$REGISTRY_LOGIC"
 code_of "$MODEL" > "$MODEL_LOGIC"

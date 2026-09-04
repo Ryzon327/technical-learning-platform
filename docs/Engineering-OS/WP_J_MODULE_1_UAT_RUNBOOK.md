@@ -27,7 +27,37 @@ a finding, and it is the most valuable kind this review can produce.
 
 ### Read this before anything else — what changed in THIS round
 
-One area, from your last review: **clicking a device.**
+**Mission 2 only.** Mission 1 is unchanged and already passed; re-check it
+briefly for regressions, then spend your time on Mission 2.
+
+1. **The file scenario is concrete.** Mission 2 used to move "a message". It
+   now follows a person at PC-A sharing **a file** with a colleague at PC-B,
+   and the Start button says **"Send the file to PC-B"**.
+2. **The copies now leave at the same moment.** This is the big one. When
+   Switch-1 does not know where PC-B is, you should see **one arrival and two
+   copies leaving together** — three markers moving out of Switch-1 at once —
+   not the file travelling to the Printer and then to PC-B.
+3. **You can see what Switch-1 knows.** A short list appears in the right-hand
+   pane under what just happened:
+
+   ```
+   WHAT SWITCH-1 KNOWS
+   PC-A      Port 1
+   ```
+
+   and gains its second row when PC-B replies. Clicking Switch-1 shows the
+   same list.
+4. **A third prediction** asks what Switch-1 has learned after the first
+   delivery — before the answer is on screen.
+
+**The thing to judge hardest this round:** watch the first delivery. Does it
+look like **one action producing two copies**, or like the file visiting the
+Printer and then PC-B? If it reads as a journey from one to the other, that is
+a BLOCKER — it teaches a behaviour that does not happen.
+
+### What changed in the round before this one
+
+One area: **clicking a device.**
 
 1. **A device now explains itself before it lists itself.** Selecting a device
    used to open its whole technical inventory — every port, every connection,
@@ -614,18 +644,69 @@ This is the centre of the review. Step 2 is a walkthrough with **two passes**.
 
 **Pass one:**
 
-1. Press **Send the first message from PC-A**.
-2. When asked what Switch-1 does with a message for a destination it has never
-   seen, **commit a prediction**.
-3. Walk through: the switch sends a copy out of its other ports; the **Printer**
-   receives one, checks it, and discards it; **PC-B** receives the other and
-   accepts it; PC-B replies; the switch records where the reply came from; the
-   reply goes back to PC-A **by one port only**.
+1. Press **Send the file to PC-B**.
+2. When asked what Switch-1 does with a destination it has never seen,
+   **commit a prediction**.
+3. **Watch the copies leave.** Switch-1 receives the file on port 1 and sends
+   a copy out of both other connections **at the same moment**. See the
+   simultaneity check below — this is the main thing being reviewed.
+4. When asked **what Switch-1 knows at this point**, commit a prediction. Then
+   watch both copies arrive: PC-B accepts the file, and the Printer receives
+   its copy and does not accept it.
+5. PC-B replies; the reply reaches Switch-1 on port 2, and the learned-state
+   list **gains a second row**. The reply then goes back to PC-A **by one
+   connection only**.
 
 **Pass two:**
 
-4. PC-A sends again. **Commit the second prediction** before continuing.
-5. Watch the message go out of one port. The Printer sees nothing.
+6. PC-A sends the same file again. **Commit the third prediction** before
+   continuing.
+7. Watch the file go out of one connection. The Printer sees nothing.
+
+**THE SIMULTANEITY CHECK — do this one carefully.**
+
+At step 3, look at the picture rather than the words.
+
+- Do you see **one arrival and two copies leaving together**, three markers
+  moving out of Switch-1 at once?
+- Or does the file appear to travel to the Printer and *then* to PC-B?
+
+If it reads as a journey from one device to the next, that is a **BLOCKER**.
+Switching does not work that way, and a beginner will believe the picture over
+the paragraph.
+
+Then check the wording: does the pane make clear these are **two copies of one
+delivery**, not two separate files?
+
+**THE LEARNED-STATE CHECK.**
+
+- After the first delivery, the pane should read **PC-A — Port 1** and nothing
+  else. Is it obvious that PC-B is *not* there yet, and why?
+- When PC-B replies, does the second row **visibly appear**? Did you notice it?
+- Cover the picture with your hand. Can you still tell what Switch-1 knows?
+- Click Switch-1. Does the same list appear in the inspector, as supplementary
+  detail rather than as the only place it exists?
+- Does the list stay **calm** — two short columns and a quiet caption — rather
+  than looking like a monitoring dashboard?
+
+**THE PRINTER CHECK.**
+
+The Printer receives a copy and does not accept it.
+
+- Is it clear that **nothing went wrong**?
+- In Mission 1 that same Printer accepted a print job. Does the difference feel
+  explained rather than contradictory?
+- Any suggestion of failure, error, loss or a fault is a finding.
+
+**THE PREDICTION CHECK.**
+
+Deliberately choose the wrong answer for the "what does Switch-1 know" question.
+
+- Do you see your prediction beside what actually happened?
+- Is the correction **factual and non-punitive**, per §6.1?
+- Crucially: when the question was asked, was the answer **already visible** on
+  screen? It should not have been. If you could simply read it off the pane,
+  the prediction is not teaching anything and that is a finding.
 
 **Judge — and this is the question the whole slice turns on:**
 
@@ -639,11 +720,17 @@ that is the finding that matters most.
 
 **Also judge:**
 
-- Could you follow the marker through all nine stages?
+- Could you follow the markers through all eight stages?
 - Did the topology stay usable as a reference throughout?
 - Did your predictions stay visible next to what actually happened?
-- Was the Printer's part clear — that it *received* a copy and *ignored* it,
-  rather than never receiving anything?
+- Was the Printer's part clear — that it *received* a copy and *did not accept*
+  it, rather than never receiving anything?
+- With **Reduce Motion** on, run pass one again. The movement goes; can you
+  still tell that **two** connections carried a copy, and that the Printer's
+  did not carry the second delivery? If the simultaneity is only visible while
+  something is animating, that is a finding.
+- At phone width, does the learned-state list stay readable, and does the page
+  still never scroll sideways?
 
 ### 2.6 Mission 2 — steps 3 to 7, the vocabulary
 
@@ -758,7 +845,7 @@ interaction** control between levels.
 Put the mouse away. Using Tab, Shift-Tab, Enter and Space only:
 
 - Reach and select every device in both journeys.
-- Commit every prediction — one in Mission 1, two in Mission 2.
+- Commit every prediction — one in Mission 1, three in Mission 2.
 - Walk both journeys end to end.
 - Open and close the expanded workspace, and leave it with Escape.
 

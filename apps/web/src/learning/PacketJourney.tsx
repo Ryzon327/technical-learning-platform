@@ -359,6 +359,47 @@ export function PacketJourney({
             </section>
 
             {/* ---------------------------------------------------------- *
+                What a device knows now — authored teaching state.
+
+                Directly under what just happened, because in Mission 2 the
+                two are the same lesson: the switch received something, and
+                THAT is how it came to know where the sender is. A learner who
+                has to click a device to discover the point of the mission has
+                been handed the point as optional reading.
+
+                It is a definition list because that is exactly the shape of
+                the content — a device, and where it is — and because it gives
+                assistive technology the pairing for free. Not a table, not
+                cards, not badges: it is two short columns and a caption.
+
+                Deliberately NOT a live region. The authored narration in the
+                announcement above already says what changed, and a second
+                region announcing the same change would say it twice.
+             * ---------------------------------------------------------- */}
+            {view.deviceFacts.length > 0 && (
+              <section
+                className="packet-journey-knows"
+                aria-label="What the devices know now"
+              >
+                {view.deviceFacts.map((shown) => (
+                  <div key={shown.nodeId}>
+                    <h5 className="packet-journey-knows-label">
+                      {shown.label}
+                    </h5>
+                    <dl className="packet-journey-knows-facts">
+                      {shown.facts.map((fact) => (
+                        <div key={`${fact.label} ${fact.value}`}>
+                          <dt>{fact.label}</dt>
+                          <dd>{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {/* ---------------------------------------------------------- *
                 Before you begin.
 
                 Founder UAT asked for an obvious Start, and this is it: one
@@ -616,6 +657,32 @@ export function PacketJourney({
                     </span>
                     {selectedNode.journeyStatus.label}
                   </p>
+
+                  {/*
+                    EXPLORE — the same authored state the Instructor pane is
+                    already showing, for a learner who came looking at this
+                    device specifically.
+
+                    Supplemental by design. The instruction lives in the
+                    Instructor pane; this is the copy you find if you click.
+                    Both read `shownFacts` from one resolution, so the two
+                    surfaces cannot drift apart or disagree.
+                  */}
+                  {selectedNode.shownFacts !== undefined && (
+                    <div className="packet-journey-inspector-knows">
+                      <h6 className="packet-journey-knows-label">
+                        {selectedNode.shownFacts.label}
+                      </h6>
+                      <dl className="packet-journey-knows-facts">
+                        {selectedNode.shownFacts.facts.map((fact) => (
+                          <div key={`${fact.label} ${fact.value}`}>
+                            <dt>{fact.label}</dt>
+                            <dd>{fact.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  )}
 
                   {/*
                     INSPECT, behind one deliberate disclosure.

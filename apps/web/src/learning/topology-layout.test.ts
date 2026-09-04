@@ -328,6 +328,22 @@ function layoutOf(source: ObservationModel) {
   return layout;
 }
 
+/**
+ * The one marker a stage on a single link must produce.
+ *
+ * Markers became a list when an authored stage gained the ability to say that
+ * several links were busy at the same moment. Every stage that names one link
+ * must still draw exactly one marker — so this asserts the count rather than
+ * reading `[0]`, and a stage that quietly started drawing two would fail here
+ * instead of passing on its first element.
+ */
+function soleMarker(layout: ReturnType<typeof layoutOf>) {
+  expect(layout.packets).toHaveLength(1);
+  const marker = layout.packets[0];
+  if (marker === undefined) throw new Error("expected one marker");
+  return marker;
+}
+
 describe("nothing is silently dropped", () => {
   it("draws every device the model declares", () => {
     const layout = layoutOf(model);
@@ -387,7 +403,11 @@ describe("endpoints are resolved, never left as identifiers", () => {
       nodeId: "pc-a",
       nodeLabel: "PC-A",
       interfaceId: "pc-a-eth0",
-      interfaceLabel: "eth0"
+      interfaceLabel: "eth0",
+      // Whether this end is named on the picture. False here because this
+      // fixture flags nothing, which is every interaction authored before the
+      // flag existed.
+      prominent: false
     });
     expect(link?.to.nodeLabel).toBe("Switch-1");
     expect(link?.to.interfaceLabel).toBe("Fa0/1");
@@ -600,7 +620,7 @@ describe("the packet reports position, not progress", () => {
 
     const layout = layoutOf(unstarted);
 
-    expect(layout.packet).toMatchObject({
+    expect(soleMarker(layout)).toMatchObject({
       nodeId: "pc-a",
       state: "waiting",
       stateLabel: describePacketState("waiting"),
@@ -610,7 +630,7 @@ describe("the packet reports position, not progress", () => {
   });
 
   it("rides the link the source named, towards the device that has it", () => {
-    expect(layoutOf(model).packet).toMatchObject({
+    expect(soleMarker(layoutOf(model))).toMatchObject({
       nodeId: "sw-1",
       state: "moving",
       linkId: "link-pc-a"
@@ -634,8 +654,8 @@ describe("the packet reports position, not progress", () => {
 
     const layout = layoutOf(stopped);
 
-    expect(layout.packet?.state).toBe("stopped");
-    expect(layout.packet?.nodeId).toBe("r-1");
+    expect(soleMarker(layout).state).toBe("stopped");
+    expect(soleMarker(layout).nodeId).toBe("r-1");
     expect(
       layout.devices.find((device) => device.nodeId === "r-1")?.state
     ).toBe("stopped");
@@ -655,7 +675,7 @@ describe("the packet reports position, not progress", () => {
 
     const layout = layoutOf(confirmed);
 
-    expect(layout.packet?.state).toBe("confirmed");
+    expect(soleMarker(layout).state).toBe("confirmed");
     expect(
       layout.devices.find((device) => device.nodeId === "r-1")?.state
     ).toBe("confirmed");
@@ -1015,13 +1035,45 @@ function samplesAlong(points: readonly { x: number; y: number }[]) {
   return samples;
 }
 
+/**
+ * Mission 2's shape: one arrival, and copies leaving on two other links at the
+ * same authored moment.
+ *
+ * The links are AUTHORED on the stage. Nothing here works out which of
+ * Switch-1's four connections should be busy — that is the switching
+ * calculation this module must never contain.
+ */
+const simultaneous: ObservationModel = {
+  ...moduleOne,
+  stages: [
+    {
+      stageId: "f1-pc-a",
+      atNodeId: "pc-a",
+      narration: "PC-A sends the file.",
+      outcome: "proceeds",
+      availability: "available"
+    },
+    {
+      stageId: "f2-copies-leave",
+      atNodeId: "sw-1",
+      narration: "Copies leave on both other connections at once.",
+      outcome: "proceeds",
+      viaLinkId: "link-pc-a",
+      alsoOnLinkIds: ["link-pc-b", "link-printer"],
+      availability: "available"
+    }
+  ],
+  currentStageId: "f2-copies-leave"
+};
+
 const everyShape: readonly [string, ObservationModel][] = [
   ["the architecture fixture", model],
   ["Module 1", moduleOne],
   ["Module 1 with its authored group", moduleOneGrouped],
   ["two authored groups", twoGroups],
   ["two switches side by side", twoSwitches],
-  ["an end device attached across a row", hostToRouter]
+  ["an end device attached across a row", hostToRouter],
+  ["one arrival with simultaneous copies", simultaneous]
 ];
 
 describe("the drawing is a hierarchy, not a row of cards", () => {
@@ -1198,15 +1250,19 @@ describe("the traffic marker never covers a device", () => {
         };
 
         const layout = layoutOf(walked);
-        const marker = layout.packet;
-        if (marker === null) continue;
 
-        for (const device of layout.devices) {
-          // Not merely outside the box — clear of it by more than the marker's
-          // own radius, so the dot itself never touches a card.
-          expect(
-            `${name} ${device.nodeId} ${distanceToBox(marker.at, device.box) > 6}`
-          ).toBe(`${name} ${device.nodeId} true`);
+        // EVERY marker, not just the first. A stage that names several links
+        // draws several markers, and the Founder-accepted rule — a marker
+        // never covers device content — has to hold for all of them or the
+        // guarantee is only true of whichever one happened to be drawn first.
+        for (const marker of layout.packets) {
+          for (const device of layout.devices) {
+            // Not merely outside the box — clear of it by more than the
+            // marker's own radius, so the dot itself never touches a card.
+            expect(
+              `${name} ${marker.linkId} ${device.nodeId} ${distanceToBox(marker.at, device.box) > 6}`
+            ).toBe(`${name} ${marker.linkId} ${device.nodeId} true`);
+          }
         }
       }
     }
@@ -1226,22 +1282,22 @@ describe("the traffic marker never covers a device", () => {
     const layout = layoutOf(unstarted);
     const origin = layout.devices.find((device) => device.nodeId === "pc-a")!;
 
-    expect(layout.packet?.state).toBe("waiting");
-    expect(layout.packet?.linkId).toBe("link-pc-a");
-    expect(distanceToBox(layout.packet!.at, origin.box)).toBeGreaterThanOrEqual(
-      MARKER_CLEARANCE
-    );
+    expect(soleMarker(layout).state).toBe("waiting");
+    expect(soleMarker(layout).linkId).toBe("link-pc-a");
+    expect(
+      distanceToBox(soleMarker(layout).at, origin.box)
+    ).toBeGreaterThanOrEqual(MARKER_CLEARANCE);
   });
 
   it("arrives beside the device that has the traffic, not on top of it", () => {
     const layout = layoutOf(moduleOne);
     const switched = layout.devices.find((device) => device.nodeId === "sw-1")!;
 
-    expect(layout.packet?.nodeId).toBe("sw-1");
-    expect(layout.packet?.linkId).toBe("link-pc-a");
-    expect(distanceToBox(layout.packet!.at, switched.box)).toBeGreaterThanOrEqual(
-      MARKER_CLEARANCE
-    );
+    expect(soleMarker(layout).nodeId).toBe("sw-1");
+    expect(soleMarker(layout).linkId).toBe("link-pc-a");
+    expect(
+      distanceToBox(soleMarker(layout).at, switched.box)
+    ).toBeGreaterThanOrEqual(MARKER_CLEARANCE);
 
     // And the DEVICE, separately, says the traffic is here. Two claims, two
     // presentations; the marker is transit and the state is arrival.
@@ -1603,8 +1659,12 @@ describe("group geometry follows membership, and never the other way round", () 
     expect(grouped.links.map((link) => link.shape)).toEqual(
       plain.links.map((link) => link.shape)
     );
-    expect(grouped.packet?.nodeId).toBe(plain.packet?.nodeId);
-    expect(grouped.packet?.linkId).toBe(plain.packet?.linkId);
+    expect(grouped.packets.map((marker) => marker.nodeId)).toEqual(
+      plain.packets.map((marker) => marker.nodeId)
+    );
+    expect(grouped.packets.map((marker) => marker.linkId)).toEqual(
+      plain.packets.map((marker) => marker.linkId)
+    );
   });
 });
 
@@ -1868,5 +1928,326 @@ describe("the drawing leaves room for the task beside it", () => {
     expect(layout.rows).toBe(3);
     expect(layout.groups).toHaveLength(1);
     expect(layout.links.every((link) => link.shape === "branch")).toBe(true);
+  });
+});
+
+describe("one authored moment can occupy several links at once", () => {
+  /**
+   * WP-J3 Mission 2 — authored simultaneous egress.
+   *
+   * Mission 1's walkthrough moved one marker along one wire at a time, and
+   * that was honest because one thing was moving. Mission 2's switch has not
+   * learned where the destination is, so it sends copies out of its other
+   * connections AT THE SAME MOMENT — and drawing that as a queue of arrivals
+   * would teach serial forwarding, which is a different and wrong behaviour.
+   *
+   * Every link named here is authored. This module is given the ids and draws
+   * them; it does not decide which connections a switch would use.
+   */
+  it("draws one marker per authored link", () => {
+    const layout = layoutOf(simultaneous);
+
+    expect(layout.packets).toHaveLength(3);
+    expect(layout.packets.map((marker) => marker.linkId).sort()).toEqual([
+      "link-pc-a",
+      "link-pc-b",
+      "link-printer"
+    ]);
+  });
+
+  it("anchors every marker at the one device the stage happened at", () => {
+    // What makes it read as one event rather than three. All three copies
+    // leave the same card together, rather than appearing at three ends of
+    // the network at once.
+    const layout = layoutOf(simultaneous);
+
+    expect(
+      new Set(layout.packets.map((marker) => marker.nodeId))
+    ).toEqual(new Set(["sw-1"]));
+  });
+
+  it("gives every marker the same state, because it is one delivery", () => {
+    const layout = layoutOf(simultaneous);
+
+    expect(new Set(layout.packets.map((marker) => marker.state))).toEqual(
+      new Set(["moving"])
+    );
+  });
+
+  it("lights every authored link and nothing else", () => {
+    const layout = layoutOf(simultaneous);
+    const current = layout.links
+      .filter((link) => link.current)
+      .map((link) => link.linkId)
+      .sort();
+
+    expect(current).toEqual(["link-pc-a", "link-pc-b", "link-printer"]);
+    // Switch-1 also connects to Router-1. Nothing authored that link, so
+    // nothing may light it — if this ever fails, something started working
+    // out which ports a switch "would" use.
+    expect(current).not.toContain("link-router");
+  });
+
+  it("records every authored link as traversed, so a still picture keeps them", () => {
+    // Reduced motion removes movement, not information. With the marker
+    // animation gone, `traversed` is what still says both copies went out,
+    // so it has to cover every link the moment occupied.
+    const layout = layoutOf(simultaneous);
+    const traversed = layout.links
+      .filter((link) => link.traversed)
+      .map((link) => link.linkId)
+      .sort();
+
+    expect(traversed).toEqual(["link-pc-a", "link-pc-b", "link-printer"]);
+  });
+
+  it("keeps every marker clear of every card", () => {
+    // The Founder-accepted rule from Mission 1, applied to all of them. The
+    // sweep above covers this fixture too; this states it directly so the
+    // guarantee is legible on its own.
+    const layout = layoutOf(simultaneous);
+
+    for (const marker of layout.packets) {
+      for (const device of layout.devices) {
+        expect(
+          `${marker.linkId} ${device.nodeId} ${distanceToBox(marker.at, device.box) > 6}`
+        ).toBe(`${marker.linkId} ${device.nodeId} true`);
+      }
+    }
+  });
+
+  it("gives each marker its own position, so none is hidden under another", () => {
+    const layout = layoutOf(simultaneous);
+    const points = layout.packets.map((marker) => `${marker.at.x},${marker.at.y}`);
+
+    expect(new Set(points).size).toBe(points.length);
+  });
+
+  it("fits every marker inside the canvas it reports", () => {
+    const layout = layoutOf(simultaneous);
+
+    for (const marker of layout.packets) {
+      expect(marker.at.y).toBeLessThanOrEqual(layout.frame.height);
+      expect(marker.at.x).toBeLessThanOrEqual(layout.frame.width);
+    }
+  });
+
+  it("still draws exactly one marker when a stage names one link", () => {
+    // The additive guarantee: every journey authored before this field
+    // existed behaves exactly as it did.
+    expect(layoutOf(moduleOne).packets).toHaveLength(1);
+  });
+
+  it("refuses to draw when an authored simultaneous link does not exist", () => {
+    // Fail closed, exactly as a dangling `viaLinkId` does. Highlighting
+    // nothing and looking finished is the failure mode worth avoiding.
+    const dangling: ObservationModel = {
+      ...simultaneous,
+      stages: simultaneous.stages.map((stage) =>
+        stage.stageId === "f2-copies-leave"
+          ? { ...stage, alsoOnLinkIds: ["link-nope"] }
+          : stage
+      )
+    };
+
+    expect(buildTopologyLayout(dangling, "pc-a").state).toBe("unavailable");
+  });
+
+  it("decides nothing from device roles", () => {
+    // The structural proof. Make every device a switch and the authored
+    // links are unchanged, because nothing consulted what a device IS.
+    const rolesChanged: ObservationModel = {
+      ...simultaneous,
+      nodes: simultaneous.nodes.map((node) => ({
+        ...node,
+        role: "switch" as const
+      }))
+    };
+
+    const before = layoutOf(simultaneous);
+    const after = layoutOf(rolesChanged);
+
+    expect(after.links.filter((link) => link.current).map((l) => l.linkId)).toEqual(
+      before.links.filter((link) => link.current).map((l) => l.linkId)
+    );
+    expect(after.packets).toHaveLength(before.packets.length);
+  });
+});
+
+describe("authored port labels are drawn beside their connections", () => {
+  /**
+   * The approved Mission 1 specification, "TOPOLOGY AS INSTRUCTION": a learner
+   * should not have to open an inspector to find out which port a device is
+   * plugged into, because the walkthrough says "PC-A's link ends at port 1 on
+   * Switch-1" and that sentence is about nothing visible unless the picture
+   * names the port.
+   *
+   * Which ends are named is the AUTHOR's decision, carried on the interface.
+   * Nothing here works it out from a device's role, from where a wire happens
+   * to sit, or from the order the nodes were declared in.
+   */
+  /*
+    The fixture's `node()` helper labels each interface with its own id, which
+    would let a bug that drew `interfaceId` pass unnoticed. These get real
+    labels, so the assertions below prove the AUTHORED LABEL reaches the
+    picture rather than the identifier beside it.
+  */
+  const portNames: Record<string, string> = {
+    "sw-1-p1": "Port 1",
+    "sw-1-p2": "Port 2",
+    "sw-1-p3": "Port 3",
+    "sw-1-p4": "Port 4"
+  };
+
+  const labelled: ObservationModel = {
+    ...moduleOne,
+    nodes: moduleOne.nodes.map((node) =>
+      node.nodeId === "sw-1"
+        ? {
+            ...node,
+            interfaces: node.interfaces.map((iface) => ({
+              ...iface,
+              label: portNames[iface.interfaceId] ?? iface.label,
+              ...(iface.interfaceId === "sw-1-p4" ? {} : { prominent: true })
+            }))
+          }
+        : node
+    )
+  };
+
+  it("draws nothing when the author flagged nothing", () => {
+    // Additive: every topology authored before the flag existed is unchanged.
+    expect(layoutOf(moduleOne).portLabels).toEqual([]);
+  });
+
+  it("draws one label per flagged end, using the authored text", () => {
+    const labels = layoutOf(labelled).portLabels;
+
+    expect(labels.map((port) => port.text).sort()).toEqual([
+      "Port 1",
+      "Port 2",
+      "Port 3"
+    ]);
+  });
+
+  it("leaves an unflagged end unlabelled, on a wire that has one", () => {
+    // Port 4 is a real port on the same device, listed and inspectable, and
+    // deliberately not drawn. It is the proof the flag is a decision: a
+    // layout that labelled "the switch's ports" would have drawn this too.
+    const labels = layoutOf(labelled).portLabels;
+
+    expect(labels.map((port) => port.interfaceId)).not.toContain("sw-1-p4");
+    expect(labels.every((port) => port.nodeId === "sw-1")).toBe(true);
+  });
+
+  it("puts each label near the device that owns the interface", () => {
+    // "Device, then port, then connection" — the label belongs to the socket
+    // it names, not to the middle of the wire. Close enough to read as part
+    // of Switch-1, and outside the card so it never covers device text.
+    const layout = layoutOf(labelled);
+    const box = layout.devices.find((device) => device.nodeId === "sw-1")?.box;
+    if (box === undefined) throw new Error("expected Switch-1");
+
+    for (const port of layout.portLabels) {
+      const distance = distanceToBox(port.at, box);
+      expect(`${port.text} ${distance > 0 && distance < 40}`).toBe(
+        `${port.text} true`
+      );
+    }
+  });
+
+  it("keeps every label off the wire, so traffic never covers it", () => {
+    // A marker rides the wire. A label sitting in the same lane would be
+    // hidden by the traffic at exactly the moment the learner wants to read
+    // which port it went out of.
+    const layout = layoutOf(labelled);
+
+    for (const port of layout.portLabels) {
+      const wire = layout.links.find((link) => link.linkId === port.linkId);
+      if (wire === undefined) throw new Error("expected the labelled wire");
+
+      const nearest = Math.min(
+        ...samplesAlong(wire.points).map((point) =>
+          Math.hypot(point.x - port.at.x, point.y - port.at.y)
+        )
+      );
+
+      expect(`${port.text} ${nearest > 4}`).toBe(`${port.text} true`);
+    }
+  });
+
+  it("stays clear of the traffic marker at the same device", () => {
+    // Both sit just outside Switch-1's edge on the same wires. The label is
+    // offset to one side precisely so the two never occupy the same point.
+    const layout = layoutOf(simultaneous);
+    const withLabels = layoutOf({
+      ...simultaneous,
+      nodes: labelled.nodes
+    });
+
+    expect(layout.packets.length).toBeGreaterThan(0);
+
+    for (const marker of withLabels.packets) {
+      for (const port of withLabels.portLabels) {
+        const gap = Math.hypot(
+          marker.at.x - port.at.x,
+          marker.at.y - port.at.y
+        );
+        expect(`${port.text} ${gap > 6}`).toBe(`${port.text} true`);
+      }
+    }
+  });
+
+  it("gives every label its own position", () => {
+    const points = layoutOf(labelled).portLabels.map(
+      (port) => `${port.at.x},${port.at.y}`
+    );
+
+    expect(new Set(points).size).toBe(points.length);
+  });
+
+  it("keeps every label inside the canvas", () => {
+    const layout = layoutOf(labelled);
+
+    for (const port of layout.portLabels) {
+      expect(port.at.x).toBeGreaterThanOrEqual(0);
+      expect(port.at.y).toBeGreaterThanOrEqual(0);
+      expect(port.at.x).toBeLessThanOrEqual(layout.frame.width);
+      expect(port.at.y).toBeLessThanOrEqual(layout.frame.height);
+    }
+  });
+
+  it("names the same ports in the arrangement description", () => {
+    // The picture must not carry a fact the spoken description does not, or a
+    // learner using a screen reader is the only one who has to go hunting.
+    const description = layoutOf(labelled).description;
+
+    expect(description).toContain("Switch-1 Port 1");
+    expect(description).toContain("Switch-1 Port 2");
+    expect(description).toContain("Switch-1 Port 3");
+    // And the unflagged end stays unnamed there too, so the two agree.
+    expect(description).not.toContain("Switch-1 Port 4");
+  });
+
+  it("decides nothing from device roles", () => {
+    // The structural proof. Make every device a host — the flag is untouched,
+    // so exactly the same ends are labelled.
+    const rolesChanged: ObservationModel = {
+      ...labelled,
+      nodes: labelled.nodes.map((node) => ({ ...node, role: "host" as const }))
+    };
+
+    expect(layoutOf(rolesChanged).portLabels.map((port) => port.text).sort())
+      .toEqual(layoutOf(labelled).portLabels.map((port) => port.text).sort());
+  });
+
+  it("decides nothing from the order devices were declared in", () => {
+    const reordered: ObservationModel = {
+      ...labelled,
+      nodes: [...labelled.nodes].reverse()
+    };
+
+    expect(layoutOf(reordered).portLabels.map((port) => port.interfaceId).sort())
+      .toEqual(layoutOf(labelled).portLabels.map((port) => port.interfaceId).sort());
   });
 });

@@ -46,8 +46,8 @@
     {
       "stableId": "nf-m1-what-a-network-is",
       "moduleStableId": "nf-mod1-one-network",
-      "title": "Mission 1 — What a network is, and what is in it",
-      "description": "Before this mission you should be able to: operate a computer, and compare two numbers. Nothing else.\n\nA network exists because one machine has something another machine wants. Everything you will learn in this course is an answer to a single question: how does a thing get from here to there?\n\nStart by looking at what a small network is made of. Three kinds of device do three different jobs. Some devices are the machines people actually use. One device connects those machines so they can reach each other. One device connects whole groups of machines to other groups. You will not be given the names first — you will look at what each device is attached to and what passes through it, and the names will follow.\n\nEvery device has one or more places where a cable arrives. On a diagram those connections are drawn as lines, and each line ends somewhere specific on each device. Naming which connection on which device is the one that matters is not a detail; it is the whole skill of reading a network, and it is the difference between a diagram that is decoration and a diagram you can reason with.\n\nBy the end you will be able to look at a small network, say what each device is for, name the connections between the devices, and say which device is responsible for which part of a trip between two machines. You will use that ability in every mission that follows, and you will need it again in later courses.\n\nNothing is configured or changed here. You are learning to read before you are asked to write.",
+      "title": "Mission 1 — Follow something across a network",
+      "description": "Before this mission you should be able to: operate a computer, and compare two numbers. Nothing else.\n\nWhen you print a document on a network printer, your computer has to get the print request from where you are sitting to the printer itself. In this mission you follow that request across a small network and see which devices it passes through.\n\nFirst you meet the devices a small network is made of: the machines people use, the device in the middle that connects them, and the device at the edge that connects this network to other networks. You see where each one sits and what it is attached to.\n\nThen you follow one print request from the computer that sent it to the printer that produces it, predicting where it goes before you watch it happen.\n\nThis mission does not teach how the device in the middle makes its decision, and it does not teach what the device at the edge does. Both are deliberate. You will finish with two specific questions, and the missions that follow answer them.\n\nNothing is configured or changed here. You are learning to read a network before you are asked to alter one.",
       "position": 0,
       "estimatedMinutes": 40,
       "competencies": [
@@ -63,11 +63,12 @@
           "position": 0,
           "content": {
             "type": "concept",
-            "title": "Why anything is connected at all",
+            "title": "Follow something across a network",
             "paragraphs": [
-              "Some of what you need is not on the machine in front of you. It is a file on a colleague's laptop, a page held on a computer in another country, or a document you want a printer down the hall to produce.",
-              "A network exists for that reason and no other: so that one machine can obtain something from another. Every topic in this course answers a single question — how does something get from here to there?",
-              "This mission examines what a small network is made of. You will configure nothing and change nothing. You are learning to read a network before you are asked to alter one."
+              "When you print a document on a network printer, your computer has to get the print request from where you are sitting to the printer itself. The request does not arrive there by magic. It travels, and it passes through other devices on the way.",
+              "In this mission you follow one print request across a small network and see which devices it passes through.",
+              "You will learn what a network is at a basic level, what a host is, what a network connection represents, where a switch sits in a small network, and how to follow information from one device to another.",
+              "You will configure nothing and change nothing. You are learning to read a network before you are asked to alter one."
             ]
           }
         },
@@ -76,12 +77,11 @@
           "position": 1,
           "content": {
             "type": "concept",
-            "title": "The machines people use",
+            "title": "What is a host?",
             "paragraphs": [
-              "Consider four machines: a laptop somebody types on, a phone in a pocket, a printer in an office, and a server in a cupboard that nobody has touched in a year. Each one is a place where information starts, or a place where information finishes.",
-              "That shared job has a name. A machine that information comes from, or goes to, is called a host. Some documentation calls the same thing an end device; the two terms mean the same thing.",
-              "A host is not only a computer somebody sits at. The printer is a host. The server is a host. If information starts or ends at a machine, that machine is a host, and everything you learn about one host applies to the others.",
-              "The diagrams in this course label a printer as a printer, so that you can recognise it at a glance. That label describes what the machine is for. It does not make the printer something other than a host: for the purpose of getting information from one place to another, the printer behaves exactly as the laptop does."
+              "Computers on a network are often called hosts. A desktop, a laptop or a server connected to a network can be a host, and so is the phone in your pocket.",
+              "A host is where information starts, or where it finishes. PC-A and PC-B are hosts in the network you are about to see.",
+              "A printer connected to the network is a host too. The diagrams in this course label a printer as a printer so that you can recognise it at a glance, but for the purpose of getting information from one place to another, it behaves exactly as a computer does."
             ]
           }
         },
@@ -90,12 +90,11 @@
           "position": 2,
           "content": {
             "type": "concept",
-            "title": "Where a machine joins, and what joins them",
+            "title": "Network connections",
             "paragraphs": [
-              "A host does not join a network by being near it. Every host has a specific place where the connection arrives — the socket at the back of a laptop, the aerial inside a phone. A host can have more than one connection point, and the connection points are not interchangeable: information arrives at one connection point in particular.",
-              "A connection point is called an interface. Whenever you are told that a machine is connected, the question worth asking is always which interface, because that is the interface the traffic uses.",
-              "A device built to hold many connections usually calls each connection a port rather than an interface. Port and interface name the same idea; this course uses whichever word the device itself would use.",
-              "The connection running between two interfaces is called a link. A link joins two specific interfaces, not two machines in general. That distinction matters every time you work out where something went."
+              "Devices communicate through network connections. A host does not join a network by being near it: every host has a specific place where the connection arrives — the socket at the back of a laptop, the aerial inside a phone. That connection point is called an interface.",
+              "A device built to hold many connections usually calls each one a port rather than an interface. Port and interface name the same idea, and this course uses whichever word the device itself would use.",
+              "The connection running between two interfaces is called a link. PC-A has one link, so everything PC-A puts onto this network leaves the same way, and that link is its way in."
             ]
           }
         },
@@ -106,10 +105,10 @@
             "type": "concept",
             "title": "The device in the middle, and the device at the edge",
             "paragraphs": [
-              "Not every device on a network is a host. A small network also contains devices whose only job is to carry traffic between the hosts. The network you are about to examine contains two of them, and you can tell them apart by what each one is attached to.",
-              "The first device sits in the middle. Every host in that network has one link, and every one of those links ends at this same device, each host taking a port of its own. No host has a link to another host. Anything travelling between two hosts therefore passes through the device in the middle. A device that does that job is called a switch, and the one you will see is named Switch-1.",
-              "The second device is attached to Switch-1, and it is also attached to a connection that leads out of this network entirely. That second attachment is what makes it a different kind of device. It is called a router, and the one you will see is named Router-1.",
-              "This mission does not teach what a router does. Router-1 is present so that you can recognise a router and see where a router sits, because Router-1 marks the point where this local network stops. What a router does with information is Mission 5 and Mission 6, and it needs ideas you do not have yet."
+              "Not every device on a network is a host. A small network also contains devices whose only job is to carry traffic between the hosts, and you can tell them apart by what each one is attached to.",
+              "One device sits in the middle. Every host has one link, and every one of those links ends at this same device, each host on a port of its own. No host has a link to another host, so anything travelling between two hosts passes through the device in the middle. That device is called a switch, and this one is named Switch-1.",
+              "One device sits at the edge. It is attached to Switch-1, and it is also attached to a connection that leads out of this network entirely. That second attachment is what makes it a different kind of device. It is called a router, and this one is named Router-1.",
+              "We will not use Router-1 in this mission. It is here so that you can recognise a router and see where one sits, because Router-1 marks the point where this local network stops. You will discover why it is there in a later mission."
             ]
           }
         },
@@ -122,7 +121,7 @@
             "interactionType": "packet_journey",
             "sourceKind": "authored_teaching",
             "supportLevel": "show_me",
-            "caption": "Someone at PC-A wants to print a document on the network printer, so PC-A sends a print request. Follow the print request from PC-A to the printer. Select any device to read what it is and what it connects to.",
+            "caption": "Follow the print request. Someone at PC-A wants to print a document using the network printer, so PC-A sends a print request. Follow it from PC-A to the Printer. Select any device to read what it is and what it connects to.",
             "textEquivalent": "A small network of five devices. Three of them are hosts: PC-A and PC-B are computers people use, and the Printer is the network printer. Each host has one network interface and one link, and every one of those links runs to Switch-1 — PC-A to port 1, PC-B to port 2, the Printer to port 3. Switch-1 is the device in the middle: Switch-1 holds four ports, and every local connection in this network arrives at one of them. Router-1 is attached to Switch-1 on port 4 through its local port, and Router-1 also has a second, outward port whose connection leads away from this network entirely. No link joins two hosts directly, so any path between two hosts runs through Switch-1. Someone at PC-A wants to print a document, so PC-A sends a print request towards the Printer. You are asked to predict which device the print request reaches first. The print request leaves PC-A along PC-A's single link and arrives at Switch-1 on port 1. Switch-1 then passes it on, and the print request arrives at the Printer over the link that ends on Switch-1 port 3, where the Printer accepts the print job. The walkthrough is then complete. PC-B and Router-1 receive nothing and are not visited. How Switch-1 works out which port leads to the Printer is Mission 2, and what Router-1 does is Mission 5 and Mission 6. You can select any device at any point to read what it is, which interfaces it has, and what it connects to.",
             "parameters": {
               "interactionType": "packet_journey",
@@ -191,16 +190,19 @@
                     {
                       "interfaceId": "sw-1-p1",
                       "label": "Port 1",
+                      "prominent": true,
                       "attributes": [{ "label": "Connects to", "value": "PC-A" }]
                     },
                     {
                       "interfaceId": "sw-1-p2",
                       "label": "Port 2",
+                      "prominent": true,
                       "attributes": [{ "label": "Connects to", "value": "PC-B" }]
                     },
                     {
                       "interfaceId": "sw-1-p3",
                       "label": "Port 3",
+                      "prominent": true,
                       "attributes": [
                         { "label": "Connects to", "value": "Printer" }
                       ]
@@ -270,7 +272,7 @@
                   "stageId": "t1-pc-a",
                   "atNodeId": "pc-a",
                   "narration": "The print request leaves PC-A along PC-A's single link.",
-                  "decision": "PC-A represents a user's computer on the network. It has one network interface and one link, so everything PC-A sends leaves the same way. The print request has no other way out of PC-A.",
+                  "decision": "PC-A is the computer sending the print request. It has one link, so everything PC-A sends leaves the same way.",
                   "outcome": "proceeds",
                   "prediction": {
                     "prompt": "PC-A sends the print request towards the Printer. Which device does the print request reach first?",
@@ -281,7 +283,7 @@
                   "stageId": "t2-switch",
                   "atNodeId": "sw-1",
                   "narration": "The print request arrives at Switch-1, on port 1.",
-                  "decision": "PC-A's link ends at port 1 on Switch-1, so Switch-1 is the first device the print request reaches. Every other host connects to Switch-1 the same way, each on a port of its own, which is what makes Switch-1 the device in the middle. Switch-1 now has to work out which port leads to the Printer. Mission 2 explains how it makes that decision; continue to see where the print request goes.",
+                  "decision": "PC-A's link ends at port 1 on Switch-1, so Switch-1 is the first device the print request reaches. But the print request is meant for the Printer, so what does Switch-1 do with it? That is what Mission 2 begins investigating; continue to see where the print request goes.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-a"
                 },
@@ -297,7 +299,7 @@
               "actions": [],
               "confirmation": {
                 "narration": "The print request reached the network printer, and the printer accepted the print job.",
-                "summary": "PC-A's print request travelled through Switch-1 and reached the network printer. You have followed one request from the machine that sent it to the machine it was for. What Switch-1 did between receiving the print request and passing it on is Mission 2. What Router-1 does, and why Router-1 sits at the edge of this network, is Mission 5 and Mission 6."
+                "summary": "PC-A sent it, Switch-1 was in the middle, and the Printer received it. You have followed one print request from the machine that sent it to the machine it was for. Now you may be wondering how Switch-1 knew where to send it, and why the print request did not go through Router-1. Those are the right questions to be left with: Mission 2 answers the first, and Missions 5 and 6 answer the second."
               }
             }
           }
@@ -322,7 +324,7 @@
       "stableId": "nf-m2-inside-one-network",
       "moduleStableId": "nf-mod1-one-network",
       "title": "Mission 2 — Inside one network: how a switch delivers",
-      "description": "Before this mission you should be able to: read a small network and name its devices and connections (Mission 1).\n\nTwo machines are connected to the same device in the middle. One sends a message to the other. Watch what happens the first time, and then watch what happens the second time. They are not the same, and the difference is the whole of this mission.\n\nThe first time, the device in the middle does not know where the destination is, so it sends a copy of the message out of every other connection and lets the right machine answer. That is wasteful, and it does not stay that way. The device pays attention to which connection each answer comes back from, records what it observes, and the next message goes to exactly one place.\n\nOnce you have seen that happen, you get the words for it. Each machine carries a built-in identity set at the factory, written in a notation you will recognise but do not need to calculate with. The unit of traffic that carries one of these identities to another has a name. The record the middle device builds up has a name. Sending a copy to everyone because you do not yet know better has a name too.\n\nYou will also meet the first thing that looks like a failure and is not. Traffic reaching every machine instead of one looks wrong the first time you see it. It is correct, it is temporary, and telling the difference between \"broken\" and \"working as designed\" is a habit worth forming early.\n\nBy the end you will be able to explain how one machine reaches another inside a single network, why the second attempt behaves differently from the first, and what happens when the destination is not known.",
+      "description": "Before this mission you should be able to: read a small network and name its devices and connections (Mission 1).\n\nTwo machines are connected to the same device in the middle. Someone at one of them sends a file to a colleague at the other. Watch what happens the first time, and then watch what happens the second time. They are not the same, and the difference is the whole of this mission.\n\nThe first time, the device in the middle does not know where the destination is, so it sends a copy of the file out of every other connection at once and lets the right machine answer. That is wasteful, and it does not stay that way. The device pays attention to which connection each delivery arrives on, records what it observes, and the next one goes to exactly one place.\n\nOnce you have seen that happen, you get the words for it. Each machine carries a built-in identity set at the factory, written in a notation you will recognise but do not need to calculate with. The unit of traffic that carries one of these identities to another has a name. The record the middle device builds up has a name. Sending a copy to everyone because you do not yet know better has a name too.\n\nYou will also meet the first thing that looks like a failure and is not. Traffic reaching every machine instead of one looks wrong the first time you see it. It is correct, it is temporary, and telling the difference between \"broken\" and \"working as designed\" is a habit worth forming early.\n\nBy the end you will be able to explain how one machine reaches another inside a single network, why the second attempt behaves differently from the first, and what happens when the destination is not known.",
       "position": 1,
       "estimatedMinutes": 55,
       "competencies": [
@@ -343,12 +345,12 @@
           "position": 0,
           "content": {
             "type": "concept",
-            "title": "One message, two machines",
+            "title": "One file, two machines",
             "paragraphs": [
-              "PC-A has a file to send to PC-B. PC-A and PC-B are on the same small network, each with a link into Switch-1, and no other device stands between them.",
-              "PC-A addresses the message to PC-B's interface. PC-A can do that because it already holds an identity for that interface — a value naming which connection point on the network the message is for.",
-              "How PC-A came to hold that identity is a real question with a real answer, and the answer needs one idea you do not have yet. The question is not being waved away: Mission 4 answers it. For now, take it as given that PC-A knows which interface it is addressing, and watch what the network does with the message.",
-              "You will watch this twice. PC-A sends the same kind of message on two separate occasions, and the two occasions do not go the same way. The difference between them is the whole of this mission."
+              "Someone at PC-A is sharing a file with a colleague at PC-B. PC-A and PC-B are on the same small network, each with a link into Switch-1, and no other device stands between them.",
+              "PC-A addresses the file to PC-B's interface. PC-A can do that because it already holds an identity for that interface — a value naming which connection point on the network the file is for.",
+              "How PC-A came to hold that identity is a real question with a real answer, and the answer needs one idea you do not have yet. The question is not being waved away: Mission 4 answers it. For now, take it as given that PC-A knows which interface it is addressing, and watch what the network does with the file.",
+              "You will watch this twice. The same file is sent to the same machine on two separate occasions, and the two occasions do not go the same way. The difference between them is the whole of this mission."
             ]
           }
         },
@@ -362,7 +364,7 @@
             "sourceKind": "authored_teaching",
             "supportLevel": "show_me",
             "caption": "An instructional walkthrough of two deliveries on one network. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
-            "textEquivalent": "A small network of four devices: three hosts — PC-A, PC-B and a Printer — each with one interface, and Switch-1 in the middle holding three ports. PC-A is on port 1, PC-B on port 2, the Printer on port 3. Each host interface carries a hardware identity, which you can read in the inspector. The walkthrough follows two separate deliveries. In the first, PC-A sends a message addressed to PC-B's interface. Switch-1 receives it on port 1, has no record of the interface it is addressed to, and therefore sends a copy out of every other port at once — ports 2 and 3. As that message arrives, Switch-1 records that PC-A's interface is on port 1. The copy that reaches the Printer is compared against the Printer's own identity, does not match, and is discarded. The copy that reaches PC-B does match, and PC-B accepts it. PC-B replies; the reply arrives at Switch-1 on port 2, and Switch-1 records that PC-B's interface is on port 2. The reply then leaves by port 1 alone, because Switch-1 already knew where PC-A was, and reaches PC-A without the Printer seeing anything. In the second delivery, PC-A sends another message to the same destination. Switch-1 receives it on port 1, finds PC-B's interface already recorded against port 2, and sends it out of port 2 only. Port 3 stays quiet and the Printer sees nothing. The message reaches PC-B. Nothing about the message changed between the two deliveries; what changed is what Switch-1 had learned from ordinary traffic in between.",
+            "textEquivalent": "A small network of four devices: three hosts — PC-A, PC-B and a Printer — each with one interface, and Switch-1 in the middle holding three ports. PC-A is on port 1, PC-B on port 2, the Printer on port 3. Each host interface carries a hardware identity, which you can read in the inspector. Someone at PC-A is sending a file to a colleague at PC-B, and the walkthrough follows that file being sent twice. The first time, PC-A puts the file onto its connection addressed to PC-B, and it arrives at Switch-1 on port 1. Switch-1 holds no record of where PC-B is, so at that same moment it sends a copy of the file out of both of its other connections at once — port 2 and port 3. These are two copies of one delivery, not two separate files. The copy on port 2 reaches PC-B, which is the machine the file is addressed to, and PC-B accepts it. The copy on port 3 reaches the Printer, which compares the file's destination against its own identity, sees that they are different, and does not accept it; nothing has gone wrong there. As the file arrived, Switch-1 recorded what it could see: the file came in on port 1 from PC-A, so PC-A is on port 1. Switch-1 still has no record of PC-B. PC-B then replies, and that reply arrives at Switch-1 on port 2, which is how Switch-1 records that PC-B is on port 2. The reply leaves by port 1 alone and reaches PC-A, because Switch-1 already knew where PC-A was. The second time, PC-A sends the same file to PC-B again and nothing about the file has changed. Switch-1 receives it on port 1, finds PC-B already recorded against port 2, and sends it out of port 2 only. Port 3 stays quiet and the Printer sees nothing at all. The file reaches PC-B. What changed between the two deliveries is not the file: it is what Switch-1 had recorded from the ordinary traffic it saw in between.",
             "parameters": {
               "interactionType": "packet_journey",
               "groups": [
@@ -374,7 +376,7 @@
                   "label": "PC-A",
                   "role": "host",
                   "groupId": "local-network",
-                  "about": "PC-A is the computer sending the message, in both of the deliveries this walkthrough follows. It connects to port 1 on Switch-1, and it addresses each message to PC-B's interface.",
+                  "about": "PC-A is the computer sending the file, in both of the deliveries this walkthrough follows. It connects to port 1 on Switch-1, and it addresses the file to PC-B's interface.",
                   "interfaces": [
                     {
                       "interfaceId": "pc-a-nic",
@@ -395,7 +397,7 @@
                   "label": "PC-B",
                   "role": "host",
                   "groupId": "local-network",
-                  "about": "PC-B is the machine both messages are meant for. It connects to port 2 on Switch-1, and its interface carries the hardware identity PC-A addresses each message to.",
+                  "about": "PC-B is the machine the file is meant for, both times it is sent. It connects to port 2 on Switch-1, and its interface carries the hardware identity PC-A addresses the file to.",
                   "interfaces": [
                     {
                       "interfaceId": "pc-b-nic",
@@ -416,7 +418,7 @@
                   "label": "Printer",
                   "role": "printer",
                   "groupId": "local-network",
-                  "about": "The Printer is a third host on this network, connected to port 3. Neither message is meant for it. Watch what reaches the Printer during the first delivery and what does not reach it during the second, because the difference between those two moments is the whole of this mission.",
+                  "about": "The Printer is a third host on this network, connected to port 3. The file is not meant for it either time. Watch what reaches the Printer during the first delivery and what does not reach it during the second, because the difference between those two moments is the whole of this mission.",
                   "interfaces": [
                     {
                       "interfaceId": "printer-nic",
@@ -437,7 +439,7 @@
                   "label": "Switch-1",
                   "role": "switch",
                   "groupId": "local-network",
-                  "about": "Switch-1 connects all three hosts, one to each port. Every message in this walkthrough arrives here first, and what Switch-1 does with it changes between the first delivery and the second. What it records in between is the subject of this mission.",
+                  "about": "Switch-1 connects all three hosts, one to each port. Everything in this walkthrough arrives here first, and what Switch-1 does with it changes between the first delivery and the second. What it records in between is the subject of this mission.",
                   "interfaces": [
                     {
                       "interfaceId": "sw-1-p1",
@@ -477,103 +479,172 @@
                 }
               ],
               "traffic": {
-                "label": "a message from PC-A",
+                "label": "the file PC-A is sending",
                 "sourceNodeId": "pc-a",
                 "destinationNodeId": "pc-b",
-                "startActionLabel": "Send the first message from PC-A"
+                "startActionLabel": "Send the file to PC-B"
               },
               "stages": [
                 {
                   "stageId": "d1-pc-a-sends",
                   "atNodeId": "pc-a",
-                  "narration": "PC-A puts the message onto its interface, addressed to PC-B's interface.",
-                  "decision": "PC-A does not decide how the message will travel. PC-A addresses the message and sends it; working out the path is not PC-A's job.",
+                  "narration": "The person at PC-A shares a file with a colleague at PC-B. PC-A puts the file onto its connection, addressed to PC-B.",
+                  "decision": "PC-A does not decide how the file will travel. PC-A addresses it and sends it; working out which connection leads where is not PC-A's job.",
+                  "outcome": "proceeds"
+                },
+                {
+                  "stageId": "d2-switch-sends-copies",
+                  "atNodeId": "sw-1",
+                  "narration": "The file arrives at Switch-1 on port 1. Switch-1 holds no record of where PC-B is, so at that same moment it sends a copy of the file out of both of its other connections at once — port 2 and port 3. These are two copies of one delivery, not two separate files.",
+                  "decision": "Switch-1 is not guessing and it is not giving up. It has one delivery for PC-B and no record of which connection leads there, so it uses every connection it has left. Whichever one PC-B is on, the file arrives.",
                   "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "alsoOnLinkIds": ["link-pc-b", "link-printer"],
                   "prediction": {
-                    "prompt": "Switch-1 has only just been switched on. Nothing addressed to PC-B's interface has ever passed through it. What does it do with this message?",
+                    "prompt": "Switch-1 has only just been switched on. Nothing addressed to PC-B has ever passed through it. What does Switch-1 do with this file?",
                     "options": [
                       "Sends it out of port 2 only, because that is where PC-B is",
-                      "Sends a copy out of every other port, because it does not yet know which one leads to PC-B",
+                      "Sends a copy out of every other connection, because it does not yet know which one leads to PC-B",
                       "Holds on to it and asks PC-B where it is"
                     ]
                   }
                 },
                 {
-                  "stageId": "d2-switch-unknown",
-                  "atNodeId": "sw-1",
-                  "narration": "Switch-1 receives the message on port 1. Switch-1 holds no record of the interface this message is addressed to, so Switch-1 sends a copy out of every other port at the same time — port 2 and port 3.",
-                  "decision": "Switch-1 also records one fact as the message arrives. The message came in on port 1, and PC-A's interface sent it, so Switch-1 now knows that PC-A is on port 1. Switch-1 learned that from the first message it ever saw, and nobody told it.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-pc-a"
-                },
-                {
-                  "stageId": "d3-printer-ignores",
-                  "atNodeId": "printer",
-                  "narration": "A copy arrives at the Printer. The Printer compares the identity the message is addressed to against its own identity, sees that the two are different, and discards the copy.",
-                  "decision": "Nothing has gone wrong here. Every machine checks whether an arriving message is addressed to its own interface, and ignores the message when it is not.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-printer"
-                },
-                {
-                  "stageId": "d4-pc-b-accepts",
+                  "stageId": "d3-copies-arrive",
                   "atNodeId": "pc-b",
-                  "narration": "The other copy arrives at PC-B. This copy is addressed to PC-B's interface, so PC-B accepts it.",
-                  "decision": "Sending a copy out of every other port worked. Switch-1 did not know which port led to PC-B, so Switch-1 used all of them, and the message arrived.",
+                  "narration": "The copy on port 2 reaches PC-B, which is the machine the file is addressed to, so PC-B accepts it. The copy on port 3 reaches the Printer at the same moment. The Printer compares the file's destination against its own identity, sees that they are different, and does not accept it.",
+                  "decision": "Nothing has gone wrong at the Printer. Every machine checks whether an arriving delivery is addressed to it, and leaves it alone when it is not. Meanwhile Switch-1 recorded what it could see as the file came past: the file arrived on port 1 and PC-A sent it, so PC-A is on port 1. Nobody configured that. Switch-1 still has no record of PC-B, because PC-B has not sent anything yet.",
                   "outcome": "proceeds",
-                  "viaLinkId": "link-pc-b"
-                },
-                {
-                  "stageId": "d5-switch-learns",
-                  "atNodeId": "sw-1",
-                  "narration": "PC-B answers. Its reply arrives at Switch-1 on port 2.",
-                  "decision": "Switch-1 records the reply exactly as it recorded the first message: PC-B's interface is on port 2. That is the one piece Switch-1 was missing a moment ago.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-pc-b"
-                },
-                {
-                  "stageId": "d6-reply-to-pc-a",
-                  "atNodeId": "pc-a",
-                  "narration": "The reply leaves by port 1 alone and arrives at PC-A. The Printer's port stays quiet this time.",
-                  "decision": "Switch-1 already knew that PC-A was on port 1, because Switch-1 learned that when the first message arrived. The reply therefore never needed to go anywhere else.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-pc-a"
-                },
-                {
-                  "stageId": "d7-pc-a-sends-again",
-                  "atNodeId": "pc-a",
-                  "narration": "A little later, PC-A sends a second message to PC-B's interface. Nothing about the message itself has changed.",
-                  "decision": "Same sender, same destination, same network, same kind of message. The only thing that is different is what has happened in between.",
-                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-b",
                   "prediction": {
-                    "prompt": "Switch-1 has now seen a reply arrive from PC-B on port 2. What does it do with this second message?",
+                    "prompt": "Switch-1 has now seen the file arrive from PC-A on port 1. What does Switch-1 know at this point?",
                     "options": [
-                      "Sends a copy out of every other port again",
+                      "That PC-A is on port 1",
+                      "That PC-B is on port 2",
+                      "Both where PC-A is and where PC-B is",
+                      "Neither, until someone configures it"
+                    ]
+                  },
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [{ "label": "PC-A", "value": "Port 1" }]
+                    },
+                    {
+                      "nodeId": "printer",
+                      "label": "At the Printer",
+                      "facts": [
+                        {
+                          "label": "Copy arrived",
+                          "value": "Not accepted — the file is addressed to PC-B"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "d4-pc-b-replies",
+                  "atNodeId": "sw-1",
+                  "narration": "PC-B answers, and its reply arrives at Switch-1 on port 2.",
+                  "decision": "Switch-1 records this arrival exactly as it recorded the first one: the reply came in on port 2 and PC-B sent it, so PC-B is on port 2. That is the one thing Switch-1 was missing a moment ago, and ordinary traffic supplied it.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-b",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [
+                        { "label": "PC-A", "value": "Port 1" },
+                        { "label": "PC-B", "value": "Port 2" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "d5-reply-reaches-pc-a",
+                  "atNodeId": "pc-a",
+                  "narration": "The reply leaves by port 1 alone and arrives at PC-A. The Printer's connection stays quiet this time.",
+                  "decision": "Switch-1 already knew that PC-A was on port 1, because it recorded that when the file first came past. The reply therefore never needed to go anywhere else.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [
+                        { "label": "PC-A", "value": "Port 1" },
+                        { "label": "PC-B", "value": "Port 2" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "d6-pc-a-sends-again",
+                  "atNodeId": "pc-a",
+                  "narration": "A little later, the person at PC-A sends the same file to PC-B again. Nothing about the file itself has changed.",
+                  "decision": "Same sender, same destination, same network, same file. The only thing that is different is what has happened in between.",
+                  "outcome": "proceeds",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [
+                        { "label": "PC-A", "value": "Port 1" },
+                        { "label": "PC-B", "value": "Port 2" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "d7-switch-sends-once",
+                  "atNodeId": "sw-1",
+                  "narration": "The file arrives at Switch-1 on port 1 again. This time Switch-1 finds PC-B already recorded against port 2, and sends the file out of port 2 alone. Port 3 stays quiet, and the Printer sees nothing at all.",
+                  "decision": "This is the whole difference. Switch-1 is no cleverer than it was a minute ago. It simply knows one thing now that it did not know then, and it learned that thing by watching ordinary traffic that nobody sent for the purpose.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "prediction": {
+                    "prompt": "Switch-1 has now seen a reply arrive from PC-B on port 2. What does it do with this second copy of the file?",
+                    "options": [
+                      "Sends a copy out of every other connection again",
                       "Sends it out of port 2 only",
                       "Waits for PC-B to answer before sending anything"
                     ]
-                  }
+                  },
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [
+                        { "label": "PC-A", "value": "Port 1" },
+                        { "label": "PC-B", "value": "Port 2" }
+                      ]
+                    }
+                  ]
                 },
                 {
-                  "stageId": "d8-switch-knows",
-                  "atNodeId": "sw-1",
-                  "narration": "Switch-1 receives the second message on port 1, finds PC-B's interface already recorded against port 2, and sends the message out of port 2 alone. Port 3 stays quiet, and the Printer sees nothing at all.",
-                  "decision": "This is the whole difference. Switch-1 is no cleverer than it was a minute ago. Switch-1 simply knows one thing now that it did not know then, and it learned that thing by watching ordinary traffic which nobody sent for the purpose.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-pc-a"
-                },
-                {
-                  "stageId": "d9-pc-b-receives",
+                  "stageId": "d8-pc-b-receives",
                   "atNodeId": "pc-b",
-                  "narration": "The message arrives at PC-B. One copy, one port, and nothing anywhere else on the network.",
-                  "decision": "Compare that with the first delivery: the same two machines and the same message, but one port used instead of three.",
+                  "narration": "The file arrives at PC-B. One copy, one connection, and nothing anywhere else on the network.",
+                  "decision": "Compare that with the first delivery: the same two machines and the same file, but one connection used instead of three.",
                   "outcome": "proceeds",
-                  "viaLinkId": "link-pc-b"
+                  "viaLinkId": "link-pc-b",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 knows",
+                      "facts": [
+                        { "label": "PC-A", "value": "Port 1" },
+                        { "label": "PC-B", "value": "Port 2" }
+                      ]
+                    }
+                  ]
                 }
               ],
               "actions": [],
               "confirmation": {
-                "narration": "The second message reached PC-B directly, and the Printer never saw it.",
-                "summary": "The first time, Switch-1 did not know which port led to PC-B, so Switch-1 sent a copy out of every other port and the message still arrived. Switch-1 learned where each machine was by watching ordinary traffic arrive. By the second time Switch-1 knew, so one copy out of one port was enough."
+                "narration": "The file reached PC-B directly the second time, and the Printer never saw it.",
+                "summary": "The first time, Switch-1 had no record of where PC-B was, so it sent a copy of the file out of every other connection at once and the file still arrived. Switch-1 recorded where each machine was by watching ordinary traffic arrive — PC-A when the file came past, PC-B when the reply came back. By the second time Switch-1 knew, so one copy out of one connection was enough."
               }
             }
           }
@@ -585,10 +656,11 @@
             "type": "concept",
             "title": "What you just watched",
             "paragraphs": [
-              "The first time, Switch-1 had never seen anything addressed to PC-B's interface, so Switch-1 did not know which of its ports led to PC-B. Switch-1 did the one thing that reliably works: it sent a copy out of every other port, so that whichever port led to PC-B, the message would arrive. Sending a copy out of the other ports because the destination has not been learned yet is called flooding.",
-              "Flooding is not a failure and not a mistake. Flooding is what a switch does when it does not yet know where a destination is, and it succeeds — the message reached PC-B. Flooding is merely wasteful, because the Printer was handed a copy it had no use for.",
-              "Flooding also does not last. Every message arriving at a switch shows which port it came in on and which interface sent it, and a switch keeps a record of what it sees. Switch-1 recorded PC-A against port 1 the instant the first message arrived, and PC-B against port 2 the instant PC-B's reply arrived. Switch-1 builds that record out of ordinary traffic, and nobody configures it.",
-              "By the second delivery Switch-1 had PC-B on that record, so there was nothing to work out: one port, one copy, and the Printer's port left quiet. Nothing about the message changed between the two deliveries. What changed is what Switch-1 knew."
+              "The first time, Switch-1 had never seen anything addressed to PC-B, so Switch-1 did not know which of its ports led there. Switch-1 did the one thing that reliably works: at the same moment, it sent a copy out of every other connection, so that whichever one led to PC-B, the file would arrive. Sending a copy out of the other connections because the destination has not been learned yet is called flooding.",
+              "Flooding is not a failure and not a mistake. Flooding is what a switch does when it does not yet know where a destination is, and it succeeds — the file reached PC-B. Flooding is merely wasteful, because the Printer was handed a copy it had no use for.",
+              "Flooding also does not last. Everything arriving at a switch shows which port it came in on and which interface sent it, and a switch keeps a record of what it sees. Switch-1 recorded PC-A against port 1 the instant the file first came past, and PC-B against port 2 the instant PC-B's reply arrived. Switch-1 builds that record out of ordinary traffic, and nobody configures it.",
+              "Notice the order. Switch-1 learned where the SENDER was from the very first delivery, because the sender is the one thing an arriving delivery always shows. It could not learn where PC-B was until PC-B sent something of its own — which is why the record had one entry after the first delivery and two after the reply.",
+              "By the second delivery Switch-1 had PC-B on that record, so there was nothing to work out: one connection, one copy, and the Printer's connection left quiet. Nothing about the file changed between the two deliveries. What changed is what Switch-1 knew."
             ]
           }
         },
@@ -599,9 +671,10 @@
             "type": "concept",
             "title": "The identity on an interface",
             "paragraphs": [
-              "The value you could read on each interface in the inspector is the identity PC-A addressed its message to, and the same value is what Switch-1 recorded against a port. That value is called a MAC address.",
+              "The value you could read on each interface in the inspector is the identity PC-A addressed the file to, and the same value is what Switch-1 recorded against a port. That value is called a MAC address.",
               "A MAC address belongs to an interface rather than to a machine, so a laptop with both a socket and an aerial carries two MAC addresses. A MAC address is set when the hardware is made rather than chosen afterwards, and for delivery within one local network it is the identity that matters.",
-              "You read a MAC address. You do not calculate with it. A MAC address is written as six pairs of characters separated by colons, and for now that is the whole of what you need to know about the notation."
+              "You read a MAC address. You do not calculate with it. A MAC address is written as six pairs of characters separated by colons, and for now that is the whole of what you need to know about the notation.",
+              "The record you watched Switch-1 build has a name as well: it is the MAC address table. The walkthrough showed it with device names — PC-A, PC-B — so that you could read it at a glance before you had met the term. What a switch actually stores against each port is the MAC address of the interface it last saw sending there. Same record, same behaviour, written the way the switch holds it."
             ]
           }
         },
@@ -625,7 +698,7 @@
             "paragraphs": [
               "Something specific travelled from PC-A's interface to a port on Switch-1, and then from a port on Switch-1 to PC-B's interface. That thing carried the address of the interface it was for, and the address of the interface that sent it.",
               "That unit is called a frame. A frame is what moves across one local network, from interface to interface, addressed by the kind of address you have just met.",
-              "A second unit exists, with a different name and a different job, and it becomes important the moment a message has to leave this network. Naming that second unit now would mean nothing to you, because you have not yet watched anything leave. You meet it in Mission 6, where the difference between the two finally has something to be a difference about."
+              "A second unit exists, with a different name and a different job, and it becomes important the moment something has to leave this network. Naming that second unit now would mean nothing to you, because you have not yet watched anything leave. You meet it in Mission 6, where the difference between the two finally has something to be a difference about."
             ]
           }
         },
@@ -636,7 +709,7 @@
             "type": "concept",
             "title": "Looks wrong, works as designed",
             "paragraphs": [
-              "The Printer was handed a copy of a message that had nothing to do with the Printer, compared the address on that copy against its own, saw that the two did not match, and discarded the copy. Nothing went wrong.",
+              "The Printer was handed a copy of a file that had nothing to do with the Printer, compared the address on that copy against its own, saw that the two did not match, and did not accept it. Nothing went wrong.",
               "The first time you see traffic arriving somewhere it was not meant for, it looks like a fault. Form the habit now of asking a different question first: is this broken, or is this the system working as designed?",
               "You will need that question for the rest of this course. You will need it most in Mission 8, where something genuinely is broken and telling the difference is the entire job."
             ]

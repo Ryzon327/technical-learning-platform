@@ -10,6 +10,7 @@ import {
   isObservationStageOutcome,
   unavailableObservationModel,
   type ObservationGroup,
+  type ObservationInterface,
   type ObservationNode
 } from "./observation-model";
 
@@ -239,5 +240,70 @@ describe("a node's explanation is authored prose and nothing more", () => {
       "nodeId",
       "role"
     ]);
+  });
+});
+
+describe("an interface can be named on the picture, by the author", () => {
+  /**
+   * The approved Mission 1 specification, "TOPOLOGY AS INSTRUCTION": the
+   * learner should not have to open an inspector to find out which port a
+   * device is plugged into, because the walkthrough says "PC-A's link ends at
+   * port 1 on Switch-1".
+   *
+   * The label itself was always authored. What this flag adds is WHICH ENDS
+   * are worth drawing — a decision a presentation must not make for itself,
+   * because every rule it could use ("the switch end", "the upper end", "the
+   * first one declared") is a reading of role, geometry or order.
+   */
+  const drawn: ObservationInterface = {
+    interfaceId: "sw-1-p1",
+    label: "Port 1",
+    prominent: true,
+    attributes: []
+  };
+
+  const plain: ObservationInterface = {
+    interfaceId: "pc-a-nic",
+    label: "Network interface",
+    attributes: []
+  };
+
+  it("carries the flag beside the label it decides about", () => {
+    expect(drawn.prominent).toBe(true);
+    expect(drawn.label).toBe("Port 1");
+  });
+
+  it("is absent rather than false when the author said nothing", () => {
+    // Additive: every interface authored before the flag existed is unchanged,
+    // and absence means "not on the picture" without anyone writing it down.
+    expect(plain.prominent).toBeUndefined();
+  });
+
+  it("adds no second display field to an interface", () => {
+    // One flag, matching `ObservationAttribute.prominent` exactly. A second
+    // one would start a display schema on a model that carries observations.
+    expect(Object.keys(drawn).sort()).toEqual([
+      "attributes",
+      "interfaceId",
+      "label",
+      "prominent"
+    ]);
+  });
+
+  it("says only where a label is drawn, never what the interface means", () => {
+    // The flag confers no behaviour and no networking meaning. It cannot be
+    // read as "this port is active", "this port is the uplink" or anything
+    // else — it is the same kind of display metadata as the attribute flag.
+    for (const forbidden of [
+      "active",
+      "uplink",
+      "trunk",
+      "access",
+      "enabled",
+      "state",
+      "speed"
+    ]) {
+      expect(Object.keys(drawn)).not.toContain(forbidden);
+    }
   });
 });

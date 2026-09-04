@@ -1143,3 +1143,326 @@ describe("an authored device explanation is optional, validated and copied", () 
     expect(model.nodes.every((node) => node.about === undefined)).toBe(true);
   });
 });
+
+describe("a stage may say several links were busy at the same moment", () => {
+  /**
+   * WP-J3 Mission 2 — authored simultaneous egress.
+   *
+   * `viaLinkId` names the one link an arrival came in on. `alsoOnLinkIds`
+   * names links that were carrying something at the SAME instant, so one
+   * observed moment can be drawn as one event on several links rather than as
+   * several events in a row.
+   *
+   * Every id is authored. Nothing in this package works out which links
+   * should be named — that would be the switching calculation the whole
+   * contract exists to keep out of code.
+   */
+  const twoLinks = params({
+    // The base fixture's fault names a stage these tests replace, and a fault
+    // is not what is under test here.
+    fault: undefined,
+    actions: [],
+    nodes: [
+      ...journeyNodes,
+      {
+        nodeId: "pc-b",
+        label: "PC-B",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-b-eth0", label: "eth0", attributes: [] }
+        ]
+      }
+    ],
+    links: [
+      {
+        linkId: "link-a",
+        label: "PC-A to Router-1",
+        endpoints: ["pc-a-eth0", "r-1-gi0-0-10"]
+      },
+      {
+        linkId: "link-b",
+        label: "PC-B to Router-1",
+        endpoints: ["pc-b-eth0", "r-1-gi0-0-10"]
+      }
+    ],
+    stages: [
+      {
+        stageId: "s1",
+        atNodeId: "pc-a",
+        narration: "PC-A sends.",
+        outcome: "proceeds"
+      },
+      {
+        stageId: "s2",
+        atNodeId: "r-1",
+        narration: "It arrives, and copies leave on every other connection.",
+        outcome: "proceeds",
+        viaLinkId: "link-a",
+        alsoOnLinkIds: ["link-b"]
+      }
+    ]
+  });
+
+  const withAlso = (alsoOnLinkIds: unknown) =>
+    validateInteractionContent(
+      content({
+        parameters: {
+          ...(twoLinks as Record<string, unknown>),
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "PC-A sends.",
+              outcome: "proceeds"
+            },
+            {
+              stageId: "s2",
+              atNodeId: "r-1",
+              narration: "It arrives.",
+              outcome: "proceeds",
+              viaLinkId: "link-a",
+              alsoOnLinkIds
+            }
+          ]
+        }
+      }),
+      "step"
+    );
+
+  it("accepts a journey that names none", () => {
+    // The additive test. Every journey authored before this field existed
+    // must still validate exactly as it did.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts authored simultaneous links", () => {
+    expect(
+      validateInteractionContent(content({ parameters: twoLinks }), "step")
+    ).toEqual([]);
+  });
+
+  it("refuses a link that is not declared", () => {
+    // Fail closed at authoring. A dangling id would leave the drawing with a
+    // wire to light that does not exist, and the tempting repair — working
+    // out which link was meant — is the inference this forbids.
+    expect(withAlso(["link-nope"]).join(" ")).toContain(
+      "names a link that is not declared"
+    );
+  });
+
+  it("refuses a repeat of the link the stage arrived on", () => {
+    // The two fields mean different things: where this arrival came from, and
+    // what else was busy. Naming one link in both would ask a presentation to
+    // draw it twice and blur that distinction.
+    expect(withAlso(["link-a"]).join(" ")).toContain("repeats viaLinkId");
+  });
+
+  it("refuses the same link twice", () => {
+    expect(withAlso(["link-b", "link-b"]).join(" ")).toContain(
+      "names the same link more than once"
+    );
+  });
+
+  it("refuses anything that is not a list", () => {
+    expect(withAlso("link-b").join(" ")).toContain(
+      "must be a list of link identifiers"
+    );
+  });
+
+  it("projects the authored links through unchanged", () => {
+    const model = buildPacketJourneyObservationModel(
+      twoLinks as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 2, appliedActionId: null }
+    );
+
+    expect(model.stages[1]?.alsoOnLinkIds).toEqual(["link-b"]);
+    expect(model.stages[0]?.alsoOnLinkIds).toBeUndefined();
+  });
+});
+
+describe("a stage may say what a device is showing", () => {
+  /**
+   * WP-J3 Mission 2 — authored learned state.
+   *
+   * Mission 2 needs Switch-1 to display what it has recorded so far, and that
+   * display has to change as the journey runs. It is AUTHORED at every stage:
+   * nothing accumulates, nothing is derived from traffic, and carrying a fact
+   * forward means authoring it again. A model that accumulated would be
+   * deciding what a device knows.
+   */
+  const showing = (deviceFacts: unknown) =>
+    params({
+      fault: undefined,
+      actions: [],
+      stages: [
+        {
+          stageId: "s1",
+          atNodeId: "pc-a",
+          narration: "PC-A sends.",
+          outcome: "proceeds",
+          deviceFacts
+        }
+      ]
+    });
+
+  const errorsFor = (deviceFacts: unknown) =>
+    validateInteractionContent(
+      content({ parameters: showing(deviceFacts) }),
+      "step"
+    ).join(" ");
+
+  const valid = [
+    {
+      nodeId: "r-1",
+      label: "What Router-1 knows",
+      facts: [{ label: "PC-A", value: "Port 1" }]
+    }
+  ];
+
+  it("accepts a journey that authors none", () => {
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts authored device facts", () => {
+    expect(errorsFor(valid)).toBe("");
+  });
+
+  it("refuses a device that is not declared", () => {
+    expect(
+      errorsFor([{ ...valid[0], nodeId: "nope" }])
+    ).toContain("names a device that is not declared");
+  });
+
+  it("refuses a display with no facts in it", () => {
+    // An empty display is an authoring accident, not a decision to show
+    // nothing — a device with nothing to say simply has no entry here.
+    expect(errorsFor([{ ...valid[0], facts: [] }])).toContain(
+      "must state at least one fact"
+    );
+  });
+
+  it("refuses the same device shown twice in one stage", () => {
+    expect(errorsFor([valid[0], valid[0]])).toContain(
+      "shows the same device twice"
+    );
+  });
+
+  it("refuses an unknown field on a fact", () => {
+    expect(
+      errorsFor([
+        {
+          ...valid[0],
+          facts: [{ label: "PC-A", value: "Port 1", port: 1 }]
+        }
+      ])
+    ).toContain('unknown field "port"');
+  });
+
+  it("requires both halves of a fact to be prose", () => {
+    expect(
+      errorsFor([{ ...valid[0], facts: [{ label: "PC-A", value: "  " }] }])
+    ).toContain("value");
+  });
+
+  it("projects the authored facts through verbatim", () => {
+    const model = buildPacketJourneyObservationModel(
+      showing(valid) as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 1, appliedActionId: null }
+    );
+
+    expect(model.stages[0]?.deviceFacts).toEqual(valid);
+  });
+
+  it("never merges one stage's facts into another", () => {
+    // The guarantee that keeps authority with the author. A stage shows what
+    // it was given; a stage given nothing shows nothing, even when an earlier
+    // stage showed something.
+    const twoStages = params({
+      fault: undefined,
+      actions: [],
+      stages: [
+        {
+          stageId: "s1",
+          atNodeId: "pc-a",
+          narration: "PC-A sends.",
+          outcome: "proceeds",
+          deviceFacts: valid
+        },
+        {
+          stageId: "s2",
+          atNodeId: "r-1",
+          narration: "It arrives.",
+          outcome: "proceeds",
+          viaLinkId: "link-a"
+        }
+      ]
+    });
+
+    const model = buildPacketJourneyObservationModel(
+      twoStages as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 2, appliedActionId: null }
+    );
+
+    expect(model.stages[0]?.deviceFacts).toEqual(valid);
+    expect(model.stages[1]?.deviceFacts).toBeUndefined();
+  });
+});
+
+describe("an authored interface may be named on the picture", () => {
+  /**
+   * WP-J Mission 1 — "TOPOLOGY AS INSTRUCTION".
+   *
+   * Optional, additive display metadata, validated exactly like the attribute
+   * flag it mirrors. It says which ends of which wires the picture names, and
+   * nothing else.
+   */
+  const flagged = (prominent: unknown) =>
+    params({
+      nodes: [
+        {
+          ...journeyNodes[0],
+          interfaces: [
+            {
+              interfaceId: "pc-a-eth0",
+              label: "eth0",
+              prominent,
+              attributes: []
+            }
+          ]
+        },
+        journeyNodes[1]
+      ]
+    });
+
+  it("accepts an interaction that flags none", () => {
+    // The additive test: every interface authored before this existed must
+    // still validate, and the flag must not have become required.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts a flagged interface", () => {
+    expect(
+      validateInteractionContent(content({ parameters: flagged(true) }), "step")
+    ).toEqual([]);
+  });
+
+  it("refuses anything but a boolean", () => {
+    // A truthy string would be an author reaching for a value the flag cannot
+    // carry — a label, a side, a colour — and the flag means one thing.
+    expect(
+      validateInteractionContent(content({ parameters: flagged("yes") }), "step")
+        .join(" ")
+    ).toContain("prominent must be true or false");
+  });
+
+  it("projects the flag through unchanged", () => {
+    const model = buildPacketJourneyObservationModel(
+      flagged(true) as unknown as LearnerPacketJourneyParameters,
+      INITIAL_PACKET_JOURNEY_PROGRESS
+    );
+
+    expect(model.nodes[0]?.interfaces[0]?.prominent).toBe(true);
+    // And an unflagged interface stays unflagged rather than becoming false.
+    expect(model.nodes[1]?.interfaces[0]?.prominent).toBeUndefined();
+  });
+});
