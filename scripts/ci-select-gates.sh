@@ -140,6 +140,11 @@ apps/web/src/learning/TopologyView.tsx|scripts/verify-wpj-m1.sh
 apps/web/src/learning/topology-layout*|scripts/verify-wpj-m1.sh
 apps/web/src/styles.css|scripts/verify-wpj-m1.sh
 scripts/verify-wpj-m1.sh|scripts/verify-wpj-m1.sh
+content/curriculum/*|scripts/verify-wpj-m3.sh
+services/api/src/networking-foundations-mission3*|scripts/verify-wpj-m3.sh
+docs/Engineering-OS/WP_J_MISSION_3_UAT_RUNBOOK.md|scripts/verify-wpj-m3.sh
+scripts/lib/wpj-concept-ledger.txt|scripts/verify-wpj-m3.sh
+scripts/verify-wpj-m3.sh|scripts/verify-wpj-m3.sh
 apps/web/src/uat/*|scripts/verify-wpj15.sh
 content/curriculum/*|scripts/verify-wpi.sh
 content/curriculum/*|scripts/verify-wph.sh

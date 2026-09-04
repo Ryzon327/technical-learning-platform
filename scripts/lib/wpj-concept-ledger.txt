@@ -69,6 +69,29 @@
 #
 # Mission 4 is NOT authored by that decision. Only the ordering is recorded.
 #
+# ## Seeing a thing is not being taught it
+#
+# Row 15 orders `prefix` at Mission 4. Mission 3 nevertheless SHOWS the part of
+# the line that row 15 is about — its authored output reads
+# `inet 192.168.1.10/24`, and the `/24` sits there unexplained.
+#
+# That is approved and deliberate, and it does not contradict this ledger.
+# The ledger orders when a concept may be TAUGHT: named, explained, interpreted,
+# calculated with. It has never ordered when a learner may lay eyes on
+# something. Trimming realistic command output because part of it has not been
+# taught yet would misrepresent what a machine actually prints, in the one
+# mission whose whole point is confirming what a machine actually has.
+#
+# So Mission 3 refers to it only by position — "a part after the address that
+# has said nothing to you yet" — and Mission 4 gives it a name and a meaning the
+# learner has already met unexplained. The forward reference this ledger exists
+# to catch is a learner meeting a WORD before its mission. A learner meeting an
+# artefact they are told they cannot yet read is the opposite: it is the need
+# that makes the later mission land.
+#
+# Both halves are asserted. `verify-wpj-m3.sh` section 4b requires the artefact
+# to remain visible; the Mission 3 suite requires it to remain unnamed.
+#
 # ## Format
 #
 #   order|missionStableId|concept|term

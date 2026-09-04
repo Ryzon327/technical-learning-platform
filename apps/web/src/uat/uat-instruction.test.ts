@@ -310,6 +310,7 @@ describe("the harness adds no scenario and no nondeterminism", () => {
 
 const NF_M1 = "nf-m1-what-a-network-is";
 const NF_M2 = "nf-m2-inside-one-network";
+const NF_M3 = "nf-m3-ipv4-the-second-identity";
 
 describe("the production course reaches the harness through the real parser", () => {
   const outcome = loadUatDocument(networkingFoundations);
@@ -338,14 +339,32 @@ describe("the production course reaches the harness through the real parser", ()
     }
   });
 
+  it("offers Mission 3's authored steps, and no interaction", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const mission = listUatMissions(outcome.document).find(
+      (m) => m.stableId === NF_M3
+    );
+
+    // Mission 3 teaches by reading a machine's own report, so it authors
+    // command and concept steps and no journey. The harness must offer it for
+    // review anyway — a mission without an interaction is still a mission.
+    expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
+    expect(mission?.hasInteraction).toBe(false);
+    expect(mission?.hasPassivePrediction).toBe(false);
+  });
+
   it("lists the unauthored missions without pretending they have content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
+    const authored = [NF_M1, NF_M2, NF_M3];
     const later = listUatMissions(outcome.document).filter(
-      (mission) => mission.stableId !== NF_M1 && mission.stableId !== NF_M2
+      (mission) => !authored.includes(mission.stableId)
     );
 
-    expect(later.length).toBe(6);
+    // Five, not six: WP-J4 authored Mission 3 and the boundary moved with it.
+    // The assertion still protects every mission nobody has authored yet.
+    expect(later.length).toBe(5);
     for (const mission of later) {
       expect(mission.stepCount).toBe(0);
       expect(mission.hasInteraction).toBe(false);

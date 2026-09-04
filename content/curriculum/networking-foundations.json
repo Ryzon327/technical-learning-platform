@@ -742,7 +742,99 @@
           "relationship": "reinforces"
         }
       ],
-      "steps": [],
+      "steps": [
+        {
+          "stableId": "m3-s1-one-connection-two-identities",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "One connection, two identities",
+            "paragraphs": [
+              "In Mission 2 you read an identity off PC-A's connection: a value set when the hardware was made, which Switch-1 recorded against a port so that it knew where PC-A was. That identity did a real job, and it did it well.",
+              "Here is the thing that should bother you. That identity says nothing about where PC-A is. It was fixed in a factory before anyone knew which network the machine would be plugged into, it stays the same if you carry the machine to another building, and no part of it can be chosen to mean anything.",
+              "Inside one network that did not matter. Switch-1 never needed to know where PC-A was in any larger sense. It only needed to know which of its own ports PC-A was on, and it learned that by watching ordinary traffic arrive.",
+              "So the connection already has an identity. Why would it need a second one? Do not take the answer from this page. Look at what a machine actually reports about itself, and find it."
+            ]
+          }
+        },
+        {
+          "stableId": "m3-s2-what-pc-a-reports",
+          "position": 1,
+          "content": {
+            "type": "command",
+            "caption": "PC-A, reporting on the connection you already know by name. This is displayed output for you to read — nothing here offers to run anything. Real output carries several more lines and several more fields than this; two lines are shown, and you met one of them in Mission 2. Before you read on: find the line you have not seen before, and say which connection is holding it.",
+            "command": "ip address show eth0",
+            "output": "eth0    link/ether 00:1b:44:11:3a:b7\n        inet 192.168.1.10/24",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m3-s3-the-second-identity",
+          "position": 2,
+          "content": {
+            "type": "concept",
+            "title": "The second identity",
+            "paragraphs": [
+              "The line you had not seen before begins with inet, and the connection holding it is eth0 — the same connection whose factory identity you read in Mission 2. One connection, carrying both at once. Neither replaced the other.",
+              "The four numbers separated by dots, 192.168.1.10, are an IPv4 address. Unlike the factory identity, an IPv4 address is assigned: somebody chose it, it can be changed later, and it can be chosen deliberately so that machines meant to be grouped together are given addresses that look alike.",
+              "Hold the two apart, because they answer different questions. The MAC address you met in Mission 2 is built into the hardware, does not change, and identifies this particular piece of equipment wherever it goes. The IPv4 address is assigned to the machine where it currently sits, can be changed, and is about where this machine has been placed rather than what it is.",
+              "Say that in ordinary words before any more terminology arrives: one identity is which hardware this is, and the other is where this machine belongs. Both are true at the same time, both sit on the same connection, and both are things you can go and read rather than things you have to be told."
+            ]
+          }
+        },
+        {
+          "stableId": "m3-s4-a-different-machine",
+          "position": 3,
+          "content": {
+            "type": "command",
+            "caption": "A different machine on the same network, reporting the same way. This is displayed output again — nothing here offers to run anything, and the same few lines are shown out of the many a real machine prints. Notice before you start that this connection is not called eth0: connection names vary from machine to machine, and that is ordinary rather than a fault. Find this machine's IPv4 address, and say which connection holds it.",
+            "command": "ip address show enp0s3",
+            "output": "enp0s3    link/ether 00:1b:44:11:3a:c2\n          inet 192.168.1.11/24",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m3-s5-the-same-reading-elsewhere",
+          "position": 4,
+          "content": {
+            "type": "concept",
+            "title": "The same reading, on a machine that looks different",
+            "paragraphs": [
+              "That was PC-B. Its connection is called enp0s3 rather than eth0, its factory identity ends c2 rather than b7, and its IPv4 address is 192.168.1.11 rather than 192.168.1.10.",
+              "Nothing about the reading itself changed. You looked for four numbers separated by dots, and you looked at which connection name they sat beneath. The name of the connection was not the thing you were looking for — it was only where you looked.",
+              "That distinction is worth keeping. Connection names are not standardised across machines, so a reader who has memorised the word eth0 is stuck the first time a machine disagrees with them. A reader who knows what shape of thing to look for is not.",
+              "This is also the habit the mission is really for. Being able to say what a machine actually holds, out of the machine's own report, is how you check a claim rather than trust it. You will do exactly this in every mission that follows."
+            ]
+          }
+        },
+        {
+          "stableId": "m3-s6-what-it-does-not-tell-you-yet",
+          "position": 5,
+          "content": {
+            "type": "concept",
+            "title": "What the address does not tell you yet",
+            "paragraphs": [
+              "You can now read PC-A's IPv4 address and PC-B's. Here is a question you still cannot answer from them: which other addresses does PC-A treat as sitting on its own network, reachable directly in the way you watched in Mission 2 — and which does it not?",
+              "192.168.1.11 is PC-B, and you might reasonably guess that PC-A treats it as near. But guessing is not reading, and this course is about reading. What about 192.168.2.11? What about 10.0.0.5? Nothing you have looked at so far settles any of them.",
+              "So look again at what PC-A reported. The line read inet 192.168.1.10/24. You accounted for the four numbers separated by dots. You did not account for everything on that line — there is a part after the address that has said nothing to you yet, and it has been sitting there since the moment you first read it.",
+              "That is not an oversight in the output and it is not something you skipped over by accident. It is the piece of information the machine itself uses to draw a line between near and far, and reading it is the whole of the next mission."
+            ]
+          }
+        },
+        {
+          "stableId": "m3-s7-the-question-to-carry-forward",
+          "position": 6,
+          "content": {
+            "type": "concept",
+            "title": "The question to carry forward",
+            "paragraphs": [
+              "Two identities on one connection: one built into the hardware, one assigned to the machine where it sits. You can find both, on any machine, out of the machine's own report — including on machines whose connections are not named the way you expected.",
+              "What you cannot do yet is say where PC-A's own network ends. PC-A holds an address. So far as you have read it, PC-A holds nothing that says which other addresses are close enough to reach the way Switch-1 delivered in Mission 2, and which are not.",
+              "It does hold that, and you have already looked straight at it without being able to use it. So carry one question into the next mission: what tells the machine where its local network ends?"
+            ]
+          }
+        }
+      ],
       "assets": []
     },
     {
