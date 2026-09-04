@@ -90,21 +90,33 @@ echo "PASS:  1. Mission 3 is authored under its approved identity"
 # 2. The staged-authoring boundary moved by exactly one mission
 # ------------------------------------------------------------
 # The course gate owns the invariant. What is checked here is that the boundary
-# was MOVED rather than removed: the anchor must now name Mission 4, and the
-# earlier anchor must be gone. A slice that deleted the split entirely would
-# still pass a "Mission 3 is authored" check while quietly unprotecting
-# Missions 4 to 8.
-grep -Fq 'M4_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors its staged-authoring split at Mission 4"
-
+# is still SOMEWHERE AHEAD of Mission 3 rather than removed. A slice that
+# deleted the split entirely would still pass a "Mission 3 is authored" check
+# while quietly unprotecting every later mission.
+#
+# ## Why this is no longer pinned to Mission 4
+#
+# It was, and WP-J5 is exactly the event that showed why that was wrong. This
+# gate asserted `M4_ANCHOR` present and `M3_ANCHOR` absent, which was true while
+# Mission 4 was the boundary — and became false the moment Mission 4 was
+# authored and the boundary moved to Mission 5. A gate that fails because the
+# course made legitimate progress is a gate that teaches the next author to edit
+# it out of the way.
+#
+# So the rule is restated as what it always meant: the split still exists, and
+# it no longer sits at Mission 3. Which mission it has reached is the course
+# gate's business, and each new mission's own gate asserts its own edge.
 if grep -Fq 'M3_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate still anchors at Mission 3; the boundary was not moved"
+  fail "the course gate anchors its staged-authoring split at Mission 3; Mission 3 is authored, so the boundary belongs after it"
 fi
+
+grep -Eq '^M[45678]_ANCHOR=' "$COURSE_GATE" \
+  || fail "the course gate no longer anchors a staged-authoring split after Mission 3"
 
 grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
   || fail "the course gate no longer splits authored from unauthored missions"
 
-echo "PASS:  2. the staged-authoring boundary moved to Mission 4, not away"
+echo "PASS:  2. the staged-authoring boundary sits after Mission 3, not away"
 
 # ------------------------------------------------------------
 # 3. Mission 3 authored no interaction, and needed none
@@ -116,19 +128,37 @@ echo "PASS:  2. the staged-authoring boundary moved to Mission 4, not away"
 # Checked here as a FILE fact because the step ids make it unambiguous: no
 # `m3-s*` step may sit alongside an interaction key. The parsed-structure form
 # of the same rule is in the test suite.
-M3_BLOCK="$(awk '
+
+# The extracted block is written to a FILE rather than held in a variable and
+# piped, and that is not a style preference.
+#
+# `printf '%s' "$BLOCK" | grep -q …` is a pipefail race. `grep -q` exits the
+# moment it matches, which closes the pipe; `printf` then dies of SIGPIPE with
+# status 141, and under `set -o pipefail` the pipeline reports 141 even though
+# the match succeeded. It only fires when the block is large enough that printf
+# has not finished writing — so it passes on a small mission and fails on a big
+# one, which is the worst possible failure mode for a guardrail. This repository
+# has already fixed one of these once.
+#
+# Grepping a file has no pipe, no second process and no race.
+SCAN_DIR="$(mktemp -d)"
+trap 'rm -rf "$SCAN_DIR"' EXIT
+
+M3_BLOCK="$SCAN_DIR/mission-3.json"
+
+awk '
   /"stableId": "nf-m3-ipv4-the-second-identity"/ { start = 1 }
   /"stableId": "nf-m4-the-prefix-and-the-decision"/ { start = 0 }
   start
-' "$DOCUMENT")"
+' "$DOCUMENT" > "$M3_BLOCK"
 
-[ -n "$M3_BLOCK" ] \
+[ -s "$M3_BLOCK" ] \
   || fail "Mission 3 could not be located; the mission ordering this gate depends on has changed"
 
 for forbidden in 'interactionStableId' 'interactionType' 'packet_journey' \
                  'textEquivalent' 'supportLevel' 'sourceKind' \
                  'assessmentStableId' 'assetStableId' 'live_lab'; do
-  if printf '%s' "$M3_BLOCK" | grep -qF -e "$forbidden"; then
+  if grep -qF -e "$forbidden" "$M3_BLOCK"; then
     fail "Mission 3 authored interaction or evidence machinery: $forbidden"
   fi
 done
@@ -138,16 +168,16 @@ echo "PASS:  3. Mission 3 authors no interaction, assessment or lab surface"
 # ------------------------------------------------------------
 # 4. Mission 3 shows real output, and says it runs nothing
 # ------------------------------------------------------------
-printf '%s' "$M3_BLOCK" | grep -qF '"type": "command"' \
+grep -qF '"type": "command"' "$M3_BLOCK" \
   || fail "Mission 3 authors no command step; the learner must read real output"
 
-printf '%s' "$M3_BLOCK" | grep -qF 'nothing here offers to run' \
+grep -qF 'nothing here offers to run' "$M3_BLOCK" \
   || fail "a command step does not tell the learner the output is not executable"
 
 # The step type carries no execution semantics and no surface offers to run it.
 # Nothing in the authored payload may suggest otherwise.
 for executable in '"executable"' '"runnable"' 'onRun' 'runCommand'; do
-  if printf '%s' "$M3_BLOCK" | grep -qF -e "$executable"; then
+  if grep -qF -e "$executable" "$M3_BLOCK"; then
     fail "Mission 3 suggests its displayed output is executable: $executable"
   fi
 done
@@ -171,7 +201,7 @@ echo "PASS:  4. Mission 3 shows displayed output and claims no execution"
 # The naming half is enforced over parsed prose in the test suite, where an
 # identifier cannot be mistaken for a sentence. What is checked here is only the
 # half that is a plain file fact: the artefact is still present in the output.
-printf '%s' "$M3_BLOCK" | grep -qE '[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}' \
+grep -qE '[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}' "$M3_BLOCK" \
   || fail "Mission 3's output no longer shows the unexplained part of the line; Mission 4 returns to it"
 
 echo "PASS: 4b. the unexplained part of the line is shown and left unexplained"
@@ -279,9 +309,9 @@ npm run test --workspace @tlp/api -- networking-foundations.test
 # ------------------------------------------------------------
 # Advisory signals. These never fail CI.
 # ------------------------------------------------------------
-STEPS="$(printf '%s' "$M3_BLOCK" | grep -c '"stableId": "m3-s' || true)"
-READINGS="$(printf '%s' "$M3_BLOCK" | grep -c '"type": "command"' || true)"
-CONCEPTS="$(printf '%s' "$M3_BLOCK" | grep -c '"type": "concept"' || true)"
+STEPS="$(grep -c '"stableId": "m3-s' "$M3_BLOCK" || true)"
+READINGS="$(grep -c '"type": "command"' "$M3_BLOCK" || true)"
+CONCEPTS="$(grep -c '"type": "concept"' "$M3_BLOCK" || true)"
 
 echo ""
 echo "--- advisory signals (never fail CI) ---"
@@ -304,9 +334,10 @@ different machine, reuses the connection and factory
 identity Mission 2 established, and authors no interaction,
 no assessment and no lab surface.
 
-The staged-authoring boundary moved by exactly one mission:
-Missions 4 to 8 remain prohibited by the same check that
-prohibited Mission 3 yesterday.
+The staged-authoring boundary sits after Mission 3 and moves
+only when a slice is approved to author the next mission, so
+every mission nobody has authored yet stays prohibited by the
+same check that prohibited Mission 3 before it shipped.
 
 No later mission's vocabulary reaches the learner, so the
 mission still ends on the unresolved need Mission 4 exists

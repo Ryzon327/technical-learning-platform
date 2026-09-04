@@ -107,12 +107,33 @@ if grep -qF 'live_lab' "$DOCUMENT"; then
   fail "the curriculum declares a live lab source; Module 1 is authored teaching"
 fi
 
-AUTHORED_TEACHING="$(grep -c '"sourceKind": "authored_teaching"' "$DOCUMENT" || true)"
+# Counted over MODULE 1's block, not the whole document.
+#
+# It was document-wide, and read correctly while Module 1 held the only two
+# interactions in the course. Mission 4 authors two more, and the check failed
+# at "4 of 2" — not because anything was wrong, but because a gate scoped to
+# Module 1 was measuring the whole course. Every later slice would have hit the
+# same wall and been tempted to edit the number rather than the scope.
+#
+# `live_lab` above stays document-wide on purpose: nothing anywhere may claim a
+# lab that does not exist, and that is a course-level rule rather than a Module
+# 1 one.
+MODULE1_BLOCK="$SCAN_DIR/module-1.json"
+awk '
+  /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
+  /"stableId": "nf-m3-ipv4-the-second-identity"/ { start = 0 }
+  start
+' "$DOCUMENT" > "$MODULE1_BLOCK"
+
+[ -s "$MODULE1_BLOCK" ] \
+  || fail "Module 1 could not be located; the mission ordering this gate depends on has changed"
+
+AUTHORED_TEACHING="$(grep -c '"sourceKind": "authored_teaching"' "$MODULE1_BLOCK" || true)"
 [ "$AUTHORED_TEACHING" = "2" ] \
-  || fail "$AUTHORED_TEACHING of 2 interactions declare an authored teaching source"
+  || fail "$AUTHORED_TEACHING of 2 Module 1 interactions declare an authored teaching source"
 
 # The interaction type must come from the closed registry, not be invented here.
-REGISTERED="$(grep -c '"interactionType": "packet_journey"' "$DOCUMENT" || true)"
+REGISTERED="$(grep -c '"interactionType": "packet_journey"' "$MODULE1_BLOCK" || true)"
 [ "$REGISTERED" = "4" ] \
   || fail "expected 4 registry declarations (a step and its parameters, twice); found $REGISTERED"
 
@@ -132,7 +153,7 @@ for absent in '"fault"' 'stopsAtStageId' 'resolvesFault' '"outcome": "stops"'; d
   fi
 done
 
-EMPTY_ACTIONS="$(grep -c '"actions": \[\]' "$DOCUMENT" || true)"
+EMPTY_ACTIONS="$(grep -c '"actions": \[\]' "$MODULE1_BLOCK" || true)"
 [ "$EMPTY_ACTIONS" = "2" ] \
   || fail "$EMPTY_ACTIONS of 2 interactions author an empty action list"
 
@@ -144,7 +165,7 @@ echo "PASS:  3. neither journey authors a fault or a repair"
 # Required by the type, so this cannot be missing — which is exactly why it is
 # worth asserting that it is SUBSTANTIAL. A one-word text equivalent satisfies
 # the contract and fails the learner.
-TEXT_EQUIVALENTS="$(grep -c '"textEquivalent"' "$DOCUMENT" || true)"
+TEXT_EQUIVALENTS="$(grep -c '"textEquivalent"' "$MODULE1_BLOCK" || true)"
 [ "$TEXT_EQUIVALENTS" = "2" ] \
   || fail "$TEXT_EQUIVALENTS of 2 interactions carry a text equivalent"
 
@@ -189,7 +210,7 @@ echo "PASS:  5. no diagram, practice, standalone prediction or asset dependency"
 # Decision C's positive half. Ruling the standalone step out is only half the
 # instruction; the predictions have to exist somewhere, and the journey is where
 # a commitment is interactive, persists, and is shown beside the observation.
-PREDICTIONS="$(grep -c '"prediction": {' "$DOCUMENT" || true)"
+PREDICTIONS="$(grep -c '"prediction": {' "$MODULE1_BLOCK" || true)"
 [ "$PREDICTIONS" -ge 3 ] \
   || fail "Module 1 authors $PREDICTIONS predictions inside its journeys; the method asks the learner to commit before observing"
 
@@ -524,7 +545,7 @@ for specific in 'subnetId' 'subnetMask' 'vlanId' 'broadcastDomain' \
 done
 
 # 8. Module 1 actually uses it, and uses it once per journey.
-AUTHORED_GROUPS="$(grep -c '"groupId": "local-network", "label": "Local network"' "$DOCUMENT" || true)"
+AUTHORED_GROUPS="$(grep -c '"groupId": "local-network", "label": "Local network"' "$MODULE1_BLOCK" || true)"
 [ "$AUTHORED_GROUPS" = "2" ] \
   || fail "$AUTHORED_GROUPS of 2 Module 1 journeys declare their authored group"
 
@@ -549,7 +570,7 @@ PRESENTATION="apps/web/src/learning/packet-journey-presentation.ts"
 [ -f "$PRESENTATION" ] || fail "missing required file: $PRESENTATION"
 
 # 1. Every device a learner can select has an answer. Five in PJ1, four in PJ2.
-ABOUT_COUNT="$(grep -c '"about":' "$DOCUMENT" || true)"
+ABOUT_COUNT="$(grep -c '"about":' "$MODULE1_BLOCK" || true)"
 if [ "$ABOUT_COUNT" -lt 9 ]; then
   fail "not every Module 1 device is explained ($ABOUT_COUNT authored, expected 9)"
 fi
@@ -946,9 +967,9 @@ echo ""
 echo "--- advisory signals (never fail CI) ---"
 echo "ADVISORY: Mission 1 authored steps:          $M1_STEPS"
 echo "ADVISORY: Mission 2 authored steps:          $M2_STEPS"
-echo "ADVISORY: journey stages:                    $(grep -c '"stageId"' "$DOCUMENT" || true)"
+echo "ADVISORY: journey stages:                    $(grep -c '"stageId"' "$MODULE1_BLOCK" || true)"
 echo "ADVISORY: learner predictions:               $PREDICTIONS"
-echo "ADVISORY: devices across both journeys:      $(grep -c '"nodeId"' "$DOCUMENT" || true)"
+echo "ADVISORY: devices across both journeys:      $(grep -c '"nodeId"' "$MODULE1_BLOCK" || true)"
 echo "ADVISORY: authored paragraphs (rough):       $(grep -c '^\s*"[A-Z]' "$DECODED" || true)"
 echo "ADVISORY: terms Module 1 introduces:         host, interface, port, link,"
 echo "ADVISORY:                                    switch, router, topology,"

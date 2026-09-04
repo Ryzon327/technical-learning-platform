@@ -55,9 +55,21 @@ const DOCUMENT_PATH = join(
 const M3 = "nf-m3-ipv4-the-second-identity";
 const MODULE2 = "nf-mod2-addresses-and-boundaries";
 
-/** Missions no slice has authored yet. Mission 3 must not have moved this. */
+/**
+ * Missions no slice has authored yet.
+ *
+ * This list shrinks by exactly one mission each time a slice is approved, and
+ * WP-J5 removed Mission 4 from it. That is the list handing authority forward
+ * rather than being weakened: what it protects is the emptiness of whatever has
+ * NOT been authored, which is a moving edge by design. Mission 4's own suite
+ * now owns Mission 4, and this suite keeps owning Mission 3.
+ *
+ * The alternative — pinning this list to the missions that were unauthored when
+ * Mission 3 shipped — would fail the moment the course made legitimate
+ * progress, which teaches the next author to edit the assertion out of the way
+ * rather than trust it.
+ */
 const UNAUTHORED = [
-  "nf-m4-the-prefix-and-the-decision",
   "nf-m5-the-default-gateway",
   "nf-m6-routers-and-the-journey",
   "nf-m7-testing-whether-it-works",
@@ -220,12 +232,12 @@ describe("Mission 3 is the approved mission, in the approved place", () => {
  * Staged authoring
  * ------------------------------------------------------------------ */
 
-describe("authoring Mission 3 moved the boundary by exactly one mission", () => {
+describe("Mission 3 is authored and the boundary sits after it", () => {
   it("authors instruction in Mission 3", () => {
     expect(mission(M3).steps.length).toBeGreaterThan(0);
   });
 
-  it("leaves Missions 4 to 8 with no step of any kind", () => {
+  it("leaves every still-unauthored mission with no step of any kind", () => {
     for (const stableId of UNAUTHORED) {
       expect(`${stableId} ${mission(stableId).steps.length}`).toBe(
         `${stableId} 0`

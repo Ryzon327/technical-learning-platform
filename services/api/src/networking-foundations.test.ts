@@ -202,14 +202,16 @@ describe("the authored course parses and is the approved architecture", () => {
  * ninth step in M1 stays legal while authoring a first step in M5 does not.
  * A count would permit any redistribution that happened to total the same.
  *
- * WP-J4 adds Mission 3. The allowlist grows by exactly the mission a slice
- * authored, never by anticipation: Missions 4 to 8 stay off it, and the
- * assertion below still fails if any of them acquires a step.
+ * The allowlist grows by exactly the mission a slice authored, never by
+ * anticipation: WP-J4 added Mission 3, WP-J5 adds Mission 4, and Missions 5 to
+ * 8 stay off it. The assertion below still fails if any of them acquires a
+ * step.
  */
 const AUTHORED_MISSIONS = [
   "nf-m1-what-a-network-is",
   "nf-m2-inside-one-network",
-  "nf-m3-ipv4-the-second-identity"
+  "nf-m3-ipv4-the-second-identity",
+  "nf-m4-the-prefix-and-the-decision"
 ] as const;
 
 describe("only the authorized missions carry instruction", () => {
@@ -237,22 +239,32 @@ describe("only the authorized missions carry instruction", () => {
   });
 
   /**
-   * Interactions are authored where the teaching needs one, not wherever
-   * authoring is permitted.
+   * Interactions are authored where the teaching needs one, and as many as the
+   * teaching needs — never wherever authoring is permitted.
    *
-   * Module 1's two missions each follow traffic across a topology, so each
-   * carries exactly one packet journey. Mission 3 reads a machine's own report
-   * instead, which the `command` step type already expresses honestly, so it
-   * carries none. Asserting "one per authorized mission" would have forced a
-   * journey into a mission that has nothing to animate.
+   * Written as an explicit count per mission rather than a flat "one each",
+   * because the right number is a property of what the mission teaches:
    *
-   * What must stay absolute is the other half: no unauthorized mission carries
-   * an interaction at all.
+   *   M1, M2  one journey each — each follows traffic across a topology
+   *   M3      none — it reads a machine's own report, which `command` already
+   *           expresses honestly; a journey would animate nothing
+   *   M4      TWO — the mission's whole subject is that one machine behaves
+   *           differently for two destinations, and a single journey cannot
+   *           show a difference. Splitting them is what makes the second one a
+   *           changed context rather than a continuation.
+   *
+   * A flat count would have forced a journey into Mission 3 and forbidden the
+   * second one in Mission 4 — in both cases making the architecture, rather
+   * than the teaching, decide the shape of the lesson.
+   *
+   * What stays absolute is the other half: a mission not listed here carries
+   * no interaction at all, so an unauthored mission cannot acquire one.
    */
-  const JOURNEY_MISSIONS = [
-    "nf-m1-what-a-network-is",
-    "nf-m2-inside-one-network"
-  ] as const;
+  const JOURNEY_COUNTS: Readonly<Record<string, number>> = {
+    "nf-m1-what-a-network-is": 1,
+    "nf-m2-inside-one-network": 1,
+    "nf-m4-the-prefix-and-the-decision": 2
+  };
 
   it("authors interactions only where a journey is the teaching", () => {
     for (const mission of document.missions) {
@@ -260,11 +272,7 @@ describe("only the authorized missions carry instruction", () => {
         (step) => step.content.type === "interaction"
       );
 
-      const expected = (JOURNEY_MISSIONS as readonly string[]).includes(
-        mission.stableId
-      )
-        ? 1
-        : 0;
+      const expected = JOURNEY_COUNTS[mission.stableId] ?? 0;
 
       expect(`${mission.stableId} ${interactions.length}`).toBe(
         `${mission.stableId} ${expected}`

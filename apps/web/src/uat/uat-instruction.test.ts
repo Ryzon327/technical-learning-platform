@@ -311,6 +311,7 @@ describe("the harness adds no scenario and no nondeterminism", () => {
 const NF_M1 = "nf-m1-what-a-network-is";
 const NF_M2 = "nf-m2-inside-one-network";
 const NF_M3 = "nf-m3-ipv4-the-second-identity";
+const NF_M4 = "nf-m4-the-prefix-and-the-decision";
 
 describe("the production course reaches the harness through the real parser", () => {
   const outcome = loadUatDocument(networkingFoundations);
@@ -357,18 +358,33 @@ describe("the production course reaches the harness through the real parser", ()
   it("lists the unauthored missions without pretending they have content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
-    const authored = [NF_M1, NF_M2, NF_M3];
+    const authored = [NF_M1, NF_M2, NF_M3, NF_M4];
     const later = listUatMissions(outcome.document).filter(
       (mission) => !authored.includes(mission.stableId)
     );
 
-    // Five, not six: WP-J4 authored Mission 3 and the boundary moved with it.
-    // The assertion still protects every mission nobody has authored yet.
-    expect(later.length).toBe(5);
+    // Four now: WP-J5 authored Mission 4 and the boundary moved with it. The
+    // assertion still protects every mission nobody has authored yet.
+    expect(later.length).toBe(4);
     for (const mission of later) {
       expect(mission.stepCount).toBe(0);
       expect(mission.hasInteraction).toBe(false);
     }
+  });
+
+  it("offers Mission 4's two journeys for review", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const mission = listUatMissions(outcome.document).find(
+      (m) => m.stableId === NF_M4
+    );
+
+    // Mission 4 authors two journeys because its subject is that one machine
+    // behaves differently for two destinations. The harness must surface it as
+    // carrying an interaction so the Founder can review both.
+    expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
+    expect(mission?.hasInteraction).toBe(true);
+    expect(mission?.hasPassivePrediction).toBe(false);
   });
 
   it("builds a renderable instruction for both authored missions", () => {
