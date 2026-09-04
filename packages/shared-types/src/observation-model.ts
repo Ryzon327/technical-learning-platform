@@ -154,6 +154,34 @@ export interface ObservationAttribute {
 export interface ObservationInterface {
   readonly interfaceId: string;
   readonly label: string;
+  /**
+   * Draw this interface's own label on the picture, beside the connection.
+   *
+   * ## Why this is a flag and not a rule
+   *
+   * A learner reading "Switch-1 learned PC-A is on Port 1" has to be able to
+   * SEE which connection Port 1 is, or the sentence is about something
+   * off-screen. The label itself is already authored — it is `label` — so the
+   * only question is which ends are worth drawing.
+   *
+   * A presentation could try to answer that itself: label the switch end,
+   * label the busiest device, label whichever end is higher on the canvas.
+   * Every one of those is the renderer deciding which end of a wire matters,
+   * from a device's role, from geometry or from position — the inference this
+   * model exists to prevent, and the reason Mission 1's topology draws nothing
+   * it was not given.
+   *
+   * So the author says. In Mission 2 the switch's ports carry it and the host
+   * interfaces do not, which is what keeps the diagram to three short labels
+   * instead of six.
+   *
+   * Exactly the same shape and exactly the same reason as
+   * `ObservationAttribute.prominent`, which decides which facts reach a
+   * device's face. Absent means not drawn on the wire; the interface is still
+   * listed in full wherever interfaces are listed, so nothing is hidden by
+   * leaving it off.
+   */
+  readonly prominent?: boolean;
   readonly attributes: readonly ObservationAttribute[];
 }
 
@@ -369,7 +397,75 @@ export interface ObservationStage {
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
   readonly viaLinkId?: string;
+  /**
+   * Further links occupied at the SAME moment as this stage.
+   *
+   * ## What this is
+   *
+   * `viaLinkId` names the one link this stage's arrival came in on. This names
+   * links that were carrying something at the same instant — so one observed
+   * moment can be drawn as one event on several links rather than as several
+   * events in a row.
+   *
+   * ## Why it is deliberately not called anything about networks
+   *
+   * The obvious names — flooded, egress, forwarded, broadcast — are all claims
+   * about WHY several links were busy, and that is exactly the claim this
+   * model must never make. A source says which links were occupied together;
+   * what that meant is the author's narration, and in Mission 2 it happens to
+   * be a switch that has not learned a destination yet. A different source, a
+   * different course or a live capture could name links here for a completely
+   * different reason and this field would still be honest.
+   *
+   * ## What a consumer may and may not do with it
+   *
+   * A presentation may draw these links as active, and may draw a marker on
+   * each. It may NOT work out which links SHOULD be here: no eligible-port
+   * calculation, no excluding an ingress link, no reading device roles, no
+   * walking the topology. Every id is authored, and validation refuses one
+   * that does not resolve.
+   *
+   * Optional and additive: absent means one link, or none, exactly as before.
+   */
+  readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * What named devices are SHOWING at this stage, as authored facts.
+   *
+   * Authored teaching state, and nothing else. It is how a device can display
+   * something that changes as a journey runs — in Mission 2, what Switch-1 has
+   * learned so far — without any of it being computed.
+   *
+   * Nothing derives these. Not from traffic, not from links, not from roles,
+   * not from earlier stages. A stage shows exactly what its author wrote, so
+   * carrying a fact forward means authoring it again on the later stage. That
+   * is more verbose and it is the point: a model that accumulated state would
+   * be deciding what a device knows, which is the authority this contract
+   * exists to keep with the author.
+   *
+   * The label/value pair is the same vocabulary interfaces already use for
+   * attributes, so a presentation needs no second display grammar and no
+   * second accessible pattern.
+   */
+  readonly deviceFacts?: readonly ObservationDeviceFacts[];
   readonly availability: ObservationAvailability;
+}
+
+/**
+ * One device's authored display at one stage.
+ *
+ * `label` is the caption above the facts — authored words like "Switch-1
+ * knows", never a key a consumer branches on. `facts` are label/value pairs in
+ * authored order.
+ */
+export interface ObservationDeviceFacts {
+  readonly nodeId: string;
+  readonly label: string;
+  readonly facts: readonly ObservationDeviceFact[];
+}
+
+export interface ObservationDeviceFact {
+  readonly label: string;
+  readonly value: string;
 }
 
 /**

@@ -349,6 +349,16 @@ function projectPacketJourneyParameters(
     // went, and neither says why. Dropping it would remove the visual account
     // of the journey without protecting anything.
     ...(stage.viaLinkId !== undefined ? { viaLinkId: stage.viaLinkId } : {}),
+    // Carried unconditionally for the same reason as `viaLinkId`. Which links
+    // were busy together, and what a device was showing, are both things the
+    // learner reads off the screen — observations, not answers. The answer is
+    // `decision`, and that is dropped above.
+    ...(stage.alsoOnLinkIds !== undefined
+      ? { alsoOnLinkIds: stage.alsoOnLinkIds }
+      : {}),
+    ...(stage.deviceFacts !== undefined
+      ? { deviceFacts: stage.deviceFacts }
+      : {}),
     ...(stage.prediction !== undefined ? { prediction: stage.prediction } : {})
   }));
 

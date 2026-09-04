@@ -563,11 +563,31 @@ export interface PacketJourneyInterfaceView {
   }[];
 }
 
+/**
+ * One device's authored display at the current stage.
+ *
+ * `label` is the author's caption ("Switch-1 knows"); `facts` are label/value
+ * pairs in authored order. `nodeLabel` is resolved here so a presentation
+ * never has to look a device up to caption this.
+ */
+export interface PacketJourneyDeviceFactsView {
+  readonly nodeId: string;
+  readonly nodeLabel: string;
+  readonly label: string;
+  readonly facts: readonly { readonly label: string; readonly value: string }[];
+}
+
 export interface PacketJourneyNodeView {
   readonly nodeId: string;
   readonly label: string;
   readonly roleLabel: string;
   readonly current: boolean;
+  /**
+   * What this device is showing at the current stage, if the author gave it
+   * something. The same authored values the Instructor pane reads — one
+   * resolution, so the two surfaces cannot disagree.
+   */
+  readonly shownFacts?: PacketJourneyDeviceFactsView;
   /**
    * One sentence on what this CATEGORY of device is, derived from the authored
    * role. Absent for a role this presentation has no sentence for, in which
@@ -624,6 +644,19 @@ export interface PacketJourneyView {
    */
   readonly topology: TopologyLayout;
   readonly stages: readonly PacketJourneyStageView[];
+  /**
+   * What devices are showing RIGHT NOW, as the author wrote it.
+   *
+   * Empty for every journey that authors none, which is every journey written
+   * before the field existed. Read from the CURRENT revealed stage only: a
+   * stage shows what its author gave it, and nothing accumulates across stages
+   * here — carrying a fact forward is an authoring decision, not something
+   * this function may make on the author's behalf.
+   *
+   * This is the Instructor pane's copy. It is instruction, so it belongs where
+   * the learner is already looking rather than only behind a device click.
+   */
+  readonly deviceFacts: readonly PacketJourneyDeviceFactsView[];
   /** What just happened, rendered beside the topology it happened in. */
   readonly currentEvent: PacketJourneyEventView;
   readonly pendingPrediction: ReturnType<typeof pendingPrediction>;
@@ -707,6 +740,35 @@ export function buildPacketJourneyView(
   // not reached, including one the learner is about to be asked to predict.
   const revealedNodeIds = revealed.map((stage) => stage.atNodeId);
 
+  /*
+    What devices are showing at the moment the learner is looking at.
+
+    Read from the CURRENT revealed stage and from nowhere else. Nothing here
+    merges, accumulates or carries a fact forward from an earlier stage: if
+    Switch-1 still knows something it learned two stages ago, the author says
+    so again on this stage. That is deliberately more verbose to write, and it
+    is the whole guarantee — a presentation that accumulated would be deciding
+    what a device knows, which is the author's to state and not ours to infer.
+  */
+  // The last revealed stage is the one `model.currentStageId` names — the
+  // projection sets it from exactly this position — and it is already to hand
+  // here, so this reads it rather than resolving the same stage a second way.
+  const deviceFacts: PacketJourneyDeviceFactsView[] = (
+    revealed[revealed.length - 1]?.deviceFacts ?? []
+  ).map((shown) => ({
+    nodeId: shown.nodeId,
+    nodeLabel: nodeLabels.get(shown.nodeId) ?? shown.nodeId,
+    label: shown.label,
+    facts: shown.facts.map((fact) => ({
+      label: fact.label,
+      value: fact.value
+    }))
+  }));
+
+  const factsByNodeId = new Map(
+    deviceFacts.map((shown) => [shown.nodeId, shown])
+  );
+
   const nodes: PacketJourneyNodeView[] = model.nodes.map((node) => ({
     nodeId: node.nodeId,
     label: node.label,
@@ -717,6 +779,9 @@ export function buildPacketJourneyView(
       ? { purpose: describeRolePurpose(node.role) as string }
       : {}),
     ...(node.about !== undefined ? { about: node.about } : {}),
+    ...(factsByNodeId.has(node.nodeId)
+      ? { shownFacts: factsByNodeId.get(node.nodeId) as PacketJourneyDeviceFactsView }
+      : {}),
     journeyStatus: resolveNodeJourneyStatus({
       nodeId: node.nodeId,
       revealedNodeIds,
@@ -866,6 +931,7 @@ export function buildPacketJourneyView(
     links,
     topology,
     stages,
+    deviceFacts,
     currentEvent,
     // Withheld until the learner begins. Before Start there is exactly one
     // thing to do, and a question sitting beside it would compete with the

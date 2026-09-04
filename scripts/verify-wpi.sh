@@ -929,6 +929,43 @@ for graded in 'isCorrect' 'wasCorrect' 'gradePrediction' 'predictionScore' \
   fi
 done
 
+# ---- simultaneous traffic, and the state it teaches --------------------
+#
+# WP-J3 Mission 2. Two additions, and the same rule behind both: the author
+# says what happened, the renderer draws it.
+
+# One marker per authored link, so a switch sending copies at one moment is
+# drawn as one event rather than a queue of arrivals.
+grep -Fq 'layout.packets.map' "$TOPOLOGY" \
+  || fail "the drawing renders a single marker again; simultaneous copies would draw as a serial path"
+
+# Keyed by LINK, not by index. Keying by position lets React reuse a marker
+# for a different wire on the next reveal, and the CSS transition then
+# animates it sideways across the picture — movement the journey never made.
+grep -Fq 'key={marker.linkId' "$TOPOLOGY" \
+  || fail "markers are not keyed by their link; one could animate between wires"
+
+# The learned-state surface is INSTRUCTION, so it is in the instructor pane
+# and not only behind a device click.
+grep -Fq 'className="packet-journey-knows"' "$JOURNEY" \
+  || fail "authored device state is no longer surfaced in the instructor pane"
+grep -Fq 'packet-journey-inspector-knows' "$JOURNEY" \
+  || fail "the device inspector no longer offers the same authored state"
+
+# A definition list, because the content is pairs. Not a table, and not a grid
+# of cards — the Founder-accepted rule is that this pane stays calm.
+grep -Fq 'packet-journey-knows-facts' "$JOURNEY" \
+  || fail "the learned-state surface lost its definition-list structure"
+if grep -qE '<table|role="grid"|role="table"' "$JOURNEY"; then
+  fail "the learned-state surface became a table; this pane stays calm"
+fi
+
+# Reduced motion drops MOVEMENT, never information. With the marker animation
+# gone, the traversed-link treatment is what still shows that both copies went
+# out, so it has to exist and must not be animation-only.
+grep -Eq '\.topology-wire\.is-traversed \{' "$STYLES_FLAT_WPI" \
+  || fail "a traversed link has no static treatment; reduced motion would lose the second path"
+
 rm -f "$STYLES_FLAT_WPI"
 
 echo "PASS: 10e. two panes, one workspace, one start, one set of controls"

@@ -261,6 +261,41 @@ export interface TopologyEndpoint {
   readonly nodeLabel: string;
   readonly interfaceId: string;
   readonly interfaceLabel: string;
+  /**
+   * The author flagged this end to be named on the picture.
+   *
+   * Carried here as well as in `portLabels` because the two answer different
+   * questions: `portLabels` says WHERE the text is drawn, and this says
+   * whether the arrangement description should name the port in words. Both
+   * read the same authored flag, so the picture and the spoken description
+   * cannot disagree about which ports a learner has been told about.
+   */
+  readonly prominent: boolean;
+}
+
+/**
+ * An authored interface label, placed on the picture beside its connection.
+ *
+ * Founder UAT: a learner should not have to open the inspector to find out
+ * which port a device is plugged into, because the instruction says things
+ * like "Switch-1 learned PC-A is on Port 1" and that sentence is about
+ * nothing visible unless the picture names the port.
+ *
+ * One of these exists for each END the AUTHOR flagged `prominent`. Nothing
+ * here chooses ends, and nothing invents a name: `text` is the authored
+ * interface label, unchanged.
+ *
+ * `at` is beside the wire rather than on it. A marker rides the wire, and a
+ * label sitting in the same place would be covered by the traffic exactly
+ * when the learner most wants to read it.
+ */
+export interface TopologyPortLabel {
+  readonly linkId: string;
+  readonly nodeId: string;
+  readonly interfaceId: string;
+  /** The authored interface label, e.g. "Port 1". */
+  readonly text: string;
+  readonly at: TopologyPoint;
 }
 
 /** One authored fact shown beside a port on the device's own face. */
@@ -410,7 +445,23 @@ export type TopologyLayout =
       readonly groups: readonly TopologyGroup[];
       readonly devices: readonly TopologyDevice[];
       readonly links: readonly TopologyLink[];
-      readonly packet: TopologyPacket | null;
+      /**
+       * The traffic markers, one per link the authored stage says is carrying
+       * something at this moment.
+       *
+       * Usually one, and empty only when the topology could place none. It is
+       * a list because an authored stage may name several links occupied at
+       * the same moment — which is how one switch action producing copies is
+       * drawn as one event rather than as a queue of arrivals.
+       */
+      readonly packets: readonly TopologyPacket[];
+      /**
+       * Authored interface labels drawn beside their connections.
+       *
+       * Empty unless an author flagged an interface `prominent`, which is
+       * every interaction written before that flag existed.
+       */
+      readonly portLabels: readonly TopologyPortLabel[];
       /**
        * The arrangement in words.
        *
@@ -588,9 +639,22 @@ export function describeTopologyArrangement(
   }
 
   if (links.length > 0) {
+    /*
+      Each connection, naming any end the author flagged.
+
+      A port drawn on the picture has to be said in words too, or the diagram
+      carries a fact the spoken description does not — which is exactly the
+      gap a learner using a screen reader would fall into when the instruction
+      says "Switch-1 learned PC-A is on Port 1".
+
+      Only flagged ends are named, so this stays as short as the picture is.
+    */
+    const named = (end: TopologyEndpoint): string =>
+      end.prominent ? `${end.nodeLabel} ${end.interfaceLabel}` : end.nodeLabel;
+
     sentences.push(
       `A line is drawn between ${joinWithSemicolons(
-        links.map((link) => `${link.from.nodeLabel} and ${link.to.nodeLabel}`)
+        links.map((link) => `${named(link.from)} and ${named(link.to)}`)
       )}.`
     );
   }
@@ -615,6 +679,7 @@ interface InterfaceOwner {
   readonly nodeId: string;
   readonly nodeLabel: string;
   readonly interfaceLabel: string;
+  readonly prominent: boolean;
 }
 
 interface ResolvedLink {
@@ -699,7 +764,12 @@ export function buildTopologyLayout(
       owners.set(iface.interfaceId, {
         nodeId: node.nodeId,
         nodeLabel: node.label,
-        interfaceLabel: iface.label
+        interfaceLabel: iface.label,
+        // Read from the flag, never worked out. A renderer that decided to
+        // label "the switch end" would be reading a device's role; one that
+        // labelled "the upper end" would be reading geometry. Both are the
+        // inference this module exists without.
+        prominent: iface.prominent === true
       });
     }
   }
@@ -760,17 +830,47 @@ export function buildTopologyLayout(
   const traversedLinkIds = new Set<string>();
 
   for (const stage of revealed) {
-    if (stage.viaLinkId === undefined) continue;
+    // `viaLinkId` is the link this arrival came in on; `alsoOnLinkIds` are
+    // links the SOURCE said were busy at the same moment. Both are authored
+    // ids and both are treated identically here — this loop collects what it
+    // was given and works nothing out.
+    const named = [
+      ...(stage.viaLinkId === undefined ? [] : [stage.viaLinkId]),
+      ...(stage.alsoOnLinkIds ?? [])
+    ];
 
-    // Fail loudly rather than highlighting nothing and looking correct.
-    if (!knownLinkIds.has(stage.viaLinkId)) {
-      return { state: "unavailable", reason: describeTopologyUnavailable() };
+    for (const linkId of named) {
+      // Fail loudly rather than highlighting nothing and looking correct.
+      if (!knownLinkIds.has(linkId)) {
+        return { state: "unavailable", reason: describeTopologyUnavailable() };
+      }
+
+      traversedLinkIds.add(linkId);
     }
-
-    traversedLinkIds.add(stage.viaLinkId);
   }
 
-  const currentLinkId = currentStage?.viaLinkId ?? null;
+  /*
+    The links carrying traffic RIGHT NOW.
+
+    A set rather than one id, because an authored stage may say several links
+    were occupied at the same moment — Mission 2's switch has not learned where
+    the destination is, so the author names the links the copies went out on.
+
+    Every id in it is authored. Nothing here decides which links should be
+    busy: no eligible-port rule, no excluding the link the traffic arrived on,
+    no reading of device roles, no walk over the topology. Given a stage that
+    names one link this behaves exactly as it did before.
+  */
+  const currentLinkIds = new Set<string>(
+    currentStage === undefined
+      ? []
+      : [
+          ...(currentStage.viaLinkId === undefined
+            ? []
+            : [currentStage.viaLinkId]),
+          ...(currentStage.alsoOnLinkIds ?? [])
+        ]
+  );
 
   /* --- rows --------------------------------------------------------- */
 
@@ -1356,8 +1456,22 @@ export function buildTopologyLayout(
   }
 
   const anchorOf = new Map<string, TopologyPoint>();
+  /*
+    A composite key for one link's anchor on one device.
+
+    The separator is a SPACE, and that is unambiguous rather than merely
+    tidy: `INTERACTION_KEY` restricts every authored identifier to
+    lowercase letters, digits, dot, underscore and hyphen, so neither half
+    can contain a space and no two different pairs can collide.
+
+    It was briefly a NUL byte, which worked at runtime and was invisible in
+    an editor, but made the whole file classify as binary — so `grep` went
+    silent on it and `verify-wph.sh`'s comment-stripping scan produced an
+    empty file, quietly disabling every absence check that reads this
+    module. A key separator is not worth a byte that blinds a gate.
+  */
   const anchorKey = (linkId: string, nodeId: string): string =>
-    `${linkId} ${nodeId}`;
+    `${linkId} ${nodeId}`;
 
   for (const device of devices) {
     for (const edge of ["top", "bottom"] as const) {
@@ -1451,34 +1565,126 @@ export function buildTopologyLayout(
         nodeId: from.nodeId,
         nodeLabel: from.nodeLabel,
         interfaceId: link.endpoints[0],
-        interfaceLabel: from.interfaceLabel
+        interfaceLabel: from.interfaceLabel,
+        prominent: from.prominent
       },
       to: {
         nodeId: to.nodeId,
         nodeLabel: to.nodeLabel,
         interfaceId: link.endpoints[1],
-        interfaceLabel: to.interfaceLabel
+        interfaceLabel: to.interfaceLabel,
+        prominent: to.prominent
       },
       endpointSummary: `${from.nodeLabel} ${from.interfaceLabel} to ${to.nodeLabel} ${to.interfaceLabel}`,
       shape,
       points,
       path: pointsToPath(points),
       traversed: traversedLinkIds.has(link.linkId),
-      current: currentLinkId === link.linkId
+      current: currentLinkIds.has(link.linkId)
     };
   });
 
-  /* --- the packet --------------------------------------------------- */
+  /* --- authored port labels ----------------------------------------- */
 
-  const packet = resolvePacket(
-    currentStage?.atNodeId ?? originNodeId,
-    currentStage === undefined ? null : currentLinkId,
-    links,
-    boxOf,
-    currentStage === undefined,
-    currentStage?.outcome === "stops",
-    consequence?.state === "confirmed"
+  /*
+    One label per END the author flagged, on either end of any wire.
+
+    Both ends are offered to `resolvePortLabel` and the flag decides, so the
+    author can name a switch's ports, a host's interface, both or neither.
+    Nothing here prefers one end over the other — the moment it did, it would
+    be choosing from a device's role or from where the wire happens to sit.
+
+    Each label walks out from its OWN device, so the points are reversed for
+    the far end of the wire.
+  */
+  const portLabels: TopologyPortLabel[] = resolved.flatMap(
+    ({ link, from, to }) => {
+      const drawn = links.find((candidate) => candidate.linkId === link.linkId);
+      if (drawn === undefined) return [];
+
+      const ends: TopologyPortLabel[] = [];
+
+      if (from.prominent) {
+        const label = resolvePortLabel(
+          link.linkId,
+          {
+            nodeId: from.nodeId,
+            interfaceId: link.endpoints[0],
+            interfaceLabel: from.interfaceLabel
+          },
+          drawn.points,
+          boxOf
+        );
+        if (label !== null) ends.push(label);
+      }
+
+      if (to.prominent) {
+        const label = resolvePortLabel(
+          link.linkId,
+          {
+            nodeId: to.nodeId,
+            interfaceId: link.endpoints[1],
+            interfaceLabel: to.interfaceLabel
+          },
+          [...drawn.points].reverse(),
+          boxOf
+        );
+        if (label !== null) ends.push(label);
+      }
+
+      return ends;
+    }
   );
+
+  /* --- the markers -------------------------------------------------- */
+
+  /*
+    One marker per link the authored stage says is carrying traffic.
+
+    All of them are anchored at the SAME device — the one the stage is at — and
+    each walks out along its own link. That is what makes a flood read as one
+    event with several copies leaving, rather than as several arrivals in a
+    row: every marker starts at Switch-1's edge and moves outward together.
+
+    A stage naming one link produces one marker, which is every stage authored
+    before this field existed.
+  */
+  const markerNodeId = currentStage?.atNodeId ?? originNodeId;
+  const markerLinkIds =
+    currentStage === undefined ? [] : [...currentLinkIds];
+
+  const waiting = currentStage === undefined;
+  const stopped = currentStage?.outcome === "stops";
+  const confirmed = consequence?.state === "confirmed";
+
+  const packets: TopologyPacket[] =
+    markerLinkIds.length === 0
+      ? // No link named — the origin before anything is sent, or a source that
+        // reported a hop without a link. One marker, parked beside the device.
+        collect(
+          resolvePacket(
+            markerNodeId,
+            null,
+            links,
+            boxOf,
+            waiting,
+            stopped,
+            confirmed
+          )
+        )
+      : markerLinkIds.flatMap((linkId) =>
+          collect(
+            resolvePacket(
+              markerNodeId,
+              linkId,
+              links,
+              boxOf,
+              waiting,
+              stopped,
+              confirmed
+            )
+          )
+        );
 
   /* --- the canvas --------------------------------------------------- */
 
@@ -1498,7 +1704,10 @@ export function buildTopologyLayout(
     height: round(
       Math.max(
         contentBottom + CANVAS_PADDING,
-        packet === null ? 0 : packet.at.y + CANVAS_PADDING
+        // EVERY marker has to fit, not just the first one. A marker parked
+        // below a card is the lowest thing on the canvas, and with several of
+        // them the tallest one decides the frame.
+        ...packets.map((marker) => marker.at.y + CANVAS_PADDING)
       )
     )
   };
@@ -1510,8 +1719,93 @@ export function buildTopologyLayout(
     groups,
     devices,
     links,
-    packet,
+    packets,
+    portLabels,
     description: describeTopologyArrangement(devices, links, rowCount, groups)
+  };
+}
+
+/** `[value]` when it is there, `[]` when it is not. */
+function collect<T>(value: T | null): T[] {
+  return value === null ? [] : [value];
+}
+
+/**
+ * How far along the wire a port label sits, and how far to one side of it.
+ *
+ * ALONG is small, so the label reads as belonging to the socket it names
+ * rather than floating in the middle of the wire — the "device, then port,
+ * then connection" reading the Founder asked for.
+ *
+ * ASIDE is what keeps it off the wire itself. The traffic marker rides the
+ * wire at `MARKER_CLEARANCE`, and a label in that lane would be covered by
+ * the traffic at exactly the moment the learner wants to read which port it
+ * went out of.
+ */
+const PORT_LABEL_CLEARANCE = 10;
+const PORT_LABEL_ASIDE = 11;
+
+/**
+ * Where one authored port label sits, beside its connection.
+ *
+ * Two steps, and both of them have to be right or the label lands somewhere
+ * useless:
+ *
+ * 1. Walk along the wire until the card is genuinely behind us. This reuses
+ *    `pointClearOfBox`, the same helper the traffic marker uses, so "clear of
+ *    the card" means one thing in this module rather than two.
+ *
+ * 2. Step to one side, so the label is beside the wire rather than on it. A
+ *    marker rides the wire, and a label in that lane would be covered by the
+ *    traffic exactly when the learner wants to read which port it left by.
+ *
+ * The side is chosen by which one ends up FURTHER from the card. A fixed side
+ * looks tidy on a vertical wire and pushes the label back inside the device on
+ * a steep diagonal — which is exactly what the first version of this did, and
+ * what the geometry tests caught.
+ *
+ * `PORT_LABEL_CLEARANCE` is deliberately smaller than `MARKER_CLEARANCE`: the
+ * label belongs to the socket and the marker is in transit, so the label sits
+ * nearer the card and the two separate along the wire as well as across it.
+ */
+function resolvePortLabel(
+  linkId: string,
+  owner: { nodeId: string; interfaceId: string; interfaceLabel: string },
+  points: readonly TopologyPoint[],
+  boxOf: ReadonlyMap<string, TopologyBox>
+): TopologyPortLabel | null {
+  const box = boxOf.get(owner.nodeId);
+  if (box === undefined) return null;
+
+  const start = points[0];
+  if (start === undefined) return null;
+
+  const on = pointClearOfBox(points, box, PORT_LABEL_CLEARANCE);
+
+  const dx = on.x - start.x;
+  const dy = on.y - start.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return null;
+
+  // The perpendicular of (x, y) is (-y, x); the other side is its negation.
+  const asideX = (-dy / length) * PORT_LABEL_ASIDE;
+  const asideY = (dx / length) * PORT_LABEL_ASIDE;
+
+  const candidates: TopologyPoint[] = [
+    { x: on.x + asideX, y: on.y + asideY },
+    { x: on.x - asideX, y: on.y - asideY }
+  ];
+
+  const furthest = candidates.reduce((best, candidate) =>
+    distanceToBox(candidate, box) > distanceToBox(best, box) ? candidate : best
+  );
+
+  return {
+    linkId,
+    nodeId: owner.nodeId,
+    interfaceId: owner.interfaceId,
+    text: owner.interfaceLabel,
+    at: { x: round(furthest.x), y: round(furthest.y) }
   };
 }
 

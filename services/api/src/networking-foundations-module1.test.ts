@@ -556,7 +556,33 @@ describe("PJ1 orients the learner in a topology", () => {
     expect(confirmation.narration).toMatch(/print request/);
     expect(confirmation.narration).toMatch(/printer/i);
     expect(confirmation.narration).toMatch(/accepted/i);
-    expect(confirmation.summary).toMatch(/reached the network printer/i);
+
+    // The summary is the RECAP, and the approved Mission 1 specification asks
+    // for it to be the three-beat journey rather than a restatement of the
+    // narration: PC-A sent it, Switch-1 was in the middle, the Printer
+    // received it. So this pins the recap's content, not its old phrasing.
+    expect(confirmation.summary).toMatch(/PC-A/);
+    expect(confirmation.summary).toMatch(/Switch-1/);
+    expect(confirmation.summary).toMatch(/Printer/i);
+    expect(confirmation.summary).toMatch(/received/i);
+  });
+
+  it("leaves the learner with the two questions Mission 1 sets up", () => {
+    // The curiosity bridge the approved specification requires. Mission 1
+    // deliberately stops short of switching mechanics and of what a router
+    // does, so it has to hand the learner both questions rather than let them
+    // look like gaps — and it must say where each one is answered.
+    const summary = journey().confirmation.summary;
+
+    expect(summary).toMatch(/how Switch-1 knew where to send it/i);
+    expect(summary).toMatch(/Router-1/);
+    expect(summary).toMatch(/Mission 2/);
+    expect(summary).toMatch(/Missions? 5/);
+
+    // And it must not answer either of them here.
+    for (const answered of ["MAC", "flooding", "routing", "gateway"]) {
+      expect(usesWord(summary, answered)).toBe(false);
+    }
   });
 
   it("traverses only authored links, one per arrival", () => {
@@ -673,32 +699,113 @@ describe("PJ2 teaches local delivery as two passes", () => {
     }
   });
 
-  it("asks the learner to predict before each pass reaches the switch", () => {
+  it("asks three predictions, each on the stage that answers it", () => {
+    // A prediction is read from the NEXT unrevealed stage, so a prediction
+    // authored on stage X is asked before X and answered by X. Every one of
+    // them must therefore sit on the stage that resolves it, or the learner
+    // is asked about something they have already been shown.
     const journeyValue = journey();
-    const predicting = journeyValue.stages
-      .map((stage, index) => ({ stage, index }))
-      .filter(({ stage }) => stage.prediction !== undefined);
+    const predicting = journeyValue.stages.filter(
+      (stage) => stage.prediction !== undefined
+    );
 
-    expect(predicting.length).toBe(2);
+    expect(predicting.map((stage) => stage.stageId)).toEqual([
+      // What does a switch do with a destination it has not learned?
+      "d2-switch-sends-copies",
+      // What has it learned from that first delivery?
+      "d3-copies-arrive",
+      // And what does it do once it knows?
+      "d7-switch-sends-once"
+    ]);
+  });
 
-    // A prediction is read from the NEXT unrevealed stage, so the stage that
-    // carries it must be immediately before the switch's decision.
-    for (const { index } of predicting) {
-      expect(journeyValue.stages[index + 1]?.atNodeId).toBe("sw-1");
+  it("asks what the switch knows only before the answer is on screen", () => {
+    // The whole value of the learned-state prediction is that the learner
+    // has to reason rather than read. It is answered by `d3`, so no stage
+    // before `d3` may already show the switch's record or state it in prose.
+    const journeyValue = journey();
+    const askedAt = journeyValue.stages.findIndex(
+      (stage) => stage.stageId === "d3-copies-arrive"
+    );
+
+    expect(askedAt).toBeGreaterThan(0);
+
+    for (const stage of journeyValue.stages.slice(0, askedAt)) {
+      expect(stage.deviceFacts ?? []).toEqual([]);
+      expect(`${stage.narration} ${stage.decision ?? ""}`).not.toMatch(
+        /PC-A is on port 1/i
+      );
     }
   });
 
-  it("visits the unintended recipient in the first pass and not the second", () => {
+  it("involves the unintended recipient in the first delivery and not the second", () => {
+    // The Printer no longer has a stage of its own. It receives its copy at
+    // the same authored moment as PC-B, so its involvement is now carried by
+    // link occupancy — which is the honest record of a simultaneous copy.
     const journeyValue = journey();
     const secondPassStart = journeyValue.stages.findIndex(
       (stage, index) => index > 0 && stage.viaLinkId === undefined
     );
 
-    const firstPass = journeyValue.stages.slice(0, secondPassStart);
-    const secondPass = journeyValue.stages.slice(secondPassStart);
+    const linksIn = (stages: readonly { viaLinkId?: string; alsoOnLinkIds?: readonly string[] }[]) =>
+      new Set(
+        stages.flatMap((stage) => [
+          ...(stage.viaLinkId === undefined ? [] : [stage.viaLinkId]),
+          ...(stage.alsoOnLinkIds ?? [])
+        ])
+      );
 
-    expect(firstPass.some((stage) => stage.atNodeId === "printer")).toBe(true);
-    expect(secondPass.some((stage) => stage.atNodeId === "printer")).toBe(false);
+    expect(linksIn(journeyValue.stages.slice(0, secondPassStart))).toContain(
+      "link-printer"
+    );
+    expect(
+      linksIn(journeyValue.stages.slice(secondPassStart))
+    ).not.toContain("link-printer");
+  });
+
+  it("sends the first delivery out of several connections at one moment", () => {
+    // The defect this replaces: the flood was authored as three stages in a
+    // row, so the picture showed the file visiting the Printer and then PC-B.
+    // Switching does not work that way. One stage now names every connection
+    // occupied at that moment, and the drawing shows one action with copies.
+    const flood = journey().stages.find(
+      (stage) => stage.stageId === "d2-switch-sends-copies"
+    );
+
+    expect(flood?.atNodeId).toBe("sw-1");
+    expect(flood?.viaLinkId).toBe("link-pc-a");
+    expect([...(flood?.alsoOnLinkIds ?? [])].sort()).toEqual([
+      "link-pc-b",
+      "link-printer"
+    ]);
+
+    // And the connection to the router is NOT among them. It is not authored,
+    // so nothing may light it — if this ever fails, something started working
+    // out which ports a switch "would" use.
+    expect(flood?.alsoOnLinkIds ?? []).not.toContain("link-router");
+  });
+
+  it("sends the second delivery out of one connection only", () => {
+    const second = journey().stages.find(
+      (stage) => stage.stageId === "d7-switch-sends-once"
+    );
+
+    expect(second?.atNodeId).toBe("sw-1");
+    expect(second?.viaLinkId).toBe("link-pc-a");
+    // The whole comparison the mission rests on: no simultaneous copies.
+    expect(second?.alsoOnLinkIds).toBeUndefined();
+  });
+
+  it("keeps the reply authored rather than a reversed path", () => {
+    // A reply is not the renderer walking the journey backwards. It is
+    // authored stages naming authored links, exactly like every other step.
+    const reply = journey().stages.find(
+      (stage) => stage.stageId === "d4-pc-b-replies"
+    );
+
+    expect(reply?.atNodeId).toBe("sw-1");
+    expect(reply?.viaLinkId).toBe("link-pc-b");
+    expect(reply?.narration ?? "").toMatch(/repl/i);
   });
 
   it("reaches the destination in both passes", () => {
@@ -745,32 +852,114 @@ describe("the simplification stays technically true", () => {
     // The accuracy that is easiest to get wrong: a switch learns from the
     // SOURCE of a frame on ingress, which is why it knows the sender from the
     // very first frame and the destination only after a reply.
+    // Asserted against the authored learned state rather than against prose,
+    // because that state is now what the learner actually reads. The record
+    // must gain PC-A first and PC-B only once PC-B has sent something.
     const stages = journeyOf(M2).stages;
-    const switchStages = stages.filter((stage) => stage.atNodeId === "sw-1");
 
-    // The first switch stage must record the sender, before any reply exists.
-    expect(switchStages[0]?.decision ?? "").toMatch(/came in on port 1|PC-A is on port 1/);
-    // And the reply's arrival is what supplies the destination.
-    expect(
-      switchStages.some((stage) =>
-        /PC-B's interface is on port 2/.test(stage.decision ?? "")
-      )
-    ).toBe(true);
+    const switchRecordAt = (stageId: string): readonly string[] =>
+      (
+        stages
+          .find((stage) => stage.stageId === stageId)
+          ?.deviceFacts?.find((shown) => shown.nodeId === "sw-1")?.facts ?? []
+      ).map((fact) => fact.label);
+
+    // After the first delivery: the sender, and only the sender.
+    expect(switchRecordAt("d3-copies-arrive")).toEqual(["PC-A"]);
+    // The reply is what supplies the destination.
+    expect(switchRecordAt("d4-pc-b-replies")).toEqual(["PC-A", "PC-B"]);
+
+    // And the prose agrees with the state, so the two cannot drift.
+    const replyDecision =
+      stages.find((stage) => stage.stageId === "d4-pc-b-replies")?.decision ??
+      "";
+    expect(replyDecision).toMatch(/PC-B is on port 2/);
+  });
+
+  it("never shows the switch knowing a device before that device has sent anything", () => {
+    // The single easiest error in this mission: a switch cannot learn where a
+    // machine is until that machine transmits. PC-B's first transmission is
+    // its reply, so no stage before it may carry PC-B in the record.
+    const stages = journeyOf(M2).stages;
+    const replyAt = stages.findIndex(
+      (stage) => stage.stageId === "d4-pc-b-replies"
+    );
+
+    expect(replyAt).toBeGreaterThan(0);
+
+    for (const stage of stages.slice(0, replyAt)) {
+      const record =
+        stage.deviceFacts?.find((shown) => shown.nodeId === "sw-1")?.facts ??
+        [];
+      expect(record.map((fact) => fact.label)).not.toContain("PC-B");
+    }
   });
 
   it("does not claim the unintended recipient never received anything", () => {
-    // It received a copy and discarded it. "Never saw it" would be false for
-    // the first pass, and it is the distinction the last concept step teaches.
-    const printerStage = journeyOf(M2).stages.find(
-      (stage) => stage.atNodeId === "printer"
+    // It received a copy and did not accept it. "Never saw it" would be false
+    // for the first delivery, and it is the distinction the last concept step
+    // teaches. The Printer's copy now arrives at the same authored moment as
+    // PC-B's, so the claim lives in that stage rather than in one of its own.
+    const arrival = journeyOf(M2).stages.find(
+      (stage) => stage.stageId === "d3-copies-arrive"
     );
 
-    expect(printerStage?.narration ?? "").toMatch(/arrives at the Printer/);
-    expect(printerStage?.narration ?? "").toMatch(/discards/);
+    expect(arrival?.narration ?? "").toMatch(/reaches the Printer/);
+    expect(arrival?.narration ?? "").toMatch(/does not accept it/);
+    expect(
+      `${arrival?.narration ?? ""} ${arrival?.decision ?? ""}`
+    ).not.toMatch(/never (saw|received)/i);
 
-    // And it must not have been rewritten into the falsehood the step exists
-    // to avoid: the Printer received a copy, compared it, and threw it away.
-    expect(printerStage?.narration ?? "").not.toMatch(/never (saw|received)/i);
+    // And the Printer says so on its own face, in authored words rather than
+    // through a renderer state that would have to mean "discarded".
+    const printerFacts = arrival?.deviceFacts?.find(
+      (shown) => shown.nodeId === "printer"
+    );
+
+    expect(printerFacts).toBeDefined();
+    expect(JSON.stringify(printerFacts)).toMatch(/Copy arrived/);
+  });
+
+  it("never presents the unintended copy as a fault", () => {
+    // Founder-approved language rule: a copy reaching a machine it was not
+    // meant for is the system working, not breaking. Nothing in this journey
+    // may describe it with failure vocabulary.
+    const journeyValue = journeyOf(M2);
+    const prose = [
+      ...journeyValue.stages.flatMap((stage) => [
+        stage.narration,
+        stage.decision ?? "",
+        JSON.stringify(stage.deviceFacts ?? [])
+      ]),
+      journeyValue.confirmation.narration,
+      journeyValue.confirmation.summary
+    ].join("\n");
+
+    // Words that can only mean malfunction. "wrong" and "failure" are
+    // deliberately NOT here: the mission says "nothing has gone wrong at the
+    // Printer" and names a step "Looks wrong, works as designed", and both
+    // are the reassurance rather than the claim. A rule that banned the word
+    // regardless of polarity would forbid the sentence doing the work.
+    for (const failure of [
+      "error",
+      "fault",
+      "failed",
+      "broken",
+      "dropped",
+      "lost",
+      "rejected",
+      "invalid",
+      "corrupt"
+    ]) {
+      expect(
+        { term: failure, used: usesWord(prose, failure) },
+        `the unintended copy is described as a failure: "${failure}"`
+      ).toEqual({ term: failure, used: false });
+    }
+
+    // And the reassurance is actually present, so this is not satisfied by
+    // simply saying nothing about the Printer at all.
+    expect(prose).toMatch(/nothing has gone wrong/i);
   });
 });
 
@@ -832,8 +1021,25 @@ describe("no learner-facing term arrives before it is taught", () => {
     expect(usesWord(text, "flooding")).toBe(false);
   });
 
-  it("introduces each Mission 1 term in a step before the one that uses it", () => {
-    const steps = mission(M1).steps;
+  it("introduces each Mission 1 term in a step before the one that teaches with it", () => {
+    /*
+      ## Why step 0 is excluded
+
+      The approved Mission 1 specification opens with a short "what you'll
+      learn" step that previews the mission's objectives, and one of those
+      objectives is where a switch sits. Naming a term in a list of what is
+      coming is a PREVIEW; it asks the learner to understand nothing.
+
+      The guarantee worth holding is the other one: no step may TEACH WITH a
+      term the learner has not been given yet. That is measured across the
+      teaching steps, which is what this does.
+
+      This supersedes the strict "connection point before the device" ordering
+      recorded as Architect Decision E. The specification introduces the switch
+      earlier than that decision assumed; the implementation still teaches the
+      interface first, and the preview is the only place the order differs.
+    */
+    const steps = mission(M1).steps.slice(1);
     const positionOfFirstUse = (word: string): number =>
       steps.findIndex((step) => {
         const content = step.content;
@@ -844,8 +1050,7 @@ describe("no learner-facing term arrives before it is taught", () => {
         );
       });
 
-    // Behaviour first: the connection point, then the device those
-    // connections lead into (Architect Decision E).
+    // The connection point, then the device those connections lead into.
     expect(positionOfFirstUse("interface")).toBeGreaterThanOrEqual(0);
     expect(positionOfFirstUse("interface")).toBeLessThan(
       positionOfFirstUse("switch")
@@ -854,6 +1059,24 @@ describe("no learner-facing term arrives before it is taught", () => {
     expect(positionOfFirstUse("topology")).toBeGreaterThan(
       positionOfFirstUse("switch")
     );
+  });
+
+  it("opens by saying what the mission will teach", () => {
+    // The approved specification's first teaching moment. A learner should be
+    // able to scan what they are about to learn before anything asks them to
+    // do something — the "what am I learning?" half of a calm screen.
+    const first = mission(M1).steps[0]?.content;
+
+    if (first === undefined || first.type !== "concept") {
+      throw new Error("Mission 1 does not open with a concept step");
+    }
+
+    const prose = [first.title ?? "", ...first.paragraphs].join("\n");
+
+    // The concrete scenario, up front rather than discovered in the exercise.
+    expect(prose).toMatch(/print/i);
+    // And an objectives preview the learner can scan.
+    expect(prose).toMatch(/you will learn/i);
   });
 
   it("names the identity in Mission 2 only after the journey that motivates it", () => {
@@ -1342,7 +1565,12 @@ describe("Module 1 names what is moving, and never a placeholder", () => {
       .filter((sentence) => sentence.trim().startsWith("PC-A"));
 
     expect(sentenceStarts.length).toBeLessThanOrEqual(2);
-    expect(prose).toMatch(/user's computer/);
+
+    // It must say what PC-A IS in ordinary words. The exact phrase used to be
+    // "a user's computer"; the approved Mission 1 specification names PC-A as
+    // "the computer sending our print request", so what is pinned here is
+    // that the description is concrete, not which of those sentences it is.
+    expect(prose).toMatch(/computer/i);
   });
 
   it("keeps the device descriptions concrete", () => {
@@ -1527,6 +1755,111 @@ describe("every device explains itself before it lists itself", () => {
     // The exact wording Founder UAT rejected, retired everywhere in Module 1.
     for (const stableId of AUTHORED) {
       expect(learnerFacingText(stableId)).not.toContain("Not reached yet");
+    }
+  });
+});
+
+describe("the topology carries the connection facts the lesson depends on", () => {
+  /**
+   * The approved Mission 1 specification, "TOPOLOGY AS INSTRUCTION":
+   *
+   *   A learner should not need to click a device, scroll the instructor
+   *   pane, expand technical details, find a port fact, memorise it, scroll
+   *   back and compare it with the diagram — when the fact is fundamental to
+   *   understanding the visible network.
+   *
+   * Mission 1 says things like "PC-A's link ends at port 1 on Switch-1". That
+   * sentence is about something the learner cannot see unless the picture
+   * names the port, so the ports the lesson names must be authored to appear
+   * on the drawing.
+   */
+  const journey = () => journeyOf(M1);
+
+  const switchInterfaces = () =>
+    journey().nodes.find((node) => node.nodeId === "sw-1")?.interfaces ?? [];
+
+  it("marks the ports the walkthrough names to be drawn", () => {
+    const drawn = switchInterfaces()
+      .filter((iface) => iface.prominent === true)
+      .map((iface) => iface.label);
+
+    expect(drawn).toEqual(["Port 1", "Port 2", "Port 3"]);
+  });
+
+  it("leaves the port this mission never uses unmarked", () => {
+    // Router-1's port is real, listed, and inspectable — and deliberately not
+    // on the picture, because Mission 1 defers Router-1 entirely. It is also
+    // the proof that the flag is an authoring decision: a presentation that
+    // labelled "the switch's ports" would have labelled this one too.
+    const router = switchInterfaces().find(
+      (iface) => iface.interfaceId === "sw-1-p4"
+    );
+
+    expect(router?.label).toBe("Port 4");
+    expect(router?.prominent).toBeUndefined();
+  });
+
+  it("marks no host interface, so the diagram stays to three labels", () => {
+    // Calm is a requirement, not a preference. Labelling both ends of every
+    // wire would put six labels on a five-device picture and turn it into a
+    // patch panel.
+    for (const node of journey().nodes) {
+      if (node.nodeId === "sw-1") continue;
+
+      for (const iface of node.interfaces) {
+        expect({ node: node.nodeId, drawn: iface.prominent }).toEqual({
+          node: node.nodeId,
+          drawn: undefined
+        });
+      }
+    }
+  });
+
+  it("names each drawn port on the link the learner is told about", () => {
+    // The mapping the specification states: PC-A to Port 1, PC-B to Port 2,
+    // the Printer to Port 3. Read from the authored links, so the picture and
+    // the instruction cannot disagree.
+    const expected: Record<string, string> = {
+      "pc-a-nic": "sw-1-p1",
+      "pc-b-nic": "sw-1-p2",
+      "printer-nic": "sw-1-p3"
+    };
+
+    for (const [hostInterface, switchPort] of Object.entries(expected)) {
+      const link = journey().links.find(
+        (candidate) =>
+          candidate.endpoints.includes(hostInterface) &&
+          candidate.endpoints.includes(switchPort)
+      );
+
+      expect({ hostInterface, linked: link !== undefined }).toEqual({
+        hostInterface,
+        linked: true
+      });
+    }
+  });
+
+  it("keeps the port facts required by the walkthrough out of optional details", () => {
+    // The specification's real test: could a learner follow the walkthrough
+    // without ever opening the inspector? The stages name ports 1 and 3, and
+    // both of those are drawn, so the answer is yes.
+    const named = journey()
+      .stages.map((stage) => stage.decision ?? "")
+      .join(" ");
+
+    const drawn = switchInterfaces()
+      .filter((iface) => iface.prominent === true)
+      .map((iface) => iface.label.toLowerCase());
+
+    for (const port of ["port 1", "port 3"]) {
+      expect({ port, mentioned: named.toLowerCase().includes(port) }).toEqual({
+        port,
+        mentioned: true
+      });
+      expect({ port, drawn: drawn.includes(port) }).toEqual({
+        port,
+        drawn: true
+      });
     }
   });
 });

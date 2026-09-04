@@ -877,9 +877,9 @@ describe("the whole authored journey is walkable in one direction", () => {
       const view = buildPacketJourneyView(completingJourney, state);
       if (view.topology.state !== "available") throw new Error("expected a layout");
 
-      nodes.push(view.topology.packet?.nodeId ?? "none");
+      nodes.push(view.topology.packets[0]?.nodeId ?? "none");
       points.push(
-        `${view.topology.packet?.at.x ?? -1},${view.topology.packet?.at.y ?? -1}`
+        `${view.topology.packets[0]?.at.x ?? -1},${view.topology.packets[0]?.at.y ?? -1}`
       );
       tokens.push(view.currentEvent.token);
       state = advance(state, completingJourney);
@@ -1889,8 +1889,9 @@ describe("successful delivery is stated, never only coloured", () => {
     const view = buildPacketJourneyView(deliveryJourney, walkDelivery());
     if (view.topology.state !== "available") throw new Error("expected a layout");
 
-    expect(view.topology.packet?.state).toBe("confirmed");
-    expect(view.topology.packet?.stateLabel).toBe("Arrived");
+    expect(view.topology.packets).toHaveLength(1);
+    expect(view.topology.packets[0]?.state).toBe("confirmed");
+    expect(view.topology.packets[0]?.stateLabel).toBe("Arrived");
   });
 
   it("carries the completion in the accessible account too", () => {
@@ -2168,5 +2169,207 @@ describe("inspecting a device is not progress", () => {
     expect(second.nodes).toEqual(first.nodes);
     expect(second.currentTask).toEqual(first.currentTask);
     expect(second.stages).toEqual(first.stages);
+  });
+});
+
+/* ------------------------------------------------------------------------ *
+   WP-J3 Mission 2 — authored learned state.
+
+   Mission 2's whole point is that a switch comes to know something it did not
+   know before. A learner who has to be TOLD that in prose, once, as it scrolls
+   past, has been told the point of the mission; a learner who watches a record
+   gain a row has been shown it.
+
+   The state is AUTHORED at every stage. Nothing accumulates, nothing is
+   derived from traffic, and carrying a fact forward means authoring it again.
+ * ------------------------------------------------------------------------ */
+
+const learningJourney: LearnerPacketJourneyParameters = {
+  ...journey,
+  traffic: {
+    label: "the file PC-A is sending",
+    sourceNodeId: "pc-a",
+    destinationNodeId: "r-1",
+    startActionLabel: "Send the file"
+  },
+  stages: [
+    {
+      stageId: "k1",
+      atNodeId: "pc-a",
+      narration: "PC-A sends the file.",
+      outcome: "proceeds"
+    },
+    {
+      stageId: "k2",
+      atNodeId: "r-1",
+      narration: "It arrives, and copies leave on every other connection.",
+      outcome: "proceeds",
+      viaLinkId: "link-a",
+      deviceFacts: [
+        {
+          nodeId: "r-1",
+          label: "What Router-1 knows",
+          facts: [{ label: "PC-A", value: "Port 1" }]
+        }
+      ]
+    },
+    {
+      stageId: "k3",
+      atNodeId: "pc-a",
+      narration: "The reply comes back.",
+      outcome: "proceeds",
+      viaLinkId: "link-a",
+      deviceFacts: [
+        {
+          nodeId: "r-1",
+          label: "What Router-1 knows",
+          facts: [
+            { label: "PC-A", value: "Port 1" },
+            { label: "PC-B", value: "Port 2" }
+          ]
+        }
+      ]
+    }
+  ],
+  fault: undefined,
+  actions: [],
+  confirmation: {
+    narration: "The file arrived.",
+    summary: "One delivery, followed end to end."
+  }
+};
+
+function walkLearning(steps: number): PacketJourneyViewState {
+  let state = BEGUN;
+  for (let step = 0; step < steps; step += 1) {
+    state = advance(state, learningJourney);
+  }
+  return state;
+}
+
+describe("what a device knows is authored, and visibly changes", () => {
+  it("shows nothing before a stage that authors something", () => {
+    const view = buildPacketJourneyView(learningJourney, walkLearning(1));
+
+    expect(view.deviceFacts).toEqual([]);
+  });
+
+  it("shows the authored record once a stage carries one", () => {
+    const view = buildPacketJourneyView(learningJourney, walkLearning(2));
+
+    expect(view.deviceFacts).toHaveLength(1);
+    expect(view.deviceFacts[0]?.label).toBe("What Router-1 knows");
+    expect(view.deviceFacts[0]?.facts).toEqual([
+      { label: "PC-A", value: "Port 1" }
+    ]);
+  });
+
+  it("gains the second entry only at the stage that authors it", () => {
+    // The teaching moment: the learner watches a row appear. It appears
+    // because the author wrote it on that stage, not because anything
+    // worked out that a reply had been seen.
+    const view = buildPacketJourneyView(learningJourney, walkLearning(3));
+
+    expect(view.deviceFacts[0]?.facts.map((fact) => fact.label)).toEqual([
+      "PC-A",
+      "PC-B"
+    ]);
+  });
+
+  it("never accumulates a fact the current stage does not author", () => {
+    // The guarantee that keeps authority with the author. A stage that
+    // authors nothing shows nothing, even when an earlier stage showed
+    // something — a presentation that carried state forward would be
+    // deciding what a device knows.
+    const forgetful: LearnerPacketJourneyParameters = {
+      ...learningJourney,
+      stages: [
+        learningJourney.stages[0]!,
+        learningJourney.stages[1]!,
+        { ...learningJourney.stages[2]!, deviceFacts: undefined }
+      ]
+    };
+
+    let state = BEGUN;
+    for (let step = 0; step < 3; step += 1) state = advance(state, forgetful);
+
+    expect(buildPacketJourneyView(forgetful, state).deviceFacts).toEqual([]);
+  });
+
+  it("resolves the device's own name, so a caption never shows an identifier", () => {
+    const view = buildPacketJourneyView(learningJourney, walkLearning(2));
+
+    expect(view.deviceFacts[0]?.nodeId).toBe("r-1");
+    expect(view.deviceFacts[0]?.nodeLabel).toBe("Router-1");
+  });
+
+  it("offers the same authored values to the device inspector", () => {
+    // One resolution feeding both surfaces, so the Instructor pane and the
+    // inspector cannot drift apart or disagree.
+    const view = buildPacketJourneyView(learningJourney, walkLearning(2));
+    const router = view.nodes.find((node) => node.nodeId === "r-1");
+    const other = view.nodes.find((node) => node.nodeId === "pc-a");
+
+    expect(router?.shownFacts).toEqual(view.deviceFacts[0]);
+    expect(other?.shownFacts).toBeUndefined();
+  });
+
+  it("adds nothing to journey state, so reading a record is not progress", () => {
+    // Watching what a device knows cannot advance a stage, satisfy a
+    // prediction or produce a result. There is nowhere to record that it was
+    // read.
+    const before = buildPacketJourneyView(learningJourney, walkLearning(2));
+    const after = buildPacketJourneyView(learningJourney, walkLearning(2));
+
+    expect(after.deviceFacts).toEqual(before.deviceFacts);
+    expect(after.currentTask).toEqual(before.currentTask);
+  });
+});
+
+describe("simultaneous authored traffic reaches the drawing", () => {
+  it("draws one marker per authored link, all at the same device", () => {
+    const flooding: LearnerPacketJourneyParameters = {
+      ...learningJourney,
+      stages: [
+        learningJourney.stages[0]!,
+        {
+          ...learningJourney.stages[1]!,
+          alsoOnLinkIds: ["link-b"]
+        }
+      ],
+      links: [
+        ...journey.links,
+        {
+          linkId: "link-b",
+          label: "PC-B to Router-1",
+          endpoints: ["pc-b-eth0", "r-1-gi0-0-10"]
+        }
+      ],
+      nodes: [
+        ...journey.nodes,
+        {
+          nodeId: "pc-b",
+          label: "PC-B",
+          role: "host",
+          interfaces: [
+            { interfaceId: "pc-b-eth0", label: "eth0", attributes: [] }
+          ]
+        }
+      ]
+    };
+
+    let state = BEGUN;
+    for (let step = 0; step < 2; step += 1) state = advance(state, flooding);
+
+    const view = buildPacketJourneyView(flooding, state);
+    if (view.topology.state !== "available") throw new Error("expected a layout");
+
+    expect(view.topology.packets).toHaveLength(2);
+    expect(
+      new Set(view.topology.packets.map((marker) => marker.nodeId))
+    ).toEqual(new Set(["r-1"]));
+    expect(
+      view.topology.packets.map((marker) => marker.linkId).sort()
+    ).toEqual(["link-a", "link-b"]);
   });
 });

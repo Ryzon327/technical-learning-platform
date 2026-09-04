@@ -592,6 +592,147 @@ grep -Fq 'Mission 2' "$DOCUMENT" \
 echo "PASS: 6f. every device is explained, with the mechanism still deferred"
 
 # ------------------------------------------------------------
+# 6g. Mission 2's simultaneity and learned state are AUTHORED
+# ------------------------------------------------------------
+# Mission 2 teaches that a switch which has not learned a destination sends
+# copies out of its other connections AT THE SAME MOMENT, and that it comes to
+# know where machines are by watching ordinary traffic.
+#
+# Both of those are things a renderer could be tempted to work out — which
+# ports are eligible, what a switch would have learned — and both are exactly
+# the switching calculation that must never exist in code. So both are
+# authored, and this section pins the chain in the same shape as the group and
+# explanation chains above: the fact exists, it is optional, it is validated,
+# it is projected, and the presentation consumes it.
+#
+# The per-stage assertions live in the test suite, which reads the PARSED
+# document. What is checked here is what is genuinely about files.
+
+# 1. The contracts carry both facts, optionally.
+grep -Fq 'readonly alsoOnLinkIds?: readonly string[];' "$MODEL" \
+  || fail "the observation model cannot say several links were busy at once"
+grep -Fq 'readonly alsoOnLinkIds?: readonly string[];' "$REGISTRY" \
+  || fail "an authored stage cannot name simultaneous links"
+grep -Fq 'readonly deviceFacts?: readonly ObservationDeviceFacts[];' "$MODEL" \
+  || fail "the observation model cannot carry authored device state"
+
+# 2. The field names stay GENERIC. A name that encoded networking meaning
+#    would be the model making the claim the author is supposed to make, and
+#    would license a renderer to act on it.
+for networking in 'floodedLinkIds' 'forwardingPorts' 'egressPorts' \
+                  'switchPorts' 'broadcastLinks' 'macTable' 'floodPorts'; do
+  if grep -qF -e "$networking" "$MODEL" "$REGISTRY" "$LAYOUT" "$PRESENTATION"; then
+    fail "a contract field encodes switching semantics: $networking"
+  fi
+done
+
+# 3. Both are cross-referenced at authoring, so nothing dangles.
+grep -Fq 'repeats viaLinkId' "$REGISTRY" \
+  || fail "a stage may name the link it arrived on twice"
+grep -Fq 'names a device that is not declared' "$REGISTRY" \
+  || fail "an authored device display is not cross-referenced"
+
+# 4. Mission 2 actually authors both.
+grep -Fq '"alsoOnLinkIds"' "$DOCUMENT" \
+  || fail "Mission 2 no longer authors simultaneous delivery; the flood would draw as a serial path"
+grep -Fq '"deviceFacts"' "$DOCUMENT" \
+  || fail "Mission 2 no longer authors what Switch-1 knows"
+grep -Fq 'What Switch-1 knows' "$DOCUMENT" \
+  || fail "the learned-state caption a learner reads is gone"
+
+# 5. The presentation READS them and draws what it is given.
+grep -Fq 'alsoOnLinkIds' "$LAYOUT" \
+  || fail "the layout ignores authored simultaneous links"
+grep -Fq 'readonly packets: readonly TopologyPacket[];' "$LAYOUT" \
+  || fail "the drawing can carry only one marker; simultaneous copies cannot be drawn"
+grep -Fq 'deviceFacts' "$PRESENTATION" \
+  || fail "the presentation does not surface authored device state"
+
+# 6. And it works NOTHING out. These are the calculations that would turn the
+#    renderer into a second networking engine; none may appear in the drawing
+#    or the presentation.
+for calculated in 'eligiblePorts' 'otherPorts' 'excludeIngress' 'ingressPort' \
+                  'learnedFrom' 'lookupPort' 'forwardTo'; do
+  if grep -qF -e "$calculated" "$LAYOUT" "$PRESENTATION" "$VIEW" "$NODE"; then
+    fail "the renderer computes switching behaviour: $calculated"
+  fi
+done
+
+echo "PASS: 6g. simultaneity and learned state are authored, never computed"
+
+# ------------------------------------------------------------
+# 6h. The topology carries the facts the lesson depends on
+# ------------------------------------------------------------
+# The approved Mission 1 specification, "TOPOLOGY AS INSTRUCTION": a learner
+# should not have to click a device, expand technical details, find a port
+# fact, memorise it and scroll back to the diagram, when that fact is
+# fundamental to understanding the visible network.
+#
+# Mission 1 says "PC-A's link ends at port 1 on Switch-1". That sentence is
+# about nothing the learner can see unless the picture names the port.
+#
+# The label was always authored — it is the interface's own label. What is new
+# is WHICH ENDS are drawn, and that is an authoring decision for exactly the
+# reason everything else in this gate is: every rule a presentation could use
+# instead ("the switch end", "the upper end", "the first declared") is a
+# reading of role, geometry or order.
+
+# 1. Optional on the contracts, in both halves.
+grep -Fq 'readonly prominent?: boolean;' "$MODEL" \
+  || fail "an observation interface cannot be flagged for the picture"
+grep -Fq 'readonly prominent?: boolean;' "$REGISTRY" \
+  || fail "an authored interface cannot be flagged for the picture"
+
+# 2. Optional, not required. A flag every interface had to carry would be a
+#    property of the model rather than a decision about a few of them.
+grep -Fq 'INTERFACE_REQUIRED' "$REGISTRY" \
+  || fail "the interface display flag became required rather than optional"
+
+# 3. Mission 1 actually flags the ports its walkthrough names.
+grep -Fq '"prominent": true' "$DOCUMENT" \
+  || fail "no authored interface is drawn on the picture; the port facts the walkthrough names would be inspector-only"
+
+# 4. The layout reads the flag and draws what it is given.
+grep -Fq 'readonly portLabels: readonly TopologyPortLabel[];' "$LAYOUT" \
+  || fail "the drawing cannot carry authored port labels"
+grep -Fq 'iface.prominent === true' "$LAYOUT" \
+  || fail "the layout no longer reads the authored display flag"
+grep -Fq 'layout.portLabels.map' "$VIEW" \
+  || fail "the topology no longer renders authored port labels"
+
+# 5. And it chooses no ends of its own.
+#
+#    Deliberately NOT a ban on `role === "switch"` in this module: the layout
+#    legitimately reads a role to pick a device's WORD and its ROW, and both of
+#    those are approved. What is banned is a helper that could only mean
+#    "decide which end of a wire to name", which is the decision the flag took
+#    away from the renderer.
+#
+#    The stronger proof is structural and lives in the geometry suite: change
+#    every device's role, or reverse the order the devices were declared in,
+#    and exactly the same ends are labelled.
+for chosen in 'isSwitch' 'switchEnd' 'upperEnd' 'preferEnd' 'pickEnd' \
+              'labelledEnd' 'chooseEndpoint'; do
+  if grep -qF -e "$chosen" "$LAYOUT" "$VIEW"; then
+    fail "the drawing picks which end of a wire to name: $chosen"
+  fi
+done
+
+LAYOUT_TEST="apps/web/src/learning/topology-layout.test.ts"
+[ -f "$LAYOUT_TEST" ] || fail "missing required file: $LAYOUT_TEST"
+
+grep -Fq 'decides nothing from device roles' "$LAYOUT_TEST" \
+  || fail "nothing proves the drawn ends are independent of device roles"
+grep -Fq 'decides nothing from the order devices were declared in' "$LAYOUT_TEST" \
+  || fail "nothing proves the drawn ends are independent of authored order"
+
+# 6. The picture must not carry a fact the spoken description does not.
+grep -Fq 'end.prominent ?' "$LAYOUT" \
+  || fail "the arrangement description no longer names the drawn ports"
+
+echo "PASS: 6h. the topology names the ports the lesson depends on"
+
+# ------------------------------------------------------------
 # 7. No networking truth was moved into the renderer
 # ------------------------------------------------------------
 # Authored content may DESCRIBE behaviour. Nothing may COMPUTE it. The renderer

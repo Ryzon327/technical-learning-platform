@@ -851,3 +851,75 @@ describe("authored groups survive the support-level projection", () => {
     expect("groups" in content.presentation.parameters).toBe(false);
   });
 });
+
+describe("observations survive withholding; only the reason is dropped", () => {
+  /**
+   * WP-J3 Mission 2.
+   *
+   * `alsoOnLinkIds` and `deviceFacts` are both things a learner reads off the
+   * screen: which connections were busy together, and what a device was
+   * showing. They say WHERE and WHAT, never WHY — the why is `decision`, and
+   * that is what a protected level drops.
+   *
+   * Withholding them would remove the learner's ability to observe rather
+   * than their assistance, which is the distinction CURR-011 draws.
+   */
+  const observing: MissionStep = step({
+    type: "interaction",
+    interactionStableId: "packet-journey",
+    interactionType: "packet_journey",
+    sourceKind: "authored_teaching",
+    supportLevel: "challenge_me",
+    textEquivalent: "Follow the delivery.",
+    parameters: {
+      ...packetJourneyFixture,
+      stages: packetJourneyFixture.stages.map((stage, index) =>
+        index === 1
+          ? {
+              ...stage,
+              alsoOnLinkIds: [],
+              deviceFacts: [
+                {
+                  nodeId: stage.atNodeId,
+                  label: "What this device knows",
+                  facts: [{ label: "PC-A", value: "Port 1" }]
+                }
+              ]
+            }
+          : stage
+      )
+    }
+  });
+
+  it("carries what was observed to a protected level, and drops the reason", () => {
+    const projected = projectMissionStep(observing);
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+    if (parameters.interactionType !== "packet_journey") {
+      throw new Error("expected a packet journey");
+    }
+
+    const stage = parameters.stages[1];
+
+    // The observations survive.
+    expect(stage?.deviceFacts).toEqual([
+      {
+        nodeId: stage?.atNodeId,
+        label: "What this device knows",
+        facts: [{ label: "PC-A", value: "Port 1" }]
+      }
+    ]);
+    expect(stage?.alsoOnLinkIds).toEqual([]);
+
+    // The reason does not. ABSENT, not undefined.
+    expect("decision" in (stage ?? {})).toBe(false);
+  });
+});

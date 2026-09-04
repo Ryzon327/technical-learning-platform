@@ -127,12 +127,18 @@ export function TopologyView({
     return <p className="topology-unavailable">{layout.reason}</p>;
   }
 
+  /*
+    The device the traffic is at.
+
+    Every marker in a stage is anchored at the SAME device — a stage happens at
+    one place, even when the author says several links were busy leaving it —
+    so the first marker names it and the ring is drawn once.
+  */
+  const anchorNodeId = layout.packets[0]?.nodeId;
   const currentDevice =
-    layout.packet === null
+    anchorNodeId === undefined
       ? undefined
-      : layout.devices.find(
-          (device) => device.nodeId === layout.packet?.nodeId
-        );
+      : layout.devices.find((device) => device.nodeId === anchorNodeId);
 
   const frame = {
     width: `${layout.frame.width}px`,
@@ -216,6 +222,33 @@ export function TopologyView({
           </g>
         </svg>
 
+        {/*
+          Authored port labels, beside the connections they name.
+
+          Founder UAT: a learner should not have to open an inspector to find
+          out which port a device is plugged into, because the instruction says
+          things like "PC-A's connection leads to Switch-1" and the diagram is
+          where that has to be legible.
+
+          `aria-hidden`, like the wires: the arrangement description above
+          already names every flagged port in words, so a screen reader gets
+          the same fact from one place rather than from scattered fragments.
+
+          Which ends are labelled is the AUTHOR's decision, carried on the
+          interface. This component draws the list it is given and chooses
+          nothing.
+        */}
+        {layout.portLabels.map((port) => (
+          <span
+            key={`${port.linkId} ${port.interfaceId}`}
+            className="topology-port-label"
+            aria-hidden="true"
+            style={{ left: `${port.at.x}px`, top: `${port.at.y}px` }}
+          >
+            {port.text}
+          </span>
+        ))}
+
         {layout.devices.map((device) => (
           <DeviceNode
             key={device.nodeId}
@@ -234,34 +267,44 @@ export function TopologyView({
           journey is here". Keyed, so its animation replays on every observable
           change, and it is the only thing that does.
         */}
-        {currentDevice !== undefined && layout.packet !== null && (
+        {currentDevice !== undefined && layout.packets[0] !== undefined && (
           <span
             key={eventToken}
-            className={`topology-pulse is-${layout.packet.state}`}
+            className={`topology-pulse is-${layout.packets[0].state}`}
             aria-hidden="true"
             style={deviceStyle(currentDevice)}
           />
         )}
 
         {/*
-          The traffic marker. Also decorative: where it is, and what state it is
-          in, are both stated in words by the live region and by the journey
-          account.
+          The traffic markers. Also decorative: where they are, and what state
+          they are in, are both stated in words by the live region and by the
+          journey account.
 
-          Deliberately NOT keyed. Remounting it would give React a fresh element
-          starting at its destination, and the CSS transition — the marker
-          visibly travelling — would never run. Its movement is the whole point.
+          Usually one. An authored stage may say several links were carrying
+          something at the same moment, and then there is one marker per link,
+          all leaving the same device together — which is what makes one switch
+          action producing copies look like one event instead of a queue.
+
+          Identity is the LINK, not the position in the list. Keying by index
+          would let React reuse a marker for a different link on the next
+          reveal, and the CSS transition would then animate it sideways from
+          one wire to another — movement the journey never made. Keying by
+          `linkId` keeps each marker attached to its own wire across reveals,
+          so it travels along it and nowhere else.
+
+          Deliberately NOT keyed on the event token. Remounting would give
+          React a fresh element already at its destination, and the transition
+          — the marker visibly travelling — would never run.
         */}
-        {layout.packet !== null && (
+        {layout.packets.map((marker, index) => (
           <span
-            className={`topology-packet is-${layout.packet.state}`}
+            key={marker.linkId ?? `parked-${index}`}
+            className={`topology-packet is-${marker.state}`}
             aria-hidden="true"
-            style={{
-              left: `${layout.packet.at.x}px`,
-              top: `${layout.packet.at.y}px`
-            }}
+            style={{ left: `${marker.at.x}px`, top: `${marker.at.y}px` }}
           />
-        )}
+        ))}
       </div>
     </div>
   );
