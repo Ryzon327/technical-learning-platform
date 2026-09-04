@@ -190,6 +190,36 @@ CURR-009 is complete when:
 - tests cover pass/fail publication gates.
 - Founder approval is recorded.
 
+## Curriculum Doctrine compliance (DEC-060)
+
+Every curriculum unit reviewed under this checklist must additionally be
+reviewed for compliance with the **Curriculum Doctrine**, `docs/Learning-OS/
+Learning-OS.md` §23–§33. That doctrine is PROJECT LAW and is not restated here.
+
+Doctrine §23.2 is explicit:
+
+> A curriculum feature or unit is **NOT complete** merely because tests pass,
+> typecheck passes, build passes, or Claude says it is complete, **if it
+> materially violates these curriculum laws.**
+
+Doctrine compliance is therefore a **required review dimension**, not an
+advisory signal. It is assessed under the three tiers in section 14a and it does
+not change them:
+
+- **Tier 1** may carry only those doctrine requirements that can be restated as
+  objective, machine-verifiable invariants — for example, that a learner-facing
+  field contains no certification-domain label (doctrine §28.1).
+- **Tier 2** may flag suspected doctrine concerns for human attention. It never
+  auto-passes and never auto-fails them.
+- **Tier 3** is the authority for every doctrine requirement involving
+  educational judgement — experience-before-abstraction, designed reuse,
+  near-transfer, dual-gate sufficiency, assessment quality. **A curriculum unit
+  may pass every automated check and still fail doctrine review.**
+
+No regex or pattern engine may be treated as proving doctrine compliance, and
+**no arbitrary numeric readiness or pedagogy threshold may be invented** to
+automate it (doctrine §29.5; this document's section 14a).
+
 ---
 
 # 13. Success Metrics
@@ -275,6 +305,8 @@ Not part of the MVP.
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-10 | Initial Feature specification |
+| 1.1 | 2026-08-30 | Added section 14a — Three-Tier Instructional Quality Authority — separating hard structural validation, advisory instructional signals and human instructional UAT, and prohibiting arbitrary numeric pedagogy thresholds. Included Scope, Acceptance Criteria and Definition of Done unchanged. See DEC-057. |
+| 1.2 | 2026-09-04 | Added Curriculum Doctrine compliance to section 12 — Definition of Done — making compliance with `docs/Learning-OS/Learning-OS.md` sections 23 through 33 a required curriculum review dimension. Assessed within the existing section 14a tiers, which are unchanged. No new gate, threshold or numeric score introduced. See DEC-060. |
 
 ---
 

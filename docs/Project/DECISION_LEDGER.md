@@ -2665,6 +2665,184 @@ implementation is authorized by this decision.**
 
 ---
 
+## DEC-060
+
+**Category**
+
+Product
+
+**Title**
+
+Curriculum Doctrine as Project Law
+
+**Status**
+
+Approved
+
+**Decision**
+
+The Founder has established a project-wide **Curriculum Doctrine**. It is
+recorded in full as `docs/Learning-OS/Learning-OS.md` sections 23 through 33,
+which is its **single canonical home**. It is not restated here, and it must not
+be duplicated into other documents; every other document points to it.
+
+The doctrine is **PROJECT LAW**. It binds curriculum, competency, assessment,
+certification alignment and AI-instructor behaviour across the whole product —
+not one course, not one work package, and not only work authored after this
+decision.
+
+Learning-OS sections 1 through 22 continue to evolve under the ordinary revision
+policy in section 22. **Sections 23 through 33 carry a stricter rule: they may
+be changed only by explicit Founder direction.** Neither ChatGPT nor Claude Code
+may amend, reinterpret, narrow, extend or "improve" them.
+
+The load-bearing consequences, each stated in the doctrine itself:
+
+1. **Certification knowledge and real-world competency are co-equal outcomes**
+   (§25.1). Neither may be sacrificed for the other. The product must not
+   produce paper-qualified graduates who cannot perform (§25.2).
+2. **Readiness is dual-gated** (§25.3): certification-exam readiness and
+   demonstrated practical competency are separate gates, and both must be
+   satisfied.
+3. **A certification blueprint is an internal coverage map, never a learner-
+   facing table of contents** (§28.1). Domain labels and objective codes are
+   traceability metadata; they do not structure the learner's course.
+4. **Experience precedes abstraction** (§26.2), reuse and retention are
+   deliberately authored rather than hoped for (§26.3, §27), and near-transfer
+   is required before a unit is considered taught (§26.5).
+5. **The learner does not design their own education** (§24). Sequencing is an
+   instructional-design responsibility.
+6. **AI is not an answer machine** (§30.1), and the curriculum authority
+   boundary in §30.2 governs curriculum work: Claude Code implements, and never
+   invents doctrine, pedagogy, sequencing, competency requirements or readiness
+   thresholds.
+7. **Completion is not compliance** (§23.2). Passing tests, typecheck, build and
+   gates does not make a curriculum unit complete if it materially violates the
+   doctrine.
+
+Doctrine compliance therefore becomes a **required review dimension** for
+curriculum work, recorded in `CURR-009 — Curriculum Quality Checklist` section
+12. It is assessed within the existing three-tier instructional quality
+authority (DEC-057) and **does not alter those tiers**: only objectively
+machine-verifiable doctrine requirements may sit in Tier 1; suspected concerns
+are Tier 2 advisory and never auto-pass or auto-fail; every requirement
+involving educational judgement is Tier 3 human authority. Consistent with
+DEC-057 and doctrine §29.5, **no arbitrary numeric readiness or pedagogy
+threshold is authorized**, and no pattern-matching gate may be treated as
+proving doctrine compliance.
+
+**What this decision does NOT authorize**
+
+* It does **not** authorize implementation of any future track, pathway or
+  certification named in doctrine §31. Those are **recorded, not authorized**,
+  and remain governed by `docs/Project/NOT_NOW.md`.
+* It does **not** reopen, restart, invalidate or require rework of the four
+  published Router-on-a-Stick modules (`ros-mod1-read-the-network` through
+  `ros-mod4-diagnose-and-prove`), or of any completed build wave or engine. They
+  were reviewed against this doctrine at the time it was recorded; the findings
+  are advisory and are carried as future authoring input, not as rework.
+* It does **not** expand MVP scope, change the active engine set, or alter any
+  frozen architecture invariant.
+* It does **not** create a new automated gate, threshold or numeric score.
+
+**Architecture review outcome — three items deferred to future work packages**
+
+The independent architecture review accepted this decision and the accompanying
+Router-on-a-Stick doctrine review. Three items were returned, ruled on, and are
+recorded here so they survive as citable requirements rather than as review
+conversation. **None of the three is authorized for implementation by DEC-060.**
+
+1. **Dual-gate certification enforcement.** For certification-aligned programmes
+   the academy must eventually **structurally prohibit** a READY or complete
+   status unless the certification-knowledge gate **and** the real-world
+   competency gate are **independently** satisfied — plus any transfer or
+   retention gate the approved curriculum architecture requires. The model is
+   **independent mandatory gates, never compensating scores**: a strong gate must
+   never lift a failing one, and an average must never produce READY. The
+   structural invariant that both approved gates exist and independently pass may
+   later become a Tier 1 machine-enforced check **where objectively verifiable**.
+   The educational definition of *sufficient* readiness and *sufficient*
+   competency remains Founder / curriculum-architect authority. Claude Code must
+   not invent readiness percentages or competency thresholds, must not decide
+   pedagogical sufficiency, and must not create a numeric threshold merely to
+   automate this doctrine (doctrine §25.3, §29.5; DEC-057). Today Router-on-a-
+   Stick satisfies the practical gate through deterministic lab validation and
+   declares no certification-knowledge gate — its knowledge checks are practice
+   and produce no evidence, which is correct for its current scope.
+2. **Certification objective → competency traceability.** A future
+   certification-aligned architecture must support version-aware mapping from
+   certification → exam version → objective → academy competency → curriculum
+   coverage and evidence (doctrine §28.2, §28.3). For Foundations this must let
+   Security+ objectives map **invisibly** onto competencies already developed in
+   Router-on-a-Stick, Linux, Windows and Security, which is one mechanism
+   producing the intended "I already did this" recognition (doctrine §27.1). The
+   mapping is **internal traceability infrastructure**: it must never cause
+   learner-facing curriculum to be organised around certification domains,
+   objective numbers, certification badges or vendor table-of-contents structure
+   (doctrine §28.1, NON-NEGOTIABLE). The existing reusable `net.*` competency
+   identities are the intended attachment points, so a future mapping can be
+   added without modifying the learner-facing Router-on-a-Stick experience.
+   Implementation requires a **separately approved architecture work package**
+   before Security+ integration is built.
+3. **Mission 7 near-transfer review.** The Router-on-a-Stick doctrine review
+   observed that Mission 7, the summative demonstration, rebuilds the same
+   topology and addresses used throughout the earlier missions, which is
+   same-context repetition rather than near-transfer (doctrine §26.5). This is
+   **recorded, not adjudicated.** It is not automatically a violation: Mission 6
+   already carries meaningful transfer and fault-isolation evidence, and Mission
+   7 may serve a distinct summative and integration purpose. Whether the final
+   demonstration requires a novel context is **Tier 3 educational judgement** and
+   belongs to a future curriculum review. **Mission 7 must not be modified or
+   redesigned on the strength of this observation alone.**
+
+**Rationale**
+
+The doctrine already governed the Founder's decisions, but it existed only in
+conversation. Anything that lives only in conversation is re-litigated, drifts,
+or is silently replaced by an AI system's own default curriculum philosophy at
+the moment the original reasoning is no longer in context.
+
+Recording it as version-controlled project law makes it discoverable, citable,
+diffable and enforceable. It also gives review a stable reference: a curriculum
+unit can now be said to violate a specific numbered law rather than to feel
+wrong.
+
+Placing it in Learning-OS rather than in a new document keeps curriculum
+authority in one place, alongside the instructional standards it governs.
+
+**Alternatives Considered**
+
+*A new standalone doctrine document.* Rejected: it would create a second
+curriculum authority competing with Learning-OS, and the two would diverge.
+
+*Distributing the doctrine across the documents it affects.* Rejected: it would
+have no canonical text, and partial copies would drift.
+
+*Encoding the doctrine as automated verifier checks.* Rejected, and prohibited
+by DEC-057 and doctrine §29.5. Most of the doctrine is educational judgement.
+Mechanising it would produce a gate that passes bad curriculum and fails good
+curriculum while appearing authoritative.
+
+*Recording it as advisory guidance.* Rejected by the Founder. Advisory guidance
+is exactly what already failed to bind.
+
+**Impact**
+
+Documentation and governance. `docs/Learning-OS/Learning-OS.md` gains sections
+23–33. `CLAUDE.md` and `CURR-009` gain references to it. **No code, schema,
+migration, dependency, provider, infrastructure or curriculum-content change is
+authorized by this decision.**
+
+**Related Documents**
+
+`docs/Learning-OS/Learning-OS.md` §23–§33 ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` ·
+`docs/Project/NOT_NOW.md` ·
+`CLAUDE.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-057, DEC-058, DEC-059
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

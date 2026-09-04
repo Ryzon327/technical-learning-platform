@@ -38,6 +38,15 @@ When sources conflict, follow this order:
 
 Binding supporting documents (consult as applicable to the task):
 
+* `docs/Learning-OS/Learning-OS.md` §23–§33 — the **Curriculum Doctrine**, and
+  PROJECT LAW for every curriculum task (DEC-060). Binding on curriculum,
+  competency, assessment, certification alignment and AI-instructor behaviour.
+  §30.2 restates the Authority Model above for curriculum and **governs where
+  the two differ**: Claude Code must never independently invent curriculum
+  doctrine, certification strategy, pedagogy, course sequencing, competency
+  requirements or readiness thresholds, and must stop and return substantive
+  educational questions to the Founder/architect. Read it before authoring,
+  reviewing or altering any curriculum.
 * `docs/Project/ARCHITECTURE_FREEZE_RECORD.md` — frozen architecture
   invariants and active engine set.
 * `docs/Project/NOT_NOW.md` — deferred scope; binding, not a suggestion list.
