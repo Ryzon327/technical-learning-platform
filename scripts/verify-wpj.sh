@@ -136,10 +136,10 @@ trap 'rm -rf "$SCAN_DIR"' EXIT
 #
 # The boundary is not a fixed point in the course. It is the edge of whatever
 # the newest approved slice authored, and it moves exactly once per approved
-# slice — never ahead of one. Module 1 put it before Mission 3; WP-J4 authored
-# Mission 3 and moved it before Mission 4; WP-J5 authored Mission 4 and moves it
-# before Mission 5, so Missions 5 to 8 remain prohibited by the same check that
-# previously prohibited Mission 4.
+# slice — never ahead of one. Module 1 put it before Mission 3; each approved
+# slice since has moved it exactly one mission further, and WP-J6 authored
+# Mission 5 and moves it before Mission 6 — so Missions 6 to 8 remain prohibited
+# by the same check that previously prohibited Mission 5.
 #
 # Moving the anchor is therefore the whole of the change. The invariant, the
 # forbidden-content list and the positional split are untouched, because
@@ -148,29 +148,29 @@ trap 'rm -rf "$SCAN_DIR"' EXIT
 AUTHORED_SLICE="$SCAN_DIR/authored-missions.json"
 UNAUTHORED_SLICE="$SCAN_DIR/unauthored-missions.json"
 
-M5_ANCHOR='"stableId": "nf-m5-the-default-gateway"'
+M6_ANCHOR='"stableId": "nf-m6-routers-and-the-journey"'
 
-awk -v anchor="$M5_ANCHOR" '
+awk -v anchor="$M6_ANCHOR" '
   index($0, anchor) { stop = 1 }
   /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
   start && !stop
 ' "$DOCUMENT" > "$AUTHORED_SLICE"
 
-awk -v anchor="$M5_ANCHOR" '
+awk -v anchor="$M6_ANCHOR" '
   index($0, anchor) { start = 1 }
   start
 ' "$DOCUMENT" > "$UNAUTHORED_SLICE"
 
 [ -s "$AUTHORED_SLICE" ] \
-  || fail "Missions 1 to 4 could not be located in the document; the mission ordering this gate depends on has changed"
+  || fail "Missions 1 to 5 could not be located in the document; the mission ordering this gate depends on has changed"
 [ -s "$UNAUTHORED_SLICE" ] \
-  || fail "Missions 5 to 8 could not be located in the document; the mission ordering this gate depends on has changed"
+  || fail "Missions 6 to 8 could not be located in the document; the mission ordering this gate depends on has changed"
 
-# Missions 1 to 4 are authored. Asserted positively, so reverting the authoring
+# Missions 1 to 5 are authored. Asserted positively, so reverting the authoring
 # fails here rather than passing quietly as a return to the old invariant.
-AUTHORED_STEPS="$(grep -c '"stableId": "m[1234]-s' "$AUTHORED_SLICE" || true)"
-[ "$AUTHORED_STEPS" -ge 4 ] \
-  || fail "the authored slice carries $AUTHORED_STEPS steps; Missions 1 to 4 are authored"
+AUTHORED_STEPS="$(grep -c '"stableId": "m[12345]-s' "$AUTHORED_SLICE" || true)"
+[ "$AUTHORED_STEPS" -ge 5 ] \
+  || fail "the authored slice carries $AUTHORED_STEPS steps; Missions 1 to 5 are authored"
 
 # Each newest mission specifically, so that a slice cannot regress to an earlier
 # module and still satisfy the count above.
@@ -178,18 +178,20 @@ grep -q '"stableId": "m3-s' "$AUTHORED_SLICE" \
   || fail "Mission 3 carries no authored step; WP-J4 authored it"
 grep -q '"stableId": "m4-s' "$AUTHORED_SLICE" \
   || fail "Mission 4 carries no authored step; WP-J5 authored it"
+grep -q '"stableId": "m5-s' "$AUTHORED_SLICE" \
+  || fail "Mission 5 carries no authored step; WP-J6 authored it"
 
-# Missions 5 to 8 are not. Four missions, four empty step arrays.
+# Missions 6 to 8 are not. Three missions, three empty step arrays.
 LATER_EMPTY_STEPS="$(grep -c '"steps": \[\]' "$UNAUTHORED_SLICE" || true)"
-[ "$LATER_EMPTY_STEPS" = "4" ] \
-  || fail "$LATER_EMPTY_STEPS of 4 later missions have empty steps; Missions 5 to 8 are not authored yet"
+[ "$LATER_EMPTY_STEPS" = "3" ] \
+  || fail "$LATER_EMPTY_STEPS of 3 later missions have empty steps; Missions 6 to 8 are not authored yet"
 
 # No later mission may acquire instructional content of any kind.
 for forbidden in 'packet_journey' 'interactionType' 'interactionStableId' \
                  'assessmentStableId' 'textEquivalent' 'textAlternative' \
                  'assetType' '"type": "concept"' '"type": "command"'; do
   if grep -qF -e "$forbidden" "$UNAUTHORED_SLICE"; then
-    fail "a mission beyond Mission 4 authored instructional content: $forbidden"
+    fail "a mission beyond Mission 5 authored instructional content: $forbidden"
   fi
 done
 
@@ -394,7 +396,7 @@ echo "It declares four modules, eight missions and seven"
 echo "competencies, develops each exactly once, reinforces"
 echo "nothing before it is developed, and states what the learner"
 echo "needs before every mission. Instruction is authored in"
-echo "Missions 1 to 4 and in no other mission; assets, assessments"
+echo "Missions 1 to 5 and in no other mission; assets, assessments"
 echo "and prerequisite rules remain unauthored everywhere."
 echo ""
 echo "Router-on-a-Stick is unmodified. The cross-course"
@@ -409,5 +411,6 @@ echo "  - that the five pending migrations have been applied"
 echo "  - anything about the authored missions' instruction beyond"
 echo "    where it sits; verify-wpj-m1.sh owns Module 1,"
 echo "    verify-wpj-m3.sh owns Mission 3 and"
-echo "    verify-wpj-m4.sh owns Mission 4"
+echo "    verify-wpj-m4.sh owns Mission 4 and"
+echo "    verify-wpj-m5.sh owns Mission 5"
 echo "=========================================================="

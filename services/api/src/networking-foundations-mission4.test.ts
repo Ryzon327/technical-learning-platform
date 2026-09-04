@@ -63,7 +63,6 @@ const REMOTE_JOURNEY = "nf-pj4-remote-destination";
 
 /** Missions no slice has authored yet. */
 const UNAUTHORED = [
-  "nf-m5-the-default-gateway",
   "nf-m6-routers-and-the-journey",
   "nf-m7-testing-whether-it-works",
   "nf-m8-when-it-does-not-work"
