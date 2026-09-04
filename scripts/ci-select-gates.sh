@@ -145,6 +145,12 @@ services/api/src/networking-foundations-mission3*|scripts/verify-wpj-m3.sh
 docs/Engineering-OS/WP_J_MISSION_3_UAT_RUNBOOK.md|scripts/verify-wpj-m3.sh
 scripts/lib/wpj-concept-ledger.txt|scripts/verify-wpj-m3.sh
 scripts/verify-wpj-m3.sh|scripts/verify-wpj-m3.sh
+content/curriculum/*|scripts/verify-wpj-m4.sh
+services/api/src/networking-foundations-mission4*|scripts/verify-wpj-m4.sh
+docs/Engineering-OS/WP_J_MISSION_4_UAT_RUNBOOK.md|scripts/verify-wpj-m4.sh
+scripts/lib/wpj-concept-ledger.txt|scripts/verify-wpj-m4.sh
+apps/web/src/learning/packet-journey-presentation*|scripts/verify-wpj-m4.sh
+scripts/verify-wpj-m4.sh|scripts/verify-wpj-m4.sh
 apps/web/src/uat/*|scripts/verify-wpj15.sh
 content/curriculum/*|scripts/verify-wpi.sh
 content/curriculum/*|scripts/verify-wph.sh
