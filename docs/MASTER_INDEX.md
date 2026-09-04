@@ -36,6 +36,18 @@ Every major business decision and implementation should trace back to one of the
 
 ---
 
+## Curriculum Doctrine
+
+The **Curriculum Doctrine** is the Founder-authored law governing curriculum, competency, assessment, certification alignment, and AI-instructor behaviour.
+
+It lives in the Learning Operating System, `docs/Learning-OS/Learning-OS.md` sections 23 through 33, which is its only canonical home. It is recorded as **DEC-060**.
+
+It is **project law**, not guidance. It may be changed only by explicit Founder direction, and it is never restated or paraphrased elsewhere — other documents point to it.
+
+Passing tests, typecheck, build, and gates does not make a curriculum unit complete if it materially violates the doctrine.
+
+---
+
 ## Platform Engines
 
 A **Platform Engine** is a modular software subsystem responsible for one clearly defined capability.
