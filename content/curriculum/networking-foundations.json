@@ -1716,7 +1716,77 @@
           "relationship": "reinforces"
         }
       ],
-      "steps": [],
+      "steps": [
+        {
+          "stableId": "m5-s1-pc-a-already-knew",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "PC-A already knew",
+            "paragraphs": [
+              "Go back to the last thing you watched in Mission 4. PC-A worked out that 192.168.2.20 was not in its own group, and then it handed what it was sending to Router-1.",
+              "Look at how it did that. It did not ask the network which device to use. It did not try several and keep the one that worked. There was no pause, no search and no question — PC-A turned to Router-1 immediately, the way you reach for something you already know the location of.",
+              "So PC-A was not working it out at the time. It already held the answer before the situation came up, which means somebody put the answer there in advance.",
+              "That is a fact about the machine, not about networks in general, and it means you can go and look. Read PC-A's own configuration and find the thing that told it where to send anything that was not local."
+            ]
+          }
+        },
+        {
+          "stableId": "m5-s2-what-pc-a-was-configured-with",
+          "position": 1,
+          "content": {
+            "type": "command",
+            "caption": "PC-A's own configuration, as the machine reports it. This is displayed output for you to read — nothing here offers to run anything. Two lines are shown, and only one of them can answer the question you are asking. Before you read on: work out which line tells PC-A where to send something that is NOT in its own group, and what the rest of each line is doing there.",
+            "command": "ip route show",
+            "output": "default via 192.168.1.1 dev eth0 proto static metric 100\n192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.10",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m5-s3-the-line-that-answered-it",
+          "position": 2,
+          "content": {
+            "type": "concept",
+            "title": "The line that answered it",
+            "paragraphs": [
+              "It is the first one, and the part of it that matters is short: default via 192.168.1.1.",
+              "Read it plainly. By default — meaning when nothing more specific applies — send it via 192.168.1.1. That is a standing instruction, sitting on PC-A, waiting for exactly the situation Mission 4 produced.",
+              "Now look at the address itself, because you have seen it before. 192.168.1.1 is Router-1. You could read it on Router-1's connection in Mission 4, where it sat there without being explained. This is what it was for.",
+              "That standing instruction has a name: it is PC-A's default gateway. The setting holds one address, it is configured in advance rather than discovered, and it names the device a machine hands traffic to whenever the destination is not in its own group.",
+              "The second line is doing something else, and this is the part worth practising. It describes PC-A's own group — the one you learned to read in Mission 4 — and it is not what you were looking for. Neither is proto static, metric 100, proto kernel or scope link. Real output is mostly not the answer to the question you are asking, and finding the line that is has more to do with knowing what you are looking for than with understanding every word on the screen. You are not expected to know what all of those mean, and you do not need to."
+            ]
+          }
+        },
+        {
+          "stableId": "m5-s4-why-it-has-to-be-a-neighbour",
+          "position": 3,
+          "content": {
+            "type": "concept",
+            "title": "Why it has to be one of your own",
+            "paragraphs": [
+              "Here is a question you can now answer without being told, using only what Mission 4 gave you. Could PC-A's default gateway have been 192.168.2.1 instead?",
+              "Work it through. PC-A holds 192.168.1.10/24, so its group is 192.168.1. Handing something to the gateway is itself a delivery, and PC-A only has one way of delivering: the way you watched in Mission 4, directly, inside its own group. It has no other method.",
+              "So if the configured address were 192.168.2.1, PC-A would have to reach 192.168.2.1 in order to hand anything over — and 192.168.2.1 is not in its group, so reaching it would require handing it to the gateway first. The machine would need the gateway in order to reach the gateway.",
+              "That is why the constraint exists: a machine's default gateway has to be an address the machine can already reach directly, which means it has to be in the machine's own group. 192.168.1.1 satisfies that. 192.168.2.1 could not.",
+              "Notice that you did not need a new rule for this. You used the one you already had, and it settled the question on its own. That is worth more than the setting itself."
+            ]
+          }
+        },
+        {
+          "stableId": "m5-s5-what-router-1-does-next",
+          "position": 4,
+          "content": {
+            "type": "concept",
+            "title": "What happens after the hand-off",
+            "paragraphs": [
+              "That is the whole of this mission, and it is deliberately small. PC-A holds one configured address for everything that is not local, that address is Router-1's, and it has to be Router-1's — or something else in PC-A's group — because a hand-off is a local delivery like any other.",
+              "You can now say where a machine sends remote traffic, find that setting in real output, and explain why it could not have been just any address.",
+              "What you still cannot say is what happens next. Router-1 now holds something addressed to a machine it is not, in a group it is not in. PC-A's involvement has ended and the traffic has not arrived anywhere.",
+              "So carry this into the next mission: what does Router-1 actually do with it?"
+            ]
+          }
+        }
+      ],
       "assets": []
     },
     {

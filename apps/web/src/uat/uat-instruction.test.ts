@@ -312,6 +312,7 @@ const NF_M1 = "nf-m1-what-a-network-is";
 const NF_M2 = "nf-m2-inside-one-network";
 const NF_M3 = "nf-m3-ipv4-the-second-identity";
 const NF_M4 = "nf-m4-the-prefix-and-the-decision";
+const NF_M5 = "nf-m5-the-default-gateway";
 
 describe("the production course reaches the harness through the real parser", () => {
   const outcome = loadUatDocument(networkingFoundations);
@@ -358,14 +359,14 @@ describe("the production course reaches the harness through the real parser", ()
   it("lists the unauthored missions without pretending they have content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
-    const authored = [NF_M1, NF_M2, NF_M3, NF_M4];
+    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5];
     const later = listUatMissions(outcome.document).filter(
       (mission) => !authored.includes(mission.stableId)
     );
 
-    // Four now: WP-J5 authored Mission 4 and the boundary moved with it. The
+    // Three now: WP-J6 authored Mission 5 and the boundary moved with it. The
     // assertion still protects every mission nobody has authored yet.
-    expect(later.length).toBe(4);
+    expect(later.length).toBe(3);
     for (const mission of later) {
       expect(mission.stepCount).toBe(0);
       expect(mission.hasInteraction).toBe(false);
@@ -384,6 +385,21 @@ describe("the production course reaches the harness through the real parser", ()
     // carrying an interaction so the Founder can review both.
     expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
     expect(mission?.hasInteraction).toBe(true);
+    expect(mission?.hasPassivePrediction).toBe(false);
+  });
+
+  it("offers Mission 5's steps, and no interaction", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const mission = listUatMissions(outcome.document).find(
+      (m) => m.stableId === NF_M5
+    );
+
+    // Like Mission 3, Mission 5 teaches by reading a machine's own report.
+    // Nothing travels, so it authors no journey — and the harness must still
+    // offer it for review.
+    expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
+    expect(mission?.hasInteraction).toBe(false);
     expect(mission?.hasPassivePrediction).toBe(false);
   });
 

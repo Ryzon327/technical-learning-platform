@@ -105,19 +105,34 @@ echo "PASS:  1. Mission 4 is authored under its approved identity"
 # 2. The staged-authoring boundary moved forward, not away
 # ------------------------------------------------------------
 # The course gate owns the invariant. What is checked here is that the split
-# still exists and now sits after Mission 4 — so Missions 5 to 8 are protected
-# by the same check that protected Mission 4 before this slice.
-grep -Fq 'M5_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors its staged-authoring split at Mission 5"
-
+# still exists and sits SOMEWHERE AFTER Mission 4 — so every mission nobody has
+# authored yet is protected by the same check that protected Mission 4 before
+# this slice.
+#
+# ## Why this is not pinned to Mission 5
+#
+# It was, and it was wrong for the same reason the Mission 3 gate was wrong
+# before it: pinning `M5_ANCHOR` present and `M4_ANCHOR` absent is true only
+# while Mission 5 is the boundary, and becomes false the moment Mission 5 is
+# legitimately authored and the boundary moves to Mission 6. A gate that fails
+# because the course made approved progress teaches the next author to edit it
+# out of the way rather than trust it — and this repository has now made that
+# mistake twice, which is why the durable form is written out here.
+#
+# The rule is what it always meant: the split exists, and it no longer sits at
+# Mission 4. Which mission it has reached is the course gate's business, and
+# each mission's own gate asserts only its own edge.
 if grep -Fq 'M4_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate still anchors at Mission 4; Mission 4 is authored, so the boundary belongs after it"
+  fail "the course gate anchors its staged-authoring split at Mission 4; Mission 4 is authored, so the boundary belongs after it"
 fi
+
+grep -Eq '^M[5678]_ANCHOR=' "$COURSE_GATE" \
+  || fail "the course gate no longer anchors a staged-authoring split after Mission 4"
 
 grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
   || fail "the course gate no longer splits authored from unauthored missions"
 
-echo "PASS:  2. the staged-authoring boundary moved to Mission 5, not away"
+echo "PASS:  2. the staged-authoring boundary sits after Mission 4, not away"
 
 # ------------------------------------------------------------
 # 3. Two journeys, and the remote one does not arrive
@@ -355,8 +370,9 @@ device Mission 1 introduced and never as a role, and no
 Mission 5 vocabulary reaches the learner — so the mission
 still ends on the question Mission 5 exists to answer.
 
-The staged-authoring boundary moved by exactly one mission:
-Missions 5 to 8 remain prohibited.
+The staged-authoring boundary sits after Mission 4 and moves
+only when a slice is approved to author the next mission, so
+every mission nobody has authored yet stays prohibited.
 
 This gate proves AUTHORED STRUCTURE, absence and ordering.
 It does NOT prove:
