@@ -76,16 +76,6 @@ const M7 = "nf-m7-testing-whether-it-works";
  */
 const AUTHORED = [M1, M2] as const;
 
-/**
- * Every mission authored anywhere in the course so far.
- *
- * Used only by the two staged-authoring assertions below. They protect the
- * emptiness of the missions NOBODY has authored yet, which is a course-wide
- * fact rather than a Module 1 one, so it has to know about Mission 3 without
- * dragging Mission 3 into Module 1's rules.
- */
-const AUTHORED_ANYWHERE = [M1, M2, M3, M4, M5, M6, M7] as const;
-
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
     JSON.parse(readFileSync(DOCUMENT_PATH, "utf8"))
@@ -250,21 +240,32 @@ function usesWord(haystack: string, word: string): boolean {
  * Staged authoring
  * ------------------------------------------------------------------ */
 
-describe("Module 1 is authored and nothing beyond it is", () => {
-  it("authors instruction in exactly the missions a slice has authored", () => {
-    const authored = document.missions
-      .filter((m) => m.steps.length > 0)
-      .map((m) => m.stableId);
-
-    expect(authored).toEqual([...AUTHORED_ANYWHERE]);
-  });
-
-  it("leaves Mission 8 with no step of any kind", () => {
+describe("Module 1 owns its own instruction", () => {
+  /**
+   * This used to list every mission authored anywhere in the course, so that
+   * it could assert the emptiness of the missions nobody had authored yet.
+   * That was a course-wide fact living in a Module 1 gate, and it needed
+   * editing every time an unrelated slice landed.
+   *
+   * DEC-061 moved course authoring state to
+   * `services/api/src/networking-foundations.test.ts`, which reads the mission
+   * authority declaration. What is left here is what Module 1 actually owns:
+   * a Module 1 step appears under a Module 1 mission and nowhere else.
+   */
+  it("keeps Module 1's instruction inside Module 1", () => {
     for (const m of document.missions) {
-      if ((AUTHORED_ANYWHERE as readonly string[]).includes(m.stableId)) {
-        continue;
-      }
-      expect(m.steps).toEqual([]);
+      const mine = m.steps
+        .map((step) => step.stableId)
+        .filter(
+          (stableId) =>
+            stableId.startsWith("m1-s") || stableId.startsWith("m2-s")
+        );
+
+      const expected = (AUTHORED as readonly string[]).includes(m.stableId)
+        ? m.steps.length
+        : 0;
+
+      expect(`${m.stableId} ${mine.length}`).toBe(`${m.stableId} ${expected}`);
     }
   });
 

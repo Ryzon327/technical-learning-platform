@@ -117,109 +117,158 @@ trap 'rm -rf "$SCAN_DIR"' EXIT
 # ------------------------------------------------------------
 # J1 asserted that all eight missions were instructionally empty, which was the
 # correct statement while J1 was the newest slice and no mission had been
-# authored. Module 1 authoring supersedes that, and the replacement is
+# authored. Module 1 authoring superseded that, and the replacement was
 # deliberately NOT a permissive count.
 #
-# The invariant now has a name: STAGED AUTHORING. Instruction appears in the
-# missions a slice was approved to author, and in no other mission — so a later
-# mission silently acquiring a step is still a gate failure, which is the thing
-# the original check was protecting.
+# The invariant has a name: STAGED AUTHORING. Instruction appears in the
+# missions a slice was approved to author, and in no other mission — so a
+# mission silently acquiring a step is a gate failure, which is the thing the
+# original check was protecting.
 #
-# Expressed as a file split rather than a total, because a total can be
-# satisfied by redistribution: eight empty arrays becoming five plus three
-# populated ones is the approved change, but five plus two plus one somewhere
-# else is not, and only a positional split can tell those apart. Mission order
-# in the document is fixed and is asserted by
-# `services/api/src/networking-foundations.test.ts`.
+# ## Why the anchor is gone, and the rule is not (DEC-061)
 #
-# ## Why the boundary keeps moving
+# Until Mission 8 this was expressed by splitting the document at the NEXT
+# UNAUTHORED mission's stableId. That worked while an unauthored tail existed,
+# and it moved forward exactly once per approved slice — Module 1 put it before
+# Mission 3, and each slice since moved it one mission further.
 #
-# The boundary is not a fixed point in the course. It is the edge of whatever
-# the newest approved slice authored, and it moves exactly once per approved
-# slice — never ahead of one. Module 1 put it before Mission 3; each approved
-# slice since has moved it exactly one mission further, and WP-J8 authored
-# Mission 7 and moves it before Mission 8 — so Mission 8 remains prohibited by
-# the same check that previously prohibited Mission 7.
+# Mission 8 is the last approved mission. Authoring it leaves no Mission 9 to
+# anchor against, and the answer is emphatically not to invent one. The anchor
+# was never the invariant; it was one way of expressing it while a tail
+# happened to exist. DEC-061 replaces it with the thing the rule was always
+# about: an explicit declaration of which missions are approved and which are
+# authored, in `scripts/lib/wpj-missions.txt`.
 #
-# NOTE for the Mission 8 slice: this model assumes an unauthored tail to anchor
-# against. Mission 8 is the last mission, so authoring it leaves no Mission 9 to
-# name, and the split will need a deliberate architecture decision rather than
-# another anchor move. That decision belongs to that slice, not this one.
+# Two legitimate states, DERIVED from that declaration rather than declared
+# beside it:
 #
-# Moving the anchor is therefore the whole of the change. The invariant, the
-# forbidden-content list and the positional split are untouched, because
-# loosening any of those would stop the gate protecting the missions that are
-# still unauthored.
-AUTHORED_SLICE="$SCAN_DIR/authored-missions.json"
-UNAUTHORED_SLICE="$SCAN_DIR/unauthored-missions.json"
+#   STAGED           some approved mission is still unauthored. Every declared
+#                    unauthored mission must carry an empty step array, and no
+#                    instructional content may appear in the region of the
+#                    document they occupy. This is the positional protection,
+#                    unchanged — it is still a file split, because a total can
+#                    be satisfied by redistribution and only a split can tell
+#                    five plus three from five plus two plus one elsewhere.
+#
+#   FULLY_AUTHORED   every approved mission is authored. There is no unauthored
+#                    region left, so the split has nothing to protect and
+#                    retires ITSELF rather than being deleted. What remains
+#                    enforced is that exactly the approved missions exist, in
+#                    the approved order, each carrying its own instruction.
+#
+# FULLY_AUTHORED means STRUCTURALLY authored. It does not mean doctrine
+# approved, Founder-UAT approved, publishable, migrated or certification ready,
+# and this gate says so in its own output. Doctrine §23.2: passing checks is
+# not completion.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
 
-M8_ANCHOR='"stableId": "nf-m8-when-it-does-not-work"'
+MISSION_DECLARATION="$WPJ_MISSION_DECLARATION"
 
-awk -v anchor="$M8_ANCHOR" '
-  index($0, anchor) { stop = 1 }
-  /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
-  start && !stop
-' "$DOCUMENT" > "$AUTHORED_SLICE"
+# The declaration and the document must describe the same course. Without this
+# the declaration could drift into a description of a course that does not
+# exist, and every check built on it would still pass.
+DECLARED_ORDER="$SCAN_DIR/declared-order.txt"
+DOCUMENT_ORDER="$SCAN_DIR/document-order.txt"
 
-awk -v anchor="$M8_ANCHOR" '
-  index($0, anchor) { start = 1 }
-  start
-' "$DOCUMENT" > "$UNAUTHORED_SLICE"
+printf '%s\n' "${WPJ_MISSION_ORDER[@]}" > "$DECLARED_ORDER"
+sed -n 's/.*"stableId": "\(nf-m[0-9][^"]*\)".*/\1/p' "$DOCUMENT" > "$DOCUMENT_ORDER"
 
-[ -s "$AUTHORED_SLICE" ] \
-  || fail "Missions 1 to 7 could not be located in the document; the mission ordering this gate depends on has changed"
-[ -s "$UNAUTHORED_SLICE" ] \
-  || fail "Mission 8 could not be located in the document; the mission ordering this gate depends on has changed"
+cmp -s "$DECLARED_ORDER" "$DOCUMENT_ORDER" \
+  || fail "the mission authority declaration and the document disagree about which missions exist or in what order"
 
-# Missions 1 to 7 are authored. Asserted positively, so reverting the authoring
-# fails here rather than passing quietly as a return to the old invariant.
-AUTHORED_STEPS="$(grep -c '"stableId": "m[1234567]-s' "$AUTHORED_SLICE" || true)"
-[ "$AUTHORED_STEPS" -ge 7 ] \
-  || fail "the authored slice carries $AUTHORED_STEPS steps; Missions 1 to 7 are authored"
+# Belt and braces against a ninth mission arriving with a declaration row to
+# match: section 2 already pins the count at eight, and this pins the
+# declaration to the same number.
+[ "${#WPJ_MISSION_ORDER[@]}" = "8" ] \
+  || fail "the mission declaration lists ${#WPJ_MISSION_ORDER[@]} missions; the approved architecture has 8"
 
-# Each newest mission specifically, so that a slice cannot regress to an earlier
-# module and still satisfy the count above.
-grep -q '"stableId": "m3-s' "$AUTHORED_SLICE" \
-  || fail "Mission 3 carries no authored step; WP-J4 authored it"
-grep -q '"stableId": "m4-s' "$AUTHORED_SLICE" \
-  || fail "Mission 4 carries no authored step; WP-J5 authored it"
-grep -q '"stableId": "m5-s' "$AUTHORED_SLICE" \
-  || fail "Mission 5 carries no authored step; WP-J6 authored it"
-grep -q '"stableId": "m6-s' "$AUTHORED_SLICE" \
-  || fail "Mission 6 carries no authored step; WP-J7 authored it"
-grep -q '"stableId": "m7-s' "$AUTHORED_SLICE" \
-  || fail "Mission 7 carries no authored step; WP-J8 authored it"
+# Every declared authored mission carries instruction. Asserted positively, so
+# reverting an authoring fails here rather than passing quietly.
+for mission in "${WPJ_AUTHORED_MISSIONS[@]}"; do
+  MISSION_BLOCK="$SCAN_DIR/block-$mission.json"
+  awk -v start_id="\"stableId\": \"$mission\"" '
+    index($0, start_id) { collecting = 1 }
+    collecting && /^      "assets": \[\]/ { print; exit }
+    collecting
+  ' "$DOCUMENT" > "$MISSION_BLOCK"
 
-# Mission 8 is not. One mission, one empty step array.
-LATER_EMPTY_STEPS="$(grep -c '"steps": \[\]' "$UNAUTHORED_SLICE" || true)"
-[ "$LATER_EMPTY_STEPS" = "1" ] \
-  || fail "$LATER_EMPTY_STEPS of 1 later mission has empty steps; Mission 8 is not authored yet"
+  [ -s "$MISSION_BLOCK" ] \
+    || fail "$mission is declared authored but could not be located in the document"
 
-# No later mission may acquire instructional content of any kind.
-for forbidden in 'packet_journey' 'interactionType' 'interactionStableId' \
-                 'assessmentStableId' 'textEquivalent' 'textAlternative' \
-                 'assetType' '"type": "concept"' '"type": "command"'; do
-  if grep -qF -e "$forbidden" "$UNAUTHORED_SLICE"; then
-    fail "a mission beyond Mission 7 authored instructional content: $forbidden"
-  fi
+  grep -q '"stableId": "m[0-9]*-s' "$MISSION_BLOCK" \
+    || fail "$mission is declared authored but carries no authored step"
 done
 
-# Assets stay absent everywhere: there is no curriculum asset hosting, so a
-# diagram step could only name an asset served from a development host.
-EMPTY_ASSETS="$(grep -c '"assets": \[\]' "$DOCUMENT" || true)"
-[ "$EMPTY_ASSETS" = "8" ] \
-  || fail "$EMPTY_ASSETS of 8 missions have empty assets; no slice has authored an asset"
+if [ "$WPJ_AUTHORING_STATE" = "STAGED" ]; then
+  # The positional split, unchanged in what it proves. The anchor is now read
+  # from the declaration rather than written into this file, which is the only
+  # difference.
+  FIRST_UNAUTHORED="${WPJ_UNAUTHORED_MISSIONS[0]}"
+  ANCHOR="\"stableId\": \"$FIRST_UNAUTHORED\""
 
-# Assessments are not publishable as documents, so a practice step could only
-# name something nothing is able to resolve.
-if grep -qF 'assessmentStableId' "$DOCUMENT"; then
-  fail "the document names an assessment; assessments are not publishable as documents"
+  AUTHORED_SLICE="$SCAN_DIR/authored-missions.json"
+  UNAUTHORED_SLICE="$SCAN_DIR/unauthored-missions.json"
+
+  awk -v anchor="$ANCHOR" '
+    index($0, anchor) { stop = 1 }
+    /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
+    start && !stop
+  ' "$DOCUMENT" > "$AUTHORED_SLICE"
+
+  awk -v anchor="$ANCHOR" '
+    index($0, anchor) { start = 1 }
+    start
+  ' "$DOCUMENT" > "$UNAUTHORED_SLICE"
+
+  [ -s "$AUTHORED_SLICE" ] \
+    || fail "the authored missions could not be located in the document; the mission ordering this gate depends on has changed"
+  [ -s "$UNAUTHORED_SLICE" ] \
+    || fail "$FIRST_UNAUTHORED could not be located in the document; the mission ordering this gate depends on has changed"
+
+  # One empty step array per declared unauthored mission, and no more.
+  LATER_EMPTY_STEPS="$(grep -c '"steps": \[\]' "$UNAUTHORED_SLICE" || true)"
+  [ "$LATER_EMPTY_STEPS" = "${#WPJ_UNAUTHORED_MISSIONS[@]}" ] \
+    || fail "$LATER_EMPTY_STEPS of ${#WPJ_UNAUTHORED_MISSIONS[@]} unauthored missions have empty steps; the declaration says they are not authored yet"
+
+  # No unauthored mission may acquire instructional content of any kind.
+  for forbidden in 'packet_journey' 'interactionType' 'interactionStableId' \
+                   'assessmentStableId' 'textEquivalent' 'textAlternative' \
+                   'assetType' '"type": "concept"' '"type": "command"'; do
+    if grep -qF -e "$forbidden" "$UNAUTHORED_SLICE"; then
+      fail "a mission the declaration calls unauthored carries instructional content: $forbidden"
+    fi
+  done
+
+  echo "PASS:  3. instruction exists only in the missions the declaration authorises (STAGED)"
+else
+  # FULLY_AUTHORED. There is no unauthored region, so the split above would be
+  # empty and proving anything about it would be theatre. What still has to
+  # hold is that no mission beyond the approved set exists — a ninth mission
+  # would be caught by section 2's count and by the declaration comparison
+  # above, and this asserts it once more against the document text so the
+  # protection is not carried by a count alone.
+  if grep -qE '"stableId": "nf-m(9|[1-9][0-9])-' "$DOCUMENT"; then
+    fail "the document declares a mission beyond the eight approved; DEC-061 authorises no ninth mission"
+  fi
+
+  # Every mission holds its OWN steps. This is what stops instruction migrating
+  # between missions once no empty tail is left to notice a move: mission N's
+  # block may contain only step ids prefixed mN-s.
+  index=0
+  for mission in "${WPJ_MISSION_ORDER[@]}"; do
+    index=$((index + 1))
+    MISSION_BLOCK="$SCAN_DIR/block-$mission.json"
+    FOREIGN_STEPS="$SCAN_DIR/foreign-$mission.txt"
+
+    grep -o '"stableId": "m[0-9]*-s' "$MISSION_BLOCK" > "$FOREIGN_STEPS" || true
+    if grep -qv "\"stableId\": \"m$index-s" "$FOREIGN_STEPS"; then
+      fail "$mission carries a step belonging to another mission; instruction may not migrate between missions"
+    fi
+  done
+
+  echo "PASS:  3. every approved mission carries its own instruction, and no other (FULLY_AUTHORED)"
 fi
-
-grep -Fq '"prerequisiteRules": []' "$DOCUMENT" \
-  || fail "a prerequisite rule was authored; the cross-document rule is recorded, not authored"
-
-echo "PASS:  3. instruction exists only in the missions a slice authorised"
 
 # The document with its JSON escapes decoded, for prose checks.
 #
@@ -404,9 +453,21 @@ echo "curriculum document that parses through the real parser."
 echo "It declares four modules, eight missions and seven"
 echo "competencies, develops each exactly once, reinforces"
 echo "nothing before it is developed, and states what the learner"
-echo "needs before every mission. Instruction is authored in"
-echo "Missions 1 to 7 and in no other mission; assets, assessments"
-echo "and prerequisite rules remain unauthored everywhere."
+echo "needs before every mission. Every mission the authority"
+echo "declaration approves carries its own instruction, and no"
+echo "step belonging to one mission sits under another; assets,"
+echo "assessments and prerequisite rules remain unauthored"
+echo "everywhere."
+echo ""
+echo "Authoring state: $WPJ_AUTHORING_STATE."
+echo ""
+echo "FULLY_AUTHORED means every approved mission is"
+echo "STRUCTURALLY authored, and nothing more than that. It does"
+echo "NOT mean the course is doctrine-approved, Founder-UAT"
+echo "approved, publishable, migrated or certification ready."
+echo "Curriculum Doctrine section 23.2 is explicit that passing"
+echo "checks is not completion, and CURR-009 section 14a keeps"
+echo "every judgement of that kind with human authority."
 echo ""
 echo "Router-on-a-Stick is unmodified. The cross-course"
 echo "transition is recorded, and proved coherent against a"
@@ -423,5 +484,8 @@ echo "    verify-wpj-m3.sh owns Mission 3 and"
 echo "    verify-wpj-m4.sh owns Mission 4 and"
 echo "    verify-wpj-m5.sh owns Mission 5 and"
 echo "    verify-wpj-m6.sh owns Mission 6 and"
-echo "    verify-wpj-m7.sh owns Mission 7"
+echo "    verify-wpj-m7.sh owns Mission 7 and"
+echo "    verify-wpj-m8.sh owns Mission 8"
+echo "  - that Networking Foundations is pedagogically complete;"
+echo "    a structural state is not a teaching verdict"
 echo "=========================================================="

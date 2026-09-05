@@ -55,24 +55,6 @@ const DOCUMENT_PATH = join(
 const M3 = "nf-m3-ipv4-the-second-identity";
 const MODULE2 = "nf-mod2-addresses-and-boundaries";
 
-/**
- * Missions no slice has authored yet.
- *
- * This list shrinks by exactly one mission each time a slice is approved, and
- * WP-J5 removed Mission 4 from it. That is the list handing authority forward
- * rather than being weakened: what it protects is the emptiness of whatever has
- * NOT been authored, which is a moving edge by design. Mission 4's own suite
- * now owns Mission 4, and this suite keeps owning Mission 3.
- *
- * The alternative — pinning this list to the missions that were unauthored when
- * Mission 3 shipped — would fail the moment the course made legitimate
- * progress, which teaches the next author to edit the assertion out of the way
- * rather than trust it.
- */
-const UNAUTHORED = [
-  "nf-m8-when-it-does-not-work"
-] as const;
-
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
     JSON.parse(readFileSync(DOCUMENT_PATH, "utf8"))
@@ -234,11 +216,21 @@ describe("Mission 3 is authored and the boundary sits after it", () => {
     expect(mission(M3).steps.length).toBeGreaterThan(0);
   });
 
-  it("leaves every still-unauthored mission with no step of any kind", () => {
-    for (const stableId of UNAUTHORED) {
-      expect(`${stableId} ${mission(stableId).steps.length}`).toBe(
-        `${stableId} 0`
-      );
+  it("keeps this mission's instruction inside this mission", () => {
+    // DEC-061: the course is fully authored, so there is no unauthored tail for
+    // this gate to assert about, and asserting one would be a check that can
+    // only pass. What this gate still owns is its own mission — a Mission 3
+    // step may appear under Mission 3 and under no other mission, which is
+    // what stops instruction migrating now that an empty array no longer
+    // signals a mission that has quietly acquired content.
+    for (const m of document.missions) {
+      const mine = m.steps
+        .map((step) => step.stableId)
+        .filter((stableId) => stableId.startsWith("m3-s"));
+
+      const expected = m.stableId === M3 ? m.steps.length : 0;
+
+      expect(`${m.stableId} ${mine.length}`).toBe(`${m.stableId} ${expected}`);
     }
   });
 

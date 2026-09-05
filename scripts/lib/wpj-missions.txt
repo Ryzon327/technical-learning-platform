@@ -1,0 +1,79 @@
+# WP-J — the Networking Foundations mission authority.
+#
+# ## What this is
+#
+# The single declaration of which missions the course is approved to contain,
+# in which order, and which of them an approved slice has authored. It is the
+# authority `scripts/verify-wpj.sh` and every per-mission gate consult, so that
+# one reviewable file answers a question six scripts used to answer separately.
+#
+# It is NOT learner-facing curriculum. Nothing renders it and no learner reaches
+# it.
+#
+# ## The invariant it serves
+#
+#   Instruction appears in exactly the missions approved for authored
+#   instruction, and in no other mission.
+#
+# That invariant has not changed since Module 1. What changed is how it is
+# expressed. Until Mission 8 it was enforced by splitting the document at the
+# next UNAUTHORED mission's stableId and proving no instruction appeared past
+# the split. That worked while an unauthored tail existed, and it moved forward
+# exactly once per approved slice.
+#
+# Mission 8 is the last approved mission. Authoring it leaves no successor to
+# anchor against, so the positional model runs out — not because the rule
+# stopped applying, but because the mechanism was only ever a way of expressing
+# it. DEC-061 records that decision. This file is what replaces the anchor.
+#
+# ## Two legitimate states
+#
+#   STAGED           at least one approved mission is still `unauthored`.
+#                    Declared authored missions carry instruction; declared
+#                    unauthored missions must carry an empty step array, and no
+#                    instructional content of any kind may appear in the region
+#                    of the document they occupy.
+#
+#   FULLY_AUTHORED   every approved mission is `authored`. There is no
+#                    unauthored region left to protect, so that protection
+#                    retires ITSELF — it is not deleted. What remains enforced
+#                    is that exactly these eight missions exist, in exactly this
+#                    order, each carrying its own instruction and no other
+#                    mission's.
+#
+# The state is DERIVED from the rows below. Nothing declares it separately,
+# because two declarations of one fact is the drift this repository refuses
+# everywhere else.
+#
+# ## What FULLY_AUTHORED does not mean
+#
+# It means every approved mission is STRUCTURALLY authored. It does not mean the
+# course is doctrine-approved, Founder-UAT-approved, publishable, migrated,
+# certification-mapped, or that any learner has demonstrated anything. Doctrine
+# §23.2 is explicit that passing checks is not completion, and CURR-009 §14a
+# keeps every judgement of that kind with human authority. A gate can say the
+# eight missions carry instruction. It cannot say the course teaches.
+#
+# ## Changing a row
+#
+# A row moves from `unauthored` to `authored` in the slice that authors that
+# mission, and never in anticipation. The change is one word, in the diff, next
+# to the mission it describes — which is the point of writing it down rather
+# than encoding it in a variable name.
+#
+# ## Format
+#
+#   position|missionStableId|authored|unauthored
+#
+# `position` is the order a learner meets the missions and must increase down
+# the file. Every row must name a mission that exists in the document, the set
+# must match the document's missions exactly, and the order must agree.
+
+1|nf-m1-what-a-network-is|authored
+2|nf-m2-inside-one-network|authored
+3|nf-m3-ipv4-the-second-identity|authored
+4|nf-m4-the-prefix-and-the-decision|authored
+5|nf-m5-the-default-gateway|authored
+6|nf-m6-routers-and-the-journey|authored
+7|nf-m7-testing-whether-it-works|authored
+8|nf-m8-when-it-does-not-work|authored

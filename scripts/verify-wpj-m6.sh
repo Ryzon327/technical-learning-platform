@@ -107,22 +107,44 @@ grep -Fq 'nf-pj6-end-to-end' "$M6_BLOCK" \
 echo "PASS:  1. Mission 6 is authored under its approved identity"
 
 # ------------------------------------------------------------
-# 2. The staged-authoring boundary moved forward, not away
+# 2. This mission is declared authored, and owns its own instruction
 # ------------------------------------------------------------
-# The durable form: the split exists, and no longer sits at Mission 6. Pinning
-# the NEXT mission's anchor is what made the Mission 3 and Mission 4 gates fail
-# when the course made approved progress; that pattern is not repeated.
-if grep -Fq 'M6_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate anchors its staged-authoring split at Mission 6; Mission 6 is authored, so the boundary belongs after it"
-fi
+# This section used to assert that the course gate's staged-authoring anchor
+# had moved past Mission 6 and that some LATER anchor still existed. That was
+# the durable form of a check that had already broken once by pinning the next
+# mission's name, and it survived three boundary moves — but it still encoded
+# an opinion about a mission this gate does not own.
+#
+# It could not survive the last move. Mission 8 has no successor, so "a later
+# anchor exists" became a claim about a mission that will never be declared,
+# and all five mission gates would have failed at once on the slice that
+# authored it. DEC-061 replaces the anchor with an explicit declaration of
+# which missions are approved and which are authored.
+#
+# So this gate now asserts what it actually owns: the declaration lists
+# Mission 6 as authored, and Mission 6's steps appear under Mission 6
+# and nowhere else. Both are true in either authoring state, and neither goes
+# stale when a later slice lands. Whether the course as a whole is STAGED or
+# FULLY_AUTHORED is the course gate's business, and it is the only place that
+# decides it.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
 
-grep -Eq '^M[78]_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors a staged-authoring split after Mission 6"
+wpj_require_authored 'nf-m6-routers-and-the-journey' 'verify-wpj-m6.sh'
 
-grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
-  || fail "the course gate no longer splits authored from unauthored missions"
+grep -Fq 'wpj_mission_authority_load' "$COURSE_GATE" \
+  || fail "the course gate no longer reads the mission authority declaration; nothing would then constrain which missions may carry instruction"
 
-echo "PASS:  2. the staged-authoring boundary sits after Mission 6, not away"
+MISSION_STEP_OWNERSHIP="$SCAN_DIR/m6-step-ownership.txt"
+grep -o '"stableId": "m[0-9]*-s[^"]*"' "$DOCUMENT" > "$MISSION_STEP_OWNERSHIP" || true
+
+M6_OWN_STEPS="$(grep -c '"stableId": "m6-s' "$MISSION_STEP_OWNERSHIP" || true)"
+M6_BLOCK_STEPS="$(grep -c '"stableId": "m6-s' "$M6_BLOCK" || true)"
+
+[ "$M6_OWN_STEPS" = "$M6_BLOCK_STEPS" ] \
+  || fail "$M6_OWN_STEPS Mission 6 steps exist in the document but only $M6_BLOCK_STEPS sit inside Mission 6; instruction may not migrate between missions"
+
+echo "PASS:  2. Mission 6 is declared authored and owns its own instruction"
 
 # ------------------------------------------------------------
 # 3. One journey, and it goes out AND comes back
@@ -357,8 +379,10 @@ Mission 6 develops no competency. All six of its links
 reinforce work developed in Missions 1 to 5, which is what an
 integration mission is for.
 
-The staged-authoring boundary sits after Mission 6, so
-Missions 7 and 8 remain prohibited.
+The course is fully authored (DEC-061), so this gate no
+longer asserts anything about an unauthored tail. It asserts
+that Mission 6 is declared authored and that every Mission 6
+step sits inside Mission 6 and nowhere else.
 
 This gate proves AUTHORED STRUCTURE, absence and ordering.
 It does NOT prove:

@@ -2642,7 +2642,536 @@
           "relationship": "reinforces"
         }
       ],
-      "steps": [],
+      "steps": [
+        {
+          "stableId": "m8-s1-a-result-you-have-to-act-on",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "A result you have to act on",
+            "paragraphs": [
+              "Mission 7 ended on an admission. Everything you tested worked, every answer agreed with what you expected, and so you never once had to do anything about a result. That is not what testing is usually for.",
+              "The same network is in front of you, arranged exactly as it was: PC-A on one network, PC-C on another, Router-1 belonging to both. Nothing about the picture has changed.",
+              "Something about the behaviour has. The next page is a result from the same machine, using the same kind of test you have already read twice — and this time it does not say what you want it to say."
+            ]
+          }
+        },
+        {
+          "stableId": "m8-s2-the-test-that-fails",
+          "position": 1,
+          "content": {
+            "type": "command",
+            "caption": "The same test as Mission 7, from PC-A, against 192.168.2.20 — PC-C on the other network. This is displayed output for you to read; nothing here offers to run anything, and no live network is involved. Before you read on, decide for yourself: this failed, so what does that actually tell you?",
+            "command": "ping -c 3 192.168.2.20",
+            "output": "PING 192.168.2.20 (192.168.2.20) 56(84) bytes of data.\n\n--- 192.168.2.20 ping statistics ---\n3 packets transmitted, 0 received, 100% packet loss, time 2043ms",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m8-s3-a-failure-points-in-many-directions",
+          "position": 2,
+          "content": {
+            "type": "concept",
+            "title": "A failure points in many directions",
+            "paragraphs": [
+              "In Mission 7 you learned to ask, after any result, what else would have produced exactly the same thing. Ask it about this one and notice how the answer has changed shape.",
+              "A successful answer from 192.168.2.20 had only one explanation, which is why it settled so much. This has a great many. PC-C could be switched off. Router-1's second connection could be down. Something could be wrong on PC-A. A cable could be out. Every one of those situations produces this identical result, and nothing in these four lines separates them.",
+              "So the honest reading is that a failed result is a starting point rather than an answer. It tells you that a claim you wanted to make is not true. It does not tell you which part of the claim failed.",
+              "On a real network you would narrow it, one bounded test at a time, in the order Mission 7 taught. This mission does something more direct, because narrowing an unlocated failure is a larger skill than the one you have and it belongs to a later course. Here you are going to be shown where the message stops. The work in front of you is reading that stopping point correctly — which turns out to be most of what troubleshooting is, once somebody has done the finding for you."
+            ]
+          }
+        },
+        {
+          "stableId": "m8-s4-watching-where-it-stops",
+          "position": 3,
+          "content": {
+            "type": "interaction",
+            "interactionStableId": "nf-pj8-the-stop-and-the-repair",
+            "interactionType": "packet_journey",
+            "sourceKind": "authored_teaching",
+            "supportLevel": "show_me",
+            "caption": "The same exchange you followed in Mission 6, on the same network, with one setting different. Follow it until it stops, work out what the stop tells you, then choose what to change. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
+            "textEquivalent": "A network of six devices across two networks, the same arrangement as Mission 6. On the first: PC-A holding 192.168.1.10 with 24 after it, PC-B holding 192.168.1.11, a Printer holding 192.168.1.12, and Switch-1 connecting all three plus Router-1. On the second: PC-C holding 192.168.2.20 with 24 after it, connected directly to Router-1. Router-1 is the only device in both networks: its local connection holds 192.168.1.1 and its second connection holds 192.168.2.1. One setting differs from Mission 6, and it is on PC-A. That setting is reported at each step as what PC-A is currently configured to hand off to, rather than listed among PC-A's fixed details, because it is the thing that changes. As found it is 192.168.2.1 rather than 192.168.1.1. The walkthrough begins with PC-A holding something for 192.168.2.20. PC-A compares that address with its own and concludes correctly that the destination is not in its group, so it reaches for the address it holds for anything outside its group, which is 192.168.2.1. The journey then stops at PC-A. Nothing leaves the machine, Switch-1 receives nothing, and no other device on either network sees anything. The visible facts at that stop are PC-A's own address 192.168.1.10 with 24 after it, the address it is configured to hand off to, 192.168.2.1, and that this address is not in PC-A's group. Three changes are offered. Setting PC-A to hand off to 192.168.1.1, Router-1's connection on PC-A's own network, is the one that restores the exchange: it is an address PC-A can reach directly, and it belongs to a device that is also in the destination's network. Setting PC-A to hand off to 192.168.1.12, the Printer, would make the hand-off itself possible but leaves the message with a device that belongs to one network only. Giving Router-1 another address on PC-A's network changes nothing, because Router-1 already holds 192.168.1.1 and never received anything. After the correct change, PC-A is reported as currently configured to hand off to 192.168.1.1, and the journey continues: Switch-1 receives it on port 1 and sends it out of port 4 to Router-1 by hardware identity; Router-1 finds 192.168.2.20 on the network its second connection belongs to and delivers it there; it arrives at PC-C. PC-C answers 192.168.1.10, applies the same rule in reverse, hands the reply to 192.168.2.1, and Router-1 delivers it back onto PC-A's network, where Switch-1 carries it to port 1 and it arrives at PC-A, where PC-A is again reported as currently configured to hand off to 192.168.1.1. Nothing reached PC-B or the Printer at any point.",
+            "parameters": {
+              "interactionType": "packet_journey",
+              "groups": [
+                {
+                  "groupId": "local-network",
+                  "label": "Local network"
+                },
+                {
+                  "groupId": "other-network",
+                  "label": "The other network"
+                }
+              ],
+              "nodes": [
+                {
+                  "nodeId": "pc-a",
+                  "label": "PC-A",
+                  "role": "host",
+                  "groupId": "local-network",
+                  "about": "PC-A is the machine that is trying to reach PC-C. What it holds and what it is wired to are here; the address it is currently configured to hand off to is a setting rather than a fixture, so it is reported beside each step as what PC-A is working from at that moment. Read it the way you read PC-A's settings in Mission 5, and compare what you find against the rule that mission established.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-a-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.10/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:b7"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "pc-b",
+                  "label": "PC-B",
+                  "role": "host",
+                  "groupId": "local-network",
+                  "about": "PC-B is on this network and is not involved. Nothing about PC-B has changed, and nothing in this journey reaches it.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-b-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.11/24"
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:c2"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 2"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "printer",
+                  "label": "Printer",
+                  "role": "printer",
+                  "groupId": "local-network",
+                  "about": "The Printer is on PC-A's network, on port 3, exactly as it has been since Mission 2. It holds an address in 192.168.1, which means PC-A can reach it directly. It belongs to that one network and to no other.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "printer-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.12/24"
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:d9"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 3"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "sw-1",
+                  "label": "Switch-1",
+                  "role": "switch",
+                  "groupId": "local-network",
+                  "about": "Switch-1 is unchanged and is working. Watch whether anything ever reaches it, because a device that receives nothing cannot be the device that failed.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "sw-1-p1",
+                      "label": "Port 1",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "PC-A"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p2",
+                      "label": "Port 2",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "PC-B"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p3",
+                      "label": "Port 3",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "Printer"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p4",
+                      "label": "Port 4",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "Router-1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "r-1",
+                  "label": "Router-1",
+                  "role": "router",
+                  "about": "Router-1 is unchanged since Mission 6, and both of its connections hold the addresses they held then. It is still the only device that belongs to both networks. Nothing about Router-1 has been altered for this mission.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "r-1-lan",
+                      "label": "Local connection",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.1/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:01"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 4"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "r-1-far",
+                      "label": "Second connection",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.2.1/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:02"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "PC-C"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "pc-c",
+                  "label": "PC-C",
+                  "role": "host",
+                  "groupId": "other-network",
+                  "about": "PC-C is the machine PC-A is trying to reach. It holds 192.168.2.20, it is switched on, and its own settings are correct. Nothing has been changed here either.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-c-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.2.20/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:e4"
+                        },
+                        {
+                          "label": "Hands off to",
+                          "value": "192.168.2.1"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Router-1"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "links": [
+                {
+                  "linkId": "link-pc-a",
+                  "label": "PC-A to Switch-1 port 1",
+                  "endpoints": [
+                    "pc-a-nic",
+                    "sw-1-p1"
+                  ]
+                },
+                {
+                  "linkId": "link-pc-b",
+                  "label": "PC-B to Switch-1 port 2",
+                  "endpoints": [
+                    "pc-b-nic",
+                    "sw-1-p2"
+                  ]
+                },
+                {
+                  "linkId": "link-printer",
+                  "label": "Printer to Switch-1 port 3",
+                  "endpoints": [
+                    "printer-nic",
+                    "sw-1-p3"
+                  ]
+                },
+                {
+                  "linkId": "link-r-1",
+                  "label": "Router-1 to Switch-1 port 4",
+                  "endpoints": [
+                    "r-1-lan",
+                    "sw-1-p4"
+                  ]
+                },
+                {
+                  "linkId": "link-far",
+                  "label": "Router-1 to PC-C",
+                  "endpoints": [
+                    "r-1-far",
+                    "pc-c-nic"
+                  ]
+                }
+              ],
+              "traffic": {
+                "label": "what PC-A is sending to PC-C",
+                "sourceNodeId": "pc-a",
+                "destinationNodeId": "pc-c",
+                "startActionLabel": "Send to 192.168.2.20"
+              },
+              "stages": [
+                {
+                  "stageId": "f1-pc-a-decides",
+                  "atNodeId": "pc-a",
+                  "narration": "PC-A has something for 192.168.2.20. It compares that address against its own, 192.168.1.10/24, and concludes that the destination is not in its group — so it will not deliver this directly, and will hand it to the address it holds for anything outside its group.",
+                  "decision": "This part is correct, and it is worth being sure of that before anything goes wrong. PC-A made exactly the decision Mission 4 taught, and reached for the setting Mission 5 named. Whatever fails next, it does not fail here.",
+                  "outcome": "proceeds",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What PC-A settled",
+                      "facts": [
+                        {
+                          "label": "Where it is trying to reach",
+                          "value": "192.168.2.20"
+                        },
+                        {
+                          "label": "In PC-A's group",
+                          "value": "No"
+                        },
+                        {
+                          "label": "So it hands to",
+                          "value": "192.168.2.1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "f2-the-hand-off-that-cannot-happen",
+                  "atNodeId": "pc-a",
+                  "narration": "Nothing leaves PC-A. It never reaches the wire, Switch-1 never receives it, and no other device on either network sees anything at all.",
+                  "decision": "Look at the address PC-A is trying to hand to, and read it against PC-A's own address the way Mission 4 taught you to. Handing something over is itself a delivery, and PC-A has only one way of delivering by itself.",
+                  "outcome": "stops",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What PC-A is working from",
+                      "facts": [
+                        {
+                          "label": "PC-A's own address",
+                          "value": "192.168.1.10/24"
+                        },
+                        {
+                          "label": "Currently configured to hand off to",
+                          "value": "192.168.2.1"
+                        },
+                        {
+                          "label": "That address in PC-A's group",
+                          "value": "No"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "f3-out-across-the-first-network",
+                  "atNodeId": "sw-1",
+                  "narration": "Now it leaves. Switch-1 receives it on port 1 and sends it out of port 4 to Router-1, by hardware identity, on this network — the ordinary local delivery you have watched since Mission 2. PC-B and the Printer see nothing.",
+                  "decision": "Nothing about Switch-1 changed. It was working before the repair and it is working now; it simply had nothing to carry.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What PC-A is working from now",
+                      "facts": [
+                        {
+                          "label": "Currently configured to hand off to",
+                          "value": "192.168.1.1"
+                        },
+                        {
+                          "label": "That address in PC-A's group",
+                          "value": "Yes"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "f4-router-carries-it-across",
+                  "atNodeId": "r-1",
+                  "narration": "It arrives at Router-1's local connection. Router-1 finds 192.168.2.20 on the network its second connection belongs to and delivers it out of that connection, as a fresh local delivery to PC-C's hardware identity.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-r-1"
+                },
+                {
+                  "stageId": "f5-it-arrives",
+                  "atNodeId": "pc-c",
+                  "narration": "It reaches PC-C. This is the first time in this mission that anything has arrived anywhere.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-far"
+                },
+                {
+                  "stageId": "f6-pc-c-answers",
+                  "atNodeId": "r-1",
+                  "narration": "PC-C answers 192.168.1.10, applies the same rule in reverse, and hands its reply to 192.168.2.1. Router-1 receives it and finds 192.168.1.10 on its local connection's network.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-far"
+                },
+                {
+                  "stageId": "f7-the-return-leg",
+                  "atNodeId": "sw-1",
+                  "narration": "Router-1 delivers the reply onto PC-A's network, and Switch-1 carries it towards port 1.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-r-1"
+                },
+                {
+                  "stageId": "f8-the-answer-arrives",
+                  "atNodeId": "pc-a",
+                  "narration": "The reply reaches PC-A. Something left, arrived, was answered, and the answer came back.",
+                  "decision": "This is the part that turns a change into a repair. You did not merely alter a setting and assume it helped — you watched the thing that was failing succeed, end to end, and come back.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What PC-A is working from now",
+                      "facts": [
+                        {
+                          "label": "Currently configured to hand off to",
+                          "value": "192.168.1.1"
+                        },
+                        {
+                          "label": "Reached 192.168.2.20 and got an answer",
+                          "value": "Yes"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "fault": {
+                "atNodeId": "pc-a",
+                "symptom": "Nothing left PC-A at all. It never reached Switch-1, and no device on either network received anything.",
+                "stopsAtStageId": "f2-the-hand-off-that-cannot-happen",
+                "explanation": "Handing something to a gateway is itself a delivery, and PC-A can only deliver directly to addresses inside its own group. PC-A is 192.168.1.10/24 and it has been configured to hand off to 192.168.2.1, which is not in that group. To reach 192.168.2.1 PC-A would first have to hand something to a gateway — which is the very thing it is trying to do. That is the rule Mission 5 established, and this is what it looks like when it is broken."
+              },
+              "actions": [
+                {
+                  "actionId": "gateway-to-router-lan",
+                  "label": "Set PC-A to hand off to 192.168.1.1 — Router-1's connection on PC-A's own network",
+                  "resolvesFault": true,
+                  "observation": "PC-A can reach 192.168.1.1 directly, because it is in 192.168.1 with PC-A — so the hand-off is a delivery PC-A can actually make. And Router-1 is a member of the destination's network as well as this one, so once it holds the message there is somewhere for it to go. Both halves have to be true, and now both are."
+                },
+                {
+                  "actionId": "gateway-to-printer",
+                  "label": "Set PC-A to hand off to 192.168.1.12 — the Printer, which is on PC-A's own network",
+                  "resolvesFault": false,
+                  "observation": "That solves half of it, and only half. 192.168.1.12 is in PC-A's group, so PC-A really could hand something over — the delivery you just saw fail would succeed. But the Printer belongs to that one network and to no other. Handing it something addressed to 192.168.2.20 gives it something it has nowhere to send. Being reachable is what a machine needs from its gateway; being in both networks is what the gateway needs in order to be any use."
+                },
+                {
+                  "actionId": "second-address-on-router",
+                  "label": "Give Router-1 another address on PC-A's network, so PC-A has something to reach",
+                  "resolvesFault": false,
+                  "observation": "Router-1's local connection already holds 192.168.1.1, and has since Mission 6. Nothing about Router-1 was altered, and nothing ever reached it — it received nothing at all in this journey. A device that never received anything cannot be the device that failed, and adding to it changes nothing about the machine that stopped."
+                }
+              ],
+              "confirmation": {
+                "narration": "It reached PC-C, and the reply reached PC-A. The thing that was failing is now working, and you watched it work rather than assuming it.",
+                "summary": "One setting was wrong, on one machine, and nothing else on either network had been touched. The stop told you where to look: PC-A had decided correctly and then been unable to act, which pointed at what PC-A was configured to act on rather than at anything further along. Changing it was the repair. Watching the whole exchange complete, out and back, is what makes it a repair rather than a hope."
+              }
+            }
+          }
+        },
+        {
+          "stableId": "m8-s5-working-backwards-from-the-stop",
+          "position": 4,
+          "content": {
+            "type": "concept",
+            "title": "Working backwards from the stop",
+            "paragraphs": [
+              "A stopping point is worth two separate readings, and most of the value is in the one people skip.",
+              "The first reading is what was still intact. PC-A compared 192.168.2.20 with its own address, concluded the destination was not in its group, and reached for the address it keeps for that situation. Every part of that was right. Whatever was wrong, it was not PC-A's reasoning about local and remote — that much the stop proved was working.",
+              "The second reading is what the stop rules out, and it rules out a great deal at once. Switch-1 never received anything. Router-1 never received anything. PC-C never received anything. Three of the four suspects on your earlier list could not have been the problem, because a device that never received anything cannot be the device that failed. The failure had to be at PC-A, before anything reached the wire, and there is only one thing PC-A had left to be wrong about.",
+              "It was the address it had been told to hand off to. 192.168.2.1 is a real address on a real device, and it is not in PC-A's group — so handing something to it is itself a delivery PC-A cannot make on its own. It would need a gateway in order to reach its gateway. That is exactly the constraint Mission 5 worked out on paper, and this is what it looks like when a machine is actually configured that way.",
+              "Correcting it took one value, on one machine, chosen because the reasoning pointed there. That is what makes a repair bounded: you changed the thing the evidence indicated, and nothing else."
+            ]
+          }
+        },
+        {
+          "stableId": "m8-s6-a-repair-you-did-not-confirm",
+          "position": 5,
+          "content": {
+            "type": "concept",
+            "title": "A repair you did not confirm is a hope",
+            "paragraphs": [
+              "You then watched the whole exchange happen — out through Switch-1 to Router-1, across to PC-C, and all the way back with an answer. It is tempting to treat that as a formality. It is the opposite.",
+              "\"I changed the setting\" and \"the thing that was failing now works\" are two different claims, and only the second one is what anybody actually wanted. Changing a setting is something you did. Working is something you have to observe. Mission 7's whole discipline was refusing to claim more than a result supports, and an unconfirmed repair is precisely that: a claim about behaviour with no observation behind it.",
+              "Notice as well that the confirmation is bounded in exactly the way Mission 7 described. The reply that came back establishes that this exchange, to this address, worked at that moment. It does not establish that nothing else on either network is wrong, and it never could. A confirmed repair is a settled question, not a healthy network.",
+              "That sequence — see a symptom, read what the evidence rules out, change the one thing it points to, then watch the failure stop being a failure — is the shape of the work. The networks get larger and the settings get stranger, and the shape does not change."
+            ]
+          }
+        },
+        {
+          "stableId": "m8-s7-what-you-have-and-have-not-shown",
+          "position": 6,
+          "content": {
+            "type": "concept",
+            "title": "What you have, and what you have not, shown",
+            "paragraphs": [
+              "That was the last mission, so it is worth being accurate about where you have arrived.",
+              "You started with a network you had no vocabulary for. You can now read a topology, follow a delivery inside one network, read the two identities a machine carries, work out whether a destination is local or remote, say why a machine needs a gateway and what makes an address eligible to be one, follow an exchange across a boundary and back, choose a test that establishes a specific claim, and take a bounded failure from symptom through evidence to a correction you confirmed. None of that was assumed at the start and all of it was built here.",
+              "Be equally accurate about the other side. You have been taught these things; you have not yet demonstrated them. Everything in this course was authored teaching — the journeys were drawn for you, the results were shown to you, and the one failure you met had already been located before you arrived. Reading a stopping point somebody else found is a genuine skill, and it is a smaller one than finding a failure nobody has located on a network nobody has drawn.",
+              "So this course does not tell you that you are ready for anything in particular, and you should be suspicious of any course that would. What it gives you is a model that holds together — one where the pieces connect, nothing was simplified into something you will later have to unlearn, and you can say why each part is true rather than only that it is. That is the thing worth having next."
+            ]
+          }
+        }
+      ],
       "assets": []
     }
   ],
