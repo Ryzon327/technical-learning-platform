@@ -2500,7 +2500,102 @@
           "relationship": "reinforces"
         }
       ],
-      "steps": [],
+      "steps": [
+        {
+          "stableId": "m7-s1-nobody-draws-it-for-you",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "Nobody draws it for you",
+            "paragraphs": [
+              "In Mission 6 you followed one exchange from PC-A to PC-C and back, and you could say at every step which identity was being used and which one survived. You knew all of that for one reason: the course showed you.",
+              "Take the drawing away. PC-A is in front of you, the same network is behind it, and nothing is animated. You believe the trip works. Somebody asks you how you know.",
+              "You cannot follow it. You cannot see the frames being rebuilt. Everything you understood was visible only because it was drawn for you, and none of it is visible now.",
+              "What you can do is ask. If a machine will answer you, that answer is something you observed rather than something you were told — and an answer you can get from outside is worth more than a diagram you have to trust. So the question this mission is really about is not how to ask. It is what an answer entitles you to conclude."
+            ]
+          }
+        },
+        {
+          "stableId": "m7-s2-asking-the-gateway",
+          "position": 1,
+          "content": {
+            "type": "command",
+            "caption": "The result of testing whether PC-A can reach 192.168.1.1 — Router-1, the address Mission 5 showed PC-A hands off to. This is displayed output for you to read; nothing here offers to run anything, and no live network is involved. Before you read on, decide for yourself: this succeeded, so what does it prove?",
+            "command": "ping -c 3 192.168.1.1",
+            "output": "PING 192.168.1.1 (192.168.1.1) 56(84) bytes of data.\n64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time=0.412 ms\n64 bytes from 192.168.1.1: icmp_seq=2 ttl=64 time=0.389 ms\n64 bytes from 192.168.1.1: icmp_seq=3 ttl=64 time=0.401 ms\n\n--- 192.168.1.1 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2003ms",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m7-s3-what-that-actually-proves",
+          "position": 2,
+          "content": {
+            "type": "concept",
+            "title": "What that actually proves",
+            "paragraphs": [
+              "The tool is called ping. It asks one address to answer, and reports whether it did. It works by sending a small message whose only purpose is to be replied to — a kind of message called ICMP, which exists for asking and answering questions about the network rather than for carrying anything of your own. That is as much as you need about ICMP to stop ping being magic.",
+              "Now the part that matters. Three asks, three replies, nothing lost. Something answered from 192.168.1.1. Work out carefully what had to be true for that to happen.",
+              "PC-A had to build the ask and put it onto its own network. Switch-1 had to deliver it by hardware identity, which means PC-A had to know that identity, which means the exchange from Mission 4 had already happened. Router-1 had to receive it and answer, and the answer had to come back the same way. So the first leg of the trip — PC-A to Router-1 and back — works. That is a real conclusion and it is worth having.",
+              "Here is what it does not give you. It says nothing about whether PC-C is reachable, nothing about whether Router-1 can deliver onto the other network, nothing about whether the far side is even switched on. It certainly does not establish that the network works. Every one of those is a claim about something the ask never went near, and a result cannot be evidence about a path it did not take."
+            ]
+          }
+        },
+        {
+          "stableId": "m7-s4-asking-the-other-side",
+          "position": 3,
+          "content": {
+            "type": "command",
+            "caption": "The same kind of test, from the same machine, against 192.168.2.20 — PC-C, on the other network. This is displayed output for you to read; nothing here offers to run anything, and no live network is involved. Before you read on: this also succeeded, so what does it let you conclude that the previous result did not?",
+            "command": "ping -c 3 192.168.2.20",
+            "output": "PING 192.168.2.20 (192.168.2.20) 56(84) bytes of data.\n64 bytes from 192.168.2.20: icmp_seq=1 ttl=63 time=1.284 ms\n64 bytes from 192.168.2.20: icmp_seq=2 ttl=63 time=1.201 ms\n64 bytes from 192.168.2.20: icmp_seq=3 ttl=63 time=1.233 ms\n\n--- 192.168.2.20 ping statistics ---\n3 packets transmitted, 3 received, 0% packet loss, time 2004ms",
+            "language": "shell"
+          }
+        },
+        {
+          "stableId": "m7-s5-confirms-versus-consistent-with",
+          "position": 4,
+          "content": {
+            "type": "concept",
+            "title": "Confirms, or merely consistent with",
+            "paragraphs": [
+              "Something answered from 192.168.2.20, and that is a much larger result than the first one. For an answer to come back from there, the whole trip you watched in Mission 6 had to happen — out through Router-1 onto the other network, and back again. A reply cannot arrive unless the return path also worked. One successful answer from the far side establishes the round trip, for that address, at that moment.",
+              "Put the two results side by side, because the difference between them is the whole point of this mission. Both succeeded. Both look equally reassuring. They entitle you to completely different conclusions.",
+              "Suppose you believe the network is fine and you test 192.168.1.1. It answers. Does that confirm your belief? No — it is merely consistent with it. A working network would produce that result, and so would a network where Router-1's far side is unplugged, and so would a network where PC-C has been switched off for a week. A result that every one of those situations would produce cannot tell you which one you are in.",
+              "Now test 192.168.2.20 instead. It answers. That result is not consistent with the far side being unplugged, or with PC-C being off, because neither of those could have produced a reply. It rules out the alternatives rather than merely fitting alongside them, and that is what makes it evidence for the claim rather than decoration next to it.",
+              "This is the habit worth taking away, and it costs nothing to apply: after any result, ask what else would have produced exactly the same thing. If the answer is \"quite a lot\", you have not learned as much as it feels like you have."
+            ]
+          }
+        },
+        {
+          "stableId": "m7-s6-choosing-what-to-ask-first",
+          "position": 5,
+          "content": {
+            "type": "concept",
+            "title": "Choosing what to ask first",
+            "paragraphs": [
+              "You now have two tests that establish different things, so you get to choose which to run — and the order is not arbitrary.",
+              "Consider a case you have not seen. Suppose PC-A could not reach 192.168.1.1 at all. Nothing answered. Before reading on, decide: would it be worth testing 192.168.2.20 next?",
+              "It would not, and the topology tells you why without any need to guess. Everything PC-A sends to the other network goes to Router-1 first — that is what Mission 5 established, and Mission 6 showed every leg of it. If PC-A cannot reach the one device it hands everything off to, then nothing beyond that device can possibly be reachable either. A test of 192.168.2.20 would fail, and it would fail for a reason you already knew, which means it would tell you nothing you did not already have.",
+              "That is what makes a good first test. Not the one that answers the question you care about most, but the one whose result changes what you do next. A test that could only ever tell you something you already knew is not a diagnostic step, however easy it is to run.",
+              "So the ordering follows the path. Ask about the nearest thing that has to work, and only move outward once you know it does. Nothing is wrong here, and you are not being asked to find anything. You are learning to choose, before there is any pressure to choose well."
+            ]
+          }
+        },
+        {
+          "stableId": "m7-s7-the-question-to-carry-forward",
+          "position": 6,
+          "content": {
+            "type": "concept",
+            "title": "The question to carry forward",
+            "paragraphs": [
+              "Everything you tested in this mission worked. Both asks were answered, and the only thing you had to be careful about was not claiming more than the answers supported.",
+              "What you can now do is pick an address to ask about in order to establish one specific claim, and say afterwards what that result does and does not settle. That is a different skill from knowing how a network works, and it is the one that survives contact with a real one.",
+              "It has been easy so far because nothing has been wrong. Every result has agreed with what you expected, which means you have never had to act on one.",
+              "That changes next. Something is going to fail, and the reasoning you have just practised is what turns a failure from a frustration into a starting point."
+            ]
+          }
+        }
+      ],
       "assets": []
     },
     {

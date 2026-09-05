@@ -203,9 +203,9 @@ describe("the authored course parses and is the approved architecture", () => {
  * A count would permit any redistribution that happened to total the same.
  *
  * The allowlist grows by exactly the mission a slice authored, never by
- * anticipation: each approved slice adds one, and WP-J7 adds Mission 6.
- * Missions 7 and 8 stay off it, and the assertion below still fails if either
- * acquires a step.
+ * anticipation: each approved slice adds one, and WP-J8 adds Mission 7.
+ * Mission 8 stays off it, and the assertion below still fails if it acquires a
+ * step.
  */
 const AUTHORED_MISSIONS = [
   "nf-m1-what-a-network-is",
@@ -213,7 +213,8 @@ const AUTHORED_MISSIONS = [
   "nf-m3-ipv4-the-second-identity",
   "nf-m4-the-prefix-and-the-decision",
   "nf-m5-the-default-gateway",
-  "nf-m6-routers-and-the-journey"
+  "nf-m6-routers-and-the-journey",
+  "nf-m7-testing-whether-it-works"
 ] as const;
 
 describe("only the authorized missions carry instruction", () => {
@@ -248,8 +249,11 @@ describe("only the authorized missions carry instruction", () => {
    * because the right number is a property of what the mission teaches:
    *
    *   M1, M2  one journey each — each follows traffic across a topology
-   *   M3, M5  none — each reads a machine's own report, which `command`
-   *           already expresses honestly; a journey would animate nothing
+   *   M3, M5, M7
+   *           none — each reads a machine's own report, which `command`
+   *           already expresses honestly; a journey would animate nothing.
+   *           M7 also comes straight after M6's definitive round trip, and its
+   *           substance is inference rather than motion
    *   M4      TWO — the mission's whole subject is that one machine behaves
    *           differently for two destinations, and a single journey cannot
    *           show a difference. Splitting them is what makes the second one a

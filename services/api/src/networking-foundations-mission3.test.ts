@@ -70,7 +70,6 @@ const MODULE2 = "nf-mod2-addresses-and-boundaries";
  * rather than trust it.
  */
 const UNAUTHORED = [
-  "nf-m7-testing-whether-it-works",
   "nf-m8-when-it-does-not-work"
 ] as const;
 

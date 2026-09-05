@@ -314,6 +314,7 @@ const NF_M3 = "nf-m3-ipv4-the-second-identity";
 const NF_M4 = "nf-m4-the-prefix-and-the-decision";
 const NF_M5 = "nf-m5-the-default-gateway";
 const NF_M6 = "nf-m6-routers-and-the-journey";
+const NF_M7 = "nf-m7-testing-whether-it-works";
 
 describe("the production course reaches the harness through the real parser", () => {
   const outcome = loadUatDocument(networkingFoundations);
@@ -360,14 +361,14 @@ describe("the production course reaches the harness through the real parser", ()
   it("lists the unauthored missions without pretending they have content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
-    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5, NF_M6];
+    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5, NF_M6, NF_M7];
     const later = listUatMissions(outcome.document).filter(
       (mission) => !authored.includes(mission.stableId)
     );
 
-    // Two now: WP-J7 authored Mission 6 and the boundary moved with it. The
-    // assertion still protects every mission nobody has authored yet.
-    expect(later.length).toBe(2);
+    // One now: WP-J8 authored Mission 7, leaving only Mission 8. The assertion
+    // still protects the mission nobody has authored yet.
+    expect(later.length).toBe(1);
     for (const mission of later) {
       expect(mission.stepCount).toBe(0);
       expect(mission.hasInteraction).toBe(false);
