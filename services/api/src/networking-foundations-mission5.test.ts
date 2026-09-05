@@ -59,7 +59,6 @@ const GATEWAY_ADDRESS = "192.168.1.1";
 
 /** Missions no slice has authored yet. */
 const UNAUTHORED = [
-  "nf-m6-routers-and-the-journey",
   "nf-m7-testing-whether-it-works",
   "nf-m8-when-it-does-not-work"
 ] as const;

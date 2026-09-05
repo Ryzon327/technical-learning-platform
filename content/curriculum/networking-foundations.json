@@ -1828,7 +1828,652 @@
           "relationship": "reinforces"
         }
       ],
-      "steps": [],
+      "steps": [
+        {
+          "stableId": "m6-s1-what-router-1-did-with-it",
+          "position": 0,
+          "content": {
+            "type": "concept",
+            "title": "What Router-1 did with it",
+            "paragraphs": [
+              "Mission 5 ended with something unfinished. PC-A had decided the destination was somewhere else, handed what it was sending to Router-1, and stopped being involved. Router-1 was holding something addressed to a machine it is not, in a group it is not in — and nothing had arrived anywhere.",
+              "That is the question you were asked to carry: what does Router-1 actually do with it?",
+              "You are about to watch the answer, and then watch the reply come back. Do not look for a new mechanism. Everything that happens in the next few minutes is something you have already seen, arranged in an order you have not.",
+              "One thing is worth deciding to pay attention to before you start. As it travels, some things about it stay the same the whole way and some things are replaced at every step. Watch for which is which. That distinction is what this mission is for."
+            ]
+          }
+        },
+        {
+          "stableId": "m6-s2-the-whole-trip",
+          "position": 1,
+          "content": {
+            "type": "interaction",
+            "interactionStableId": "nf-pj6-end-to-end",
+            "interactionType": "packet_journey",
+            "sourceKind": "authored_teaching",
+            "supportLevel": "show_me",
+            "caption": "One exchange between PC-A and PC-C, out and back, across two networks. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
+            "textEquivalent": "A network of six devices across two networks. On the first: PC-A holding 192.168.1.10 with 24 after it, PC-B holding 192.168.1.11, a Printer holding 192.168.1.12, and Switch-1 connecting all three plus Router-1. On the second: PC-C holding 192.168.2.20 with 24 after it, connected directly to Router-1. Router-1 is the only device in both: its local connection holds 192.168.1.1 and its second connection holds 192.168.2.1. Each machine also carries the hardware identity you have been reading since Mission 2. The walkthrough follows one exchange between PC-A and PC-C, out and back. PC-A has something for 192.168.2.20, decides as it did in Mission 4 that the destination is not in its group, and hands it to 192.168.1.1 as Mission 5 explained. The first leg is an ordinary local delivery: Switch-1 receives it on port 1 and sends it out of port 4 to Router-1, addressed to Router-1's hardware identity 00:1b:44:11:3a:01. Switch-1 has never heard of 192.168.2.20. It arrives at Router-1's local connection. Router-1 sees that the destination 192.168.2.20 is not itself and not on the network it arrived from, but is on the network its second connection belongs to, so it delivers it out of that connection — a second local delivery, on 192.168.2, addressed to PC-C's hardware identity 00:1b:44:11:3a:e4. The wrapper that carried it across the first network ended at Router-1 and a new one was built for the second. Where it was going never changed: 192.168.2.20 from beginning to end. PC-C then replies to 192.168.1.10, and performs the same reasoning in reverse: 192.168.1.10 is not in PC-C's group, so PC-C hands it to 192.168.2.1, Router-1's second connection. Router-1 receives it, finds 192.168.1.10 on its local connection's network, and delivers it there; Switch-1 carries it to port 1 and it arrives at PC-A. Four local deliveries on two networks. On every leg the delivery was addressed to a hardware identity on that leg's own network, and on no leg was that identity one of the two machines the exchange was actually between. Neither PC-A nor PC-C ever knew the other's hardware identity, and neither needed to. Nothing reached PC-B or the Printer at any point.",
+            "parameters": {
+              "interactionType": "packet_journey",
+              "groups": [
+                {
+                  "groupId": "local-network",
+                  "label": "Local network"
+                },
+                {
+                  "groupId": "other-network",
+                  "label": "The other network"
+                }
+              ],
+              "nodes": [
+                {
+                  "nodeId": "pc-a",
+                  "label": "PC-A",
+                  "role": "host",
+                  "groupId": "local-network",
+                  "about": "PC-A is the machine that started this. It holds 192.168.1.10 and it decided, back in Mission 4, that 192.168.2.20 was not in its group. Everything it could do by itself is already done.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-a-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.10/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:b7"
+                        },
+                        {
+                          "label": "Hands off to",
+                          "value": "192.168.1.1"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "pc-b",
+                  "label": "PC-B",
+                  "role": "host",
+                  "groupId": "local-network",
+                  "about": "PC-B is on this network and has nothing to do with this trip. It is here because it was here in Missions 2, 3 and 4, and because a network does not empty itself when one machine starts talking.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-b-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.11/24"
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:c2"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 2"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "printer",
+                  "label": "Printer",
+                  "role": "printer",
+                  "groupId": "local-network",
+                  "about": "The Printer, still on port 3, still uninvolved. Watch that nothing in this whole journey ever reaches it.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "printer-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.12/24"
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:d9"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 3"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "sw-1",
+                  "label": "Switch-1",
+                  "role": "switch",
+                  "groupId": "local-network",
+                  "about": "Switch-1 behaves exactly as it did in Mission 2 and has learned nothing new since. It delivers by hardware identity, on this network only, and it has no idea that anything on this network is trying to reach somewhere else.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "sw-1-p1",
+                      "label": "Port 1",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "PC-A"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p2",
+                      "label": "Port 2",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "PC-B"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p3",
+                      "label": "Port 3",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "Printer"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "sw-1-p4",
+                      "label": "Port 4",
+                      "attributes": [
+                        {
+                          "label": "Connects to",
+                          "value": "Router-1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "r-1",
+                  "label": "Router-1",
+                  "role": "router",
+                  "about": "Router-1 is the reason this trip is possible, and the reason is visible in its interfaces rather than in anything clever it does. It has one connection with an address in 192.168.1 and another with an address in 192.168.2. It is a member of both networks at once, which no other device here is.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "r-1-lan",
+                      "label": "Local connection",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.1.1/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:01"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Switch-1, port 4"
+                        }
+                      ]
+                    },
+                    {
+                      "interfaceId": "r-1-far",
+                      "label": "Second connection",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.2.1/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:02"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "PC-C"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "nodeId": "pc-c",
+                  "label": "PC-C",
+                  "role": "host",
+                  "groupId": "other-network",
+                  "about": "PC-C is the machine PC-A has been trying to reach since Mission 4. It holds 192.168.2.20, and like every machine you have met it holds one address for anything outside its own group — which here is Router-1's other connection.",
+                  "interfaces": [
+                    {
+                      "interfaceId": "pc-c-nic",
+                      "label": "Network interface",
+                      "attributes": [
+                        {
+                          "label": "IPv4 address",
+                          "value": "192.168.2.20/24",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Hardware identity",
+                          "value": "00:1b:44:11:3a:e4"
+                        },
+                        {
+                          "label": "Hands off to",
+                          "value": "192.168.2.1"
+                        },
+                        {
+                          "label": "Connects to",
+                          "value": "Router-1"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "links": [
+                {
+                  "linkId": "link-pc-a",
+                  "label": "PC-A to Switch-1 port 1",
+                  "endpoints": [
+                    "pc-a-nic",
+                    "sw-1-p1"
+                  ]
+                },
+                {
+                  "linkId": "link-pc-b",
+                  "label": "PC-B to Switch-1 port 2",
+                  "endpoints": [
+                    "pc-b-nic",
+                    "sw-1-p2"
+                  ]
+                },
+                {
+                  "linkId": "link-printer",
+                  "label": "Printer to Switch-1 port 3",
+                  "endpoints": [
+                    "printer-nic",
+                    "sw-1-p3"
+                  ]
+                },
+                {
+                  "linkId": "link-r-1",
+                  "label": "Router-1 to Switch-1 port 4",
+                  "endpoints": [
+                    "r-1-lan",
+                    "sw-1-p4"
+                  ]
+                },
+                {
+                  "linkId": "link-far",
+                  "label": "Router-1 to PC-C",
+                  "endpoints": [
+                    "r-1-far",
+                    "pc-c-nic"
+                  ]
+                }
+              ],
+              "traffic": {
+                "label": "what PC-A is sending to PC-C",
+                "sourceNodeId": "pc-a",
+                "destinationNodeId": "pc-c",
+                "startActionLabel": "Send to 192.168.2.20"
+              },
+              "stages": [
+                {
+                  "stageId": "t1-pc-a-hands-it-over",
+                  "atNodeId": "pc-a",
+                  "narration": "PC-A has something for 192.168.2.20. You already know both halves of what happens next: the destination is not in its group, so PC-A will not deliver it directly, and PC-A holds one address for exactly this situation.",
+                  "decision": "Nothing here is new. Mission 4 gave PC-A the decision and Mission 5 gave it the address. What has never been shown is what happens on the other side of that hand-off, and that starts one step from now.",
+                  "outcome": "proceeds",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What PC-A settled",
+                      "facts": [
+                        {
+                          "label": "Where it is trying to reach",
+                          "value": "192.168.2.20"
+                        },
+                        {
+                          "label": "In PC-A's group",
+                          "value": "No"
+                        },
+                        {
+                          "label": "So it hands to",
+                          "value": "192.168.1.1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t2-first-local-leg",
+                  "atNodeId": "sw-1",
+                  "narration": "The first leg is an ordinary local delivery, exactly as in Mission 2. Switch-1 receives it on port 1 and sends it out of port 4, to Router-1, by hardware identity. PC-B and the Printer see nothing.",
+                  "decision": "Look carefully at what Switch-1 is working from. It is delivering to 00:1b:44:11:3a:01, which is Router-1. It is not delivering to 192.168.2.20 and has never heard of it. Two different things are true at once, and keeping them apart is the whole of this mission.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "This leg's local delivery",
+                      "facts": [
+                        {
+                          "label": "Delivering to",
+                          "value": "00:1b:44:11:3a:01 — Router-1"
+                        },
+                        {
+                          "label": "On network",
+                          "value": "192.168.1"
+                        }
+                      ]
+                    },
+                    {
+                      "nodeId": "pc-a",
+                      "label": "Where it is ultimately going",
+                      "facts": [
+                        {
+                          "label": "From",
+                          "value": "192.168.1.10"
+                        },
+                        {
+                          "label": "To",
+                          "value": "192.168.2.20"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t3-router-receives",
+                  "atNodeId": "r-1",
+                  "narration": "It arrives at Router-1's local connection. Router-1 looks at where it is ultimately going — 192.168.2.20 — and that is not Router-1, and not on this network.",
+                  "decision": "Router-1 is in a position no other device here is in. Its second connection holds 192.168.2.1, which is inside 192.168.2. The destination is inside 192.168.2. So the machine being looked for is reachable, directly, from Router-1's other side.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-r-1",
+                  "prediction": {
+                    "prompt": "Router-1 is not 192.168.2.20, and 192.168.2.20 is not on the network this arrived from. Router-1's other connection holds 192.168.2.1. What does Router-1 do?",
+                    "options": [
+                      "Sends it back to PC-A, because it is not the destination",
+                      "Delivers it on its other connection, where that destination is local",
+                      "Holds it until 192.168.2.20 asks for it"
+                    ]
+                  },
+                  "deviceFacts": [
+                    {
+                      "nodeId": "r-1",
+                      "label": "What Router-1 sees",
+                      "facts": [
+                        {
+                          "label": "Where it is ultimately going",
+                          "value": "192.168.2.20"
+                        },
+                        {
+                          "label": "Is that me",
+                          "value": "No"
+                        },
+                        {
+                          "label": "On my local connection's network",
+                          "value": "No — that is 192.168.1"
+                        },
+                        {
+                          "label": "On my other connection's network",
+                          "value": "Yes — that is 192.168.2"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t4-second-local-leg",
+                  "atNodeId": "pc-c",
+                  "narration": "Router-1 delivers it out of its second connection, and it arrives at PC-C. That delivery was a local one, on 192.168.2, addressed to PC-C's hardware identity — the same kind of delivery Switch-1 performed on the first leg, on a different network.",
+                  "decision": "The wrapper that carried it across the first network was finished the moment it reached Router-1, and a new one was built for the second network. What did not change is where it was going: 192.168.2.20 was decided by PC-A before anything moved, and it is still 192.168.2.20 now.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-far",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "r-1",
+                      "label": "This leg's local delivery",
+                      "facts": [
+                        {
+                          "label": "Delivering to",
+                          "value": "00:1b:44:11:3a:e4 — PC-C"
+                        },
+                        {
+                          "label": "On network",
+                          "value": "192.168.2"
+                        }
+                      ]
+                    },
+                    {
+                      "nodeId": "pc-c",
+                      "label": "Where it was ultimately going",
+                      "facts": [
+                        {
+                          "label": "From",
+                          "value": "192.168.1.10"
+                        },
+                        {
+                          "label": "To",
+                          "value": "192.168.2.20"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t5-pc-c-answers",
+                  "atNodeId": "pc-c",
+                  "narration": "PC-C has it, and answers. Now watch PC-C do the same reasoning you watched PC-A do, from the other end.",
+                  "decision": "PC-C holds 192.168.2.20 with 24 after it, so its group is 192.168.2. It is replying to 192.168.1.10, which is not in that group. So PC-C will not deliver directly either, and it hands to the one address it holds for everything outside its group.",
+                  "outcome": "proceeds",
+                  "prediction": {
+                    "prompt": "PC-C holds 192.168.2.20/24 and must reply to 192.168.1.10. Apply the same rule PC-A applied. What does PC-C do?",
+                    "options": [
+                      "Delivers directly to 192.168.1.10, because it is a reply",
+                      "Hands it to 192.168.2.1, because 192.168.1.10 is outside its group",
+                      "Sends it to every machine on its network to find the way back"
+                    ]
+                  },
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-c",
+                      "label": "What PC-C settled",
+                      "facts": [
+                        {
+                          "label": "Where it is trying to reach",
+                          "value": "192.168.1.10"
+                        },
+                        {
+                          "label": "In PC-C's group",
+                          "value": "No"
+                        },
+                        {
+                          "label": "So it hands to",
+                          "value": "192.168.2.1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t6-return-first-leg",
+                  "atNodeId": "r-1",
+                  "narration": "The reply travels the first leg of its own trip: a local delivery on 192.168.2, addressed to Router-1's second connection, and it arrives there.",
+                  "decision": "Same shape as the outbound first leg, on the other network. A new wrapper again, built for this leg and finished at the end of it.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-far",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-c",
+                      "label": "This leg's local delivery",
+                      "facts": [
+                        {
+                          "label": "Delivering to",
+                          "value": "00:1b:44:11:3a:02 — Router-1"
+                        },
+                        {
+                          "label": "On network",
+                          "value": "192.168.2"
+                        }
+                      ]
+                    },
+                    {
+                      "nodeId": "r-1",
+                      "label": "Where it is ultimately going",
+                      "facts": [
+                        {
+                          "label": "From",
+                          "value": "192.168.2.20"
+                        },
+                        {
+                          "label": "To",
+                          "value": "192.168.1.10"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t7-return-second-leg",
+                  "atNodeId": "sw-1",
+                  "narration": "Router-1 looks at where the reply is ultimately going — 192.168.1.10 — and finds it inside 192.168.1, which is its local connection's network. So it delivers it there, and Switch-1 carries it to port 1.",
+                  "decision": "Router-1 did the same thing in both directions. It received something not addressed to it, found which of its two connections that destination sits behind, and made an ordinary local delivery on that side.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-r-1",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "r-1",
+                      "label": "This leg's local delivery",
+                      "facts": [
+                        {
+                          "label": "Delivering to",
+                          "value": "00:1b:44:11:3a:b7 — PC-A"
+                        },
+                        {
+                          "label": "On network",
+                          "value": "192.168.1"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "stageId": "t8-back-at-pc-a",
+                  "atNodeId": "pc-a",
+                  "narration": "It arrives at PC-A. The conversation PC-A started in Mission 4 has now happened in both directions.",
+                  "decision": "Four local deliveries, on two networks, carrying one exchange between two machines that were never on the same network and never addressed each other's hardware. Neither PC-A nor PC-C ever knew the other's hardware identity, and neither needed to.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-a",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "pc-a",
+                      "label": "What arrived",
+                      "facts": [
+                        {
+                          "label": "From",
+                          "value": "192.168.2.20"
+                        },
+                        {
+                          "label": "To",
+                          "value": "192.168.1.10"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "actions": [],
+              "confirmation": {
+                "narration": "It reached PC-C, and the reply reached PC-A. Two machines on different networks, and neither ever knew the other's hardware identity.",
+                "summary": "One exchange, four local deliveries, two networks. On every single leg the delivery was made to a hardware identity on that leg's own network — and on no leg was that identity the machine the exchange was actually between. What stayed the same from beginning to end was where it was going. What was thrown away and rebuilt, four times, was the wrapper that got it across one network."
+              }
+            }
+          }
+        },
+        {
+          "stableId": "m6-s3-what-survived",
+          "position": 2,
+          "content": {
+            "type": "concept",
+            "title": "What survived, and what did not",
+            "paragraphs": [
+              "Lay the four deliveries side by side. First leg: delivered to Router-1's hardware identity, on 192.168.1. Second leg: delivered to PC-C's hardware identity, on 192.168.2. Then the reply: to Router-1's other identity on 192.168.2, and finally to PC-A's on 192.168.1.",
+              "Four deliveries, four different hardware identities, two networks. Not one of those deliveries was addressed to the machine the exchange was actually between — except by accident at the very last step, where PC-A happened to be both.",
+              "Now lay the other thing beside it. From the moment PC-A decided to send, where it was going was 192.168.2.20. At Switch-1 it was still 192.168.2.20. At Router-1, still. On arrival, still. PC-A chose that before anything moved and nothing along the way altered it.",
+              "So two things were true at once for the whole journey, and they were doing different jobs. One of them said where this is ultimately for, and it survived every step. The other said who hands this to whom right now, on this network, and it was thrown away and rebuilt for each leg. Every hard part of networking gets easier once those two stop being the same thing in your head."
+            ]
+          }
+        },
+        {
+          "stableId": "m6-s4-two-units",
+          "position": 3,
+          "content": {
+            "type": "concept",
+            "title": "The two units",
+            "paragraphs": [
+              "You already have a name for the one that gets rebuilt. In Mission 2 you watched something travel from one interface to another across a single network, addressed by hardware identity, and it was called a frame. That is exactly what each of those four legs was: a frame, built for one network, finished when it got to the other end of that network.",
+              "The thing inside it — the part that said 192.168.2.20 and kept saying it — is called a packet. A packet is addressed to where the exchange is ultimately going, and it does not care how many networks lie between here and there.",
+              "So the relationship is simple, and you watched it rather than being told it: one packet travelled from PC-A to PC-C, and it did so inside four different frames, because there were four separate local deliveries to make. The packet is the trip. A frame is one leg of it.",
+              "This is why Switch-1 could deliver something addressed to 192.168.2.20 without having any idea what 192.168.2.20 is. Switch-1 was never looking at the packet. It was delivering a frame, to a hardware identity, on its own network — which is all it has ever done."
+            ]
+          }
+        },
+        {
+          "stableId": "m6-s5-what-router-1-was-doing",
+          "position": 4,
+          "content": {
+            "type": "concept",
+            "title": "What Router-1 was doing",
+            "paragraphs": [
+              "Router-1 did the same thing twice, once in each direction, and it is worth saying plainly because it is less clever than it looks.",
+              "Something arrived that was not addressed to Router-1 and not going to a machine on the network it came from. Router-1 has two connections, each belonging to a different network. It looked at where the packet was ultimately going, worked out which of its connections that destination sits behind, and made an ordinary local delivery on that side — a new frame, on that network, to a hardware identity there.",
+              "Deciding which way to send a packet that is not for you, so that it gets closer to where it is going, is called routing. That is the whole of what Router-1 contributed to this journey.",
+              "Notice what routing needed. It needed a device belonging to more than one network at once, which is the only genuinely unusual thing about Router-1 and is visible in its two addresses. It did not need Router-1 to understand the conversation, know anything about PC-A or PC-C, or be told anything in advance beyond which networks its own connections are in."
+            ]
+          }
+        },
+        {
+          "stableId": "m6-s6-two-kinds-of-decision",
+          "position": 5,
+          "content": {
+            "type": "concept",
+            "title": "Two kinds of decision",
+            "paragraphs": [
+              "Every decision in this whole journey was one of exactly two kinds, and you can now sort them yourself.",
+              "Some were about getting something across one network, right now, to a hardware identity on that network: Switch-1 delivering to a port, PC-A addressing its frame to Router-1, Router-1 addressing its frame to PC-C. Those decisions never look beyond the network they happen on. Collectively they are called Layer 2.",
+              "The others were about where this is ultimately going, and whether the destination is in my group or somewhere else: PC-A deciding 192.168.2.20 was remote, Router-1 deciding which connection sits closer to it, PC-C deciding the same in reverse. Those decisions ignore hardware identities entirely and work in assigned addresses. Collectively they are called Layer 3.",
+              "Treat those two names as shorthand for behaviour you have already watched, because that is all they are here. There are formal models that number these layers and add more of them, and they are worth meeting when you have a reason to want them. You have not been given one, so this course does not hand you a diagram to memorise. You have something more useful: you can look at a decision and say which kind it is."
+            ]
+          }
+        },
+        {
+          "stableId": "m6-s7-the-question-to-carry-forward",
+          "position": 6,
+          "content": {
+            "type": "concept",
+            "title": "The question to carry forward",
+            "paragraphs": [
+              "Five missions have come together into one trip. PC-A's local decision, the prefix that settled it, the hand-off address, the hardware identities the switch works from, and the topology you first read in Mission 1 — all of it was in play, and none of it was new.",
+              "You can now follow an exchange from one network to another and back, and say at every step which identity is being used, which one survives, and which one is about to be replaced.",
+              "There is something you cannot do yet, and it is a different kind of thing. Everything you just concluded, you concluded because you were shown it. You watched the frames being rebuilt. In front of a real network nobody shows you that, and the trip is not a picture — it either works or it does not, and you have to establish which from outside.",
+              "So carry this into the next mission: if nobody showed you, how would you find out whether any of that is actually happening?"
+            ]
+          }
+        }
+      ],
       "assets": []
     },
     {
