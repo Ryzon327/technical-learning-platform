@@ -313,6 +313,7 @@ const NF_M2 = "nf-m2-inside-one-network";
 const NF_M3 = "nf-m3-ipv4-the-second-identity";
 const NF_M4 = "nf-m4-the-prefix-and-the-decision";
 const NF_M5 = "nf-m5-the-default-gateway";
+const NF_M6 = "nf-m6-routers-and-the-journey";
 
 describe("the production course reaches the harness through the real parser", () => {
   const outcome = loadUatDocument(networkingFoundations);
@@ -359,14 +360,14 @@ describe("the production course reaches the harness through the real parser", ()
   it("lists the unauthored missions without pretending they have content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
-    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5];
+    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5, NF_M6];
     const later = listUatMissions(outcome.document).filter(
       (mission) => !authored.includes(mission.stableId)
     );
 
-    // Three now: WP-J6 authored Mission 5 and the boundary moved with it. The
+    // Two now: WP-J7 authored Mission 6 and the boundary moved with it. The
     // assertion still protects every mission nobody has authored yet.
-    expect(later.length).toBe(3);
+    expect(later.length).toBe(2);
     for (const mission of later) {
       expect(mission.stepCount).toBe(0);
       expect(mission.hasInteraction).toBe(false);
@@ -400,6 +401,20 @@ describe("the production course reaches the harness through the real parser", ()
     // offer it for review.
     expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
     expect(mission?.hasInteraction).toBe(false);
+    expect(mission?.hasPassivePrediction).toBe(false);
+  });
+
+  it("offers Mission 6's round trip for review", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const mission = listUatMissions(outcome.document).find(
+      (m) => m.stableId === NF_M6
+    );
+
+    // Mission 6 authors one continuous journey covering the trip out and the
+    // reply back, so the harness must surface it as carrying an interaction.
+    expect(mission?.stepCount ?? 0).toBeGreaterThan(0);
+    expect(mission?.hasInteraction).toBe(true);
     expect(mission?.hasPassivePrediction).toBe(false);
   });
 

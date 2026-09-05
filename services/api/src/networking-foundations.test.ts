@@ -203,16 +203,17 @@ describe("the authored course parses and is the approved architecture", () => {
  * A count would permit any redistribution that happened to total the same.
  *
  * The allowlist grows by exactly the mission a slice authored, never by
- * anticipation: each approved slice adds one, and WP-J6 adds Mission 5.
- * Missions 6 to 8 stay off it, and the assertion below still fails if any of
- * them acquires a step.
+ * anticipation: each approved slice adds one, and WP-J7 adds Mission 6.
+ * Missions 7 and 8 stay off it, and the assertion below still fails if either
+ * acquires a step.
  */
 const AUTHORED_MISSIONS = [
   "nf-m1-what-a-network-is",
   "nf-m2-inside-one-network",
   "nf-m3-ipv4-the-second-identity",
   "nf-m4-the-prefix-and-the-decision",
-  "nf-m5-the-default-gateway"
+  "nf-m5-the-default-gateway",
+  "nf-m6-routers-and-the-journey"
 ] as const;
 
 describe("only the authorized missions carry instruction", () => {
@@ -253,6 +254,9 @@ describe("only the authorized missions carry instruction", () => {
    *           differently for two destinations, and a single journey cannot
    *           show a difference. Splitting them is what makes the second one a
    *           changed context rather than a continuation.
+   *   M6      one — a single continuous round trip. Its subject is one
+   *           exchange crossing two networks and coming back, so splitting it
+   *           would break the very continuity it exists to show.
    *
    * A flat count would have forced a journey into Mission 3 and forbidden the
    * second one in Mission 4 — in both cases making the architecture, rather
@@ -264,7 +268,8 @@ describe("only the authorized missions carry instruction", () => {
   const JOURNEY_COUNTS: Readonly<Record<string, number>> = {
     "nf-m1-what-a-network-is": 1,
     "nf-m2-inside-one-network": 1,
-    "nf-m4-the-prefix-and-the-decision": 2
+    "nf-m4-the-prefix-and-the-decision": 2,
+    "nf-m6-routers-and-the-journey": 1
   };
 
   it("authors interactions only where a journey is the teaching", () => {
