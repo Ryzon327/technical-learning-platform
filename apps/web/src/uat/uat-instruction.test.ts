@@ -358,21 +358,33 @@ describe("the production course reaches the harness through the real parser", ()
     expect(mission?.hasPassivePrediction).toBe(false);
   });
 
-  it("lists the unauthored missions without pretending they have content", () => {
+  it("offers every mission the course declares, each with its own content", () => {
     if (outcome.state !== "ready") throw new Error("document did not parse");
 
-    const authored = [NF_M1, NF_M2, NF_M3, NF_M4, NF_M5, NF_M6, NF_M7];
-    const later = listUatMissions(outcome.document).filter(
-      (mission) => !authored.includes(mission.stableId)
+    // WP-J9 authored Mission 8, the last approved mission, so there is no
+    // unauthored mission left for this to protect. Asserting an empty tail
+    // would be a check that can only pass (DEC-061). What the harness still
+    // has to get right is that it offers every mission for review and invents
+    // content for none of them.
+    const missions = listUatMissions(outcome.document);
+
+    expect(missions).toHaveLength(8);
+    for (const mission of missions) {
+      expect(`${mission.stableId} ${mission.stepCount > 0}`).toBe(
+        `${mission.stableId} true`
+      );
+    }
+  });
+
+  it("offers Mission 8's journey, the only one in the course with a fault", () => {
+    if (outcome.state !== "ready") throw new Error("document did not parse");
+
+    const mission = listUatMissions(outcome.document).find(
+      (m) => m.stableId === "nf-m8-when-it-does-not-work"
     );
 
-    // One now: WP-J8 authored Mission 7, leaving only Mission 8. The assertion
-    // still protects the mission nobody has authored yet.
-    expect(later.length).toBe(1);
-    for (const mission of later) {
-      expect(mission.stepCount).toBe(0);
-      expect(mission.hasInteraction).toBe(false);
-    }
+    expect(mission?.hasInteraction).toBe(true);
+    expect(mission?.hasPassivePrediction).toBe(false);
   });
 
   it("offers Mission 4's two journeys for review", () => {

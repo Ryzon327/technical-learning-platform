@@ -63,9 +63,6 @@ const MODULE4 = "nf-mod4-prove-it-and-fix-it";
 const GATEWAY = "192.168.1.1";
 const FAR_HOST = "192.168.2.20";
 
-/** The only mission no slice has authored yet. */
-const UNAUTHORED = ["nf-m8-when-it-does-not-work"] as const;
-
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
     JSON.parse(readFileSync(DOCUMENT_PATH, "utf8"))
@@ -221,11 +218,21 @@ describe("Mission 7 is the approved mission, in the approved place", () => {
     expect(developers).toEqual([M7]);
   });
 
-  it("leaves Mission 8 with no step of any kind", () => {
-    for (const stableId of UNAUTHORED) {
-      expect(`${stableId} ${mission(stableId).steps.length}`).toBe(
-        `${stableId} 0`
-      );
+  it("keeps this mission's instruction inside this mission", () => {
+    // DEC-061: Mission 8 is authored now, so there is no unauthored tail for
+    // this gate to assert about, and asserting one would be a check that can
+    // only pass. What this gate still owns is its own mission — a Mission 7
+    // step may appear under Mission 7 and under no other mission, which is
+    // what stops instruction migrating now that an empty array no longer
+    // signals a mission that has quietly acquired content.
+    for (const m of document.missions) {
+      const mine = m.steps
+        .map((step) => step.stableId)
+        .filter((stableId) => stableId.startsWith("m7-s"));
+
+      const expected = m.stableId === M7 ? m.steps.length : 0;
+
+      expect(`${m.stableId} ${mine.length}`).toBe(`${m.stableId} ${expected}`);
     }
   });
 

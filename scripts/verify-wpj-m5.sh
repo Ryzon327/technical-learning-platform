@@ -95,23 +95,44 @@ grep -Fq '"stableId": "m5-s' "$M5_BLOCK" \
 echo "PASS:  1. Mission 5 is authored under its approved identity"
 
 # ------------------------------------------------------------
-# 2. The staged-authoring boundary moved forward, not away
+# 2. This mission is declared authored, and owns its own instruction
 # ------------------------------------------------------------
-# Written in the durable form: the split exists, and it no longer sits at
-# Mission 5. Pinning the NEXT mission's anchor is what made the Mission 3 and
-# Mission 4 gates fail when the course made approved progress, and this gate
-# does not repeat it.
-if grep -Fq 'M5_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate anchors its staged-authoring split at Mission 5; Mission 5 is authored, so the boundary belongs after it"
-fi
+# This section used to assert that the course gate's staged-authoring anchor
+# had moved past Mission 5 and that some LATER anchor still existed. That was
+# the durable form of a check that had already broken once by pinning the next
+# mission's name, and it survived three boundary moves — but it still encoded
+# an opinion about a mission this gate does not own.
+#
+# It could not survive the last move. Mission 8 has no successor, so "a later
+# anchor exists" became a claim about a mission that will never be declared,
+# and all five mission gates would have failed at once on the slice that
+# authored it. DEC-061 replaces the anchor with an explicit declaration of
+# which missions are approved and which are authored.
+#
+# So this gate now asserts what it actually owns: the declaration lists
+# Mission 5 as authored, and Mission 5's steps appear under Mission 5
+# and nowhere else. Both are true in either authoring state, and neither goes
+# stale when a later slice lands. Whether the course as a whole is STAGED or
+# FULLY_AUTHORED is the course gate's business, and it is the only place that
+# decides it.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
 
-grep -Eq '^M[678]_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors a staged-authoring split after Mission 5"
+wpj_require_authored 'nf-m5-the-default-gateway' 'verify-wpj-m5.sh'
 
-grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
-  || fail "the course gate no longer splits authored from unauthored missions"
+grep -Fq 'wpj_mission_authority_load' "$COURSE_GATE" \
+  || fail "the course gate no longer reads the mission authority declaration; nothing would then constrain which missions may carry instruction"
 
-echo "PASS:  2. the staged-authoring boundary sits after Mission 5, not away"
+MISSION_STEP_OWNERSHIP="$SCAN_DIR/m5-step-ownership.txt"
+grep -o '"stableId": "m[0-9]*-s[^"]*"' "$DOCUMENT" > "$MISSION_STEP_OWNERSHIP" || true
+
+M5_OWN_STEPS="$(grep -c '"stableId": "m5-s' "$MISSION_STEP_OWNERSHIP" || true)"
+M5_BLOCK_STEPS="$(grep -c '"stableId": "m5-s' "$M5_BLOCK" || true)"
+
+[ "$M5_OWN_STEPS" = "$M5_BLOCK_STEPS" ] \
+  || fail "$M5_OWN_STEPS Mission 5 steps exist in the document but only $M5_BLOCK_STEPS sit inside Mission 5; instruction may not migrate between missions"
+
+echo "PASS:  2. Mission 5 is declared authored and owns its own instruction"
 
 # ------------------------------------------------------------
 # 3. Mission 5 stays the small mission it is designed to be
@@ -307,7 +328,9 @@ which is the design rather than an omission.
 
 The constraint that a gateway must itself be locally
 reachable is explained with Mission 4's own rule, and is not
-turned into the fault Mission 8 may later use.
+turned into a fault here. Mission 8 is where a machine is
+actually configured that way, and this gate still fails if
+Mission 5 spends it early.
 
 No Mission 6 vocabulary reaches the learner, so the mission
 still ends on the question Mission 6 exists to answer.

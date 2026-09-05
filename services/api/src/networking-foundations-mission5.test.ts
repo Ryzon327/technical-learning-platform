@@ -57,11 +57,6 @@ const MODULE3 = "nf-mod3-reaching-another-network";
 /** The address Mission 4 planted on Router-1 and Mission 5 gives meaning to. */
 const GATEWAY_ADDRESS = "192.168.1.1";
 
-/** Missions no slice has authored yet. */
-const UNAUTHORED = [
-  "nf-m8-when-it-does-not-work"
-] as const;
-
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
     JSON.parse(readFileSync(DOCUMENT_PATH, "utf8"))
@@ -191,11 +186,21 @@ describe("Mission 5 is the approved mission, in the approved place", () => {
     expect(developers).toEqual([M5]);
   });
 
-  it("leaves every still-unauthored mission with no step of any kind", () => {
-    for (const stableId of UNAUTHORED) {
-      expect(`${stableId} ${mission(stableId).steps.length}`).toBe(
-        `${stableId} 0`
-      );
+  it("keeps this mission's instruction inside this mission", () => {
+    // DEC-061: the course is fully authored, so there is no unauthored tail for
+    // this gate to assert about, and asserting one would be a check that can
+    // only pass. What this gate still owns is its own mission — a Mission 5
+    // step may appear under Mission 5 and under no other mission, which is
+    // what stops instruction migrating now that an empty array no longer
+    // signals a mission that has quietly acquired content.
+    for (const m of document.missions) {
+      const mine = m.steps
+        .map((step) => step.stableId)
+        .filter((stableId) => stableId.startsWith("m5-s"));
+
+      const expected = m.stableId === M5 ? m.steps.length : 0;
+
+      expect(`${m.stableId} ${mine.length}`).toBe(`${m.stableId} ${expected}`);
     }
   });
 

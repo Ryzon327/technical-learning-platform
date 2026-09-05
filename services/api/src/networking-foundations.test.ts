@@ -190,45 +190,112 @@ describe("the authored course parses and is the approved architecture", () => {
  * ------------------------------------------------------------------ */
 
 /**
- * The staged-authoring invariant.
+ * The mission authority declaration, read as data.
+ *
+ * ## Why this is no longer a literal in this file
  *
  * J1 asserted that ALL EIGHT missions carried no instruction, which was the
- * right statement while J1 was the newest slice. Module 1 authoring supersedes
- * it, and the replacement is deliberately not a weaker version of the same
- * idea: instead of "nothing is authored", it is "exactly the authorized
- * missions are authored, and every other mission is still empty".
+ * right statement while J1 was the newest slice. Module 1 superseded it with an
+ * allowlist: "exactly the authorized missions are authored, and every other
+ * mission is still empty". A list rather than a count, so that authoring a
+ * ninth step in M1 stayed legal while authoring a first step in M5 did not.
  *
- * Written as an explicit allowlist rather than a count, so that authoring a
- * ninth step in M1 stays legal while authoring a first step in M5 does not.
- * A count would permit any redistribution that happened to total the same.
+ * That allowlist lived here, and an equivalent one lived in `verify-wpj.sh` as
+ * a positional anchor, and five per-mission gates each held an opinion about
+ * which mission came next. Six places, one fact. DEC-061 replaces all of them
+ * with `scripts/lib/wpj-missions.txt`, and this reads that file rather than
+ * restating it — so the declaration a reviewer reads is the declaration this
+ * suite enforces.
  *
- * The allowlist grows by exactly the mission a slice authored, never by
- * anticipation: each approved slice adds one, and WP-J8 adds Mission 7.
- * Mission 8 stays off it, and the assertion below still fails if it acquires a
- * step.
+ * The invariant is unchanged: instruction appears in exactly the missions
+ * approved for authored instruction, and in no other mission.
  */
-const AUTHORED_MISSIONS = [
-  "nf-m1-what-a-network-is",
-  "nf-m2-inside-one-network",
-  "nf-m3-ipv4-the-second-identity",
-  "nf-m4-the-prefix-and-the-decision",
-  "nf-m5-the-default-gateway",
-  "nf-m6-routers-and-the-journey",
-  "nf-m7-testing-whether-it-works"
-] as const;
+const MISSION_DECLARATION_PATH = join(
+  REPOSITORY_ROOT,
+  "scripts",
+  "lib",
+  "wpj-missions.txt"
+);
 
-describe("only the authorized missions carry instruction", () => {
-  it("authors steps in the authorized missions and nowhere else", () => {
-    for (const mission of document.missions) {
-      const authorized = (AUTHORED_MISSIONS as readonly string[]).includes(
-        mission.stableId
+interface DeclaredMission {
+  readonly position: number;
+  readonly stableId: string;
+  readonly state: string;
+}
+
+const DECLARATION: readonly DeclaredMission[] = readTable(
+  MISSION_DECLARATION_PATH
+).map(([position, stableId, state]) => ({
+  position: Number(position),
+  stableId: stableId ?? "",
+  state: state ?? ""
+}));
+
+describe("the mission authority declaration governs what may carry instruction", () => {
+  it("declares exactly the missions the document contains, in the same order", () => {
+    expect(DECLARATION.map((entry) => entry.stableId)).toEqual(
+      missionsInLearningOrder().map((mission) => mission.stableId)
+    );
+  });
+
+  it("numbers the declared missions in increasing order from one", () => {
+    expect(DECLARATION.map((entry) => entry.position)).toEqual(
+      DECLARATION.map((_entry, index) => index + 1)
+    );
+  });
+
+  it("declares every mission as either authored or unauthored, and nothing else", () => {
+    for (const entry of DECLARATION) {
+      expect(`${entry.stableId} ${entry.state}`).toBe(
+        `${entry.stableId} ${entry.state === "unauthored" ? "unauthored" : "authored"}`
       );
+      expect(["authored", "unauthored"]).toContain(entry.state);
+    }
+  });
 
-      if (authorized) {
-        expect(mission.steps.length).toBeGreaterThan(0);
-      } else {
-        expect(mission.steps).toEqual([]);
-      }
+  it("authors steps in the declared missions and nowhere else", () => {
+    for (const entry of DECLARATION) {
+      const found = document.missions.find(
+        (m) => m.stableId === entry.stableId
+      );
+      const authored = (found?.steps.length ?? 0) > 0;
+
+      expect(`${entry.stableId} authored: ${authored}`).toBe(
+        `${entry.stableId} authored: ${entry.state === "authored"}`
+      );
+    }
+  });
+
+  /**
+   * The terminal state, and what it does and does not mean.
+   *
+   * FULLY_AUTHORED is derived from the declaration rather than declared beside
+   * it, because two representations of one fact would need reconciling. It
+   * means every approved mission is STRUCTURALLY authored. It does not mean the
+   * course is doctrine-approved, UAT-approved, publishable, migrated or
+   * certification-ready — doctrine §23.2 is explicit that passing checks is not
+   * completion, and no assertion here could establish otherwise.
+   */
+  it("contains no mission beyond the eight the declaration approves", () => {
+    expect(document.missions).toHaveLength(8);
+    expect(DECLARATION).toHaveLength(8);
+  });
+
+  it("keeps every mission's steps inside that mission", () => {
+    // With no unauthored tail left, an empty step array no longer signals a
+    // mission that has quietly acquired content. What still does is a step id
+    // appearing under a mission it does not belong to.
+    const order = missionsInLearningOrder();
+
+    for (const [index, m] of order.entries()) {
+      const prefix = `m${index + 1}-s`;
+      const foreign = m.steps
+        .map((step) => step.stableId)
+        .filter((stableId) => !stableId.startsWith(prefix));
+
+      expect(`${m.stableId} foreign steps: ${foreign.join(",")}`).toBe(
+        `${m.stableId} foreign steps: `
+      );
     }
   });
 
@@ -261,19 +328,25 @@ describe("only the authorized missions carry instruction", () => {
    *   M6      one — a single continuous round trip. Its subject is one
    *           exchange crossing two networks and coming back, so splitting it
    *           would break the very continuity it exists to show.
+   *   M8      one — the same round trip, begun with a fault in it. One journey
+   *           rather than a broken one and a repaired one, because the repair
+   *           and the continuation are the same causal sequence: the learner
+   *           has to see the thing that stopped go on to work.
    *
    * A flat count would have forced a journey into Mission 3 and forbidden the
    * second one in Mission 4 — in both cases making the architecture, rather
    * than the teaching, decide the shape of the lesson.
    *
    * What stays absolute is the other half: a mission not listed here carries
-   * no interaction at all, so an unauthored mission cannot acquire one.
+   * no interaction at all, so a mission with nothing to animate cannot quietly
+   * acquire a journey.
    */
   const JOURNEY_COUNTS: Readonly<Record<string, number>> = {
     "nf-m1-what-a-network-is": 1,
     "nf-m2-inside-one-network": 1,
     "nf-m4-the-prefix-and-the-decision": 2,
-    "nf-m6-routers-and-the-journey": 1
+    "nf-m6-routers-and-the-journey": 1,
+    "nf-m8-when-it-does-not-work": 1
   };
 
   it("authors interactions only where a journey is the teaching", () => {

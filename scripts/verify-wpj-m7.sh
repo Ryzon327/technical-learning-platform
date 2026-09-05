@@ -91,26 +91,44 @@ grep -Fq '"stableId": "m7-s' "$M7_BLOCK" \
 echo "PASS:  1. Mission 7 is authored under its approved identity"
 
 # ------------------------------------------------------------
-# 2. The staged-authoring boundary moved forward, not away
+# 2. This mission is declared authored, and owns its own instruction
 # ------------------------------------------------------------
-# The durable form: the split exists, and no longer sits at Mission 7.
-if grep -Fq 'M7_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate anchors its staged-authoring split at Mission 7; Mission 7 is authored, so the boundary belongs after it"
-fi
+# This section used to assert that the course gate's staged-authoring anchor
+# had moved past Mission 7 and that some LATER anchor still existed. That was
+# the durable form of a check that had already broken once by pinning the next
+# mission's name, and it survived three boundary moves — but it still encoded
+# an opinion about a mission this gate does not own.
+#
+# It could not survive the last move. Mission 8 has no successor, so "a later
+# anchor exists" became a claim about a mission that will never be declared,
+# and all five mission gates would have failed at once on the slice that
+# authored it. DEC-061 replaces the anchor with an explicit declaration of
+# which missions are approved and which are authored.
+#
+# So this gate now asserts what it actually owns: the declaration lists
+# Mission 7 as authored, and Mission 7's steps appear under Mission 7
+# and nowhere else. Both are true in either authoring state, and neither goes
+# stale when a later slice lands. Whether the course as a whole is STAGED or
+# FULLY_AUTHORED is the course gate's business, and it is the only place that
+# decides it.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
 
-grep -Eq '^M8_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors a staged-authoring split after Mission 7"
+wpj_require_authored 'nf-m7-testing-whether-it-works' 'verify-wpj-m7.sh'
 
-grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
-  || fail "the course gate no longer splits authored from unauthored missions"
+grep -Fq 'wpj_mission_authority_load' "$COURSE_GATE" \
+  || fail "the course gate no longer reads the mission authority declaration; nothing would then constrain which missions may carry instruction"
 
-# The course is one mission from fully authored, and the split model assumes an
-# unauthored tail to anchor against. Recorded so the Mission 8 slice meets the
-# decision deliberately rather than discovering it mid-authoring.
-grep -Fq 'NOTE for the Mission 8 slice' "$COURSE_GATE" \
-  || fail "the course gate no longer records the fully-authored-course boundary question for the Mission 8 slice"
+MISSION_STEP_OWNERSHIP="$SCAN_DIR/m7-step-ownership.txt"
+grep -o '"stableId": "m[0-9]*-s[^"]*"' "$DOCUMENT" > "$MISSION_STEP_OWNERSHIP" || true
 
-echo "PASS:  2. the boundary sits after Mission 7, and the Mission 8 question is recorded"
+M7_OWN_STEPS="$(grep -c '"stableId": "m7-s' "$MISSION_STEP_OWNERSHIP" || true)"
+M7_BLOCK_STEPS="$(grep -c '"stableId": "m7-s' "$M7_BLOCK" || true)"
+
+[ "$M7_OWN_STEPS" = "$M7_BLOCK_STEPS" ] \
+  || fail "$M7_OWN_STEPS Mission 7 steps exist in the document but only $M7_BLOCK_STEPS sit inside Mission 7; instruction may not migrate between missions"
+
+echo "PASS:  2. Mission 7 is declared authored and owns its own instruction"
 
 # ------------------------------------------------------------
 # 3. Two displayed tests, both successful, no journey
@@ -308,10 +326,11 @@ that it says nothing about whether PC-C is reachable — and
 the far-host result is bounded to that exchange rather than
 to "the network works".
 
-Nothing is broken. Both results succeed, and the lesson
-about which test to run first is reasoned from a hypothesis,
-so Mission 8's failure, diagnosis, repair and confirmation
-remain entirely unspent.
+Nothing is broken IN MISSION 7. Both results succeed and
+the lesson about which test to run first is reasoned from a
+hypothesis rather than from a failure, so the first real
+failure is still Mission 8's — and this gate still fails if a
+broken result appears here.
 
 No journey, no prediction control, no assessment and no lab
 surface. Mission 7 develops connectivity verification and

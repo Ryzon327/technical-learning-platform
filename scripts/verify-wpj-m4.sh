@@ -102,37 +102,44 @@ grep -Fq '"stableId": "m4-s' "$M4_BLOCK" \
 echo "PASS:  1. Mission 4 is authored under its approved identity"
 
 # ------------------------------------------------------------
-# 2. The staged-authoring boundary moved forward, not away
+# 2. This mission is declared authored, and owns its own instruction
 # ------------------------------------------------------------
-# The course gate owns the invariant. What is checked here is that the split
-# still exists and sits SOMEWHERE AFTER Mission 4 — so every mission nobody has
-# authored yet is protected by the same check that protected Mission 4 before
-# this slice.
+# This section used to assert that the course gate's staged-authoring anchor
+# had moved past Mission 4 and that some LATER anchor still existed. That was
+# the durable form of a check that had already broken once by pinning the next
+# mission's name, and it survived three boundary moves — but it still encoded
+# an opinion about a mission this gate does not own.
 #
-# ## Why this is not pinned to Mission 5
+# It could not survive the last move. Mission 8 has no successor, so "a later
+# anchor exists" became a claim about a mission that will never be declared,
+# and all five mission gates would have failed at once on the slice that
+# authored it. DEC-061 replaces the anchor with an explicit declaration of
+# which missions are approved and which are authored.
 #
-# It was, and it was wrong for the same reason the Mission 3 gate was wrong
-# before it: pinning `M5_ANCHOR` present and `M4_ANCHOR` absent is true only
-# while Mission 5 is the boundary, and becomes false the moment Mission 5 is
-# legitimately authored and the boundary moves to Mission 6. A gate that fails
-# because the course made approved progress teaches the next author to edit it
-# out of the way rather than trust it — and this repository has now made that
-# mistake twice, which is why the durable form is written out here.
-#
-# The rule is what it always meant: the split exists, and it no longer sits at
-# Mission 4. Which mission it has reached is the course gate's business, and
-# each mission's own gate asserts only its own edge.
-if grep -Fq 'M4_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate anchors its staged-authoring split at Mission 4; Mission 4 is authored, so the boundary belongs after it"
-fi
+# So this gate now asserts what it actually owns: the declaration lists
+# Mission 4 as authored, and Mission 4's steps appear under Mission 4
+# and nowhere else. Both are true in either authoring state, and neither goes
+# stale when a later slice lands. Whether the course as a whole is STAGED or
+# FULLY_AUTHORED is the course gate's business, and it is the only place that
+# decides it.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
 
-grep -Eq '^M[5678]_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors a staged-authoring split after Mission 4"
+wpj_require_authored 'nf-m4-the-prefix-and-the-decision' 'verify-wpj-m4.sh'
 
-grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
-  || fail "the course gate no longer splits authored from unauthored missions"
+grep -Fq 'wpj_mission_authority_load' "$COURSE_GATE" \
+  || fail "the course gate no longer reads the mission authority declaration; nothing would then constrain which missions may carry instruction"
 
-echo "PASS:  2. the staged-authoring boundary sits after Mission 4, not away"
+MISSION_STEP_OWNERSHIP="$SCAN_DIR/m4-step-ownership.txt"
+grep -o '"stableId": "m[0-9]*-s[^"]*"' "$DOCUMENT" > "$MISSION_STEP_OWNERSHIP" || true
+
+M4_OWN_STEPS="$(grep -c '"stableId": "m4-s' "$MISSION_STEP_OWNERSHIP" || true)"
+M4_BLOCK_STEPS="$(grep -c '"stableId": "m4-s' "$M4_BLOCK" || true)"
+
+[ "$M4_OWN_STEPS" = "$M4_BLOCK_STEPS" ] \
+  || fail "$M4_OWN_STEPS Mission 4 steps exist in the document but only $M4_BLOCK_STEPS sit inside Mission 4; instruction may not migrate between missions"
+
+echo "PASS:  2. Mission 4 is declared authored and owns its own instruction"
 
 # ------------------------------------------------------------
 # 3. Two journeys, and the remote one does not arrive
@@ -370,9 +377,10 @@ device Mission 1 introduced and never as a role, and no
 Mission 5 vocabulary reaches the learner — so the mission
 still ends on the question Mission 5 exists to answer.
 
-The staged-authoring boundary sits after Mission 4 and moves
-only when a slice is approved to author the next mission, so
-every mission nobody has authored yet stays prohibited.
+The course is fully authored (DEC-061), so this gate no
+longer asserts anything about an unauthored tail. It asserts
+that Mission 4 is declared authored and that every Mission 4
+step sits inside Mission 4 and nowhere else.
 
 This gate proves AUTHORED STRUCTURE, absence and ordering.
 It does NOT prove:

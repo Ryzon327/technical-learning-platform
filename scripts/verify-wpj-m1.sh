@@ -147,8 +147,21 @@ echo "PASS:  2. both interactions are authored teaching of a registered type"
 # contract would then require a resolving action, which is a repair the learner
 # would be guessing at. The confirmation moment comes from the second delivery
 # succeeding differently, not from fixing something.
+#
+# ## Why this scans the Module 1 block and not the whole document
+#
+# It used to scan `$DOCUMENT`, which meant a gate named for Module 1 held an
+# opinion about every mission in the course. That was invisible while no
+# mission anywhere authored a fault, and it failed the moment WP-J9 authored
+# the one the course was always going to end with — reporting the defect as
+# "Module 1 authored a fault", which Module 1 had not done.
+#
+# The rule is unchanged and is not weakened: Module 1 authors no fault and no
+# remediation, and that is still asserted here. What changed is that the check
+# now owns the missions this gate owns. Mission 8's fault is asserted by
+# `verify-wpj-m8.sh`, and `verify-wpj.sh` owns the course.
 for absent in '"fault"' 'stopsAtStageId' 'resolvesFault' '"outcome": "stops"'; do
-  if grep -qF -e "$absent" "$DOCUMENT"; then
+  if grep -qF -e "$absent" "$MODULE1_BLOCK"; then
     fail "Module 1 authored a fault or a remediation: $absent"
   fi
 done

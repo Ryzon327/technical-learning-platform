@@ -2843,6 +2843,156 @@ authorized by this decision.**
 
 ---
 
+## DEC-061
+
+**Category**
+
+Architecture
+
+**Title**
+
+Staged Authoring Completes into an Explicit Mission-Authority Declaration
+
+**Status**
+
+Approved
+
+**Decision**
+
+**Problem.** WP-J enforced an invariant it called STAGED AUTHORING:
+
+> Instruction appears in exactly the missions a slice was approved to author,
+> and in no other mission.
+
+It was implemented positionally. `scripts/verify-wpj.sh` split the curriculum
+document at the **next unauthored mission's** `stableId` and proved that no
+instructional content appeared past the split, and five per-mission gates each
+asserted that their own anchor was gone and that a **later** anchor still
+existed. The boundary moved forward exactly once per approved slice, and it
+survived three moves without going stale.
+
+That mechanism cannot represent the terminal state. Mission 8 is the last
+approved mission of Networking Foundations, so authoring it leaves no Mission 9
+to anchor against. The split would have nothing to protect and all five prior
+mission gates would fail at once, on the one slice where nothing was actually
+wrong.
+
+**Decision.** The staged-authoring invariant is **completed, not retired**. The
+positional anchor is replaced by an explicit declaration of mission authority at
+`scripts/lib/wpj-missions.txt`, read through the shared helper
+`scripts/lib/wpj-mission-authority.sh`. The declaration records, per mission:
+approved order, exact `stableId`, and `authored` or `unauthored`.
+
+The course has **two legitimate states**, and the state is **derived** from the
+declaration rather than declared beside it:
+
+* **STAGED** — at least one approved mission is `unauthored`. Declared
+  unauthored missions must carry an empty step array, and no instructional
+  content of any kind may appear in the region of the document they occupy. This
+  is the positional split, unchanged in what it proves; only the anchor's source
+  changed.
+* **FULLY_AUTHORED** — every approved mission is `authored`. There is no
+  unauthored region left, so that protection **retires itself** rather than
+  being deleted. What remains enforced is that exactly the approved missions
+  exist, in the approved order, each carrying its own instruction and no other
+  mission's.
+
+**FULLY_AUTHORED means structurally authored, and nothing more.** It does **not**
+mean the course is doctrine-approved, Founder-UAT-approved, publishable,
+migrated, certification-mapped, or that any learner has demonstrated anything.
+Doctrine §23.2 is explicit that passing checks is not completion. **Tier 3
+human authority under CURR-009 §14a remains required** for doctrine compliance
+and for instructional quality, and Founder UAT remains required before the
+course can be considered complete in any sense a learner would recognise. No
+gate may pre-empt either. The verifiers say so in their own output.
+
+Per-mission gates no longer encode any opinion about whether a later mission
+exists. A mission gate owns its mission: it asserts that the declaration lists
+that mission as authored, and that the mission's steps appear under it and
+nowhere else. The top-level `verify-wpj.sh` owns the course's authoring state and
+is the only place that decides it.
+
+**Rationale**
+
+The anchor was never the invariant. It was one way of expressing the invariant
+while an unauthored tail happened to exist, and the tail was a property of the
+course's progress rather than of the rule. Naming the rule directly is what turns
+the last boundary move into a state transition instead of a demolition.
+
+Six places previously held one fact — the course gate's anchor variable and five
+per-mission assertions about which mission came next. That coupling is why a
+single boundary move touched six files, and why the terminal move would have
+broken five gates simultaneously. One declaration, read by one helper, removes
+the coupling without weakening anything.
+
+A declaration file is also more reviewable than a variable name. Moving a
+mission from `unauthored` to `authored` is one word, in the diff, beside the
+mission it describes. `scripts/lib/wpj-concept-ledger.txt` already established
+that this repository trusts a reviewed declaration for exactly this kind of
+ordering authority.
+
+**Alternatives Considered**
+
+*Invent a Mission 9 to anchor against* — rejected. A fictional mission in a
+production curriculum document to keep a verifier's mechanism alive is a lie in
+the artefact that the artefact exists to be trusted for.
+
+*Delete the positional split once the course is fully authored* — rejected. It
+would remove the protection rather than complete it, leave the invariant
+unavailable to the next course that needs staged authoring, and teach a future
+maintainer that the rule stopped applying.
+
+*Anchor to the end of the missions array, or to the top-level key that follows
+it* — rejected as the primary mechanism. It depends on JSON key order in the
+serialized file, which no contract enforces, and it silently changes what the
+check means from "later missions are unauthored" to "nothing follows the
+missions" while looking like the same check.
+
+*Rely on the parsed allowlist alone* — rejected as sufficient on its own. The
+allowlist in `services/api/src/networking-foundations.test.ts` is stronger than
+the text split for the step question and now reads the declaration, but it
+cannot see forbidden content in shapes the parser drops. Both halves are kept.
+
+*Treat "all missions contain steps" as course completion* — rejected, and
+explicitly forbidden. That is the conflation doctrine §23.2 names.
+
+**Impact**
+
+`scripts/lib/wpj-missions.txt` and `scripts/lib/wpj-mission-authority.sh` are
+added. `scripts/verify-wpj.sh` derives its authoring state from them and
+implements both branches. `scripts/verify-wpj-m3.sh` through
+`scripts/verify-wpj-m7.sh` drop their later-anchor assertions and assert mission
+ownership instead. `services/api/src/networking-foundations.test.ts` reads the
+declaration rather than restating it, and
+`services/api/src/networking-foundations-module1.test.ts` and the per-mission
+suites drop their course-wide authoring lists.
+
+No curriculum content outside Mission 8 changes. No contract, dependency,
+migration or presentation code changes. Publication, the five pending
+migrations, the T1 cross-course transition and certification mapping are all
+untouched and remain open.
+
+**What this decision does NOT authorize**
+
+* It does **not** authorize a ninth mission, in this course or by any route.
+* It does **not** declare Networking Foundations complete, approved, publishable
+  or ready in any sense beyond the structural one defined above.
+* It does **not** create a course-completion governance system. The only
+  course-level assertion added is the structural one the transition requires.
+* It does **not** alter DEC-057's three-tier authority or DEC-060's doctrine
+  compliance requirement, and it introduces no numeric threshold.
+
+**Related Documents**
+
+`scripts/lib/wpj-missions.txt` ·
+`scripts/lib/wpj-mission-authority.sh` ·
+`scripts/verify-wpj.sh` ·
+`docs/Learning-OS/Learning-OS.md` §23.2 ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Project/DECISION_LEDGER.md` DEC-050, DEC-053, DEC-057, DEC-060
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

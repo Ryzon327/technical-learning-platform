@@ -86,49 +86,6 @@ grep -Fq '"stableId": "m3-s' "$DOCUMENT" \
 
 echo "PASS:  1. Mission 3 is authored under its approved identity"
 
-# ------------------------------------------------------------
-# 2. The staged-authoring boundary moved by exactly one mission
-# ------------------------------------------------------------
-# The course gate owns the invariant. What is checked here is that the boundary
-# is still SOMEWHERE AHEAD of Mission 3 rather than removed. A slice that
-# deleted the split entirely would still pass a "Mission 3 is authored" check
-# while quietly unprotecting every later mission.
-#
-# ## Why this is no longer pinned to Mission 4
-#
-# It was, and WP-J5 is exactly the event that showed why that was wrong. This
-# gate asserted `M4_ANCHOR` present and `M3_ANCHOR` absent, which was true while
-# Mission 4 was the boundary — and became false the moment Mission 4 was
-# authored and the boundary moved to Mission 5. A gate that fails because the
-# course made legitimate progress is a gate that teaches the next author to edit
-# it out of the way.
-#
-# So the rule is restated as what it always meant: the split still exists, and
-# it no longer sits at Mission 3. Which mission it has reached is the course
-# gate's business, and each new mission's own gate asserts its own edge.
-if grep -Fq 'M3_ANCHOR=' "$COURSE_GATE"; then
-  fail "the course gate anchors its staged-authoring split at Mission 3; Mission 3 is authored, so the boundary belongs after it"
-fi
-
-grep -Eq '^M[45678]_ANCHOR=' "$COURSE_GATE" \
-  || fail "the course gate no longer anchors a staged-authoring split after Mission 3"
-
-grep -Fq 'UNAUTHORED_SLICE' "$COURSE_GATE" \
-  || fail "the course gate no longer splits authored from unauthored missions"
-
-echo "PASS:  2. the staged-authoring boundary sits after Mission 3, not away"
-
-# ------------------------------------------------------------
-# 3. Mission 3 authored no interaction, and needed none
-# ------------------------------------------------------------
-# Mission 3 reads a machine's report. There is nothing travelling, so a packet
-# journey would be a moving picture of nothing — authored because the registry
-# offers one rather than because the teaching asks for one.
-#
-# Checked here as a FILE fact because the step ids make it unambiguous: no
-# `m3-s*` step may sit alongside an interaction key. The parsed-structure form
-# of the same rule is in the test suite.
-
 # The extracted block is written to a FILE rather than held in a variable and
 # piped, and that is not a style preference.
 #
@@ -154,6 +111,57 @@ awk '
 
 [ -s "$M3_BLOCK" ] \
   || fail "Mission 3 could not be located; the mission ordering this gate depends on has changed"
+
+# ------------------------------------------------------------
+# 2. This mission is declared authored, and owns its own instruction
+# ------------------------------------------------------------
+# This section used to assert that the course gate's staged-authoring anchor
+# had moved past Mission 3 and that some LATER anchor still existed. That was
+# the durable form of a check that had already broken once by pinning the next
+# mission's name, and it survived three boundary moves — but it still encoded
+# an opinion about a mission this gate does not own.
+#
+# It could not survive the last move. Mission 8 has no successor, so "a later
+# anchor exists" became a claim about a mission that will never be declared,
+# and all five mission gates would have failed at once on the slice that
+# authored it. DEC-061 replaces the anchor with an explicit declaration of
+# which missions are approved and which are authored.
+#
+# So this gate now asserts what it actually owns: the declaration lists
+# Mission 3 as authored, and Mission 3's steps appear under Mission 3
+# and nowhere else. Both are true in either authoring state, and neither goes
+# stale when a later slice lands. Whether the course as a whole is STAGED or
+# FULLY_AUTHORED is the course gate's business, and it is the only place that
+# decides it.
+source scripts/lib/wpj-mission-authority.sh
+wpj_mission_authority_load
+
+wpj_require_authored 'nf-m3-ipv4-the-second-identity' 'verify-wpj-m3.sh'
+
+grep -Fq 'wpj_mission_authority_load' "$COURSE_GATE" \
+  || fail "the course gate no longer reads the mission authority declaration; nothing would then constrain which missions may carry instruction"
+
+MISSION_STEP_OWNERSHIP="$SCAN_DIR/m3-step-ownership.txt"
+grep -o '"stableId": "m[0-9]*-s[^"]*"' "$DOCUMENT" > "$MISSION_STEP_OWNERSHIP" || true
+
+M3_OWN_STEPS="$(grep -c '"stableId": "m3-s' "$MISSION_STEP_OWNERSHIP" || true)"
+M3_BLOCK_STEPS="$(grep -c '"stableId": "m3-s' "$M3_BLOCK" || true)"
+
+[ "$M3_OWN_STEPS" = "$M3_BLOCK_STEPS" ] \
+  || fail "$M3_OWN_STEPS Mission 3 steps exist in the document but only $M3_BLOCK_STEPS sit inside Mission 3; instruction may not migrate between missions"
+
+echo "PASS:  2. Mission 3 is declared authored and owns its own instruction"
+
+# ------------------------------------------------------------
+# 3. Mission 3 authored no interaction, and needed none
+# ------------------------------------------------------------
+# Mission 3 reads a machine's report. There is nothing travelling, so a packet
+# journey would be a moving picture of nothing — authored because the registry
+# offers one rather than because the teaching asks for one.
+#
+# Checked here as a FILE fact because the step ids make it unambiguous: no
+# `m3-s*` step may sit alongside an interaction key. The parsed-structure form
+# of the same rule is in the test suite.
 
 for forbidden in 'interactionStableId' 'interactionType' 'packet_journey' \
                  'textEquivalent' 'supportLevel' 'sourceKind' \
@@ -334,10 +342,10 @@ different machine, reuses the connection and factory
 identity Mission 2 established, and authors no interaction,
 no assessment and no lab surface.
 
-The staged-authoring boundary sits after Mission 3 and moves
-only when a slice is approved to author the next mission, so
-every mission nobody has authored yet stays prohibited by the
-same check that prohibited Mission 3 before it shipped.
+The course is fully authored (DEC-061), so this gate no
+longer asserts anything about an unauthored tail. It asserts
+that Mission 3 is declared authored and that every Mission 3
+step sits inside Mission 3 and nowhere else.
 
 No later mission's vocabulary reaches the learner, so the
 mission still ends on the unresolved need Mission 4 exists
