@@ -69,7 +69,6 @@ const CONTINUITY = {
 
 /** Missions no slice has authored yet. */
 const UNAUTHORED = [
-  "nf-m7-testing-whether-it-works",
   "nf-m8-when-it-does-not-work"
 ] as const;
 

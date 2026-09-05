@@ -62,6 +62,7 @@ const M3 = "nf-m3-ipv4-the-second-identity";
 const M4 = "nf-m4-the-prefix-and-the-decision";
 const M5 = "nf-m5-the-default-gateway";
 const M6 = "nf-m6-routers-and-the-journey";
+const M7 = "nf-m7-testing-whether-it-works";
 
 /**
  * The missions Module 1 authoring is authorized to touch.
@@ -83,7 +84,7 @@ const AUTHORED = [M1, M2] as const;
  * fact rather than a Module 1 one, so it has to know about Mission 3 without
  * dragging Mission 3 into Module 1's rules.
  */
-const AUTHORED_ANYWHERE = [M1, M2, M3, M4, M5, M6] as const;
+const AUTHORED_ANYWHERE = [M1, M2, M3, M4, M5, M6, M7] as const;
 
 function loadDocument(): CurriculumDocument {
   const result = parseCurriculumDocument(
@@ -258,7 +259,7 @@ describe("Module 1 is authored and nothing beyond it is", () => {
     expect(authored).toEqual([...AUTHORED_ANYWHERE]);
   });
 
-  it("leaves Missions 7 and 8 with no step of any kind", () => {
+  it("leaves Mission 8 with no step of any kind", () => {
     for (const m of document.missions) {
       if ((AUTHORED_ANYWHERE as readonly string[]).includes(m.stableId)) {
         continue;
