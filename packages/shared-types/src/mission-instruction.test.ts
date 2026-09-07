@@ -582,6 +582,23 @@ describe("the projection is exhaustive over the approved step types", () => {
       textEquivalent: "Follow the request hop by hop."
     },
     practice: { type: "practice", assessmentStableId: "assess.vlan-basics" },
+    near_transfer: {
+    type: "near_transfer",
+    title: "Try it elsewhere",
+    questions: [
+      {
+        questionStableId: "nt.q1",
+        type: "single_choice",
+        prompt: "Which device carries the traffic?",
+        options: [
+          { optionId: "a", text: "Switch-9" },
+          { optionId: "b", text: "Router-9" }
+        ],
+        correctOptionIds: ["a"],
+        explanation: "Both hosts connect to the switch."
+      }
+    ]
+  },
     reference: { type: "reference", label: "RFC 1918" }
   };
 

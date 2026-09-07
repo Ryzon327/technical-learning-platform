@@ -89,26 +89,6 @@ export function DeviceNode({
   style: CSSProperties;
   onSelect: (nodeId: string) => void;
 }) {
-  /*
-    One line per authored fact, carrying the port it belongs to.
-
-    A port appears here only when the SOURCE flagged a fact on it as prominent.
-    That is what keeps ROAS's "follow VLAN 10 from PC-A to the access port to
-    the trunk" readable at a glance, and it is what stops Module 1's Switch-1
-    printing four bare port chips that say nothing the inspector does not say
-    better. An unflagged port is not hidden — every port and every attribute is
-    listed in full when the device is selected, and again in the complete device
-    listing.
-
-    One line per fact, rather than several facts wrapped into one row, is also
-    what keeps the card's height PREDICTABLE: the layout computes the box from
-    exactly this count, and a row that wrapped would make the card taller than
-    the box the wires were drawn around.
-  */
-  const faceFacts = device.ports.flatMap((port) =>
-    port.facts.map((fact) => ({ port, fact }))
-  );
-
   return (
     <button
       type="button"
@@ -154,24 +134,42 @@ export function DeviceNode({
         {device.stateLabel}
       </span>
 
-      {faceFacts.length > 0 && (
+      {/*
+        The face, exactly as the LAYOUT composed it.
+
+        This component no longer flattens ports into rows. It did, and the
+        layout counted facts separately to size the box — two computations that
+        had to agree and, once the face grew a heading, would not have. The
+        layout now decides both, so the card is always the size of what is
+        inside it.
+
+        Two lines per fact, LABEL then VALUE. One line could not hold
+        "Network interface" and "IPv4 address 192.168.1.10/24" in 156px, and
+        what a learner actually saw was "Network interface I…". Nothing on this
+        face is ellipsised any more: a fact that will not fit is one the author
+        must take off the face, and `faceTextFits` is where that is decided.
+      */}
+      {device.face.length > 0 && (
         <span className="topology-device-ports">
-          {faceFacts.map(({ port, fact }) => (
-            <span
-              key={`${port.interfaceId} ${fact.label}`}
-              className="topology-port-row"
-            >
-              <span className="topology-port">{port.label}</span>
-              {/*
-                Label and value both, always. A value alone ("10") means
-                nothing, and inferring the label from the value would be the
-                domain knowledge this component must not have. No hover, no
-                title: everything is on the face and in the accessible name.
-              */}
-              <span className="topology-fact">
-                <span className="topology-fact-label">{fact.label}</span>{" "}
-                {fact.value}
-              </span>
+          {device.face.map((group) => (
+            <span key={group.interfaceId} className="topology-face-group">
+              {group.heading !== null && (
+                <span className="topology-face-interface">{group.heading}</span>
+              )}
+
+              {group.facts.map((fact) => (
+                <span key={fact.label} className="topology-face-fact">
+                  {/*
+                    Label and value both, always. A value alone ("10") means
+                    nothing, and inferring the label from the value would be the
+                    domain knowledge this component must not have. No hover and
+                    no title: everything is on the face and in the accessible
+                    name.
+                  */}
+                  <span className="topology-fact-label">{fact.label}</span>
+                  <span className="topology-fact-value">{fact.value}</span>
+                </span>
+              ))}
             </span>
           ))}
         </span>

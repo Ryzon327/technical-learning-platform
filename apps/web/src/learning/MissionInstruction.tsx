@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { NearTransferStep } from "./NearTransferStep";
 import type {
   LearnerCurriculumAsset,
   LearnerMissionStep,
@@ -12,9 +13,20 @@ import {
   describePracticeCheckpoint,
   describePracticeCheckpointLabel,
   resolveAsset,
-  resolveReferenceHref
+  resolveReferenceHref,
+  resolveRequiredInstruction,
+  type RequiredInstructionState
 } from "./mission-instruction-presentation";
 import { InteractionSurface } from "./InteractionSurface";
+import {
+  INITIAL_NEAR_TRANSFER_STATE,
+  describeWithheldStepsNotice,
+  hasUnattemptedInstruction,
+  requiredNearTransfer,
+  visibleInstructionSteps,
+  type MissionNearTransferState,
+  type NearTransferState
+} from "./near-transfer-presentation";
 
 /**
  * WP-F — the learner's view of one mission's authored instruction.
@@ -403,7 +415,13 @@ function ReferenceStep({
 function renderStepContent(
   step: LearnerMissionStep,
   assets: ReadonlyMap<string, LearnerCurriculumAsset>,
-  headingId: string
+  headingId: string,
+  nearTransfer: {
+    readonly state: NearTransferState;
+    readonly onChange: (
+      next: (current: NearTransferState) => NearTransferState
+    ) => void;
+  }
 ) {
   const content = step.content;
 
@@ -425,6 +443,16 @@ function renderStepContent(
       return <InteractionStep content={content} instanceId={headingId} />;
     case "practice":
       return <PracticeStep content={content} headingId={headingId} />;
+    case "near_transfer":
+      return (
+        <NearTransferStep
+          content={content}
+          headingId={headingId}
+          instanceId={headingId}
+          state={nearTransfer.state}
+          onChange={nearTransfer.onChange}
+        />
+      );
     case "reference":
       return (
         <ReferenceStep
@@ -449,18 +477,86 @@ function renderStepContent(
 export function MissionInstruction({
   steps,
   assets,
-  missionStableId
+  missionStableId,
+  onRequiredInstructionChange
 }: {
   steps: readonly LearnerMissionStep[];
   assets: readonly LearnerCurriculumAsset[];
   /** Namespaces heading ids so two open missions could never collide. */
   missionStableId: string;
+  /**
+   * Reports whether required inline instruction is still outstanding, so the
+   * surrounding mission surface can decide what to offer.
+   *
+   * WP-NF-NT1B. The lesson knows which of its own activities are required and
+   * whether the learner has done them; the completion control does not, and
+   * must not — it is told a state, never a step type, a question or a mission.
+   */
+  onRequiredInstructionChange?: (state: RequiredInstructionState) => void;
 }) {
   const index = buildAssetIndex(assets);
 
+  /*
+   * WP-NF-NT1 added the second `useState` in this file. Like the first, it
+   * holds no curriculum and decides no content: it records which near-transfer
+   * questions the learner has answered, which is a fact about this browsing
+   * session and is never sent anywhere. It lives here rather than inside
+   * `NearTransferStep` because the steps that FOLLOW a near-transfer check
+   * wait on it, and a component cannot wait on state its sibling owns
+   * privately. Nothing is persisted and nothing is recorded: reload the page
+   * and the activity starts again, which is correct for something that
+   * produces no evidence.
+   */
+  const [nearTransfer, setNearTransfer] = useState<MissionNearTransferState>(
+    {}
+  );
+
+  const visible = visibleInstructionSteps(steps, nearTransfer);
+
+  /*
+    The notice below is about questions the learner has NOT ANSWERED — not
+    about steps that happen to be hidden.
+
+    Those were the same flag until Founder video UAT: `visible.length <
+    steps.length` is true both while questions remain and while the last
+    answer's feedback is still on screen. In the second case the learner read
+    a verdict, an explanation and a Finish button, and underneath them a
+    sentence telling them to answer the questions they had just answered.
+  */
+  const withheld = hasUnattemptedInstruction(steps, nearTransfer);
+
+  /*
+    What the lesson reports upward.
+
+    The SAME predicate that hides the steps above, by Architect ruling.
+
+    These briefly differed: eligibility moved when the last answer was
+    committed, while the closing steps waited for Finish. That let a learner
+    mark the mission complete while the final verdict and explanation were
+    still on screen. Reading the feedback is part of the instruction, so both
+    now wait for the learner to finish the activity.
+
+      visibility   `isSettled` — answered AND the feedback read past.
+      eligibility  `isSettled` — the same.
+
+    What still rides ATTEMPTED is the notice above, and only that: a learner
+    who has answered everything is not told to answer anything.
+
+    Correctness is not a gate anywhere in this. `isSettled` counts feedback
+    dismissed, never answers right, so a learner who was wrong every time
+    finishes exactly as one who was right every time does.
+  */
+  const requiredInstruction = resolveRequiredInstruction(steps, (step) =>
+    requiredNearTransfer(step, nearTransfer)
+  );
+
+  useEffect(() => {
+    onRequiredInstructionChange?.(requiredInstruction);
+  }, [onRequiredInstructionChange, requiredInstruction]);
+
   return (
     <div className="mission-instruction">
-      {steps.map((step) => {
+      {visible.map((step) => {
         const headingId = `${missionStableId}-${step.stableId}-title`;
         const titled =
           (step.content.type === "concept" &&
@@ -473,10 +569,28 @@ export function MissionInstruction({
             className="instruction-step"
             {...(titled ? { "aria-labelledby": headingId } : {})}
           >
-            {renderStepContent(step, index, headingId)}
+            {renderStepContent(step, index, headingId, {
+              state: nearTransfer[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE,
+              onChange: (next) =>
+                setNearTransfer((current) => ({
+                  ...current,
+                  [step.stableId]: next(
+                    current[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE
+                  )
+                }))
+            })}
           </section>
         );
       })}
+
+      {/*
+        Said out loud rather than left to a blank space. A lesson that simply
+        ends after the questions looks finished; this names what the learner
+        still has to do to see the rest.
+      */}
+      {withheld && (
+        <p className="instruction-withheld">{describeWithheldStepsNotice()}</p>
+      )}
     </div>
   );
 }

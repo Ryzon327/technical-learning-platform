@@ -1997,6 +1997,59 @@ the first time.
 
 This **amends the five-course list in DEC-049** and nothing else in it.
 
+---
+
+**Amended — the two-course Networking Foundations learning path.**
+
+DEC-053 is **Approved** rather than Locked, so it is extended in place; the
+ledger's convention reserves a superseding decision for a Locked entry. The
+course sequence above is unchanged. What is added is the boundary between courses
+01 and 02, which DEC-053 established but never drew.
+
+Networking Foundations must grow a hands-on portion under DEC-062. Without a
+recorded boundary, that work would overlap Router-on-a-Stick, which is already
+authored and gated. The Architect ruling is:
+
+1. **Networking Foundations remains Course 01.**
+2. **Router-on-a-Stick / Build the Network remains Course 02.** It is neither
+   merged nor retired.
+3. The two courses together form the progressive **Networking Foundations
+   learning path**:
+
+   ```text
+   COURSE 01  UNDERSTAND → OPERATE → ADDRESS → VERIFY → SAVE
+              → PROVE FOUNDATIONAL STATE
+
+   COURSE 02  BUILD → SEGMENT → TRUNK → ROUTE → MANAGE → SERVE → REBUILD
+              → CONNECT → OSPF → TROUBLESHOOT → SAVE → PROVE THE NETWORK
+   ```
+
+4. **Course 01 is expanded only enough** to establish conceptual network
+   behaviour, CLI operation, practical addressing and subnetting, inspection and
+   verification, bounded configuration, and configuration persistence.
+5. **Course 02 retains ownership** of VLANs, access-port segmentation, trunks and
+   802.1Q, Router-on-a-Stick, and practical network construction and
+   troubleshooting. Course 01 does not acquire those competencies.
+6. **Course 02 is approved for future Architect-authored expansion** to secure
+   management and SSH, foundational services, a second ROAS site, router transit
+   and static routing, foundational single-area OSPF, operational networking, and
+   a two-site capstone.
+7. **Existing Router-on-a-Stick curriculum, competencies, gates and work are
+   preserved and extended, never retired.**
+8. **This amendment authorizes no practical implementation.** Each area is built
+   under its own approved work package.
+
+The scope of each course, the two-site target, the OSPF boundary, the evidence
+doctrine, the assistance gradient and the configuration-persistence competency
+are recorded in **`CURR-012`**, which is the operative document. The validator
+contract is in `LAB-008`; the Learn/Do/Prove infrastructure mapping in `LAB-012`.
+
+Nothing in this amendment alters DEC-062, DEC-049's cross-course reinforcement
+requirement, or the competency ownership `WP_J_CROSS_COURSE_TRANSITION.md`
+records as pending.
+
+---
+
 **Rationale**
 
 The BEGINNER-COMPLETE-1 audit established that Router-on-a-Stick begins above the
@@ -2123,6 +2176,75 @@ Semantic boundaries that are part of this decision:
 **A Lesson curriculum node is rejected for now.** It may be reconsidered only if a
 future requirement genuinely needs an independently addressable instructional
 unit — independent lesson progress, or cross-course lesson reuse.
+
+---
+
+**Amended — the vocabulary is closed at eight (WP-NF-NT1).**
+
+DEC-054 is **Approved** rather than Locked, so it is extended in place; the
+ledger's convention reserves a superseding decision for a Locked entry. Nothing
+above changes: a step is still content beneath a mission, still owns no
+publication state, version, progress, competency, prerequisite, completion or
+evidence, and a Lesson node is still rejected.
+
+An eighth type is added:
+
+`concept` · `diagram` · `command` · `prediction` · `interaction` · `practice` ·
+**`near_transfer`** · `reference`
+
+**`near_transfer`** asks the learner to apply a concept they have just been
+taught to a **different but structurally related situation**, inline, before the
+mission's closing handoff. It carries its own scenario, its own deterministic
+questions, and an authored explanation for each.
+
+It qualifies under this decision's own test. DEC-054 admits a type that changes
+rendering, accessibility, validation or projection behaviour, and rejects one
+that changes none of them as decoration. A near-transfer check changes all four:
+a new interactive renderer, fieldset-and-live-region semantics, a full payload
+contract in `near-transfer.ts`, and an answer-bearing projection that separates
+the answer from the question.
+
+**Why it is not one of the seven.** It is not `practice`: practice points at an
+assessment by stable id, is optional, and carries a standing promise that it is
+not recorded and does not complete the mission — while a near-transfer check is
+required instruction inside the mission, and is not an assessment at all. It is
+not `prediction`: that step type is read-only and resolves nothing. It is not
+`interaction`: the interaction registry is closed at `packet_journey`, and a
+transfer question is not a journey.
+
+**What it must never become.** It produces no score, no percentage, no points, no
+attempt history, no evidence and no competency state, and it never blocks a
+learner for answering incorrectly — the requirement is engagement and feedback,
+not a passing mark. **Architect Decision 4 is untouched**: this publishes no
+`AssessmentDefinition`, records no attempt, and adds no assessment API write.
+
+**Amended, Mission 1 closeout — required means FINISHED, not merely answered.**
+The decision is Approved rather than Locked, so it is extended in place; the
+ledger's convention reserves a superseding decision for a Locked entry. Nothing
+above changes.
+
+Where a near-transfer check is **required**, the mission's completion action
+waits for the activity to be **finished** — every question attempted *and* its
+authored feedback read past — rather than for the answers alone. Rendered UAT
+found a learner able to mark a mission complete while the final verdict and
+explanation were still on screen, with the closing instruction still withheld
+behind the same button. Reading the authored feedback is part of the
+instruction, so the two now wait on the same event.
+
+**Correctness is still not a gate**, and the clause above is unchanged by this:
+what is counted is feedback dismissed, never answers right. A learner who
+answered every question wrongly finishes exactly as one who answered them all
+correctly does, and one button press is all that stands between any learner and
+the next step. No score, percentage, attempt history, evidence or competency
+state is introduced. Recorded in `CURR-010` revision 1.3.
+
+The five-way pedagogical distinction — prediction, knowledge check,
+near-transfer, practice, mastery — is recorded **once**, in `CURR-010` §8.2,
+directly beneath the step-type table it disambiguates. Four of the five live in
+or beside a step, so the vocabulary specification is the smaller and more
+correct home than the quality checklist, which references near-transfer only as
+a Tier 3 doctrine dimension and is not where a reader looks to find out what a
+step type is.
 
 **Rationale**
 
@@ -2993,6 +3115,878 @@ untouched and remain open.
 
 ---
 
+## DEC-062
+
+**Category**
+
+Product
+
+**Title**
+
+Hands-On Networking Is Required for Instructional Approval
+
+**Status**
+
+Approved
+
+**Decision**
+
+**Networking Foundations must include real learner command execution and bounded
+network configuration.** The learner must physically type approved commands and
+perform approved configuration actions against their own isolated environment.
+
+This is a product requirement, not a preference. Three things that currently
+exist are explicitly **not sufficient on their own**:
+
+* a packet journey, which is an instructional visualisation of what a learner's
+  action causes — valuable, and not a substitute for the action;
+* displayed command output, which shows what a machine reported to somebody
+  else;
+* question-and-answer interaction, which exercises reasoning rather than doing.
+
+The learning cycle the course must eventually support is:
+
+```text
+DO → OBSERVE → REASON → VISUALISE → EXPLAIN → APPLY AGAIN
+```
+
+not:
+
+```text
+READ → ANSWER A QUESTION → READ MORE
+```
+
+The terminal and the packet journey are complementary. Neither replaces the
+other: the learner types a command and sees real output, and the journey
+explains what that output means.
+
+**Consequence for course approval**
+
+Networking Foundations may be **structurally FULLY_AUTHORED** without learner
+command execution — DEC-061 defines that state, and it is unchanged.
+
+It must **NOT receive final instructional approval** while its core networking
+activities remain read-only simulations. Structural authoring and instructional
+approval were already separate under DEC-061 and CURR-009 §14a; this decision
+adds a specific, named condition to the second one.
+
+**What the eventual architecture must be**
+
+Whatever implements this must be session-scoped, mission-scoped, command
+allowlisted or authored, target-constrained, deterministic, isolated, rate
+limited and output-sanitised; it must be compatible with the existing Lab
+Engine isolation attestation; the deterministic validator remains authoritative
+for correctness; and **no AI decides whether a learner configured anything
+correctly.**
+
+**What this decision does NOT authorize**
+
+* It does **not** authorize unrestricted shell access, arbitrary command
+  execution, or `sudo` for the learner.
+* It does **not** authorize bypassing deterministic validation, and it does not
+  make executing a command into evidence of anything. Execution, validation and
+  competency evidence remain three separate things.
+* It does **not** authorize a terminal that returns pre-authored output while
+  presenting itself as live. A mock provider is valid for automated tests; the
+  production path must execute against the learner's isolated environment, and
+  network state must actually change when an authorized configuration command
+  changes it.
+* It does **not** alter DEC-060 or DEC-061, or the three-tier authority in
+  DEC-057.
+* It does **not** authorize any implementation in the work package that records
+  it. The architecture is discovered and recommended; it is built under its own
+  approved work package.
+
+**Rationale**
+
+The course teaches networking well and a Founder UAT pass confirmed the
+information itself is strong. What it does not yet do is let anyone *practise*
+networking. A learner finishing Networking Foundations today has watched
+authored journeys and read authored output; they have not once configured
+anything, and the one failure they met had already been located for them.
+
+Doctrine §25.2 forbids paper-qualified graduates and requires demonstration
+wherever professional capability can reasonably be demonstrated. Networking is
+a domain where it plainly can. Recording the requirement here makes the gap a
+tracked, citable condition on approval rather than an observation in a review
+conversation.
+
+**Alternatives Considered**
+
+*Treat hands-on as a later enhancement.* Rejected. It would let the course reach
+instructional approval in a state the Founder has ruled insufficient, and an
+approved course is far harder to reopen than an unapproved one.
+
+*Satisfy it with a simulated terminal over authored output.* Rejected
+explicitly. It would look like the requirement had been met while changing
+nothing about what the learner actually does, and the network state would not
+move when a learner changed it.
+
+*Give the learner a shell in the lab session.* Rejected. The isolation
+attestation exists precisely to keep a student out of the provider and the
+management plane, and an unconstrained shell is the fastest way to lose it.
+
+**Impact**
+
+`CURR-009 — Curriculum Quality Checklist` section 12 records the approval
+condition, so it is consulted wherever a curriculum unit is reviewed. No gate,
+threshold or numeric score is introduced, and no existing verifier changes
+meaning. Networking Foundations remains structurally FULLY_AUTHORED and remains
+unapproved instructionally.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Learning-OS/Learning-OS.md` §24, §25.2, §26 ·
+`packages/shared-types/src/labs.ts` ·
+`docs/Project/DECISION_LEDGER.md` DEC-053, DEC-057, DEC-059, DEC-060, DEC-061
+
+---
+
+## DEC-063
+
+**Category**
+
+Product
+
+**Title**
+
+Guide the Learner — Instruction Must Not Have to Be Reconstructed
+
+**Status**
+
+Approved
+
+**Decision**
+
+**A learner must never have to reconstruct the lesson** from scattered text,
+diagrams, earlier answers or assumptions. Instruction leads; the learner
+follows and does.
+
+The course-wide instructional rhythm is:
+
+```text
+CONTEXT / STORY → OBJECTIVE → DO / PREDICT / ANSWER → OBSERVE → REASON
+  → EXPLAIN → APPLY
+```
+
+The requirements this binds, each of which is a Founder UAT finding:
+
+1. **A short scenario before the mission.** Where am I, what is happening, what
+   am I trying to accomplish, why does it matter — then into the activity.
+   Orientation, typically a few sentences, never a second source of reading.
+2. **A stated objective.** The learner knows what they are trying to
+   accomplish before they are asked to do anything.
+3. **The activity arrives quickly.** Story, then objective, then doing. Not
+   story, then theory, then questions, then eventually the activity.
+4. **Necessary context precedes the task.** A learner should not reasonably be
+   able to ask "sending what?", "from where?", "to where?", "where is it now?"
+   or "what am I deciding?" — and the answers are given where they are needed,
+   not as a fixed template of boxes.
+5. **A question names exactly what is being decided.**
+6. **Predictions and knowledge checks are different interactions.** A
+   prediction is resolved by comparison — what you predicted, what actually
+   happened, why — and is **never graded**, because a prediction carries no
+   authored answer key. A knowledge check tests something already taught and
+   **must** resolve correctness explicitly: the answer, whether it was right,
+   the correct answer, and why. "Recorded" alone is not adequate for either.
+   *(**Amended by DEC-067 principle 8**: the "never graded" clause no longer
+   holds. Where the learner could reason the answer out, a prediction resolves
+   explicitly. The distinction between the two interactions stands.)*
+7. **Transitions connect one step to the next**: what you just saw, what it
+   means, what happens or what you do next.
+8. **Diagram, text and motion describe the same state.** If the words say the
+   traffic is still at its source, nothing in the picture or the animation may
+   imply it has arrived somewhere. **Started at is not reached at**, and an
+   originating device is not a recipient of its own traffic.
+9. **Simplified beginner language may reduce vocabulary. It may not create a
+   false model** that has to be unlearned. Plain words are permitted where the
+   course later names the real unit and connects the two.
+10. **Deeper explanation uses progressive disclosure** where that keeps the
+    primary path concise. The central teaching is never what gets hidden.
+11. **Hands-on command execution remains mandatory under DEC-062.** Guidance
+    improves what surrounds the doing; it does not substitute for it, and this
+    decision does not soften that condition on final approval.
+
+**Rationale**
+
+Founder UAT found the course understandable but effortful, and the effort was
+not the networking. The learner was assembling the lesson: a mission opened by
+continuing the previous one rather than by putting them in a situation; the
+active question sat below the material explaining the last one; an answer was
+"recorded" without ever being resolved; and the event headline told a learner
+that traffic had "reached" the machine that had just created it.
+
+That last one is the clearest case. It is not a simplification but a false
+statement, and a beginner who accepts it has learned that a sender receives its
+own traffic — exactly the model §26 says must not need unlearning.
+
+**Alternatives Considered**
+
+*Rely on the AI tutor to fill the gaps.* Rejected. The base course must work
+without it; a tutor that is required to decode the lesson is a lesson that does
+not teach.
+
+*Add narration so there is less to read.* Deferred rather than rejected —
+optional read-aloud remains a desirable future capability — but it would have
+treated the symptom. The reading was hard to follow because it was
+unstructured, not merely because there was a lot of it.
+
+*Grade predictions so the learner knows if they were right.* Rejected. A
+prediction has no authored correct option and CURR-011 forbids adding one: an
+answer key in curriculum content is an assessment answer. The comparison
+against what actually happened is the feedback. A **knowledge check** is the
+interaction that resolves correctness, and it is a different thing.
+
+**Impact**
+
+Applies to every curriculum unit, assessed under the three-tier authority in
+CURR-009 §14a. No gate, threshold or numeric score is introduced, and no
+existing decision changes meaning: DEC-057, DEC-058, DEC-060, DEC-061 and
+DEC-062 all stand as written.
+
+**What this decision does NOT authorize**
+
+* It does **not** add a correct-answer field to `PacketJourneyPrediction`, or
+  any answer key to authored interaction content. A knowledge check with
+  authored correctness is a separate interaction and needs its own approval.
+* It does **not** relax DEC-062. Networking Foundations still may not reach
+  final instructional approval while its core activities are read-only.
+* It does **not** authorize narration, video, or an AI-tutor dependency.
+
+**Related Documents**
+
+`docs/Learning-OS/Learning-OS.md` §24, §26.2, §26.3, §27 ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-011_INSTRUCTIONAL_INTERACTION_CONTRACT.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-057, DEC-058, DEC-060, DEC-061, DEC-062
+
+---
+
+## DEC-064
+
+**Category**
+
+Architecture
+
+**Title**
+
+Three Instructional Mechanisms — Predict, Confirm, Perform
+
+**Status**
+
+Approved
+
+**Decision**
+
+The course has **three distinct instructional mechanisms**. They are not
+interchangeable and none substitutes for another.
+
+**1. PREDICTION — exploratory.**
+
+> **Amended by DEC-067 principle 8.** The paragraph below is kept as written,
+> because a ledger records what was decided and when. Its final clause no
+> longer holds: `PacketJourneyPrediction` carries an **optional**
+> `correctOption`, and a prediction whose answer the learner *could* reason
+> out is resolved explicitly rather than by comparison alone. The rest of this
+> section — that a prediction precedes observation, gates the reveal, produces
+> no score, and is never confused with a knowledge check — is unchanged.
+> DEC-067 principle 8 is the operative text; `CURR-009` §12 carries it.
+
+Asks "what do you think will happen?" *before* the learner can know. It
+precedes an observation, it gates the reveal, and it is **never graded**:
+`PacketJourneyPrediction` carries no correct option and must not acquire one.
+After the observation it is resolved by **comparison** —
+
+```text
+YOUR PREDICTION → WHAT ACTUALLY HAPPENED → WHY
+```
+
+Grading a guess made before the evidence would punish a learner for doing
+exactly what was asked. The observation is the answer.
+
+**2. KNOWLEDGE CHECK — confirmation of understanding.**
+
+Asks "based on what you have already been shown, which answer is correct?"
+*after* the teaching. It has **authored deterministic correctness** and
+resolves explicitly —
+
+```text
+YOUR ANSWER → RESULT (Correct / Not correct) → CORRECT ANSWER → WHY
+```
+
+Implemented as `PacketJourneyKnowledgeCheck`, a **separate type** carrying
+`prompt`, `options`, `correctOption` and `explanation`. `correctOption` must be
+one of `options`; validation refuses the document otherwise. Correctness is a
+comparison against the authored option and nothing else — **no inference, no
+AI, no score, no streak, and no evidence.** It does not gate the journey.
+
+The correct answer is exposed whichever way the learner answered, and the
+explanation is shown both times, because the reason is the teaching. "Recorded"
+is not an adequate response to either instrument.
+
+**3. HANDS-ON PERFORMANCE — doing the work.**
+
+Separate from both, and **not replaceable by either**. Under DEC-062 the
+learner must eventually type real commands and perform bounded network
+configuration. A prediction is a guess, a knowledge check is a comprehension
+check, and neither is evidence that anyone can configure anything.
+
+**Where knowledge checks may be used**
+
+Only where the learner has already been taught or shown enough that there is a
+defensible correct answer, and where confirming understanding improves the
+lesson. **The course must not become read → answer → read → answer.** Questions
+support learning; they are not the product.
+
+**Rationale**
+
+Founder UAT found that a committed answer said "recorded" and nothing more, so
+a learner could not tell whether they had understood. Adding correctness to
+predictions would have been the small change and the wrong one: it would make
+every exploratory guess gradable, which is the opposite of predict-then-observe.
+
+The two instruments answer different questions at different moments, so they are
+two types. Keeping them apart is what lets a prediction stay safe to be wrong in
+and a knowledge check actually resolve.
+
+**Alternatives Considered**
+
+*Add `correctOption` to `PacketJourneyPrediction`.* Rejected, and explicitly
+forbidden: it collapses the distinction and grades guesses by omission.
+
+*A general assessment engine.* Rejected as scope. Assessment already exists as
+its own engine with its own evidence semantics; this is instruction confirming
+itself, and it produces nothing.
+
+*Let the AI tutor say whether an answer was right.* Rejected. Correctness is
+authored and deterministic, for the same reason lab validation is.
+
+**Impact**
+
+`PacketJourneyKnowledgeCheck` is added to the interaction contract and to the
+learner projection, where it is answer-bearing and belongs to the teaching
+support levels. Journey view state gains `answeredChecks`, recorded once per
+stage. Two knowledge checks are authored in Networking Foundations — Mission 4's
+remote journey and Mission 8's stop — and no others.
+
+Nothing about evidence, competency or certification changes. DEC-057, DEC-058,
+DEC-060, DEC-061, DEC-062 and DEC-063 all stand as written.
+
+**What this decision does NOT authorize**
+
+* It does **not** grade predictions, now or later.
+* It does **not** create an assessment surface, produce evidence, or record a
+  result anywhere that outlives the component.
+* It does **not** relax DEC-062. Hands-on typed command execution remains
+  mandatory before Networking Foundations can reach final instructional
+  approval, and remains unimplemented.
+* It does **not** authorize filling the course with quizzes.
+
+**Related Documents**
+
+`packages/shared-types/src/instruction-interaction.ts` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-011_INSTRUCTIONAL_INTERACTION_CONTRACT.md` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Project/DECISION_LEDGER.md` DEC-057, DEC-058, DEC-062, DEC-063
+
+---
+
+## DEC-065
+
+**Category**
+
+Product
+
+**Title**
+
+One Instructional Beat at a Time
+
+**Status**
+
+Approved
+
+**Decision**
+
+The primary learner experience presents **one instructional idea, decision,
+result or explanation at a time**.
+
+The workspace is split:
+
+* **LEFT — the network.** The topology is persistent and is never remounted
+  between beats. It is the thing the learner is reasoning about, and taking it
+  away costs them the mental map the whole lesson depends on. Device names,
+  authorised addressing, switch ports, router interfaces, network labels,
+  the active path, the traffic marker and authored device facts all stay.
+* **RIGHT — the instructor pane.** Exactly one **beat**: a situation, an
+  objective, a question, a prediction, a knowledge check, feedback, an
+  observation, an explanation, a next task — or, later, a terminal.
+
+**What a beat is.** One instructional moment, with a heading, its own short
+body, an optional deeper explanation behind a disclosure, and at most one
+control. Beats are **derived** from the journey's existing state rather than
+stored, so there is no second progression engine and the pane can never
+describe a state the journey has left.
+
+**Advancing is intentional.** Continue walks the beats already available at the
+current state — that is reading. The authored advance control is what moves the
+network, and it appears only on the last beat, so pressing it always changes
+the picture. **Never more than one actionable beat at a time.**
+
+**Answers resolve before the next task.** Submitting moves the pane forward to
+the feedback beat in place. Focus goes to the new beat's heading. **The learner
+is never scrolled backward and never has to hunt for what changed.**
+
+**Prior information stays reviewable but secondary.** A Previous control walks
+back through the current state's beats, and the full account remains behind a
+closed disclosure. Neither competes with the current beat.
+
+**Observation and explanation do not compete.** When motion is the beat, the
+topology is the focus and the pane says little — "watch where it goes" — rather
+than narrating alongside it.
+
+**The shell is not a quiz.** The beat vocabulary is instructional moments, not
+question types. A course of nothing but multiple choice would satisfy the
+letter of this decision and violate its purpose.
+
+**It must remain able to host a terminal.** Under DEC-062 the learner will
+eventually type real commands; a terminal is another beat kind, and nothing in
+this shell may be shaped so that it cannot be one.
+
+**Rationale**
+
+The five named regions of DEC-063 were a real improvement on the original
+stream and still put the question, the answer, the observation, the reason and
+the next control on screen together. The learner was reading a dashboard of
+lesson state rather than following a lesson — and the cognitive load that
+removed was not the networking.
+
+Splitting the workspace answers both halves at once. The picture is what
+persists, because it is the subject; the instruction is what advances, because
+it is the thread.
+
+**Alternatives Considered**
+
+*Keep the five regions and collapse the inactive ones.* Rejected. It leaves the
+learner deciding what to attend to, which is the work this removes.
+
+*Show one region at a time in the same single column.* Rejected: the topology
+would leave the screen whenever instruction appeared, and losing the picture
+mid-question is the worse failure.
+
+*Store an explicit beat sequence per mission.* Rejected as a second source of
+truth. A derived sequence cannot disagree with the journey; a stored one will.
+
+**Impact**
+
+`resolveJourneyBeats` and `activeJourneyBeat` are added to the journey
+presentation as pure functions. `PacketJourney` renders a persistent workspace
+and a single-beat instructor pane. One piece of component state is added — how
+far the learner has read at the current journey state — reset by the change
+token the journey already carries. No curriculum content changes, no contract
+changes, and no evidence, competency or certification semantics change.
+
+This supersedes the five-region layout recorded in DEC-063's impact. **Every
+requirement of DEC-063 stands**: guidance, stated objectives, resolved answers,
+connected transitions, and diagram, text and motion describing the same state.
+This decides where those things are shown, not whether.
+
+**What this decision does NOT authorize**
+
+* It does **not** relax DEC-062. Hands-on typed command execution remains
+  required before Networking Foundations can reach final instructional
+  approval, and remains unimplemented.
+* It does **not** change the prediction / knowledge-check distinction in
+  DEC-064.
+* It does **not** authorize hiding required teaching behind a disclosure. Only
+  optional depth may sit there.
+
+**Related Documents**
+
+`apps/web/src/learning/packet-journey-presentation.ts` ·
+`apps/web/src/learning/PacketJourney.tsx` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Project/DECISION_LEDGER.md` DEC-062, DEC-063, DEC-064
+
+---
+
+## DEC-066
+
+**Category**
+
+Product / Architecture
+
+**Title**
+
+One Journey State, One Truth Across Every Surface
+
+**Status**
+
+Approved
+
+**Decision**
+
+Every observable state of a guided journey has **one truth**, and every surface
+that describes that state must agree with it.
+
+The surfaces bound by this rule are:
+
+* the topology marker's position and the link it is travelling;
+* the device state and its caption;
+* the instructional heading;
+* the instructional body;
+* the Quick Reference "Now at" and current-leg rows;
+* the context-sensitive Current Network Details;
+* the accessible announcement and the full text account.
+
+None of them may disagree about whether data has **not been sent**, is
+**travelling**, has **arrived**, is **being examined**, is **being forwarded**,
+has **stopped**, or has **been delivered**.
+
+Two consequences follow, and both are binding:
+
+1. **Narration may not run ahead of motion.** If the marker is travelling from
+   PC-A to Switch-1, no surface may speak as though Switch-1 has already
+   forwarded it. A device's forwarding decision belongs to the stage whose
+   motion shows that forwarding.
+2. **There is exactly one progression engine.** Presentation is derived from
+   the canonical journey state — `buildPacketJourneyObservationModel`, then
+   `buildPacketJourneyView`, then `resolveJourneyBeats`. A second source of
+   "where are we" is prohibited, because two engines is how surfaces come to
+   disagree in the first place.
+
+**Related: one owner for actionable question text.** A learner reads a
+prediction or knowledge-check prompt **once**, immediately before the answer
+choices. The `<legend>` of the choice group owns it; no beat body, narration or
+adjacent region may restate it. Context may precede a question only when it adds
+information the question does not.
+
+**Rationale**
+
+Founder UAT on Mission 6 read a pane that said Switch-1 had forwarded a frame
+to Router-1 while the marker was still travelling from PC-A to Switch-1, and
+read the same question twice in a row before answering it once. Both were
+presentation describing a state the network was not in.
+
+Neither was a rendering bug. Both were authored or composed text that had no
+obligation to agree with anything. This decision creates that obligation and
+names the surfaces it binds, so a future beat, row or panel is written against
+a stated rule rather than against whatever the nearest existing code did.
+
+The prohibition on a second progression engine is the load-bearing half. Any
+surface that computes its own idea of progress will eventually disagree with the
+one the marker is drawn from, and the learner is the one who finds out.
+
+**Consequences**
+
+* Authoring a stage that both arrives somewhere and forwards onward is a
+  defect: the forwarding belongs to the next stage, which is the one that shows
+  it.
+* A new presentation surface derives its state from the view, never from
+  learner state or its own counter.
+* Regression coverage asserts agreement between surfaces rather than the
+  wording of any one of them.
+* It does **not** forbid a surface from saying less than another. Silence is
+  not disagreement; a contradictory claim is.
+
+**Related Documents**
+
+`apps/web/src/learning/packet-journey-presentation.ts` ·
+`apps/web/src/learning/PacketJourney.tsx` ·
+`apps/web/src/learning/topology-layout.ts` ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Project/DECISION_LEDGER.md` DEC-058, DEC-063, DEC-064, DEC-065
+
+---
+
+## DEC-067
+
+**Category**
+
+Product / Curriculum
+
+**Title**
+
+Technical Writing Law — Reduce Ambiguity, Not Rigor
+
+**Status**
+
+Approved
+
+**Decision**
+
+**Technical prose must reduce linguistic ambiguity, not technical rigor.**
+
+Learner-facing prose uses explicit subjects, actions and objects. When several
+devices, addresses, interfaces, networks, packets, frames, commands, results or
+settings are in context, the specific object is named wherever a pronoun or a
+vague reference could reasonably have more than one referent.
+
+> Router-1 forwards the packet through its second connection.
+
+not
+
+> Router-1 forwards it.
+
+Clarity may **not** be achieved by removing necessary terminology,
+oversimplifying the concept, talking down to the learner, excessive
+hand-holding, or replacing precise terminology with vague everyday language.
+
+**Amended, Mission 8 pre-workspace pass.** The decision was Approved rather than
+Locked, so it is extended in place rather than superseded; the ledger's
+convention reserves a superseding decision for a Locked entry. The original rule
+above is unchanged. Six principles are added, and the operative text for all of
+them is `CURR-009` §12:
+
+1. **Concrete before abstract.** When teaching reasoning from technical
+   evidence, order it: observable event → what the event establishes → what it
+   does **not** establish → the broader principle or next reasoning step. A
+   beginner must not decode an abstraction before meeting the event that gives
+   it meaning.
+2. **One primary instructional job per paragraph** — teach, establish,
+   reactivate, compare, qualify or transition, not several at once.
+3. **Reactivate; do not re-teach.** Briefly surface exactly the established fact
+   the present reasoning needs, rather than reproducing the earlier lesson.
+4. **Do not prematurely reveal the diagnosis.** Where an activity exists so the
+   learner can derive an answer, nothing before it may narrow the problem to one
+   device, one setting, one correction or one fault class before the evidence
+   supports that narrowing. This binds every reachable surface, including a
+   mission description rendered on a fallback path.
+5. **Repetition requires a new instructional purpose** — reactivation, standing
+   context, comparison or post-activity consolidation. DEC-066 carries the
+   presentation half of this rule.
+6. **Beginner does not mean non-technical.** Use the correct term once the
+   learner has it, or when it is being taught.
+
+**Amended again, Mission 1 technical-writing repair.** Two additions, both
+operative in `CURR-009` §12:
+
+7. **Technical terms are earned, then used.** Plain English introduces a role
+   the course has not yet named. Once the term is taught, the course uses it and
+   does not retreat to an invented substitute — *network* does not become
+   "group", *MAC address* does not become "factory identity".
+8. **An objective answer resolves explicitly.** Where a learner response has an
+   objectively correct answer, the learner commits first and is then told
+   plainly whether they were right, what was expected if they were not, and why
+   — in words, never by colour, and with no praise, points, streaks or scores.
+   Where the learner cannot yet know, the response stays ungraded and resolves
+   by comparison. This supersedes DEC-063's original statement that a prediction
+   is never graded; `CURR-009` §12 carries the amended text.
+
+The standard is **clear technical-author prose for an adult beginner**: enough
+context to understand the technical relationship without assuming the learner
+remembers every sentence of a previous mission, and without re-explaining what
+the unit has already established.
+
+The full rule, its worked example, its tier placement and the surfaces it binds
+are recorded in `CURR-009` §12, *Technical writing (DEC-067)*, which is the
+operative text.
+
+**Rationale**
+
+Founder review found the same defect in Mission 6 and Mission 8, which makes it
+a course-wide authoring weakness rather than a copy edit. The Mission 6 example
+was:
+
+> A workstation on one network needs to reach a system on another. Router-1 is
+> holding its traffic, addressed to a machine Router-1 is not, in a group
+> Router-1 is not in.
+
+Every fact in that sentence is correct. A beginner still has to hold three
+unnamed referents in mind to extract any of them, and the difficulty is entirely
+in the writing rather than in the networking.
+
+The second half of the law exists because the obvious fix is worse than the
+defect. Prose can always be made easier by deleting the technical content, and a
+rule that only said "be clearer" would license exactly that.
+
+**Consequences**
+
+* This is a **Tier 3** review dimension. Whether a referent is resolvable is a
+  judgement about a particular reader and a particular sentence; no pattern
+  engine may auto-pass it, and no numeric ambiguity threshold may be invented to
+  automate it (doctrine §29.5). The same holds for every added principle:
+  automated checks may enforce ordering, required content, stable identity,
+  banned vocabulary and disclosure of a named value, and may **not** be built
+  into a semantic or paraphrase detector standing in for human judgement.
+* Tier 1 may pin narrow, objectively checkable instances. Tier 2 may flag
+  suspected ambiguity for human attention.
+* It binds every learner-facing surface, including the text equivalent, which is
+  the only prose some learners receive.
+* It does **not** authorize rewriting curriculum for style alone. Content edits
+  under this decision are scoped by the work package that carries them.
+
+**Related Documents**
+
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §12, §14a ·
+`docs/Learning-OS/Learning-OS.md` §23–§33 ·
+`content/curriculum/networking-foundations.json` ·
+`docs/Project/DECISION_LEDGER.md` DEC-057, DEC-060, DEC-063, DEC-066
+
+---
+
+## DEC-068
+
+**Category**
+
+Product / Process
+
+**Title**
+
+Independent Rendered-Product QA: Three Kinds of Confidence, Three Owners
+
+**Status**
+
+Approved
+
+**Decision**
+
+Three different things have been treated as one, and they are now separated
+project-wide, for all substantial learner-facing product work and not only for
+Networking Foundations:
+
+1. **Implementation and automated engineering validation** — owned by Claude
+   Code.
+2. **Independent rendered-product and learner-experience review** — owned by
+   ChatGPT.
+3. **Final product acceptance and UAT authority** — owned by the Founder.
+
+**The governing principle.**
+
+> Automated validation establishes **mechanical confidence**.
+> Human rendered review establishes **learner-experience confidence**.
+> Founder UAT owns **final product acceptance**.
+
+A passing unit test, integration test, verifier, mutation check, schema
+validator, typecheck, build, security scan, source-level accessibility
+assertion or CI job does **not**, on its own, establish that the rendered
+learner experience is approved.
+
+**What each role owns.**
+
+**The Founder** owns final product authority, final scope and change-control
+authority, final learner-experience and UAT authority, and final acceptance of
+whether the product meets the intended vision.
+
+**ChatGPT** owns instructional architecture and — unless the Founder explicitly
+changes that authority — sole substantive learner-facing curriculum authorship.
+It additionally owns **independent review of the rendered product**: functional
+flow, UI/UX, novice usability, learner-experience QA, technical-writing
+integration, interaction and state, visual consistency, and accessibility and
+usability judged from rendered evidence. It reviews real rendered evidence —
+Founder videos, screenshots, rendered pages, interaction walkthroughs — and may
+identify defects the Founder did not report. **It does not replace Founder
+UAT.**
+
+**Claude Code** owns implementation engineering, repository investigation,
+schema implementation, automated test creation and maintenance, typechecking,
+builds, verifier and gate execution, security checks, mechanically testable
+accessibility protections, regression validation, mutation checks where
+appropriate, and accurate implementation reporting.
+
+**Claude Code does not independently approve** rendered UI quality, UX quality,
+the learner experience, instructional quality, visual quality, rendered
+accessibility, or final product acceptance.
+
+**Observed versus inferred.**
+
+Claude Code must distinguish what it **observed** from what it **computed,
+inferred or expects**. Geometry read out of layout code may be reported as
+*"the layout algorithm computes…"* or *"the implementation is expected to
+render…"*. It may not be reported as *"the topology visually appears…"* unless
+a rendered surface was actually inspected through an authorized rendered or
+browser mechanism.
+
+Semantic HTML in source does not prove real browser focus order, visual focus
+quality, screen-reader usability, zoom or reflow behaviour, responsive
+readability, or theme contrast in actual rendering. Tests may be described as
+proving properties of the implementation. They may not be described as proving
+human-perceived quality that they do not reach.
+
+**No self-approval.** Final-report language such as "UI approved", "UX
+approved", "learner experience approved", "accessibility approved", "looks
+correct", "reads well", "visually clear", "professional" or "intuitive" is
+prohibited on the strength of source inspection or automated tests alone. The
+accurate report is: *"Implemented and automated validation passed. Rendered
+Architect/Founder UAT remains required."*
+
+**What independent human rendered review may evaluate.** Functional behaviour ·
+novice usability · interaction semantics · visual hierarchy and consistency ·
+visual/text synchronization · technical-writing integration across every
+learner-facing surface carrying substantive instructional meaning · disclosure
+and answer boundaries · feedback quality · progression and counters ·
+accessibility and usability · responsive and theme quality · regression across
+shared learner-facing components.
+
+**Curriculum authorship is unchanged by this decision.** ChatGPT authors
+substantive learner-facing curriculum; Claude Code does not independently
+author, rewrite, simplify, expand, polish or substitute it, and reports
+conflicts rather than silently changing it.
+
+**Rationale**
+
+Implementation-agent testing had become the only signal on rendered work, and
+it is the wrong instrument for the question. Several defects found in Founder
+video UAT — a control labelled for an action it did not perform, a state
+described as repaired when nothing had been, a counter reporting internal
+presentation beats rather than journey stages, a fact a learner had to reason
+from living only in prose — were invisible to every passing gate, because each
+gate was mechanically correct about something else.
+
+The correction is not more tests. It is naming what tests can and cannot
+establish, and giving the part they cannot reach an owner.
+
+The observed-versus-inferred rule exists because the failure is quiet. An
+implementation report that describes computed geometry in the language of
+appearance reads exactly like an eyewitness account, and a reviewer has no way
+to tell the difference. Stating which is which costs a clause and preserves the
+reviewer's ability to know what has actually been seen.
+
+This extends DEC-057, which established that instructional quality has three
+tiers and that human UAT is the authority for the top one, from curriculum to
+the rendered product as a whole. It is consistent with DEC-027 (Locked):
+Claude implements approved work and does not redefine the product.
+
+**Consequences**
+
+* Reports for substantial learner-facing work carry two separate sections —
+  **AUTOMATED VALIDATION** (what was mechanically tested, and what that
+  establishes) and **HUMAN UAT REQUIRED** (the rendered properties still
+  awaiting inspection). They are not merged into one claim of approval.
+* Such work also carries a short targeted UAT path: exact product, course and
+  mission location; starting state; the actions to perform; an intentionally
+  incorrect path where relevant; state transitions worth observing; known
+  implementation-risk areas; and completion behaviour worth checking.
+* **UAT instructions describe what to exercise, never what to conclude.**
+  Steering language — "confirm this looks good", "this should feel intuitive",
+  "if you cannot understand this, that is a defect", "verify this is visually
+  clear" — is prohibited. Neutral instructions replace it: "view the topology
+  at a narrow viewport"; "answer Question 3 using the topology before reading
+  the descriptive text"; "observe the disabled completion control before the
+  final required question"; "reload after mission completion and observe the
+  resulting state." The judgement belongs to the Architect and the Founder.
+* A defect found in rendered UAT is classified before it is fixed —
+  curriculum/content, technical writing, functional interaction, UI/visual,
+  UX/usability, accessibility, state/progression, architecture, or regression.
+  A UI defect is not solved by rewriting curriculum, and a curriculum defect is
+  not solved by redesigning UI, unless the Architect authorizes that solution.
+* Where a defect has a mechanically testable invariant, a durable automated
+  regression guard is added. Semantic and rendered judgement stays human-owned.
+* `IMPLEMENTED + AUTOMATED VALIDATION PASSED` is the most Claude Code may
+  report. It is not `FOUNDER/ARCHITECT UAT APPROVED`, and no substantial
+  learner-facing mission receives final instructional approval from
+  implementation-agent testing.
+* This decision changes no engine, schema, curriculum document or test. It
+  changes what a report may claim and who decides what.
+
+**Related Documents**
+
+`CLAUDE.md` — Authority Model, Verification Requirements, Completion Report ·
+`docs/Project/DECISION_LEDGER.md` DEC-027 (Locked), DEC-048, DEC-057, DEC-067 ·
+`docs/Feature-Registry/Curriculum-Engine/CURR-009_CURRICULUM_QUALITY_CHECKLIST.md` §14a
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.
@@ -3000,4 +3994,3 @@ Future decisions will continue using this numbering scheme.
 Once a decision becomes **Locked**, it should only be changed by creating a new decision that explicitly supersedes it.
 
 Previous decisions remain part of the permanent project history.
-

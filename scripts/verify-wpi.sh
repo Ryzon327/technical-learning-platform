@@ -88,6 +88,47 @@ FIXTURE_IMPORTERS="$SCAN_DIR/fixture-importers.txt"
 
 code_of() { grep -vE '^\s*(//|\*|/\*)' "$1" || true; }
 
+# A real comment stripper, for rules that must read CODE and nothing else.
+#
+# `code_of` above is a LINE filter, and it assumes every block comment puts an
+# asterisk on its continuation lines. This repository's explanatory blocks
+# mostly do not, so a `/* ... */` body reaches the scan.
+#
+# That is not theoretical, and it was found by mutation testing on this gate:
+# a comment added to `PacketJourney.tsx` explaining the modal behaviour
+# contained the words `aria-modal`, which satisfied the assertion below while
+# the actual attribute had been deleted. A guard a comment can satisfy is not
+# a guard.
+strip_comments() {
+  awk '
+    {
+      line = $0
+      out = ""
+      while (length(line) > 0) {
+        if (inblock) {
+          end = index(line, "*/")
+          if (end == 0) { line = ""; break }
+          line = substr(line, end + 2)
+          inblock = 0
+          continue
+        }
+        start = index(line, "/*")
+        eol = index(line, "//")
+        if (eol > 0 && (start == 0 || eol < start)) {
+          out = out substr(line, 1, eol - 1)
+          line = ""
+          break
+        }
+        if (start == 0) { out = out line; line = ""; break }
+        out = out substr(line, 1, start - 1)
+        line = substr(line, start + 2)
+        inblock = 1
+      }
+      print out
+    }
+  ' "$1"
+}
+
 code_of "$APP" > "$APP_LOGIC"
 code_of "$TARGET" > "$TARGET_LOGIC"
 code_of "$BUILDER" > "$BUILDER_LOGIC"
@@ -393,8 +434,18 @@ echo "PASS: 10. the contracts under review are intact"
 
 # FINDING 6 — a committed prediction must not read as a reset. It stays on
 # screen from the moment it is made, and it pairs with what actually happened.
-grep -Fq 'pendingCommitment' "$JOURNEY" \
-  || fail "a committed prediction is not shown before its stage is revealed"
+# Checked across the interaction path rather than in the component alone.
+# DEC-065 moved the pane to one beat at a time, and the commitment is now a
+# beat built in the presentation module — the finding still holds, the file
+# that expresses it changed. A guard naming one file was asserting where the
+# code lives, not what it does.
+if ! grep -qF 'pendingCommitment' "$JOURNEY" "$PRESENTATION_MODULE"; then
+  fail "a committed prediction is not shown before its stage is revealed"
+fi
+
+# And it is its own beat, so it cannot be crowded out by the next question.
+grep -Fq '"pending"' "$PRESENTATION_MODULE" \
+  || fail "a committed prediction has no beat of its own"
 grep -Fq 'describePredictionLabel' "$JOURNEY" \
   || fail "the prediction half of the comparison is not labelled"
 grep -Fq 'describeObservationLabel' "$JOURNEY" \
@@ -450,10 +501,41 @@ done
 
 # The workspace claims to be modal, so the tab cycle must actually be
 # contained — and without a dependency, which is a Founder gate.
-grep -Fq 'aria-modal' "$JOURNEY" \
+#
+# Read from stripped CODE. These assertions used to scan the raw file, and
+# mutation testing showed a comment about the modal behaviour was enough to
+# satisfy them while the attribute itself was gone.
+JOURNEY_CODE="$SCAN_DIR/journey-code.tsx"
+strip_comments "$JOURNEY" > "$JOURNEY_CODE"
+
+grep -Fq 'aria-modal' "$JOURNEY_CODE" \
   || fail "the expanded workspace does not identify itself to assistive technology"
-grep -Fq 'Escape' "$JOURNEY" \
+grep -Fq 'role: "dialog"' "$JOURNEY_CODE" \
+  || fail "the expanded workspace no longer declares itself a dialog"
+grep -Fq 'Escape' "$JOURNEY_CODE" \
   || fail "the expanded workspace cannot be closed from the keyboard"
+
+# The workspace control names the action it will perform, in BOTH directions.
+#
+# Founder video UAT read "Open the network workspace" while the workspace was
+# already on screen. Nothing is hidden behind it: the same tree is re-laid out
+# at a different size, so the labels are expand and collapse.
+#
+# The conditional is asserted, not merely the two functions: a control that
+# said "Expand" in both states would name the wrong action half the time, and
+# both labels would still be present in the file.
+grep -Fq 'describeWorkspaceExpandLabel' "$JOURNEY_CODE" \
+  || fail "the workspace control no longer offers to expand"
+grep -Fq 'describeWorkspaceCollapseLabel' "$JOURNEY_CODE" \
+  || fail "the workspace control no longer offers to collapse"
+grep -Fq 'expanded' "$JOURNEY_CODE" \
+  || fail "the workspace control reads no expansion state"
+
+TOGGLE_LABEL="$(tr '\n' ' ' < "$JOURNEY_CODE")"
+case "$TOGGLE_LABEL" in
+  *'expanded'*'?'*'describeWorkspaceCollapseLabel()'*': describeWorkspaceExpandLabel()'*) ;;
+  *) fail "the workspace control does not choose its label from the expansion state; one of the two directions would name the wrong action" ;;
+esac
 
 # FINDING 1 — a figure that will not load says so, and never fabricates one.
 grep -Fq 'describeFigureUnavailable' "$RENDERER" \
@@ -486,8 +568,36 @@ echo "PASS: 10b. every Founder UAT correction is present"
 # within a glance of the thing their action changes.
 grep -Fq 'currentEvent' "$PRESENTATION_MODULE" \
   || fail "there is no current-event state to synchronise attention with"
-grep -Fq 'packet-journey-event' "$JOURNEY" \
-  || fail "the current event is not rendered beside the topology"
+# DEC-065 answers this finding more directly than the original event card did.
+# The topology and the instruction are now SIBLING COLUMNS of one workspace, so
+# the learner acts within a glance of the thing their action changes — and the
+# event's own headline is the body of the observation beat.
+grep -Fq 'packet-journey-workspace' "$JOURNEY" \
+  || fail "the topology is no longer a persistent column of the workspace"
+grep -Fq 'packet-journey-instructor' "$JOURNEY" \
+  || fail "there is no instructor pane beside the topology"
+# What must reach the learner is WHAT JUST CHANGED, not one particular field.
+#
+# This used to pin `currentEvent.headline`, which the observation beat carried
+# as a fallback body when no stage had been revealed. The Mission 8 refinement
+# deleted that beat on a Founder ruling — pressing Start produced a card saying
+# nothing had happened, with a Continue button under it, which was two clicks
+# and no cognition.
+#
+# The event still reaches the learner, through the surface that was always the
+# stronger one: the live region announces every change, and it is built from
+# the same event. That is what is pinned now.
+grep -Fq 'announcement: describeAnnouncement(' "$PRESENTATION_MODULE" \
+  || fail "nothing announces what just changed; the current event no longer reaches the learner"
+grep -Fq 'currentEvent' "$JOURNEY" \
+  || fail "the pane no longer reads the current event at all"
+grep -Fq '{view.announcement}' "$JOURNEY" \
+  || fail "the announcement is built and never rendered"
+
+# Both columns must live in ONE container, or "beside" is a claim the markup
+# does not support.
+grep -Fq 'packet-journey-visual' "$JOURNEY" \
+  || fail "the workspace and the instructor pane are not one region"
 grep -Fq 'packet-journey-visual' "$JOURNEY" \
   || fail "the topology and the current event are not one block"
 grep -Fq 'packet-journey-visual' "$STYLES" \
@@ -508,14 +618,53 @@ grep -Fq 'topology-pulse' "$STYLES" \
 grep -Fq 'eventToken' "$TOPOLOGY" \
   || fail "the drawing cannot tell when something changed"
 
-# Nothing scrolls the learner.
+# Nothing scrolls the learner AWAY from where they are acting.
 #
-# An earlier revision nudged the topology into view on every event. With the
-# progression control now below the journey history (10e), that would drag the
-# learner back up to the picture every time they pressed it — the exact shuttle
-# this correction exists to remove. The picture is pinned instead.
+# ## Why this is no longer a ban on scrolling at all
+#
+# It used to forbid `scrollIntoView` outright. That was the right guard against
+# the defect it was written for: an earlier revision nudged the TOPOLOGY into
+# view on every event, which dragged the learner back UP to the picture every
+# time they pressed the progression control.
+#
+# Founder UAT, second round, found the mirror image of that defect with no
+# scrolling at all: "after answering a question, the interface moves them back
+# upward and they end up re-reading their answer, other material, then
+# eventually the actual next lesson content." With no programmatic focus, the
+# browser kept focus on a control that had just been re-rendered and the
+# learner was left above the result, hunting for what had changed.
+#
+# The invariant was never "do not scroll". It was "never move the learner away
+# from where they are acting". So the guard now asserts the SHAPE of the
+# movement rather than its absence:
+#
+#   - it targets the result region, never the picture;
+#   - it uses `block: "nearest"`, which moves the minimum needed and cannot
+#     throw the page to a new position;
+#   - it accompanies focus, so the same mechanism serves a screen reader.
+#
+# A revision that scrolled the topology into view again would fail here exactly
+# as it did before.
 if grep -qF 'scrollIntoView' "$JOURNEY"; then
-  fail "the interaction scrolls the learner away from where they are acting"
+  # Anchored to the STATEMENT, not the word.
+  #
+  # A first version of this guard grepped for the bare strings and passed on a
+  # source whose focus call had been commented out — because the file's own
+  # comment explaining `block: "nearest"` still contained the text. Mutation
+  # testing caught it. A guard that matches the prose describing a check is not
+  # checking anything, which is the same lesson `verify-wpj-m8.sh` records.
+  grep -Eq '^ *heading\.scrollIntoView\(\{ block: "nearest"' "$JOURNEY" \
+    || fail "the interaction does not scroll with block: \"nearest\"; it can throw the learner to a new position"
+
+  grep -Eq '^ *const resultRef = useRef' "$JOURNEY" \
+    || fail "the interaction scrolls to something other than the result of the learner's answer"
+
+  grep -Eq '^ *heading\.focus\(\);' "$JOURNEY" \
+    || fail "the interaction scrolls without moving focus; a screen reader would not be told where the result is"
+
+  if grep -qE 'topologyRef|scrollIntoView.*topology' "$JOURNEY"; then
+    fail "the interaction scrolls the learner back to the picture, away from where they are acting"
+  fi
 fi
 
 # FINDING B — VLAN context visible in BOTH the fixed figure and the interaction.
@@ -619,6 +768,49 @@ ADVANCE_COUNT="$(grep -c 'className="packet-journey-advance"' "$JOURNEY" || true
 [ "$ADVANCE_COUNT" = "1" ] \
   || fail "there are $ADVANCE_COUNT progression controls; there must be exactly one"
 
+# The prediction submit carries the same TREATMENT under its own name.
+#
+# Founder video UAT read "Submit this prediction" as a wide grey browser
+# default. It carried no class at all, and its parent fieldset is a grid, so it
+# stretched to the full column with nothing in the cascade reaching it.
+#
+# It is deliberately NOT a second use of `packet-journey-advance`. The count
+# above is a real invariant — a learner must never have to work out which of
+# two filled controls is the live one — and the two controls are mutually
+# exclusive anyway, because the advance control is suppressed on a question
+# beat, which is the only beat this one appears on. Reusing the name would have
+# forced that invariant to be loosened to accommodate a paint job.
+grep -Fq 'className="packet-journey-prediction-submit"' "$JOURNEY" \
+  || fail "the prediction submit carries no product class; it would render as a browser default in an otherwise styled surface"
+
+grep -Fq '.packet-journey-prediction-submit' "$STYLES" \
+  || fail "$STYLES declares no rule for .packet-journey-prediction-submit; the class would style nothing"
+
+# The class is a paint job and may never become a substitute for the element.
+# Native <button> keeps type, keyboard operation and the shared focus ring.
+grep -Fq 'Submit this prediction' "$JOURNEY" \
+  || fail "the approved prediction control wording is gone"
+
+PREDICTION_SUBMIT_ELEMENT="$(grep -A2 'className="packet-journey-prediction-submit"' "$JOURNEY" || true)"
+case "$PREDICTION_SUBMIT_ELEMENT" in
+  *'<div'*|*'<span'*|*'role="button"'*)
+    fail "the prediction submit is no longer a native button" ;;
+esac
+
+# DEC-065 adds a second control that READS ON — Continue walks the beats
+# already available and changes nothing in the network. It is a different
+# class on purpose: one primary control moves the traffic, and a learner must
+# be able to tell which. They are mutually exclusive by beat index, so the two
+# are never on screen together.
+CONTINUE_COUNT="$(grep -c 'className="packet-journey-continue"' "$JOURNEY" || true)"
+[ "$CONTINUE_COUNT" -le "1" ] \
+  || fail "there are $CONTINUE_COUNT continue controls; reading on must be one control"
+
+grep -Fq 'beatIndex < beats.length - 1' "$JOURNEY" \
+  || fail "Continue is not bounded by the beat list; it could appear beside the progression control"
+grep -Fq 'beatIndex === beats.length - 1' "$JOURNEY" \
+  || fail "the progression control is not confined to the last beat"
+
 ADVANCE_LABEL_COUNT="$(grep -c 'view.advanceLabel' "$JOURNEY" || true)"
 [ "$ADVANCE_LABEL_COUNT" = "1" ] \
   || fail "the progression label is rendered $ADVANCE_LABEL_COUNT times; a duplicate control is being built"
@@ -626,13 +818,17 @@ ADVANCE_LABEL_COUNT="$(grep -c 'view.advanceLabel' "$JOURNEY" || true)"
 VISUAL_LINE="$(grep -n -m1 'className="packet-journey-visual"' "$JOURNEY" | cut -d: -f1)"
 ORIENT_LINE="$(grep -n -m1 'className="packet-journey-orientation"' "$JOURNEY" | cut -d: -f1)"
 TOPOLOGY_LINE="$(grep -n -m1 '<TopologyView' "$JOURNEY" | cut -d: -f1)"
-NEXT_LINE="$(grep -n -m1 'className="packet-journey-next"' "$JOURNEY" | cut -d: -f1)"
+# DEC-065: the current task lives in the instructor pane, beside the topology,
+# rather than in a block beneath it.
+NEXT_LINE="$(grep -n -m1 'className="packet-journey-instructor"' "$JOURNEY" | cut -d: -f1 || true)"
+WORKSPACE_LINE="$(grep -n -m1 'className="packet-journey-workspace"' "$JOURNEY" | cut -d: -f1 || true)"
 ADVANCE_LINE="$(grep -n -m1 'className="packet-journey-advance"' "$JOURNEY" | cut -d: -f1)"
 HISTORY_LINE="$(grep -n -m1 'className="packet-journey-stages"' "$JOURNEY" | cut -d: -f1)"
 PREDICTION_LINE="$(grep -n -m1 'className="packet-journey-prediction"' "$JOURNEY" | cut -d: -f1)"
 ACTIONS_LINE="$(grep -n -m1 'className="packet-journey-actions"' "$JOURNEY" | cut -d: -f1)"
 
 for required in "$VISUAL_LINE" "$ORIENT_LINE" "$TOPOLOGY_LINE" "$NEXT_LINE" \
+                "$WORKSPACE_LINE" \
                 "$ADVANCE_LINE" "$HISTORY_LINE" "$PREDICTION_LINE" "$ACTIONS_LINE"; do
   [ -n "$required" ] \
     || fail "part of the instructional workspace is no longer rendered"
@@ -646,6 +842,8 @@ done
   || fail "the topology is rendered before the orientation that explains it"
 [ "$NEXT_LINE" -gt "$TOPOLOGY_LINE" ] \
   || fail "the current task is rendered before the picture it is about"
+[ "$WORKSPACE_LINE" -lt "$TOPOLOGY_LINE" ] \
+  || fail "the topology is not inside the persistent workspace column"
 
 # The current task, the prediction and the remediation are all inside the
 # workspace — the block that is pinned — and all of them come BEFORE the
@@ -658,16 +856,36 @@ for control_line in "$NEXT_LINE" "$ADVANCE_LINE" "$PREDICTION_LINE" "$ACTIONS_LI
     || fail "a current-task control (line $control_line) is below the journey history (line $HISTORY_LINE); scrolling could strand the learner with a picture and no way to advance"
 done
 
-grep -Fq 'packet-journey-next' "$STYLES" \
-  || fail "the current-task group has no layout"
+grep -Fq 'packet-journey-instructor' "$STYLES" \
+  || fail "the instructor pane has no layout"
+grep -Fq 'packet-journey-workspace' "$STYLES" \
+  || fail "the persistent workspace column has no layout"
+grep -Fq 'packet-journey-beat' "$STYLES" \
+  || fail "the instructional beat has no layout"
 
 # The workspace is pinned, in BOTH modes — the embedded lesson has the same
 # reading flow as the expanded one.
 grep -Fq 'position: sticky' "$STYLES" \
   || fail "the workspace is not pinned; advancing would change a picture nobody can see"
-if grep -qF '.packet-journey--workspace .packet-journey-visual' "$STYLES"; then
+# Narrowed to the invariant. The guard used to forbid the SELECTOR
+# `.packet-journey--workspace .packet-journey-visual` outright, as a proxy for
+# "pinned only when expanded". The Founder layout repair uses that selector to
+# give the expanded workspace its own column proportions, which is not pinning
+# anything — so the proxy now fails on correct work while the rule it stands
+# for is untouched.
+#
+# What must never happen is stickiness that exists only in expanded mode.
+STICKY_SCOPE="$(mktemp)"
+tr '\n' ' ' < "$STYLES" | tr -s ' ' > "$STICKY_SCOPE"
+
+if grep -Eq '\.packet-journey--workspace [^{]*\{[^}]*position: sticky' "$STICKY_SCOPE"; then
   fail "the workspace is pinned only in the expanded mode; embedded mode has the same reading flow"
 fi
+
+# And the pinned thing is the INSTRUCTOR PANE, in both modes, because it is the
+# short one. Pinning a column as tall as the drawing hides its own controls.
+grep -Fq '.packet-journey-instructor {' "$STYLES" \
+  || fail "the instructor pane has no rule to pin"
 
 # And it is pinned only where it FITS. A sticky block taller than the viewport
 # reproduces the reported defect exactly — the top stays and the controls at the
@@ -676,9 +894,14 @@ fi
 STYLES_FLAT_WPI="$(mktemp)"
 tr '\n' ' ' < "$STYLES" | tr -s ' ' > "$STYLES_FLAT_WPI"
 
-grep -Eq '@media \(min-width: [0-9.]+em\) and \(min-height: [0-9.]+em\) \{ \.packet-journey-visual \{[^}]*position: sticky' \
+# DEC-065 changed what is pinned. The whole workspace no longer sticks — the
+# topology column is as tall as the drawing and pinning it would reproduce the
+# oversized-sticky defect exactly. What sticks is the INSTRUCTOR PANE, which
+# holds one short beat, so the current task cannot scroll away from the picture
+# and cannot hide its own controls.
+grep -Eq '@media \(min-width: [0-9.]+rem\) \{ \.packet-journey-instructor \{ position: sticky' \
   "$STYLES_FLAT_WPI" \
-  || fail "the workspace is pinned without a viewport-height condition; an oversized sticky panel would hide its own controls"
+  || fail "the instructor pane is not pinned beside the network; the current task could scroll away from the picture it is about"
 
 # The reference material is still there. Progressive disclosure means quieter,
 # never deleted: the Founder asked for the detail to remain available.
@@ -748,13 +971,72 @@ done
 
 # The panes are composed in CSS from ONE tree. A duplicated control set built
 # to serve a second layout is what this forbids.
-grep -Eq '@media \(min-width: [0-9.]+em\) \{ \.packet-journey \{[^}]*width: min' \
+# The interactive workspace ESCAPES the reading column.
+#
+# Founder UAT, blocking: `.card` is min(760px, 100%) with up to 3rem of
+# padding — about 664px — and while the workspace lived inside it the network
+# column was roughly 400px and every two-group topology scaled past the
+# readable floor. A lesson-reading width must never decide how big the network
+# is.
+#
+# The breakout is scoped away from the expanded mode on purpose: that one is
+# `position: fixed; inset: 0`, and a negative-margin breakout on a fixed,
+# fully-inset element mispositions it over the document — which is the lesson
+# prose the Founder saw behind the topology.
+grep -Eq '@media \(min-width: [0-9.]+em\) \{ \.packet-journey:not\(\.packet-journey--workspace\) \{[^}]*width: min' \
   "$STYLES_FLAT_WPI" \
-  || fail "there is no wide-viewport composition for the interaction"
-grep -Eq '\.packet-journey-visual \{[^}]*grid-template-areas:[^}]*environment task' \
+  || fail "the interactive workspace does not escape the reading column, or the breakout is not scoped away from the expanded mode"
+
+# The escape has to be WORTH something. A breakout that exists but caps the
+# workspace near the reading width reproduces the defect exactly: the network
+# column falls back to a few hundred pixels and every two-group topology is
+# scaled past the readable floor.
+#
+# `topology-layout.ts` models this width to assert geometry without a browser.
+# The model cannot read CSS, so this is what stops the two drifting apart.
+BREAKOUT_WIDTH="$(grep -Eo '\.packet-journey:not\(\.packet-journey--workspace\) \{ width: min\([0-9]+px' "$STYLES_FLAT_WPI" | grep -Eo '[0-9]+px' | tr -d 'px')"
+
+[ -n "$BREAKOUT_WIDTH" ] \
+  || fail "the workspace breakout has no width cap to check"
+[ "$BREAKOUT_WIDTH" -ge "1000" ] \
+  || fail "the workspace breaks out to only ${BREAKOUT_WIDTH}px; that is too near the reading column to give the network a usable share"
+
+grep -Fq "Math.min(${BREAKOUT_WIDTH}," apps/web/src/learning/topology-layout.ts \
+  || fail "the workspace width model in topology-layout.ts does not match the stylesheet; the layout assertions would be testing a width nobody renders"
+
+if grep -Eq '@media[^{]*\{ \.packet-journey \{[^}]*margin-inline: calc' "$STYLES_FLAT_WPI"; then
+  fail "the breakout applies to the expanded workspace too; a fixed, inset element would be mispositioned over the lesson"
+fi
+
+# THE NETWORK IS LARGER THAN THE INSTRUCTOR PANE, in both modes.
+grep -Eq '\.packet-journey-visual \{ grid-template-columns: minmax\(0, 1\.6[0-9]fr\)' "$STYLES_FLAT_WPI" \
+  || fail "the embedded workspace no longer gives the network the larger column"
+grep -Eq '\.packet-journey--workspace \.packet-journey-visual \{ grid-template-columns: minmax\(0, 1\.[0-9]fr\)' "$STYLES_FLAT_WPI" \
+  || fail "the expanded workspace no longer gives the network the larger column"
+
+# The pane's CONTENT is capped so a short beat cannot span half a wide screen.
+grep -Eq '\.packet-journey-beat, \.packet-journey-announcement \{ max-width' "$STYLES_FLAT_WPI" \
+  || fail "the instructor pane content has no readable maximum width"
+# DEC-065 expresses the same two invariants through columns rather than named
+# areas: the network beside the instruction on a wide screen, and one column on
+# a narrow one. The mechanism changed; what it guarantees did not.
+grep -Eq '\.packet-journey-visual \{[^}]*grid-template-columns: minmax\(0, [0-9]+fr\) minmax\(0, [0-9]+fr\)' \
   "$STYLES_FLAT_WPI" \
-  || fail "the wide workspace does not place the environment beside the task"
-grep -Eq '\.packet-journey-visual \{[^}]*grid-template-areas: "orient" "environment" "task"' \
+  || fail "the wide workspace does not place the network beside the instruction"
+
+# Fractional, never fixed. A pixel width for the network column is what
+# reintroduces clipping the moment a drawing or a viewport changes.
+if grep -Eq '\.packet-journey-visual \{[^}]*grid-template-columns:[^}]*[0-9]+px' "$STYLES_FLAT_WPI"; then
+  fail "the workspace columns are fixed in pixels; that reintroduces clipping"
+fi
+
+# Both columns must be allowed to shrink, or the network's own box refuses to
+# and pushes the instruction off screen — the clipping defect by another route.
+grep -Eq '\.packet-journey-workspace, \.packet-journey-instructor \{[^}]*min-width: 0' \
+  "$STYLES_FLAT_WPI" \
+  || fail "a workspace column cannot shrink; the instruction could be pushed off screen"
+
+grep -Eq '@media \(max-width: [0-9.]+rem\) \{ \.packet-journey-visual \{ grid-template-columns: minmax\(0, 1fr\)' \
   "$STYLES_FLAT_WPI" \
   || fail "the narrow workspace does not reflow to one column"
 
@@ -776,22 +1058,39 @@ STICKY_COUNT="$(grep -c 'position: sticky;' "$STYLES" || true)"
 
 WHY_LINE="$(grep -n -m1 'className="packet-journey-why"' "$JOURNEY" | cut -d: -f1)"
 INSPECTOR_LINE="$(grep -n -m1 'className="packet-journey-inspector"' "$JOURNEY" | cut -d: -f1)"
-CONFIRMATION_LINE="$(grep -n -m1 'className="packet-journey-confirmation"' "$JOURNEY" | cut -d: -f1)"
-EXPLANATION_LINE="$(grep -n -m1 'className="packet-journey-explanation"' "$JOURNEY" | cut -d: -f1)"
+BEAT_LINE="$(grep -n -m1 'className={`packet-journey-beat is-' "$JOURNEY" | cut -d: -f1 || true)"
 
-for required in "$WHY_LINE" "$INSPECTOR_LINE" "$CONFIRMATION_LINE" \
-                "$EXPLANATION_LINE"; do
+# DEC-065: the confirmation and the fault explanation are no longer their own
+# elements in the component — they are the BODY of a beat, resolved by
+# `resolveJourneyBeats`. Asserted where they now live, so the guard follows the
+# content rather than a class name it used to have.
+grep -Fq 'view.confirmation' "$PRESENTATION_MODULE" \
+  || fail "the conclusion no longer reaches the learner"
+grep -Fq 'view.explanation' "$PRESENTATION_MODULE" \
+  || fail "the fault explanation no longer reaches the learner"
+grep -Fq 'kind: "done"' "$PRESENTATION_MODULE" \
+  || fail "the conclusion has no beat to arrive in"
+grep -Fq 'kind: "symptom"' "$PRESENTATION_MODULE" \
+  || fail "the symptom has no beat to arrive in"
+
+for required in "$WHY_LINE" "$INSPECTOR_LINE" "$BEAT_LINE"; do
   [ -n "$required" ] \
     || fail "part of the current-step instruction is no longer rendered"
 done
 
-for pane_line in "$WHY_LINE" "$INSPECTOR_LINE" "$CONFIRMATION_LINE" \
-                 "$EXPLANATION_LINE"; do
-  [ "$pane_line" -gt "$NEXT_LINE" ] \
-    || fail "current-step instruction (line $pane_line) is rendered outside the instructor pane"
-  [ "$pane_line" -lt "$HISTORY_LINE" ] \
-    || fail "current-step instruction (line $pane_line) is below the journey history; the learner would have to notice a region beneath the workspace"
-done
+# The beat is inside the instructor pane, and above the history.
+[ "$BEAT_LINE" -gt "$NEXT_LINE" ] \
+  || fail "the instructional beat is rendered outside the instructor pane"
+[ "$BEAT_LINE" -lt "$HISTORY_LINE" ] \
+  || fail "the instructional beat is below the journey history; the learner would have to notice a region beneath the workspace"
+
+# The inspector belongs with the NETWORK now, not with the instruction:
+# selecting a device is a question about the topology, and the answer should
+# appear beside the topology rather than displacing the current beat.
+[ "$INSPECTOR_LINE" -gt "$WORKSPACE_LINE" ] \
+  || fail "the device inspector is outside the persistent workspace column"
+[ "$INSPECTOR_LINE" -lt "$NEXT_LINE" ] \
+  || fail "the device inspector sits in the instructor pane; it would compete with the current beat"
 
 # One inspector, in the pane. Two would leave the device buttons' aria-controls
 # pointing at whichever came first.
@@ -917,17 +1216,40 @@ grep -Fq 'describePredictionLabel' "$PRESENTATION_MODULE" \
 grep -Fq 'describeObservationLabel' "$PRESENTATION_MODULE" \
   || fail "what actually happened is no longer named beside the prediction"
 
-# Grading is pinned as ABSENT by identifier, not by prose. A verifier cannot
-# judge tone, but it can prove that nothing in the interaction path computes
-# whether a learner was right — and without that computation, a punitive state
-# has nothing to fire on. This is deliberately not a word list: the wording is
-# Human UAT's to judge, and the machine's job is the mechanism underneath it.
-for graded in 'isCorrect' 'wasCorrect' 'gradePrediction' 'predictionScore' \
-              'pointsAwarded' 'streak'; do
+# SCORING is pinned as absent by identifier, not by prose. A verifier cannot
+# judge tone, but it can prove that nothing in the interaction path accumulates,
+# ranks or rewards — and without that machinery, gamification has nothing to
+# fire on. This is deliberately not a word list: the wording is Human UAT's to
+# judge, and the machine's job is the mechanism underneath it.
+#
+# `isCorrect` and `wasCorrect` came OFF this list in the Mission 8 refinement.
+# A Founder ruling requires the learner to be told plainly whether their
+# prediction was right, rather than inferring it from the narration, so the
+# interaction path now DOES compare a committed answer against an authored one.
+# What must not exist is anything that keeps a tally of those comparisons.
+# `isCorrect` and `wasCorrect` are back on this list. They came off when the
+# Founder ruling permitted a prediction VERDICT, but the implementation never
+# used either identifier — correctness is expressed as
+# `stage.committedPrediction === authored`, asserted directly below — so
+# nothing benefited from their removal. The checkpoint audit found the
+# relaxation had no beneficiary, which is the only kind worth undoing.
+for graded in 'gradePrediction' 'predictionScore' 'pointsAwarded' 'streak' \
+              'correctCount' 'attemptsUsed' 'scoreFor' 'awardPoints' \
+              'isCorrect' 'wasCorrect'; do
   if grep -qF -e "$graded" "$JOURNEY" "$SURFACE" "$PRESENTATION_MODULE"; then
-    fail "a prediction is being graded rather than compared: $graded"
+    fail "a prediction is being scored rather than resolved: $graded"
   fi
 done
+
+# And the comparison itself stays a comparison: one committed answer against one
+# authored option, decided where it is read and recorded nowhere.
+grep -Fq 'stage.committedPrediction === authored' "$PRESENTATION_MODULE" \
+  || fail "prediction correctness is no longer a direct comparison against the authored option"
+
+# Assignment, not comparison: `] = ` and `.correct = `, never `=== `.
+if grep -qE 'answeredChecks\[[^]]*\] *= *[^=]|correct *\+\+|\.correct *= *[^=]' "$PRESENTATION_MODULE"; then
+  fail "prediction or check correctness is being accumulated into state"
+fi
 
 # ---- simultaneous traffic, and the state it teaches --------------------
 #
@@ -949,6 +1271,44 @@ grep -Fq 'key={marker.linkId' "$TOPOLOGY" \
 # and not only behind a device click.
 grep -Fq 'className="packet-journey-knows"' "$JOURNEY" \
   || fail "authored device state is no longer surfaced in the instructor pane"
+
+# WAVE 8: and it is in the instructor pane in FACT, not only in intention.
+#
+# Founder UAT: "THIS LEG'S LOCAL DELIVERY", "WHAT ROUTER-1 SEES" and "WHAT
+# ARRIVED" were rendering under the topology, in the workspace column, where
+# they read as a second lesson competing with the instruction on the right.
+# The comment above already claimed this surface belonged to the instructor
+# pane; nothing checked that it was there.
+#
+# Order is the requirement, so order is what is pinned: instruction, then
+# quick reference, then current network details.
+KNOWS_LINE="$(grep -n -m1 'className="packet-journey-knows"' "$JOURNEY" | cut -d: -f1)"
+BEAT_LINE="$(grep -n -m1 'className={`packet-journey-beat ' "$JOURNEY" | cut -d: -f1)"
+QUICKREF_LINE="$(grep -n -m1 'className="packet-journey-reference"' "$JOURNEY" | cut -d: -f1)"
+PANE_LINE="$(grep -n -m1 'className="packet-journey-instructor"' "$JOURNEY" | cut -d: -f1)"
+
+for required in "$KNOWS_LINE" "$BEAT_LINE" "$QUICKREF_LINE" "$PANE_LINE"; do
+  [ -n "$required" ] \
+    || fail "the instructor pane's reference hierarchy is no longer rendered"
+done
+
+[ "$KNOWS_LINE" -gt "$PANE_LINE" ] \
+  || fail "current network details render outside the instructor pane, under the topology"
+[ "$KNOWS_LINE" -gt "$BEAT_LINE" ] \
+  || fail "current network details render before the instructional beat"
+[ "$KNOWS_LINE" -gt "$QUICKREF_LINE" ] \
+  || fail "current network details render before the quick reference"
+
+# It is reference, so it is quieter than the beat, and it says what it is.
+grep -Fq 'Current network details' "$JOURNEY" \
+  || fail "the reference region does not name itself, so it reads as another task"
+
+# And it is rendered on the ONLY condition it should be: that there is
+# something to show. Mutation testing put `&& false` in this guard and every
+# line-order check above still passed, because the JSX was still in the file
+# and still in the right order — it had simply stopped rendering.
+grep -Fq '{view.deviceFacts.length > 0 && (' "$JOURNEY" \
+  || fail "current network details are gated on something other than having details"
 grep -Fq 'packet-journey-inspector-knows' "$JOURNEY" \
   || fail "the device inspector no longer offers the same authored state"
 

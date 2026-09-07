@@ -1466,3 +1466,167 @@ describe("an authored interface may be named on the picture", () => {
     expect(model.nodes[1]?.interfaces[0]?.prominent).toBeUndefined();
   });
 });
+
+
+/* ------------------------------------------------------------------ *
+ * Knowledge checks carry authored correctness (DEC-064)
+ * ------------------------------------------------------------------ */
+
+describe("an authored knowledge check must be answerable", () => {
+  /**
+   * The valid journey, with one knowledge check on its first stage.
+   *
+   * A stage carries a LIST of checks since the Mission 8 refinement — a
+   * stopping point holds several reasoning steps, because the fault keeps the
+   * learner there until they repair it. Each carries its own `checkId`, and
+   * the helper supplies one so every case below still tests one check.
+   */
+  function withCheck(check: unknown) {
+    const authored =
+      check !== null && typeof check === "object" && !Array.isArray(check)
+        ? { checkId: "c1", ...(check as Record<string, unknown>) }
+        : check;
+
+    return content({
+      parameters: params({
+        stages: journey.stages.map((stage, index) =>
+          index === 0 ? { ...stage, knowledgeChecks: [authored] } : stage
+        )
+      })
+    });
+  }
+
+  it("accepts a check whose correct option is one of the choices", () => {
+    const errors = validateInteractionContent(
+      withCheck({
+        prompt: "Which is true?",
+        options: ["This one", "Not this one"],
+        correctOption: "This one",
+        explanation: "Because of what you just watched."
+      }),
+      "s01"
+    );
+
+    expect(errors).toEqual([]);
+  });
+
+  it("refuses a correct option that is not on the list", () => {
+    // A right answer nobody can pick is a question nobody can get right, and
+    // it would only ever be discovered by a learner.
+    const errors = validateInteractionContent(
+      withCheck({
+        prompt: "Which is true?",
+        options: ["This one", "Not this one"],
+        correctOption: "A third thing",
+        explanation: "Because."
+      }),
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("correctOption");
+  });
+
+  it("requires a correct option at all", () => {
+    // This is the whole distinction from a prediction: a knowledge check that
+    // does not say what is correct cannot resolve, and a prediction is the
+    // interaction for a question that has no authored answer.
+    const errors = validateInteractionContent(
+      withCheck({
+        prompt: "Which is true?",
+        options: ["This one", "Not this one"],
+        explanation: "Because."
+      }),
+      "s01"
+    );
+
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it("requires an explanation, so a learner is never left with only a verdict", () => {
+    const errors = validateInteractionContent(
+      withCheck({
+        prompt: "Which is true?",
+        options: ["This one", "Not this one"],
+        correctOption: "This one"
+      }),
+      "s01"
+    );
+
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it("requires at least two choices", () => {
+    const errors = validateInteractionContent(
+      withCheck({
+        prompt: "Which is true?",
+        options: ["Only this"],
+        correctOption: "Only this",
+        explanation: "Because."
+      }),
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("two choices");
+  });
+
+  it("accepts an OPTIONAL correct option on a prediction, checked as strictly", () => {
+    /*
+      Inverted by a Founder ruling in the Mission 8 refinement.
+
+      It used to refuse `correctOption` on a prediction outright, on the
+      grounds that a guess made before the evidence must not be graded. The
+      ruling is that a learner must never have to infer from "what actually
+      happened" whether their own model was right — so a prediction the course
+      has already taught them to reason about MAY carry the answer.
+
+      What has not moved: it is optional, most predictions still author none,
+      it produces no score and no evidence, and it is withheld at the support
+      levels that test rather than teach. Those are asserted elsewhere; this
+      asserts that a correct option, when authored, is validated exactly as
+      strictly as a knowledge check's.
+    */
+    const valid = validateInteractionContent(
+      content({
+        parameters: params({
+          stages: journey.stages.map((stage, index) =>
+            index === 0
+              ? {
+                  ...stage,
+                  prediction: {
+                    prompt: "What happens?",
+                    options: ["A", "B"],
+                    correctOption: "A"
+                  }
+                }
+              : stage
+          )
+        })
+      }),
+      "s01"
+    );
+
+    expect(valid).toEqual([]);
+
+    const errors = validateInteractionContent(
+      content({
+        parameters: params({
+          stages: journey.stages.map((stage, index) =>
+            index === 0
+              ? {
+                  ...stage,
+                  prediction: {
+                    prompt: "What happens?",
+                    options: ["A", "B"],
+                    correctOption: "A third thing"
+                  }
+                }
+              : stage
+          )
+        })
+      }),
+      "s01"
+    );
+
+    expect(errors.length).toBeGreaterThan(0);
+  });
+});

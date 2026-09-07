@@ -472,6 +472,122 @@ dd {
   white-space: pre;
 }
 
+/* WP-NF-NT1 — the embedded near-transfer check.
+
+   Deliberately plain. This is a question a learner answers inside a lesson,
+   not a quiz: no panel, no progress bar, no colour-coded verdict. The verdict
+   is a word, and it is bold because it is the answer to what the learner just
+   asked, not because green means good. Nothing here may read as scoring. */
+
+.near-transfer-scenario {
+  margin: 0.75rem 0 1.25rem;
+}
+
+/* What connects to what, in words. Visible prose for every reader — the same
+   rule the instruction figure follows, and for the same reason. */
+
+.near-transfer-scenario-text {
+  margin: 0.6rem 0 0;
+  color: #475569;
+}
+
+/* Orientation, not a score. "Question 2 of 4" says where the learner is; it
+   never says how many they have got right, because nothing counts that. */
+
+.near-transfer-progress {
+  margin: 0 0 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+/* The fieldset carries the grouping semantics and nothing visual: a browser's
+   default box around a question would make the lesson look like a form. */
+
+.near-transfer-question fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.near-transfer-question legend {
+  padding: 0;
+  font-weight: 600;
+  color: #334155;
+}
+
+.near-transfer-hint {
+  margin: 0.35rem 0 0.6rem;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.near-transfer-option {
+  margin: 0 0 0.4rem;
+}
+
+.near-transfer-option label {
+  cursor: pointer;
+}
+
+/* WP-NF-NT1 video UAT: these rendered as default browser buttons in an
+   otherwise styled application. They now share the instructional surface's
+   established primary control treatment — the same declarations
+   `.packet-journey-advance` uses — rather than a second design.
+
+   Presentation only. They remain native <button> elements: type, disabled
+   state, keyboard operation and the shared focus ring are untouched, and the
+   wording is unchanged. */
+
+.near-transfer-submit,
+.near-transfer-advance {
+  margin: 0.5rem 0;
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--tlp-accent);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Disabled says "not yet", not "broken". Quiet rather than alarming: the
+   learner has something to do, and the sentence beside it says what. */
+
+.near-transfer-submit:disabled {
+  border-color: var(--tlp-line-strong);
+  background: var(--tlp-surface-sunken);
+  color: var(--tlp-muted);
+  cursor: not-allowed;
+}
+
+.near-transfer-result {
+  margin-top: 0.5rem;
+}
+
+.near-transfer-result p {
+  margin: 0 0 0.5rem;
+}
+
+/* The verdict word. Weight, not colour — "Correct" and "Not quite" have to
+   survive monochrome, high contrast and a screen reader identically. */
+
+.near-transfer-verdict {
+  font-weight: 700;
+  color: #334155;
+}
+
+/* What is still ahead, once the questions gate it. Quiet: the learner is not
+   being stopped, they are being told what finishes the lesson. */
+
+.instruction-withheld {
+  margin-top: 1.75rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid #eef2f7;
+  color: #64748b;
+}
+
 /* ------------------------------------------------------------------ *
    WP-H, corrected by WP-I — the Packet Journey interaction.
 
@@ -552,9 +668,12 @@ dd {
   color: var(--tlp-muted);
 }
 
-/* The workspace toggle. One control in two states, so opening the workspace
-   never has to move focus and closing it never has to restore it: the button
-   the learner pressed is the first control inside what it opened. */
+/* The workspace toggle. One control in two states, so expanding the workspace
+   never has to move focus and collapsing it never has to restore it: the
+   button the learner pressed is the first control inside what it expanded.
+
+   EXPAND and COLLAPSE, not open and close: nothing is hidden behind it. The
+   same tree is re-laid out at a different size. */
 
 .packet-journey-workspace-toggle {
   display: inline-flex;
@@ -595,26 +714,79 @@ dd {
    push the next action off the screen.
  * ---------------------------------------------------------------- */
 
+/* LEFT = my network. RIGHT = what I am doing now (DEC-065).
+
+   Two columns on a desktop, one on a narrow screen. The split is fractional
+   rather than fixed: a hard pixel width for the topology column is what
+   reintroduces clipping the moment a drawing or a viewport changes, and the
+   drawing already scales itself to whatever width it is given.
+
+   `min-width: 0` on both columns is load-bearing. A grid child defaults to
+   min-content width, so without it the topology's own box would refuse to
+   shrink and push the instructor pane off screen — the clipping defect
+   arriving by a different route. */
+
 .packet-journey-visual {
   display: grid;
-  gap: 0.6rem;
-  grid-template-areas:
-    "orient"
-    "environment"
-    "task";
+  gap: 0.9rem;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  align-items: start;
 }
 
-.packet-journey-orientation {
-  grid-area: orient;
+.packet-journey-workspace,
+.packet-journey-instructor {
+  min-width: 0;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
 }
+
+/* The instructor pane sticks beside the network on a tall screen, so the
+   current beat cannot scroll away from the picture it is about. */
+@media (min-width: 60rem) {
+  .packet-journey-instructor {
+    position: sticky;
+    top: 0.75rem;
+  }
+}
+
+/* One column, network first: a learner needs to see what they are reasoning
+   about before they are asked about it. */
+@media (max-width: 60rem) {
+  .packet-journey-visual {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The named grid areas went with the single-focus restructure. What is left is
+   the one property that still matters: the environment must be allowed to
+   shrink, or its own content decides the column width and pushes the
+   instructor pane off screen. */
 
 .packet-journey-environment {
-  grid-area: environment;
   min-width: 0;
 }
 
-.packet-journey-next {
-  grid-area: task;
+/* Orientation is a helper line above the network, not a block competing with
+   it. Founder UAT: it must not steal topology area. */
+
+.packet-journey-orientation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.6rem;
+}
+
+.packet-journey-orientation-title {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.packet-journey-orientation-summary,
+.packet-journey-source {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--tlp-muted);
 }
 
 /* The one obviously primary control, before the learner has begun.
@@ -991,17 +1163,34 @@ dd {
    The device name column is fixed so the values line up down the list — a
    learner watching a second row appear should see it slot into a column, not
    reflow the first one. */
+/* CURRENT NETWORK DETAILS — in the instructor pane, under the quick reference.
+
+   It used to sit under the topology. Founder UAT: the dynamic journey state
+   read as a second lesson competing with the first, in the column that is
+   supposed to be the picture.
+
+   Everything here is deliberately quieter than the beat above it: smaller
+   type, a sunken ground, and a heading that says what it is. A learner has to
+   be able to see at a glance that this is material to consult, not another
+   step to complete. */
+
 .packet-journey-knows {
   display: grid;
-  gap: 0.75rem;
-  margin: 0.75rem 0 0;
-  padding: 0.75rem 0 0;
-  border-top: 1px solid var(--tlp-line);
+  gap: 0.6rem;
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--tlp-line);
+  border-radius: var(--tlp-radius);
+  background: var(--tlp-surface-sunken);
+}
+
+.packet-journey-knows-block {
+  display: grid;
 }
 
 .packet-journey-knows-label {
-  margin: 0 0 0.4rem;
-  font-size: 0.72rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1016,21 +1205,22 @@ dd {
 
 .packet-journey-knows-facts > div {
   display: grid;
-  grid-template-columns: minmax(0, 7rem) minmax(0, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 8.5rem) minmax(0, 1fr);
+  gap: 0.6rem;
   align-items: baseline;
 }
 
 .packet-journey-knows-facts dt {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--tlp-ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--tlp-muted);
 }
 
 .packet-journey-knows-facts dd {
   margin: 0;
-  font-size: 0.9rem;
-  color: var(--tlp-ink-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--tlp-ink);
 }
 
 /* The same authored state inside the inspector, where it is supplemental. */
@@ -1349,6 +1539,47 @@ dd {
   stroke-width: 3;
 }
 
+/* WP-NF-NT1B — the wire to a network past the edge of the drawing.
+
+   Dashed, and quieter than a wire between two devices. It is a real connection
+   the author declared, and it is also the one line in the picture whose far end
+   is not shown, so it should not read as identical to a link between two cards
+   the learner can inspect. It never carries traffic: no traversed state, no
+   current state, no marker. */
+
+.topology-wire-external {
+  stroke: var(--tlp-line-strong);
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+/* The plate for that network.
+
+   Not a card. It is deliberately shorter, lighter and label-only: no symbol,
+   no category word, no facts, no state and no button, because there is nothing
+   here to inspect and it is not equipment. A learner should read it as "the
+   drawing continues in this direction", which is exactly the claim the author
+   made. */
+
+.topology-external-network {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.6rem;
+  border: 1px dashed var(--tlp-line-strong);
+  border-radius: 999px;
+  background: var(--tlp-surface-sunken);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+  color: var(--tlp-muted);
+  pointer-events: none;
+}
+
 /* A device is a real button: focusable, announced, and operable by keyboard
    without a single line of synthetic key handling.
 
@@ -1488,47 +1719,68 @@ dd {
   border-top: 1px solid var(--tlp-line);
 }
 
-/* One fact, one line, 20px — mirroring NODE_FACT_ROW_HEIGHT.
+/* One fact, TWO lines: its label, then its value.
 
-   It does NOT wrap. The layout computes the card's height from the number of
-   these rows, so a wrapped value would make the card taller than the box the
-   wires were drawn around, and a wire would cross a device. A value too long
-   for the card is ellipsised here and shown in full in the inspector and in
-   the complete device listing, so nothing is lost — only shortened, with the
-   ellipsis saying so. */
+   It does not wrap and it is not ellipsised. Founder UAT read "Network
+   interface I…" and "Network interface Ha…" off a card, which is the one thing
+   an instructional fact may never do — a learner cannot tell that something was
+   withheld, let alone what it was.
 
-.topology-port-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 19px;
-  overflow: hidden;
-  white-space: nowrap;
+   The card did not get wider and the type did not get smaller. The line got
+   shorter. The interface name became a heading over its own facts, and the
+   label and value each got a line of their own; every string the course puts
+   here now fits with room to spare, and `faceTextFits` in `topology-layout.ts`
+   is what proves it rather than hoping.
+
+   The heights below mirror NODE_INTERFACE_HEADING_HEIGHT (13),
+   NODE_FACT_LABEL_HEIGHT (12) and NODE_FACT_VALUE_HEIGHT (16). The layout sizes
+   every card's box from exactly those numbers, so a change here without a
+   change there would draw a card across the wires beneath it. `verify-wpi.sh`
+   pins both sides. */
+
+.topology-face-group {
+  display: grid;
+  justify-items: center;
+  width: 100%;
 }
 
-.topology-port {
-  flex: none;
-  padding: 1px 5px;
-  border: 1px solid var(--tlp-line);
-  border-radius: 4px;
-  background: var(--tlp-surface-sunken);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.topology-face-interface {
+  height: 13px;
+  max-width: 100%;
+  overflow: hidden;
   font-size: 0.62rem;
-  line-height: 14px;
-  color: var(--tlp-ink-soft);
+  font-weight: 700;
+  line-height: 13px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--tlp-muted);
 }
 
-.topology-fact {
-  overflow: hidden;
-  font-size: 0.68rem;
-  line-height: 18px;
-  text-overflow: ellipsis;
-  color: var(--tlp-ink-soft);
+.topology-face-fact {
+  display: grid;
+  justify-items: center;
+  width: 100%;
 }
 
 .topology-fact-label {
+  height: 12px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.62rem;
+  line-height: 12px;
+  white-space: nowrap;
   color: var(--tlp-muted);
+}
+
+.topology-fact-value {
+  height: 16px;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--tlp-ink);
 }
 
 /* Journey state.
@@ -1637,6 +1889,41 @@ dd {
   transition: left 480ms cubic-bezier(0.4, 0, 0.2, 1),
     top 480ms cubic-bezier(0.4, 0, 0.2, 1), background-color 200ms ease,
     box-shadow 200ms ease;
+}
+
+/* A marker travelling the wire, rather than being moved to a new point.
+
+   Founder UAT: traffic must follow the authored line continuously and must not
+   cut corners between node centres. `offset-path` is given the SAME `d` string
+   the SVG uses for that link, so every bend is followed by construction.
+
+   `margin` is cleared because `offset-path` positions the element's anchor: the
+   negative margins that centre a statically-placed dot would push a travelling
+   one off the wire. `transition` is cleared for the same reason — a transition
+   and an animation both driving position is exactly the corner-cutting this
+   replaces.
+
+   It loops while the stage is current, which is what makes the active leg
+   readable at a glance. Direction comes from `animation-direction`, set inline
+   from the authored travel direction, so an outbound leg and its return run
+   opposite ways along one wire. */
+
+.topology-packet.is-travelling {
+  margin: 0;
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+  offset-distance: 0%;
+  offset-anchor: 50% 50%;
+  animation: topology-travel 1600ms cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes topology-travel {
+  from {
+    offset-distance: 0%;
+  }
+
+  to {
+    offset-distance: 100%;
+  }
 }
 
 .topology-packet.is-waiting {
@@ -1947,13 +2234,303 @@ dd {
 .packet-journey-next {
   display: grid;
   gap: 0.75rem;
-  justify-items: start;
+  justify-items: stretch;
   margin-top: 0.25rem;
 }
 
 .packet-journey-next > * {
   margin: 0;
   max-width: 100%;
+}
+
+/* The five named regions.
+
+   Founder UAT, second round: "questions, answers, journey and lesson are not
+   clearly separated ... these cannot visually blend into one long stream."
+
+   Each region is a card with a heading, so ASKED / YOUR ANSWER / WHAT HAPPENED
+   / WHY / NEXT are told apart by shape before they are read. The distinction
+   is carried by border and background, never by colour alone — the same rule
+   the rest of this stylesheet follows, so it survives a colour-blind reader
+   and a monochrome display.
+
+   The ASKED region is the only one with an accent edge, because it is the only
+   one that ever wants an action. */
+
+.packet-journey-step {
+  width: 100%;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--tlp-line);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+}
+
+.packet-journey-step-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+/* Focus lands here after every answer. It is not a tab stop, so the ring only
+   ever appears when the interaction put it there — which is exactly when the
+   learner needs to be told where the result is. */
+.packet-journey-step-label:focus-visible {
+  outline: 2px solid var(--tlp-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.packet-journey-step.is-asked {
+  border-left: 3px solid var(--tlp-accent);
+  background: var(--tlp-surface-raised, var(--tlp-surface));
+}
+
+.packet-journey-step.is-answer {
+  border-style: dashed;
+}
+
+.packet-journey-step.is-why {
+  background: var(--tlp-surface-sunken, var(--tlp-surface));
+}
+
+.packet-journey-step > * {
+  max-width: 100%;
+}
+
+/* ONE BEAT AT A TIME.
+
+   The single thing demanding attention. It is a card so it reads as one unit,
+   and it carries a heading because that heading is where focus lands when the
+   beat changes — the same mechanism serving sighted and screen-reader learners.
+
+   `is-` modifiers exist so a beat can be told apart at a glance without the
+   pane changing shape. They carry emphasis, never meaning: every beat states
+   its kind in its heading, in words. */
+
+.packet-journey-beat {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--tlp-line);
+  border-left: 3px solid var(--tlp-accent);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface-raised, var(--tlp-surface));
+  display: grid;
+  gap: 0.5rem;
+}
+
+.packet-journey-beat.is-observe {
+  border-left-color: var(--tlp-line-strong);
+}
+
+.packet-journey-beat.is-symptom {
+  border-left-color: var(--tlp-stop);
+}
+
+.packet-journey-beat.is-done {
+  border-left-color: var(--tlp-success);
+}
+
+/* WHERE AM I — the device the current beat is about.
+
+   Founder ruling, Mission 8 refinement: when instruction moves to a device the
+   learner must be oriented at once rather than reading it out of the prose.
+   This is the pane's existing eyebrow treatment, not a new visual language, and
+   the word itself carries the fact — nothing here depends on colour. */
+
+.packet-journey-beat-device {
+  margin: 0 0 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-beat-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--tlp-ink);
+}
+
+.packet-journey-beat-heading:focus-visible {
+  outline: 2px solid var(--tlp-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Where the learner is, so "one at a time" never feels like being lost. */
+.packet-journey-beat-progress {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-beat-body {
+  margin: 0;
+  color: var(--tlp-ink);
+}
+
+.packet-journey-beat-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.2rem;
+}
+
+/* Reading on. Prominent enough to be obvious, quieter than the one control
+   that moves the network — and the two are never on screen together. */
+.packet-journey-continue {
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--tlp-accent);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface);
+  color: var(--tlp-accent);
+  font-weight: 600;
+}
+
+.packet-journey-continue:hover {
+  background: var(--tlp-accent-soft);
+}
+
+/* Going back is available and quiet. Moving forward is the primary act. */
+.packet-journey-beat-back {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--tlp-line-strong);
+  border-radius: var(--tlp-radius-sm);
+  background: transparent;
+  color: var(--tlp-muted);
+}
+
+/* Quick reference — orientation beside the beat, and quieter than it.
+
+   Secondary by construction: smaller type, muted labels, no border-left accent
+   and no control. It answers "who, what, to whom, where now" so the learner
+   never hunts under the drawing for the facts the current beat assumes. */
+
+.packet-journey-reference {
+  max-width: 34rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--tlp-line);
+  border-radius: var(--tlp-radius-sm);
+  background: var(--tlp-surface-sunken, var(--tlp-surface));
+}
+
+.packet-journey-reference-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+}
+
+.packet-journey-reference-rows {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) 1fr;
+  gap: 0.15rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.packet-journey-reference-rows > div {
+  display: contents;
+}
+
+.packet-journey-reference-rows dt {
+  color: var(--tlp-muted);
+}
+
+.packet-journey-reference-rows dd {
+  margin: 0;
+  color: var(--tlp-ink);
+}
+
+/* A prediction, resolved.
+
+   Three labelled lines rather than a paragraph, because the learner is
+   comparing two things and a definition list is exactly that shape — and it
+   gives assistive technology the pairing for free.
+
+   No correct/incorrect treatment, and no colour that would imply one: a
+   prediction carries no answer key, and inventing a verdict here would be
+   grading curriculum that was authored not to grade. */
+
+.packet-journey-resolved {
+  margin: 0 0 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) 1fr;
+  gap: 0.25rem 0.75rem;
+}
+
+.packet-journey-resolved dt {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tlp-muted);
+  padding-top: 0.15rem;
+}
+
+.packet-journey-resolved dd {
+  margin: 0;
+  color: var(--tlp-ink);
+}
+
+@media (max-width: 40rem) {
+  .packet-journey-resolved {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+
+  .packet-journey-resolved dd {
+    margin-bottom: 0.4rem;
+  }
+}
+
+/* A knowledge check, and its resolution.
+
+   The check itself reuses the prediction fieldset — same borderless legend, so
+   a long prompt cannot sit across a border — with one modifier, because it is a
+   different instrument and a learner should be able to tell at a glance.
+
+   The result is carried in WORDS ("Correct" / "Not correct"), so the edge
+   colour below is emphasis and never the only signal. Nothing here scores,
+   streaks or congratulates: an incorrect answer gets the same calm treatment
+   as a correct one, plus the sentence that explains it. */
+
+.packet-journey-prediction.is-check {
+  border-left: 3px solid var(--tlp-line-strong);
+  padding-left: 0.7rem;
+}
+
+.packet-journey-resolved.is-correct {
+  border-left: 3px solid var(--tlp-success);
+  padding-left: 0.7rem;
+}
+
+.packet-journey-resolved.is-not-correct {
+  border-left: 3px solid var(--tlp-line-strong);
+  padding-left: 0.7rem;
+}
+
+.packet-journey-result {
+  font-weight: 600;
+}
+
+/* The repair question. A paragraph rather than a heading: the region already
+   carries the heading, and two headings in one card is a hierarchy that says
+   nothing. */
+.packet-journey-actions-question {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--tlp-ink);
 }
 
 .packet-journey-next .packet-journey-prediction,
@@ -1967,9 +2544,24 @@ dd {
 
 /* The primary next step. It says what it does — the authored start label for
    the first reveal — and it is the only filled control on the surface, so a
-   learner never has to work out which control moves the lesson forward. */
+   learner never has to work out which control moves the lesson forward.
 
-.packet-journey-advance {
+   `.packet-journey-prediction-submit` shares the treatment and adds no design
+   values of its own. Founder video UAT read "Submit this prediction" as a wide
+   grey browser default: it carried no class at all, and its parent fieldset is
+   a grid, so it stretched to the full column with nothing in the cascade
+   reaching it.
+
+   It is a SEPARATE class rather than a second use of the progression class,
+   and that is deliberate. `verify-wpi.sh` asserts there is exactly one
+   progression control on the surface, which is a real invariant and true: the
+   two controls are mutually exclusive, because the advance control is
+   suppressed on a question beat, which is the only beat the prediction submit
+   appears on. Reusing the name would have made the gate count two progression
+   controls and forced it to be loosened to accommodate a paint job. */
+
+.packet-journey-advance,
+.packet-journey-prediction-submit {
   margin: 0.5rem 0;
   padding: 0.6rem 1.1rem;
   border: 1px solid var(--tlp-accent);
@@ -2005,8 +2597,9 @@ dd {
    The expanded workspace.
 
    Same component instance, same state, same tree — one class. There is no
-   second mount and nothing to synchronise, so opening or closing this cannot
-   lose a prediction, a revealed stage, a remediation or a selected device.
+   second mount and nothing to synchronise, so expanding or collapsing this
+   cannot lose a prediction, a revealed stage, a remediation or a selected
+   device.
  * ---------------------------------------------------------------- */
 
 .packet-journey--workspace {
@@ -2081,17 +2674,49 @@ dd {
    Below the breakpoint nothing breaks out: the interaction stays inside the
    reading column and reflows to one column. */
 
-@media (min-width: 78em) {
-  .packet-journey {
+/* The interactive workspace escapes the reading column.
+
+   A lesson-reading column and a network workspace are different layout
+   problems. `.card` is `min(760px, 100%)` with up to 3rem of padding — about
+   664px of content — which is right for paragraphs and far too narrow for a
+   topology beside an instructor pane. Founder UAT: the network became a
+   thumbnail and clipped.
+
+   ## Why 64em rather than 78em
+
+   The breakout used to start at 78em (1248px). Below that the workspace stayed
+   in the reading column, so at any ordinary laptop width the network column
+   was roughly 400px and every two-group topology was scaled past the readable
+   floor. The escape now begins as soon as two columns can actually be useful.
+
+   ## Scoped away from the expanded mode
+
+   `:not(.packet-journey--workspace)` is load-bearing and was the bleed. The
+   expanded workspace is `position: fixed; inset: 0`; applying a negative
+   `margin-inline` breakout to a fixed, fully-inset element mispositions it
+   over the document, which is exactly the lesson prose the Founder saw behind
+   the topology. The expanded mode already has the whole viewport and needs no
+   breakout at all. */
+
+@media (min-width: 64em) {
+  .packet-journey:not(.packet-journey--workspace) {
     width: min(1240px, calc(100vw - 3rem));
     margin-inline: calc(50% - min(620px, 50vw - 1.5rem));
   }
 
+  /* THE NETWORK IS LARGER THAN THE INSTRUCTOR PANE.
+
+     Roughly 62/38. The old rule was 1.05fr/0.95fr — near half-and-half — and
+     carried `grid-template-areas` naming `orient`, `environment` and `task`,
+     areas the single-focus restructure removed. With no child claiming an
+     area the template did nothing but leave an empty second row, which is the
+     blank space above the panes in the screenshot.
+
+     The instructor column has a floor so a beat never becomes a column of
+     single words, and a ceiling on its CONTENT below, so a short sentence and
+     one button cannot take half the screen. */
   .packet-journey-visual {
-    grid-template-columns: minmax(0, 1.05fr) minmax(20rem, 0.95fr);
-    grid-template-areas:
-      "orient orient"
-      "environment task";
+    grid-template-columns: minmax(0, 1.62fr) minmax(19rem, 1fr);
     gap: 0.75rem 2.25rem;
     align-items: start;
   }
@@ -2099,11 +2724,31 @@ dd {
   /* A hairline between the panes, not a box around each. The two halves are
      one surface; a border on each would make them look like two widgets. */
 
-  .packet-journey-next {
+  .packet-journey-instructor {
     padding-left: 2.25rem;
     border-left: 1px solid var(--tlp-line);
     margin-left: -2.25rem;
   }
+}
+
+/* The expanded workspace uses the whole viewport, and the network keeps the
+   larger share of it. No breakout, no negative margins: the element is fixed
+   and already spans the screen. */
+
+@media (min-width: 64em) {
+  .packet-journey--workspace .packet-journey-visual {
+    grid-template-columns: minmax(0, 1.7fr) minmax(20rem, 1fr);
+    gap: 0.75rem 2.5rem;
+  }
+}
+
+/* The pane's CONTENT is capped, while its column stays responsive. One beat is
+   deliberately concise, and a concise beat stretched across 40% of a wide
+   screen reads worse, not better. */
+
+.packet-journey-beat,
+.packet-journey-announcement {
+  max-width: 34rem;
 }
 
 /* Pin the workspace — the picture AND the current task — in BOTH modes.
@@ -2124,14 +2769,16 @@ dd {
    only `position: sticky` on the surface. */
 
 @media (min-width: 48em) and (min-height: 48em) {
-  .packet-journey-visual {
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    padding-top: 0.5rem;
-    padding-bottom: 0.5rem;
-    background: var(--tlp-surface-sunken);
-  }
+  /* The WHOLE workspace used to be pinned here, back when the topology and the
+     task were one stacked block. DEC-065 made them two columns, and pinning a
+     column as tall as the drawing is exactly the oversized-sticky defect the
+     note above warns about — the top would stay and the controls at the bottom
+     would be cut off.
+
+     What is pinned now is the INSTRUCTOR PANE, in its own query above: it holds
+     one short beat, so it always fits, and the current task still cannot scroll
+     away from the picture it is about. Exactly one sticky region on the
+     surface, as before. */
 
   /* A pinned block must never cover the thing the learner just tabbed to.
 
@@ -2187,6 +2834,18 @@ dd {
    and only the animation and the colour transition are dropped. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The travelling marker stops travelling, and parks part-way along its own
+     wire rather than vanishing. The wire it sits on is still the active one,
+     the wire's own `current` styling still says so, and every fact the motion
+     carried — which device has the traffic, which connection it crossed, in
+     which direction — is already stated in words in the event headline, the
+     live region and the text account. No learner information exists only in
+     the animation. */
+  .topology-packet.is-travelling {
+    animation: none;
+    offset-distance: 55%;
+  }
+
   .packet-journey-stage {
     animation: none;
   }

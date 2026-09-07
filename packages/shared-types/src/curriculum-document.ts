@@ -366,6 +366,10 @@ const STEP_CONTENT_KEYS: Readonly<Record<string, readonly string[]>> = {
     "caption"
   ],
   practice: ["type", "assessmentStableId", "framing"],
+  // WP-NF-NT1. Listed shallowly so the keys are not rejected as unknown;
+  // the INTERIOR is validated by `validateNearTransferContent`, which
+  // rejects unknown keys at every depth.
+  near_transfer: ["type", "title", "framing", "topology", "questions"],
   reference: ["type", "label", "assetStableId", "uri", "note"]
 };
 
@@ -658,7 +662,7 @@ function parseStep(
 
   if (!allowedContentKeys) {
     at(
-      `${label}.content.type "${type}" is not an approved step type; the vocabulary is closed at concept, diagram, command, prediction, interaction, practice, reference`
+      `${label}.content.type "${type}" is not an approved step type; the vocabulary is closed at concept, diagram, command, prediction, interaction, practice, near_transfer, reference`
     );
     return null;
   }

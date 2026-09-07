@@ -22,6 +22,7 @@ export * from "./curriculum-admin";
 export * from "./observation-model";
 export * from "./instruction-interaction";
 export * from "./mission-steps";
+export * from "./near-transfer";
 export * from "./mission-instruction";
 export * from "./curriculum-assets";
 export * from "./curriculum-document";

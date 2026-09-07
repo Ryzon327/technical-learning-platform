@@ -8,16 +8,36 @@ documentation referenced below.
 
 ## Authority Model
 
-1. The **Founder** is the product authority and final decision-maker.
-2. **ChatGPT** serves as system architect, product/technical orchestrator, and
-   independent implementation reviewer.
-3. **Claude Code** serves as the implementation engineer.
+1. The **Founder** is the product authority and final decision-maker, and holds
+   final learner-experience and UAT authority.
+2. **ChatGPT** serves as system architect, product/technical orchestrator,
+   independent implementation reviewer, and — per DEC-068 — **independent
+   reviewer of the rendered product**: functional flow, UI/UX, novice
+   usability, learner-experience QA, technical-writing integration, interaction
+   and state, visual consistency, and accessibility judged from rendered
+   evidence. It reviews real rendered evidence (Founder videos, screenshots,
+   rendered pages, walkthroughs) and may find defects nobody reported. It does
+   not replace Founder UAT.
+3. **Claude Code** serves as the implementation engineer and automated
+   engineering QA: implementation, schema work, tests, typechecks, builds,
+   verifiers, security checks, mechanically testable accessibility
+   protections, regression and mutation validation, and accurate reporting.
 4. Claude Code does not have authority to independently redesign approved
    architecture, change product direction, expand scope, or supersede
    Founder/architect decisions.
 5. Successful implementation or passing tests does not constitute
    architectural approval. All implementation work is pending independent
    review until the Founder/architect workflow accepts it.
+6. **Claude Code never self-approves the rendered learner experience**
+   (DEC-068). Automated validation establishes *mechanical* confidence; human
+   rendered review establishes *learner-experience* confidence; Founder UAT
+   owns *final product acceptance*. These are three claims with three owners.
+   Claude Code may report `IMPLEMENTED + AUTOMATED VALIDATION PASSED`, and
+   never `UAT APPROVED`.
+7. **Curriculum authorship is unchanged.** ChatGPT authors substantive
+   learner-facing curriculum. Claude Code implements it as written and reports
+   conflicts rather than independently authoring, rewriting, simplifying,
+   expanding, polishing or substituting it.
 
 ---
 
@@ -359,6 +379,26 @@ was actually executed and the result observed. When something cannot be
 run, state what was not run, why, the risk, and what is required to run it
 later.
 
+### Observed versus inferred (DEC-068)
+
+Distinguish what was **observed** from what was **computed, inferred or
+expected**, and say which.
+
+Geometry read out of layout code may be reported as *"the layout algorithm
+computes…"* or *"the implementation is expected to render…"*. It may **not** be
+reported as *"the topology visually appears…"* unless a rendered surface was
+actually inspected through an authorized rendered or browser mechanism.
+
+Semantic HTML in source does not prove real browser focus order, visual focus
+quality, screen-reader usability, zoom or reflow behaviour, responsive
+readability, or theme contrast in actual rendering. A test may be described as
+proving a property of the implementation; it may not be described as proving
+human-perceived quality it does not reach.
+
+The failure this prevents is quiet: a report that describes computed geometry
+in the language of appearance reads exactly like an eyewitness account, and a
+reviewer cannot tell the difference.
+
 ---
 
 ## Completion Report
@@ -388,6 +428,46 @@ Explicitly state that the implementation is:
 `PENDING INDEPENDENT ARCHITECTURE REVIEW`
 
 until reviewed and accepted by the Founder/architect workflow.
+
+### Learner-facing work: two sections, never one (DEC-068)
+
+For substantial learner-facing work the report carries these separately:
+
+* **AUTOMATED VALIDATION** — exactly what was mechanically tested, and what
+  those tests establish.
+* **HUMAN UAT REQUIRED** — the rendered properties still awaiting
+  Architect/Founder inspection.
+
+Do not merge them into a single claim of product approval. The following are
+prohibited on the strength of source inspection or automated tests alone: "UI
+approved", "UX approved", "learner experience approved", "accessibility
+approved", "looks correct", "reads well", "visually clear", "professional",
+"intuitive". The accurate sentence is: **"Implemented and automated validation
+passed. Rendered Architect/Founder UAT remains required."**
+
+### UAT handoff: describe what to exercise, never what to conclude
+
+Substantial learner-facing work also carries a short targeted UAT path: exact
+product/course/mission location, starting state, the actions to perform, an
+intentionally incorrect path where relevant, state transitions worth observing,
+known implementation-risk areas, and completion behaviour worth checking.
+
+Steering language is prohibited — "confirm this looks good", "this should feel
+intuitive", "if you cannot understand this, that is a defect", "verify this is
+visually clear". Write neutral instructions instead: *"view the topology at a
+narrow viewport"*; *"answer Question 3 using the topology before reading the
+descriptive text"*; *"observe the disabled completion control before the final
+required question"*; *"reload after mission completion and observe the
+resulting state."* The judgement is the reviewer's.
+
+### Defects found in rendered UAT
+
+Classify before fixing — curriculum/content, technical writing, functional
+interaction, UI/visual, UX/usability, accessibility, state/progression,
+architecture, or regression. Do not solve a UI defect by rewriting curriculum,
+or a curriculum defect by redesigning UI, unless the Architect authorizes that
+solution. Where a defect has a mechanically testable invariant, add a durable
+automated regression guard; semantic and rendered judgement stays human-owned.
 
 ---
 

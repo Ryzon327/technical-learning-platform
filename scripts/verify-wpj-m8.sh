@@ -246,8 +246,17 @@ grep -Fq '192.168.2.20' "$M8_BLOCK" \
 
 # The rule, applied rather than asserted. Without this the mission is telling
 # the learner the value is wrong instead of showing them why.
-grep -Fq 'own group' "$M8_BLOCK" \
-  || fail "Mission 8 does not explain the stop with the reachability rule Mission 5 established"
+#
+# Anchored to the RULE, not to one phrasing of it. This used to grep for the
+# words "own group"; Founder UAT wave 8 replaced the course's informal "group"
+# with "network" in Mission 8's journey, and a gate that fails on the repair it
+# asked for is testing the sentence rather than the invariant.
+grep -Fq 'deliver directly' "$M8_BLOCK" \
+  || fail "Mission 8 does not explain the stop with the direct-delivery rule"
+grep -Eq 'own (network|group)' "$M8_BLOCK" \
+  || fail "Mission 8 does not tie the stop to the host's own network"
+grep -Fq 'gateway' "$M8_BLOCK" \
+  || fail "Mission 8 does not name the gateway the rule is being applied to"
 grep -Fq 'gateway in order to reach' "$M8_BLOCK" \
   || fail "Mission 8 does not state the circularity that makes the setting impossible"
 
@@ -319,11 +328,27 @@ for forbidden in 'ICMP' 'echo request' 'echo reply' 'checksum' 'time to live' \
   fi
 done
 
-# The missions whose reasoning the learner must actually apply.
-for named in 'Mission 4' 'Mission 5' 'Mission 6' 'Mission 7'; do
-  grep -qF -e "$named" "$M8_BLOCK" \
-    || fail "Mission 8 does not draw on $named, which the integration design requires"
-done
+# The reasoning the learner must actually apply, checked as REASONING.
+#
+# This loop used to require the strings "Mission 4", "Mission 5", "Mission 6"
+# and "Mission 7" to appear in Mission 8. Founder UAT wave 8 ruled that a
+# learner returning after weeks cannot be sent to a numbered mission to
+# understand the sentence in front of them, and the journey's citations were
+# removed. A gate that fails on the repair it asked for is checking the
+# footnote instead of the integration.
+#
+# So each line below pins the thing that mission contributed, in the form
+# Mission 8 has to put in front of the learner for the integration to be real.
+grep -Fq '192.168.1.10/24' "$M8_BLOCK" \
+  || fail "Mission 8 does not restate PC-A's address and prefix; the comparison cannot be made"
+grep -Fq 'octets name the network' "$M8_BLOCK" \
+  || fail "Mission 8 does not restate how the prefix decides the network"
+grep -Fq 'default gateway' "$M8_BLOCK" \
+  || fail "Mission 8 does not use the default gateway, which is the fault's subject"
+grep -Fq 'Router-1' "$M8_BLOCK" \
+  || fail "Mission 8 does not carry the routed journey the repair restores"
+grep -Fq 'ping' "$M8_BLOCK" \
+  || fail "Mission 8 does not open on the test whose result the learner must read"
 
 echo "PASS:  5. Mission 8 requires Mission 7's reasoning without re-teaching it"
 
@@ -381,23 +406,111 @@ if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 
   fail "this slice changed a migration; Mission 8 authors curriculum only"
 fi
 
-for contract in packages/shared-types/src/instruction-interaction.ts \
-                packages/shared-types/src/mission-steps.ts \
-                packages/shared-types/src/observation-model.ts \
-                packages/shared-types/src/curriculum-document.ts \
-                packages/shared-types/src/roas-curriculum.ts; do
-  if ! git diff --quiet HEAD -- "$contract" 2>/dev/null; then
-    fail "this slice changed a contract or another course; Mission 8 uses the existing one: $contract"
-  fi
-done
+# ## Why the interaction contract is no longer in this list
+#
+# It used to assert `git diff --quiet HEAD` over
+# `instruction-interaction.ts`, on the reasoning that a CURRICULUM slice has no
+# business editing the contract. That was right for a curriculum slice and
+# wrong as a permanent rule: DEC-064 adds the knowledge-check type to that file
+# under Founder approval, and a guard that fails on authorised work is a guard
+# that gets deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# that Mission 8 USES the contract rather than bending it — and specifically
+# that a prediction never acquires an answer key, which `verify-wph.sh` asserts
+# directly on the prediction type. The remaining contracts stay pinned below.
+# Rebased in the Mission 8 refinement, and INVERTED for this mission alone.
+#
+# Every other mission's predictions are exploratory: the learner cannot yet
+# reason the answer out, so the observation IS the answer and their gate forbids
+# a correct option. Mission 8 is the mission where the learner already has the
+# model, and the Founder ruled that they must be told plainly whether it
+# predicted correctly rather than inferring it from the narration.
+#
+# What has not moved, and is asserted here: the field is OPTIONAL, so the
+# exploratory predictions elsewhere stay ungradeable; correctness produces no
+# score and no evidence; and it is withheld at the levels that test rather than
+# teach, since with no per-answer round trip the shipped option IS the answer.
+grep -Fq 'const PREDICTION_KEYS = ["prompt", "options"] as const;' packages/shared-types/src/instruction-interaction.ts \
+  || fail "correctOption became REQUIRED on a prediction; the rest of the course relies on predictions staying ungradeable"
+grep -Fq '"correctOption",' packages/shared-types/src/instruction-interaction.ts \
+  || fail "the prediction key set no longer admits an optional correctness field"
+grep -Fq 'prediction: withhold' packages/shared-types/src/mission-instruction.ts \
+  || fail "a prediction's correct option is shipped at protected support levels"
 
-# The fault-to-repair path is exercised by authored data, never by editing the
-# presentation to make one mission behave differently.
-for source in apps/web/src/learning/topology-layout.ts \
-              apps/web/src/learning/packet-journey-presentation.ts \
-              apps/web/src/learning/PacketJourney.tsx; do
-  if ! git diff --quiet HEAD -- "$source" 2>/dev/null; then
-    fail "this slice changed the journey presentation; Mission 8 authors data, not behaviour: $source"
+# That Mission 8 DOES author one is asserted in
+# `networking-foundations-mission8.test.ts`, which parses the document — a grep
+# here cannot tell a prediction's correct option from a knowledge check's.
+
+# `observation-model.ts` is excluded for the same reason
+# `instruction-interaction.ts` is (DEC-064 note above): the Founder UAT repair
+# adds an authored `action` to a stage so the pane can head with what a device
+# is DOING rather than only where the learner is. What must not change is that
+# the model reports authored observations rather than computing them, and
+# `verify-wpj-m1.sh` section 7 asserts that over every presentation source.
+grep -Fq 'networking truth entered the presentation layer' scripts/verify-wpj-m1.sh \
+  || fail "the renderer-computes-nothing guard is gone"
+
+# `mission-steps.ts` and `curriculum-document.ts` left this list for the same
+# reason `instruction-interaction.ts` did above: both were pinned to
+# `git diff --quiet HEAD` on the reasoning that a curriculum slice has no
+# business editing the step contract, which is right for a curriculum slice and
+# wrong as a permanent rule. WP-NF-NT1 adds `near_transfer` to the vocabulary
+# and its key list to the parser, under a DEC-054 amendment, and a guard that
+# fails on authorised work is a guard that gets deleted rather than fixed.
+#
+# The invariant underneath was that Mission 8 USES the vocabulary rather than
+# inventing one for itself. So: the vocabulary stays closed, the parser still
+# rejects a key it does not list, and Mission 8 authors only approved types.
+grep -Fq 'The set is closed.' packages/shared-types/src/mission-steps.ts \
+  || fail "the step vocabulary is no longer declared closed; Mission 8 relies on authoring within a fixed set"
+
+grep -Fq 'the vocabulary is closed at ${MISSION_STEP_TYPES.join(", ")}' packages/shared-types/src/mission-steps.ts \
+  || fail "an unapproved step type no longer fails validation; the closed vocabulary would be advisory"
+
+grep -Fq 'STEP_CONTENT_KEYS' packages/shared-types/src/curriculum-document.ts \
+  || fail "the parser no longer holds a per-type key list, so an unknown authored field would pass unchecked"
+
+# Read from Mission 8's own block, so a type introduced anywhere else in the
+# course cannot satisfy this and a type introduced HERE cannot hide.
+while IFS= read -r authored; do
+  case "$authored" in
+    concept|diagram|command|prediction|interaction|practice|near_transfer|reference) ;;
+    *) fail "Mission 8 authors the step type \"$authored\", which is not in the closed vocabulary" ;;
+  esac
+done < <(grep -o '"type": "[a-z_]*"' "$M8_BLOCK" | sed 's/.*: "//; s/"//')
+
+# The other course stays pinned. Nothing in Networking Foundations has any
+# reason to edit Router-on-a-Stick, and no ruling has changed that.
+if ! git diff --quiet HEAD -- packages/shared-types/src/roas-curriculum.ts 2>/dev/null; then
+  fail "this slice changed another course: packages/shared-types/src/roas-curriculum.ts"
+fi
+
+# ## Why this no longer forbids the presentation from changing at all
+#
+# It used to assert `git diff --quiet HEAD` over the journey presentation, on
+# the reasoning that a CURRICULUM slice has no business editing the renderer.
+# That was right for a curriculum slice and wrong as a permanent rule: the
+# Founder UAT repair wave is a PRESENTATION slice, authorised to change exactly
+# these files, and a guard that fails on authorised work is a guard that gets
+# deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# "no networking truth lives in the renderer" — Mission 8 may DESCRIBE what a
+# network does and nothing in `apps/web` may COMPUTE it. That is asserted over
+# every presentation source, test files excluded, in `verify-wpj-m1.sh`
+# section 7, and it survives a presentation change because it reads what the
+# code DOES rather than whether it moved.
+#
+# So this asserts the guard still exists and still covers these files, which is
+# the part Mission 8's gate can meaningfully own.
+grep -Fq 'networking truth entered the presentation layer' scripts/verify-wpj-m1.sh \
+  || fail "the renderer-computes-nothing guard is gone; Mission 8's journey depends on the presentation staying presentation"
+
+for computed in routingTable computeRoute nextHop calculateSubnet forwardingTable; do
+  if grep -qF -e "$computed" apps/web/src/learning/topology-layout.ts \
+       apps/web/src/learning/packet-journey-presentation.ts; then
+    fail "networking truth entered the journey presentation: $computed"
   fi
 done
 

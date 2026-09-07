@@ -281,6 +281,51 @@ export interface ObservationGroup {
   readonly label: string;
 }
 
+/**
+ * A network that exists beyond the edge of the drawing (WP-NF-NT1B).
+ *
+ * ## Why this exists
+ *
+ * A topology can be complete about what it draws and still be missing a fact a
+ * learner needs. Mission 1's near-transfer asks "which device connects this
+ * local network to another network?" — and the only thing in the picture that
+ * answered it was a device whose onward connection had no far end, so it drew
+ * nothing at all. The fact lived in prose, and a sighted beginner had to read a
+ * sentence to discover something that belongs in the diagram.
+ *
+ * This is the missing end. It is authored, exactly as a group is, and for the
+ * same reason: a renderer cannot work out that a network exists past a device,
+ * and every way of guessing — a router with a spare interface, an unlinked
+ * port, a device at the top of the hierarchy — would be a networking claim
+ * invented by a picture.
+ *
+ * ## What it is NOT
+ *
+ * **It is not a node.** It has no role, no interfaces, no journey state and no
+ * inspector. Traffic never arrives at it, no stage may name it, and no packet
+ * marker may be placed on its connection. It cannot be a device a question
+ * offers as an answer, because it is not in `nodes` at all.
+ *
+ * It is also not an IP network, a subnet, a VLAN, a routing domain, a default
+ * gateway or a statement about reachability. Like a group, it means what the
+ * author's `label` says and nothing more: there is something further on, in
+ * that direction, and this is the device it is reached through.
+ *
+ * ## Why it attaches to a node rather than an interface
+ *
+ * A link joins two interfaces because both ends are real equipment with real
+ * ports. Only one end of this is in the drawing. Attaching to the node says
+ * exactly that much — this device is where the drawing ends — without
+ * inventing a port on something that is not a device.
+ */
+export interface ObservationExternalNetwork {
+  readonly networkId: string;
+  /** Authored words, drawn as the label. Never a storage key. */
+  readonly label: string;
+  /** The device the drawing reaches it through. Must be a node in the model. */
+  readonly attachedToNodeId: string;
+}
+
 export interface ObservationNode {
   readonly nodeId: string;
   readonly label: string;
@@ -393,6 +438,15 @@ export function isObservationStageOutcome(
 export interface ObservationStage {
   readonly stageId: string;
   readonly atNodeId: string;
+  /**
+   * What the device is doing at this moment, in the author's words.
+   *
+   * Carried because the presentation heads its beat with it — "PC-A —
+   * deciding how to send the packet" rather than "At PC-A". It is authored
+   * text about what is happening, never why, so it is present at every
+   * support level exactly as the narration is.
+   */
+  readonly action?: string;
   readonly narration: string;
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
@@ -534,6 +588,13 @@ export interface ObservationModel {
    * a presentation resolving one can rely on finding it.
    */
   readonly groups: readonly ObservationGroup[];
+  /**
+   * Networks that exist past the edge of this drawing.
+   *
+   * Optional, and absent in every packet journey authored before WP-NF-NT1B —
+   * a source that does not report one draws exactly what it drew before.
+   */
+  readonly externalNetworks?: readonly ObservationExternalNetwork[];
   readonly nodes: readonly ObservationNode[];
   readonly links: readonly ObservationLink[];
   readonly stages: readonly ObservationStage[];

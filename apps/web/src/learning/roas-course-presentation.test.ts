@@ -30,6 +30,7 @@ import {
   selectMissionPractice,
   type ProgressFeedback
 } from "./roas-course-presentation";
+import type { RequiredInstructionState } from "./mission-instruction-presentation";
 
 const course = buildRoasLearnerCourse();
 const firstMission = course.missions[0]!.stableId;
@@ -1301,5 +1302,154 @@ describe("PRACTICE-ARCH-1A the non-evidence boundary holds for every item", () =
     expect(controls.canStart).toBe(false);
     expect(controls.canComplete).toBe(false);
     expect(controls.explanation).toMatch(/deterministic lab validator/i);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-NF-NT1B — required inline instruction gates Mark as complete
+ *
+ * WP-NF-NT1 withheld the lesson's own closing steps until an embedded
+ * near-transfer had been attempted, and left this control alone — so a learner
+ * could skip the required activity and still record the mission as done.
+ *
+ * Nothing below mentions near-transfer, a question or a mission. This function
+ * is told one word.
+ * ------------------------------------------------------------------ */
+
+function controlsWith(
+  requiredInstruction: RequiredInstructionState,
+  state: LearningProgressState | "unknown" = "in_progress"
+) {
+  const courseAvailability = availability("available");
+  const progress =
+    state === "unknown"
+      ? null
+      : progressFor({ [missionOne.stableId]: state });
+
+  return resolveMissionControlState({
+    availability: courseAvailability,
+    publishedMissionStableIds: publishedIds,
+    mission: missionOne,
+    missionProgress: describeMissionProgress(
+      courseAvailability,
+      progress,
+      missionOne.stableId
+    ),
+    requiredInstruction
+  });
+}
+
+describe("required inline instruction closes Mark as complete", () => {
+  it("withholds completion while it is outstanding", () => {
+    // The whole defect, in one assertion. A learner who has not done the
+    // required activity is not offered the control at all, rather than being
+    // allowed to press it and shown an error.
+    expect(controlsWith("outstanding").canComplete).toBe(false);
+  });
+
+  it("offers completion once it is satisfied", () => {
+    expect(controlsWith("satisfied").canComplete).toBe(true);
+  });
+
+  it("offers completion for a mission that requires nothing", () => {
+    // Every mission in the course that authors no required activity. This is
+    // the regression that matters most: the gate must be invisible to them.
+    expect(controlsWith("none").canComplete).toBe(true);
+  });
+
+  it("behaves identically to the unamended call when nothing is required", () => {
+    // The parameter is optional. An existing caller that never passes it — and
+    // every mission whose lesson reports "none" — gets exactly what it got.
+    expect(controlsWith("none")).toEqual(controlsFor("in_progress"));
+  });
+
+  it("still withholds it on an unknown server state", () => {
+    // "The server has not told us" is not permission to skip the lesson.
+    expect(controlsWith("outstanding", "unknown").canComplete).toBe(false);
+    expect(controlsWith("none", "unknown").canComplete).toBe(true);
+  });
+
+  it("still withholds it before the mission has been started", () => {
+    expect(controlsWith("outstanding", "not_started").canComplete).toBe(false);
+  });
+
+  it("never withdraws a completion the server has already recorded", () => {
+    // Session state cannot retroactively invalidate history. A learner who
+    // finished this mission last week returns to a fresh, unattempted
+    // near-transfer; their recorded progress is the server's and stands.
+    const finished = controlsWith("outstanding", "completed");
+
+    expect(finished.explanation).toBe(
+      "You have finished this mission. Your progress is saved."
+    );
+    expect(finished.canStart).toBe(false);
+    expect(finished.canComplete).toBe(false);
+  });
+
+  it("leaves Mark as started alone", () => {
+    // Starting a mission is not a claim about having done the work in it, and
+    // a learner must be able to open one before answering anything.
+    expect(controlsWith("outstanding", "not_started").canStart).toBe(true);
+  });
+
+  it("only ever narrows, and never opens what something else closed", () => {
+    // The demonstration mission and an unpublished course each refuse for
+    // their own reason. Satisfied instruction must not overrule either.
+    const unavailable = availability("not_published");
+
+    expect(
+      resolveMissionControlState({
+        availability: unavailable,
+        publishedMissionStableIds: null,
+        mission: missionOne,
+        missionProgress: describeMissionProgress(
+          unavailable,
+          null,
+          missionOne.stableId
+        ),
+        requiredInstruction: "satisfied"
+      }).canComplete
+    ).toBe(false);
+
+    expect(
+      resolveMissionControlState({
+        availability: availability("available"),
+        publishedMissionStableIds: publishedIds,
+        mission: demonstrationMission,
+        missionProgress: describeMissionProgress(
+          availability("available"),
+          null,
+          demonstrationMission.stableId
+        ),
+        requiredInstruction: "satisfied"
+      }).canComplete
+    ).toBe(false);
+  });
+
+  it("explains the wait without implying a pass mark", () => {
+    const explanation = controlsWith("outstanding").explanation;
+
+    expect(explanation).toBe(
+      "Finish all required activities before marking this mission complete."
+    );
+    for (const forbidden of ["pass", "correct", "score", "%"]) {
+      expect(explanation.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+
+  it("emits no score, threshold or evidence of any kind", () => {
+    // What the control state carries is the whole of what this produces.
+    // There is no field for a mark, a fraction, an attempt or a competency.
+    for (const requiredInstruction of [
+      "none",
+      "outstanding",
+      "satisfied"
+    ] as const) {
+      expect(Object.keys(controlsWith(requiredInstruction)).sort()).toEqual([
+        "canComplete",
+        "canStart",
+        "explanation"
+      ]);
+    }
   });
 });

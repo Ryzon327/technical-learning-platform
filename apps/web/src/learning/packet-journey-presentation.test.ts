@@ -1,24 +1,41 @@
 import { describe, expect, it } from "vitest";
-import type { LearnerPacketJourneyParameters } from "@tlp/shared-types";
+import {
+  buildPacketJourneyObservationModel,
+  parseCurriculumDocument,
+  type LearnerPacketJourneyParameters
+} from "@tlp/shared-types";
+import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
+import {
+  buildTopologyLayout,
+  describeDeviceState
+} from "./topology-layout";
 import {
   INITIAL_PACKET_JOURNEY_VIEW_STATE,
+  JOURNEY_BEAT_KINDS,
   PACKET_JOURNEY_TASK_KINDS,
+  activeJourneyBeat,
   advance,
+  answerKnowledgeCheck,
   applyAction,
   buildPacketJourneyView,
   canAdvance,
   commitPrediction,
   describeAdvanceLabel,
+  describeEventHeadline,
   describeRolePurpose,
   describeSourceNotice,
   describeStartInstruction,
   describeStartLabel,
+  describeWorkspaceCollapseLabel,
+  describeWorkspaceExpandLabel,
   describeTaskLabel,
   describeUnsupportedInteraction,
   describeWithheldInteraction,
   isTaskActionable,
   pendingPrediction,
   resetJourney,
+  resolveJourneyBeats,
+  type JourneyBeat,
   resolveCurrentTask,
   resolveNodeJourneyStatus,
   resolveSequencing,
@@ -140,6 +157,42 @@ const journey: LearnerPacketJourneyParameters = {
 const BEGUN: PacketJourneyViewState = startJourney(
   INITIAL_PACKET_JOURNEY_VIEW_STATE
 );
+
+/**
+ * The state after revealing `count` stages, committing whatever is asked on
+ * the way. Used by the DEC-066 agreement suites, which have to look at every
+ * point of the journey rather than only its ends.
+ */
+function revealTo(count: number): PacketJourneyViewState {
+  let state = BEGUN;
+
+  for (let step = 0; step < count; step += 1) {
+    const pending = buildPacketJourneyView(journey, state, "commit_first")
+      .pendingPrediction;
+
+    if (pending !== null) {
+      state = commitPrediction(state, pending.stageId, pending.options[0] ?? "");
+    }
+
+    state = advance(state, journey);
+  }
+
+  return state;
+}
+
+/** The state in which a prediction is being asked and not yet answered. */
+function atPrediction(): PacketJourneyViewState {
+  let state = BEGUN;
+
+  for (let step = 0; step < journey.stages.length; step += 1) {
+    if (buildPacketJourneyView(journey, state, "commit_first").pendingPrediction !== null) {
+      return state;
+    }
+    state = advance(state, journey);
+  }
+
+  throw new Error("the fixture asks for no prediction");
+}
 
 /** Walk to the authored failure, committing the prediction on the way. */
 function walkToFailure(): PacketJourneyViewState {
@@ -296,16 +349,27 @@ describe("committing a prediction never resets the journey", () => {
     expect(trace).toContain("That prediction has not been observed yet.");
   });
 
-  it("labels the first reveal with the authored start action", () => {
+  it("labels the first reveal with what it will actually do", () => {
     // It used to read "Start", which is what a control that restarts something
-    // reads like. The authored label was already in the view model, unused.
-    expect(
-      describeAdvanceLabel(committed, predictFirstJourney)
-    ).toBe("Send the ping from PC-A");
+    // reads like, so the authored action label replaced it. Founder UAT then
+    // found the opposite failure: the authored label promises a send, and the
+    // first stage of this fixture crosses no connection, so nothing is sent.
+    //
+    // The label is now read from the stage the press reveals. Both halves are
+    // asserted, so this is a rule rather than a ban on one word.
+    const sends = predictFirstJourney.stages[0]?.viaLinkId !== undefined;
+    const label = describeAdvanceLabel(committed, predictFirstJourney);
 
-    expect(
+    expect(label).toBe(
       buildPacketJourneyView(predictFirstJourney, committed).advanceLabel
-    ).toBe("Send the ping from PC-A");
+    );
+
+    if (sends) {
+      expect(label).toBe("Send the ping from PC-A");
+    } else {
+      expect(label.toLowerCase()).not.toContain("send");
+      expect(label).toContain("PC-A");
+    }
   });
 
   it("pairs the prediction with what actually happened once revealed", () => {
@@ -319,18 +383,77 @@ describe("committing a prediction never resets the journey", () => {
     );
   });
 
-  it("never grades the prediction", () => {
+  it("never grades a prediction the mission left ungraded", () => {
+    /*
+      Narrowed in the Mission 8 refinement, on a Founder ruling.
+
+      This used to search the whole serialised view for the WORD "correct", on
+      the reasoning that the contract had no answer key at all so nothing could
+      grade. A prediction may now carry an optional one — but only where the
+      course has already taught the learner to work the answer out.
+
+      `predictFirstJourney` authors none, which is the ordinary case, so this
+      still asserts what it always did: an ungraded prediction produces no
+      verdict of any kind.
+    */
     const view = buildPacketJourneyView(
       predictFirstJourney,
       advance(committed, predictFirstJourney)
     );
 
-    // There is no answer key in the contract, so there is nothing to grade
-    // with. The whole serialised view is checked, not just the stage.
-    const serialised = JSON.stringify(view);
+    expect(
+      predictFirstJourney.stages[0]?.prediction?.correctOption
+    ).toBeUndefined();
+    expect(view.resolvedPrediction?.correct).toBeNull();
+    expect(view.resolvedPrediction?.correctOption).toBeNull();
 
-    for (const verdict of ["correct", "Correct", "wrong", "Wrong", "incorrect"]) {
-      expect(serialised).not.toContain(verdict);
+    const beat = resolveJourneyBeats(view).find(
+      (candidate) => candidate.kind === "feedback"
+    );
+
+    expect(beat?.heading).toBe("Your prediction");
+    expect(beat?.body.join(" ")).not.toContain("expected answer");
+  });
+
+  it("produces no score or evidence even where a prediction IS graded", () => {
+    // The optional answer tells a learner whether their model was right. It is
+    // not an assessment, and nothing about it may start behaving like one.
+    const graded: LearnerPacketJourneyParameters = {
+      ...predictFirstJourney,
+      stages: predictFirstJourney.stages.map((stage, index) =>
+        index === 0 && stage.prediction !== undefined
+          ? {
+              ...stage,
+              prediction: {
+                ...stage.prediction,
+                correctOption: stage.prediction.options[0] ?? ""
+              }
+            }
+          : stage
+      )
+    };
+
+    const state = advance(committed, graded);
+    const view = buildPacketJourneyView(graded, state);
+
+    // The verdict is a boolean the pane reads, and it is derived on every
+    // render. Nothing about it is written into learner state.
+    expect(typeof view.resolvedPrediction?.correct).toBe("boolean");
+
+    const recorded = JSON.stringify(state).toLowerCase();
+
+    for (const forbidden of [
+      "score",
+      "streak",
+      "grade",
+      "mastery",
+      "evidence",
+      "competency",
+      "correct"
+    ]) {
+      expect(`recorded ${forbidden}: ${recorded.includes(forbidden)}`).toBe(
+        `recorded ${forbidden}: false`
+      );
     }
   });
 
@@ -633,7 +756,15 @@ describe("the journey reaches its destination", () => {
       "PC-B"
     ]);
     expect(view.stages[2]?.narration).toBe("PC-B received the request.");
-    expect(view.announcement).toContain("PC-B received the request.");
+
+    /*
+      The announcement names WHERE the traffic is; the beat card carries the
+      narration. It used to carry both, which put the same paragraph in the
+      live region and in the card directly beneath it — the Founder UAT defect
+      on Mission 8's PC-A screen.
+    */
+    expect(view.announcement).toContain("At PC-B");
+    expect(view.announcement).not.toContain("PC-B received the request.");
   });
 
   it("names the authored destination as the place it arrived", () => {
@@ -667,7 +798,18 @@ describe("the journey reaches its destination", () => {
     expect(view.finished).toBe(true);
     expect(view.currentEvent.kind).toBe("confirmed");
     expect(view.confirmation).toContain("one interface per network");
-    expect(view.announcement).toContain("reply returns");
+
+    /*
+      The AUTHORED confirmation is the card's, and it is still reachable —
+      asserted directly above. The live region says the three things it says
+      everywhere else: where, what moved, what changed.
+
+      It used to return the authored narration verbatim, which announced the
+      mission's closing teaching a second time immediately above the card
+      showing it. Founder video UAT found the duplication on Mission 1.
+    */
+    expect(view.announcement).toContain("was delivered.");
+    expect(view.announcement).not.toContain("reply returns");
   });
 
   it("does not reach confirmation merely by repairing the fault", () => {
@@ -764,10 +906,15 @@ describe("every action produces a current-event change", () => {
       buildPacketJourneyView(completingJourney, repaired).announcement
     ).toBe("Router-1 forwards the request on towards PC-B.");
 
-    expect(
-      buildPacketJourneyView(completingJourney, advance(repaired, completingJourney))
-        .announcement
-    ).toContain("PC-B received the request.");
+    // Moved on: the announcement now reports WHERE the traffic is, and the
+    // repair's observation is no longer the thing being announced.
+    const moved = buildPacketJourneyView(
+      completingJourney,
+      advance(repaired, completingJourney)
+    ).announcement;
+
+    expect(moved).toContain("At PC-B");
+    expect(moved).not.toContain("Router-1 forwards the request on towards PC-B.");
   });
 
   it("carries every event state as text, not only as a kind", () => {
@@ -1028,8 +1175,19 @@ describe("remediation and confirmation", () => {
     );
 
     expect(view.confirmation).toContain("one subinterface per VLAN");
-    expect(view.announcement).toContain("Fixed");
-    expect(view.announcement).toContain("reply returns");
+    /*
+      "Fixed." was a prefix on every confirmation — right for Mission 8 and
+      wrong for Mission 1, where nothing was broken. It is still absent.
+
+      The announcement no longer repeats the authored confirmation either.
+      That paragraph is the card's, and returning it here announced the
+      mission's closing teaching immediately above the card showing it. The
+      live region owns location, movement and changed state; `confirmation`
+      above is where the authored words are, and they are unchanged.
+    */
+    expect(view.announcement).not.toContain("Fixed");
+    expect(view.announcement).not.toContain("The reply returns to PC-A.");
+    expect(view.announcement).toMatch(/^At .+\. .+ was delivered\.$/);
   });
 
   it("withdraws the remediation controls once one is applied", () => {
@@ -1048,11 +1206,20 @@ describe("remediation and confirmation", () => {
   });
 
   it("starts over cleanly", () => {
-    // All the way back, including the deliberate start. A learner who starts
-    // over meets the same orientation and the same Start they met the first
-    // time, rather than landing mid-activity.
+    /*
+      All the way back to the initial state. A learner who starts over lands on
+      the first screen of the journey, not mid-activity.
+
+      `started` is now true in that initial state: the start ceremony was
+      removed on a Founder video-UAT ruling, so starting over returns the
+      learner to the first real decision rather than to a button that reveals
+      it. What matters here is that reset is total.
+    */
     expect(resetJourney()).toEqual(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-    expect(resetJourney().started).toBe(false);
+    expect(resetJourney().progress.revealedStageCount).toBe(0);
+    expect(resetJourney().progress.appliedActionId).toBeNull();
+    expect(resetJourney().committedPredictions).toEqual({});
+    expect(resetJourney().answeredChecks).toEqual({});
   });
 });
 
@@ -1556,183 +1723,131 @@ describe("the reference material survives the new hierarchy", () => {
  * engagement rather than evidence.
  * ------------------------------------------------------------------ */
 
-describe("an activity does not begin until the learner begins it", () => {
-  it("starts in a deliberate not-started state", () => {
+describe("an activity opens on the learner's first real decision", () => {
+  /*
+    Inverted by a Founder video-UAT ruling.
+
+    This suite protected a deliberate not-started state: one obvious control
+    before anything else, and no progress until it was pressed. The video showed
+    what that cost — the button moved no traffic, it only revealed the
+    prediction the opening had already told the learner to make.
+
+    The journey now begins engaged. What the suite protects instead is that
+    nothing MOVES on its own, that a gating prediction still gates, and that the
+    first screen carries something real.
+  */
+  it("reveals no stage until the learner acts", () => {
     const view = buildPacketJourneyView(
-      predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
+      journey,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      "commit_first"
     );
 
-    expect(INITIAL_PACKET_JOURNEY_VIEW_STATE.started).toBe(false);
-    expect(view.currentTask.kind).toBe("start");
-    expect(view.currentTask.label).toBe(describeTaskLabel("start"));
-    expect(view.currentTask.actionable).toBe(true);
+    expect(view.stages).toEqual([]);
+    expect(view.finished).toBe(false);
   });
 
-  it("offers exactly one primary control before anything else", () => {
+  it("offers no start ceremony", () => {
     const view = buildPacketJourneyView(
-      predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
+      journey,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      "commit_first"
     );
 
-    expect(view.startAction).not.toBeNull();
-    expect(view.startAction?.label).toBe(describeStartLabel());
-    expect(view.startAction?.instruction).toBe(
-      describeStartInstruction(predictFirstJourney.traffic.label)
-    );
-
-    // It names what will move, in the AUTHORED words. "predict what happens"
-    // told a beginner nothing; naming the thing is the whole correction.
-    expect(view.startAction?.instruction).toContain(
-      predictFirstJourney.traffic.label
-    );
-
-    // And nothing else to press. No reveal, no prediction, no remediation —
-    // one obvious action, which is the whole point of the state.
-    expect(view.canAdvance).toBe(false);
-    expect(view.pendingPrediction).toBeNull();
-    expect(view.actions.every((action) => !action.available)).toBe(true);
-  });
-
-  it("refuses to progress until it is started", () => {
-    // Not merely undrawn. The state machine refuses, through the same gate
-    // that refuses an uncommitted prediction.
-    expect(canAdvance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney))
-      .toBe(false);
-    expect(advance(INITIAL_PACKET_JOURNEY_VIEW_STATE, completingJourney))
-      .toBe(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-    expect(
-      buildPacketJourneyView(
-        completingJourney,
-        INITIAL_PACKET_JOURNEY_VIEW_STATE
-      ).stages
-    ).toEqual([]);
-  });
-
-  it("reveals no answer before the learner begins", () => {
-    const view = buildPacketJourneyView(
-      predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
-    );
-
-    const serialised = JSON.stringify({
-      orientation: view.orientation,
-      startAction: view.startAction,
-      currentTask: view.currentTask
-    });
-
-    // Nothing the learner is about to be asked to predict may appear in what
-    // they can read before they start: not the options, not the destination,
-    // and not the first authored narration.
-    const prediction = predictFirstJourney.stages[0]?.prediction;
-    for (const option of prediction?.options ?? []) {
-      expect(serialised).not.toContain(option);
-    }
-    expect(serialised).not.toContain(predictFirstJourney.stages[0]?.narration);
-    expect(serialised).not.toContain("Router-1");
-  });
-
-  it("starts on request, and only then offers the first step", () => {
-    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-    const view = buildPacketJourneyView(predictFirstJourney, started);
-
-    expect(started.started).toBe(true);
     expect(view.startAction).toBeNull();
-    expect(view.currentTask.kind).toBe("predict");
-    expect(view.pendingPrediction).not.toBeNull();
   });
 
-  it("starting reveals nothing by itself", () => {
-    // It releases the controls. It does not move the traffic, commit a
-    // prediction or apply a remediation.
-    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-
-    expect(started.progress.revealedStageCount).toBe(0);
-    expect(started.progress.appliedActionId).toBeNull();
-    expect(started.committedPredictions).toEqual({});
-    expect(
-      buildPacketJourneyView(predictFirstJourney, started).stages
-    ).toEqual([]);
-  });
-
-  it("is idempotent", () => {
-    const once = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-    expect(startJourney(once)).toBe(once);
-  });
-
-  it("produces no competency, evidence, score or progress", () => {
-    // Engagement, and nothing else. Starting a teaching interaction cannot
-    // contribute to a competency claim, and there is no field here that could
-    // carry one.
-    const started = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
-    const serialised = JSON.stringify(started);
-
-    for (const forbidden of [
-      "competency",
-      "evidence",
-      "score",
-      "passed",
-      "attempt",
-      "lab",
-      "session",
-      "published"
-    ]) {
-      expect(serialised.toLowerCase()).not.toContain(forbidden);
-    }
-
-    expect(Object.keys(started).sort()).toEqual([
-      "committedPredictions",
-      "progress",
-      "started"
-    ]);
-  });
-
-  it("keeps the environment readable and described before the start", () => {
-    // The learner must be able to see enough of the environment to understand
-    // what the activity concerns. The topology and its accessible description
-    // are both present before anything is pressed.
-    const view = buildPacketJourneyView(
-      predictFirstJourney,
-      INITIAL_PACKET_JOURNEY_VIEW_STATE
+  it("opens on a beat that carries something real", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(
+        journey,
+        INITIAL_PACKET_JOURNEY_VIEW_STATE,
+        "commit_first"
+      )
     );
 
-    expect(view.topology.state).toBe("available");
-    if (view.topology.state !== "available") return;
+    expect(beats.length).toBeGreaterThan(0);
 
-    expect(view.topology.devices.length).toBe(predictFirstJourney.nodes.length);
-    expect(view.topology.description.length).toBeGreaterThan(0);
+    // No empty card exists merely to hold a button.
+    for (const beat of beats) {
+      const carries = beat.body.length > 0 || beat.actionable;
+      expect(`${beat.kind} carries something: ${carries}`).toBe(
+        `${beat.kind} carries something: true`
+      );
+    }
   });
 
-  it("still identifies teaching mode before the start", () => {
+  it("opens directly on the prediction when the first stage asks one", () => {
+    // Mission 1's shape: the learner meets the decision immediately.
+    const asking: LearnerPacketJourneyParameters = {
+      ...journey,
+      stages: journey.stages.map((stage, index) =>
+        index === 0
+          ? {
+              ...stage,
+              prediction: {
+                prompt: "Which device receives it first?",
+                options: ["Switch-1", "Printer"]
+              }
+            }
+          : stage
+      )
+    };
+
+    const view = buildPacketJourneyView(
+      asking,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      "commit_first"
+    );
+
+    expect(view.pendingPrediction).not.toBeNull();
+    expect(view.startAction).toBeNull();
+  });
+
+  it("still refuses to advance past an uncommitted prediction", () => {
+    // The gate that matters is unchanged: a prediction still blocks the reveal.
+    const asking: LearnerPacketJourneyParameters = {
+      ...journey,
+      stages: journey.stages.map((stage, index) =>
+        index === 0
+          ? {
+              ...stage,
+              prediction: {
+                prompt: "Which device receives it first?",
+                options: ["Switch-1", "Printer"]
+              }
+            }
+          : stage
+      )
+    };
+
     expect(
-      buildPacketJourneyView(
-        predictFirstJourney,
-        INITIAL_PACKET_JOURNEY_VIEW_STATE
-      ).sourceNotice
-    ).toBe(describeSourceNotice("authored_teaching"));
+      canAdvance(INITIAL_PACKET_JOURNEY_VIEW_STATE, asking, "commit_first")
+    ).toBe(false);
   });
 
-  it("runs the whole sequence once started", () => {
-    // ORIENT -> START -> PREDICT -> SEND -> OBSERVE -> ... -> FINISH, through
-    // the existing state and nothing else.
+  it("runs the whole sequence without a ceremony in front of it", () => {
+    let state = INITIAL_PACKET_JOURNEY_VIEW_STATE;
     const seen: string[] = [];
-    let state: PacketJourneyViewState = INITIAL_PACKET_JOURNEY_VIEW_STATE;
 
-    for (let step = 0; step < 7; step += 1) {
-      const view = buildPacketJourneyView(completingJourney, state);
+    for (let step = 0; step < journey.stages.length + 2; step += 1) {
+      const view = buildPacketJourneyView(journey, state, "commit_first");
       seen.push(view.currentTask.kind);
 
-      state =
-        view.currentTask.kind === "start"
-          ? startJourney(state)
-          : view.currentTask.kind === "repair"
-            ? applyAction(state, "add-vlan-20")
-            : advance(state, completingJourney);
+      if (view.pendingPrediction !== null) {
+        state = commitPrediction(
+          state,
+          view.pendingPrediction.stageId,
+          view.pendingPrediction.options[0] ?? ""
+        );
+        continue;
+      }
+      if (!view.canAdvance) break;
+      state = advance(state, journey);
     }
 
-    expect(seen[0]).toBe("start");
-    expect(seen[1]).toBe("send");
-    expect(seen[seen.length - 1]).toBe("finished");
+    expect(seen[0]).not.toBe("start");
+    expect(seen.length).toBeGreaterThan(1);
   });
 });
 
@@ -2155,7 +2270,12 @@ describe("inspecting a device is not progress", () => {
     // Which device is selected lives in component state and never enters the
     // journey's state. That is what keeps inspection free: it cannot advance
     // a stage, satisfy a prediction, apply an action or produce a result.
+    // Exhaustive on purpose: a new field here has to be a deliberate decision.
+    // `answeredChecks` is one — a knowledge-check answer is the same category
+    // of thing as a commitment, component state that outlives nothing and
+    // records no result anywhere a learner or a grader could read it back.
     expect(Object.keys(INITIAL_PACKET_JOURNEY_VIEW_STATE).sort()).toEqual([
+      "answeredChecks",
       "committedPredictions",
       "progress",
       "started"
@@ -2371,5 +2491,2492 @@ describe("simultaneous authored traffic reaches the drawing", () => {
     expect(
       view.topology.packets.map((marker) => marker.linkId).sort()
     ).toEqual(["link-a", "link-b"]);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * SHOW ME shows
+ *
+ * Founder UAT, second round: "the Founder sees 'Show Me' and expects: show me
+ * the network and the information I need." The finding was that the richest
+ * support level was the one that never told a learner the devices were
+ * readable — the inspection prompt appeared only at HELP ME.
+ * ------------------------------------------------------------------ */
+
+describe("SHOW ME points the learner at the network", () => {
+  it("names the inspector at SHOW ME", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      BEGUN,
+      "demonstrate"
+    );
+
+    expect(view.inspectionPrompt).not.toBeNull();
+  });
+
+  it("still names it at HELP ME", () => {
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      BEGUN,
+      "guide"
+    );
+
+    expect(view.inspectionPrompt).not.toBeNull();
+  });
+
+  it("withholds it once the learner is being asked to decide what to inspect", () => {
+    // At ASK ME and below, choosing what is worth looking at is part of the
+    // work. Telling them would be doing that part for them.
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      BEGUN,
+      "commit_first"
+    );
+
+    expect(view.inspectionPrompt).toBeNull();
+  });
+
+  it("does not turn SHOW ME into a prediction gate", () => {
+    // The prompt is the only thing that changed. SHOW ME still demonstrates.
+    const view = buildPacketJourneyView(
+      predictFirstJourney,
+      BEGUN,
+      "demonstrate"
+    );
+
+    expect(view.predictionRequired).toBe(false);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * GUIDE THE LEARNER (DEC-063)
+ *
+ * Founder UAT, fourth round. Each block below pins one of the reported
+ * defects rather than the wording that currently fixes it, so a rewrite that
+ * keeps the meaning stays legal and a regression does not.
+ * ------------------------------------------------------------------ */
+
+describe("an originating stage never says traffic reached its own source", () => {
+  it("says the traffic STARTS where nothing was traversed to reach", () => {
+    // Founder UAT rejected "The file PC-A is sending reached PC-A." Nothing
+    // travelled anywhere, so "reached" is false rather than simplified.
+    const headline = describeEventHeadline(
+      false,
+      false,
+      false,
+      "PC-A",
+      false,
+      "the file",
+      false,
+      "PC-A",
+      "PC-B"
+    );
+
+    expect(headline.toLowerCase()).not.toContain("reached");
+    expect(headline.toLowerCase()).not.toContain("arrived");
+
+    // WHO wants to send WHAT to WHOM, and where it currently is.
+    expect(headline).toContain("PC-A");
+    expect(headline).toContain("PC-B");
+    expect(headline).toContain("the file");
+    expect(headline.toLowerCase()).toContain("has not left");
+  });
+
+  it("still says REACHED once a connection has actually been crossed", () => {
+    // The distinction has to cut both ways, or it is just a word ban.
+    const headline = describeEventHeadline(
+      false,
+      false,
+      false,
+      "Switch-1",
+      false,
+      "the file",
+      true,
+      "PC-A",
+      "PC-B"
+    );
+
+    expect(headline).toContain("reached Switch-1");
+  });
+
+  it("draws the distinction from the authored stage, not from position", () => {
+    // A journey whose first stage names no link is an origin; the same builder
+    // must report it as a start without anything else changing.
+    const view = buildPacketJourneyView(journey, BEGUN, "demonstrate");
+
+    const originatesHere =
+      journey.stages[0]?.viaLinkId === undefined;
+
+    if (originatesHere) {
+      expect(view.currentEvent.headline.toLowerCase()).not.toContain("reached");
+    }
+  });
+});
+
+describe("a prediction is resolved against what happened, and never graded", () => {
+  it("exposes the prediction, the observation and the reason together", () => {
+    const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
+
+    expect(view.resolvedPrediction).not.toBeNull();
+    expect(view.resolvedPrediction?.option.length ?? 0).toBeGreaterThan(0);
+    expect(view.resolvedPrediction?.observed.length ?? 0).toBeGreaterThan(0);
+    expect(view.resolvedPrediction?.why?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("never declares a prediction correct or incorrect", () => {
+    // `PacketJourneyPrediction` carries no correct option and CURR-011 forbids
+    // adding one: an answer key in curriculum content is an assessment answer.
+    // So the comparison IS the feedback, and no verdict may appear.
+    const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
+
+    const shown = [
+      view.resolvedPrediction?.option ?? "",
+      view.resolvedPrediction?.observed ?? "",
+      view.resolvedPrediction?.why ?? "",
+      view.announcement
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    for (const verdict of ["correct", "incorrect", "wrong", "well done", "score"]) {
+      expect(`${verdict}: ${shown.includes(verdict)}`).toBe(`${verdict}: false`);
+    }
+  });
+
+  it("shows nothing to compare before the stage has been observed", () => {
+    // Committed on the stage it is about, but that stage is not yet revealed.
+    // A commitment is only pending in the slot immediately ahead, so the first
+    // stage has to be revealed before the second can be predicted.
+    const stage = journey.stages[1];
+    const committed = commitPrediction(
+      advance(BEGUN, journey),
+      stage?.stageId ?? "",
+      stage?.prediction?.options[0] ?? ""
+    );
+    const view = buildPacketJourneyView(journey, committed, "commit_first");
+
+    expect(view.resolvedPrediction).toBeNull();
+    expect(view.pendingCommitment).not.toBeNull();
+  });
+});
+
+describe("the learner's answer is kept apart from the lesson", () => {
+  it("carries the answer as its own field rather than inside the narrative", () => {
+    // Founder UAT: the learner must not have to reconstruct an interaction by
+    // scrolling back through the lesson. The commitment, the resolved
+    // comparison and the chosen remediation are separate fields, so a
+    // presentation can put them in their own region.
+    const view = buildPacketJourneyView(journey, BEGUN, "demonstrate");
+
+    expect("pendingCommitment" in view).toBe(true);
+    expect("resolvedPrediction" in view).toBe(true);
+    expect("chosenAction" in view).toBe(true);
+  });
+});
+
+describe("a control says what the learner will actually get", () => {
+  it("says what pressing it will actually do", () => {
+    // Founder UAT: "Show me" reads as a promise of a visual demonstration, and
+    // an action label on a control that takes no action is worse. The label is
+    // now read from the stage the press reveals — it names a destination when
+    // something crosses a connection, and names the reasoning when it does not.
+    for (let revealed = 0; revealed < journey.stages.length; revealed += 1) {
+      const state: PacketJourneyViewState = {
+        ...BEGUN,
+        progress: { ...BEGUN.progress, revealedStageCount: revealed }
+      };
+
+      const label = describeAdvanceLabel(state, journey);
+      const moves = journey.stages[revealed]?.viaLinkId !== undefined;
+
+      expect(`stage ${revealed}: ${label.toLowerCase().includes("send")}`).toBe(
+        `stage ${revealed}: ${moves}`
+      );
+      expect(label.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("uses the authored start label only when the first stage actually sends", () => {
+    // Founder UAT, blocking: the control said "Send to 192.168.2.20" and the
+    // beat that followed said the message had not left. It had not — the first
+    // authored stage is a DECISION and traverses no link. An action label on a
+    // control that takes no action teaches a learner not to trust the buttons.
+    const movesFirst = journey.stages[0]?.viaLinkId !== undefined;
+
+    const label = describeAdvanceLabel(
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      journey
+    );
+
+    if (movesFirst) {
+      expect(label).toBe(journey.traffic.startActionLabel);
+    } else {
+      expect(label).not.toBe(journey.traffic.startActionLabel);
+      expect(label.toLowerCase()).not.toContain("send");
+    }
+  });
+
+  it("promises movement only where the next stage crosses a connection", () => {
+    // Both directions, so the rule is not just a ban on the word "send".
+    for (let revealed = 0; revealed < journey.stages.length; revealed += 1) {
+      const state: PacketJourneyViewState = {
+        ...BEGUN,
+        progress: { ...BEGUN.progress, revealedStageCount: revealed }
+      };
+
+      const label = describeAdvanceLabel(state, journey).toLowerCase();
+      const moves = journey.stages[revealed]?.viaLinkId !== undefined;
+
+      expect(`stage ${revealed} promises movement: ${label.includes("send")}`).toBe(
+        `stage ${revealed} promises movement: ${moves}`
+      );
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * KNOWLEDGE CHECK (DEC-064)
+ *
+ * A prediction and a knowledge check are different instruments and must stay
+ * that way. These assert the difference in both directions: a prediction is
+ * never graded, and a knowledge check always resolves.
+ * ------------------------------------------------------------------ */
+
+/** The same journey, with a knowledge check on its second stage. */
+const checkedJourney: LearnerPacketJourneyParameters = {
+  ...journey,
+  stages: journey.stages.map((stage, index) =>
+    index === 1
+      ? {
+          ...stage,
+          knowledgeChecks: [
+            {
+              checkId: "s2-why",
+              prompt: "Why did Router-1 discard it?",
+              options: [
+                "There is no subinterface for VLAN 20",
+                "The cable is unplugged"
+              ],
+              correctOption: "There is no subinterface for VLAN 20",
+              explanation: "Router-1 has nothing configured for that VLAN."
+            }
+          ]
+        }
+      : stage
+  )
+};
+
+function walkToCheck(): PacketJourneyViewState {
+  let state = advance(BEGUN, checkedJourney);
+  state = commitPrediction(state, "s2", "Discard it");
+  return advance(state, checkedJourney);
+}
+
+describe("a knowledge check is a different instrument from a prediction", () => {
+  it("offers no knowledge check where the author wrote none", () => {
+    const view = buildPacketJourneyView(journey, walkToFailure(), "demonstrate");
+    expect(view.knowledgeCheck).toBeNull();
+  });
+
+  it("a prediction needs no correct answer to be valid", () => {
+    // The prediction on the base fixture carries prompt and options only, and
+    // the view still resolves it. Correctness is not part of the contract.
+    const stage = journey.stages[1];
+    expect(stage?.prediction).toBeDefined();
+    expect(Object.keys(stage?.prediction ?? {}).sort()).toEqual([
+      "options",
+      "prompt"
+    ]);
+  });
+
+  it("offers the check once its stage has been revealed", () => {
+    const view = buildPacketJourneyView(
+      checkedJourney,
+      walkToCheck(),
+      "demonstrate"
+    );
+
+    expect(view.knowledgeCheck?.prompt).toBe("Why did Router-1 discard it?");
+    expect(view.knowledgeCheck?.options).toHaveLength(2);
+    expect(view.knowledgeCheck?.answer).toBeNull();
+  });
+
+  it("offers nothing before its stage is on screen", () => {
+    const view = buildPacketJourneyView(checkedJourney, BEGUN, "demonstrate");
+    expect(view.knowledgeCheck).toBeNull();
+  });
+
+  it("resolves a correct answer as correct, and still says why", () => {
+    const answered = answerKnowledgeCheck(
+      walkToCheck(),
+      "s2-why",
+      "There is no subinterface for VLAN 20"
+    );
+    const view = buildPacketJourneyView(checkedJourney, answered, "demonstrate");
+
+    expect(view.knowledgeCheck?.answer?.correct).toBe(true);
+    expect(view.knowledgeCheck?.answer?.correctOption).toBe(
+      "There is no subinterface for VLAN 20"
+    );
+    expect(view.knowledgeCheck?.answer?.explanation.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("resolves an incorrect answer, and exposes the correct one", () => {
+    // The whole reason the type exists: a learner who was wrong must be able
+    // to see what the right answer was, not merely that they missed it.
+    const answered = answerKnowledgeCheck(
+      walkToCheck(),
+      "s2-why",
+      "The cable is unplugged"
+    );
+    const view = buildPacketJourneyView(checkedJourney, answered, "demonstrate");
+
+    expect(view.knowledgeCheck?.answer?.correct).toBe(false);
+    expect(view.knowledgeCheck?.answer?.option).toBe("The cable is unplugged");
+    expect(view.knowledgeCheck?.answer?.correctOption).toBe(
+      "There is no subinterface for VLAN 20"
+    );
+    expect(view.knowledgeCheck?.answer?.explanation.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("decides correctness by comparing against the authored option, and nothing else", () => {
+    // Deterministic and inspectable: the same answer gives the same verdict
+    // every time, and the verdict is a string comparison against curriculum.
+    const answered = answerKnowledgeCheck(walkToCheck(), "s2-why", "The cable is unplugged");
+
+    const first = buildPacketJourneyView(checkedJourney, answered, "demonstrate");
+    const second = buildPacketJourneyView(checkedJourney, answered, "demonstrate");
+
+    expect(second.knowledgeCheck?.answer).toEqual(first.knowledgeCheck?.answer);
+
+    // Correctness is exactly one comparison: the learner's option against the
+    // authored one. Recomputed here from the same two values the view used.
+    const chosen: string = "The cable is unplugged";
+    const authored: string =
+      checkedJourney.stages[1]?.knowledgeChecks?.[0]?.correctOption ?? "";
+
+    expect(first.knowledgeCheck?.answer?.correct).toBe(chosen === authored);
+  });
+
+  it("records an answer once and does not let it be revised", () => {
+    const once = answerKnowledgeCheck(walkToCheck(), "s2-why", "The cable is unplugged");
+    const again = answerKnowledgeCheck(
+      once,
+      "s2-why",
+      "There is no subinterface for VLAN 20"
+    );
+
+    expect(again.answeredChecks["s2-why"]).toBe("The cable is unplugged");
+  });
+
+  it("does not gate the journey on answering", () => {
+    // A knowledge check confirms understanding; it is not a turnstile.
+    const state = walkToCheck();
+    expect(canAdvance(state, checkedJourney, "demonstrate")).toBe(
+      canAdvance(
+        answerKnowledgeCheck(state, "s2-why", "The cable is unplugged"),
+        checkedJourney,
+        "demonstrate"
+      )
+    );
+  });
+
+  it("produces no score, streak or evidence", () => {
+    const answered = answerKnowledgeCheck(
+      walkToCheck(),
+      "s2-why",
+      "There is no subinterface for VLAN 20"
+    );
+    const serialised = JSON.stringify(answered).toLowerCase();
+
+    for (const forbidden of [
+      "score",
+      "streak",
+      "points",
+      "grade",
+      "mastery",
+      "evidence",
+      "competency"
+    ]) {
+      expect(`${forbidden}: ${serialised.includes(forbidden)}`).toBe(
+        `${forbidden}: false`
+      );
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * ONE BEAT AT A TIME (DEC-065)
+ *
+ * The shell, asserted as a pure function. What matters is that exactly one
+ * instructional idea is primary at a time, that the learner always has a way
+ * on, and that the beat list cannot describe a state the journey has left.
+ * ------------------------------------------------------------------ */
+
+describe("the instructor pane shows one beat at a time", () => {
+  it("offers exactly one beat before the journey starts", () => {
+    const view = buildPacketJourneyView(journey, INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    const beats = resolveJourneyBeats(view);
+
+    expect(beats).toHaveLength(1);
+    expect(beats[0]?.kind).toBe("start");
+    expect(beats[0]?.actionable).toBe(true);
+  });
+
+  it("always resolves to exactly one active beat", () => {
+    // Whatever the state, and whatever index the learner is on, the pane has
+    // one thing to show. That is the invariant the whole model rests on.
+    for (const state of [
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      BEGUN,
+      advance(BEGUN, journey),
+      walkToFailure()
+    ]) {
+      const beats = resolveJourneyBeats(buildPacketJourneyView(journey, state));
+
+      for (const index of [-3, 0, 1, 99]) {
+        const active = activeJourneyBeat(beats, index);
+        expect(active).not.toBeNull();
+        expect(beats).toContain(active);
+      }
+    }
+  });
+
+  it("never puts two actionable beats on the learner at once", () => {
+    // One thing demanding attention. A pane offering a question AND a repair
+    // would be the stacked layout again, wearing one card.
+    for (const state of [BEGUN, advance(BEGUN, journey), walkToFailure()]) {
+      const beats = resolveJourneyBeats(buildPacketJourneyView(journey, state));
+      const actionable = beats.filter((beat) => beat.actionable);
+
+      expect(`actionable beats: ${actionable.length <= 1}`).toBe(
+        "actionable beats: true"
+      );
+    }
+  });
+
+  it("gives every beat a heading, so focus always has somewhere to land", () => {
+    for (const state of [BEGUN, advance(BEGUN, journey), walkToFailure()]) {
+      for (const beat of resolveJourneyBeats(
+        buildPacketJourneyView(journey, state)
+      )) {
+        expect(beat.heading.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("leads with what just happened after the network moves", () => {
+    // Answering must not leave the learner hunting for what changed: the first
+    // beat of a new state is the one describing it.
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(BEGUN, journey))
+    );
+
+    expect(["observe", "feedback"]).toContain(beats[0]?.kind);
+  });
+
+  it("makes a resolved prediction its own beat, before anything new is asked", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    );
+
+    const feedback = beats.findIndex((beat) => beat.kind === "feedback");
+    const question = beats.findIndex((beat) => beat.kind === "question");
+
+    expect(feedback).toBe(0);
+    if (question >= 0) expect(feedback).toBeLessThan(question);
+  });
+
+  it("distinguishes prediction feedback from knowledge-check feedback", () => {
+    const predicted = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    ).find((beat) => beat.kind === "feedback");
+
+    const answered = resolveJourneyBeats(
+      buildPacketJourneyView(
+        checkedJourney,
+        answerKnowledgeCheck(walkToCheck(), "s2-why", "The cable is unplugged"),
+        "commit_first"
+      )
+    ).find((beat) => beat.kind === "feedback");
+
+    // A prediction is compared. A knowledge check resolves.
+    expect(predicted?.heading).toBe("Your prediction");
+    expect(answered?.heading).toBe("Not correct");
+    expect(answered?.body.join(" ")).toContain("Correct answer:");
+  });
+
+  it("says Correct without labouring the point when the learner was right", () => {
+    const answered = resolveJourneyBeats(
+      buildPacketJourneyView(
+        checkedJourney,
+        answerKnowledgeCheck(
+          walkToCheck(),
+          "s2-why",
+          "There is no subinterface for VLAN 20"
+        ),
+        "commit_first"
+      )
+    ).find((beat) => beat.kind === "feedback");
+
+    expect(answered?.heading).toBe("Correct");
+    // The right answer is not repeated back at a learner who just gave it.
+    expect(answered?.body.join(" ")).not.toContain("Correct answer:");
+    // The reason is still there, because the reason is the teaching.
+    expect(answered?.body.join(" ")).toContain("Router-1 has nothing configured");
+  });
+
+  it("gives the authored reason its own beat rather than the feedback's disclosure", () => {
+    /*
+      Changed on a Founder ruling about redundant teaching.
+
+      The feedback used to carry the stage's `decision` as optional depth, and
+      the EXPLAIN beat then showed the same paragraph as the next screen. The
+      reason is not lost — it is exactly one beat further on, as its own screen,
+      which is where a learner reads it once instead of twice.
+    */
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    );
+
+    const feedback = beats.find((beat) => beat.kind === "feedback");
+    const explain = beats.find((beat) => beat.kind === "explain");
+
+    expect(feedback?.more).toBeNull();
+    expect(explain?.body.join(" ")).toContain("There is no subinterface");
+  });
+
+  it("offers a way on from every beat", () => {
+    // Either the beat owns a control, or Continue reaches the one that does.
+    for (const state of [BEGUN, advance(BEGUN, journey), walkToFailure()]) {
+      const view = buildPacketJourneyView(journey, state, "commit_first");
+      const beats = resolveJourneyBeats(view);
+
+      const reachable =
+        beats.some((beat) => beat.actionable) || view.canAdvance || view.finished;
+
+      expect(`a way on exists: ${reachable}`).toBe("a way on exists: true");
+    }
+  });
+
+  it("is not hard-coded to questions, so a terminal beat can join it", () => {
+    // DEC-062 / WP-K: the pane is a sequence of instructional moments, not a
+    // quiz. The kind vocabulary already contains observation, explanation,
+    // symptom and action alongside question.
+    expect([...JOURNEY_BEAT_KINDS]).toContain("observe");
+    expect([...JOURNEY_BEAT_KINDS]).toContain("explain");
+    expect([...JOURNEY_BEAT_KINDS]).toContain("action");
+    expect(JOURNEY_BEAT_KINDS.filter((kind) => kind === "question")).toHaveLength(1);
+  });
+
+  it("derives beats from the view, so it cannot describe a stale state", () => {
+    const before = resolveJourneyBeats(buildPacketJourneyView(journey, BEGUN));
+    const after = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(BEGUN, journey))
+    );
+
+    expect(after).not.toEqual(before);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * ORIENTATION BESIDE THE BEAT
+ *
+ * Founder UAT: "I did not notice the existing leg information because it was
+ * below the topology." The learner must be able to answer who, what, to whom
+ * and where-now without leaving the current beat.
+ * ------------------------------------------------------------------ */
+
+describe("the quick reference answers the orientation questions", () => {
+  it("names who is sending, what, and to whom", () => {
+    const view = buildPacketJourneyView(journey, BEGUN, "demonstrate");
+    const labels = view.quickReference.map((row) => row.label);
+
+    expect(labels).toContain("From");
+    expect(labels).toContain("To");
+    // "Carrying", since wave 8: what is being carried, in the mission's own
+    // vocabulary, rather than "Sending — a message".
+    expect(labels).toContain("Carrying");
+  });
+
+  it("pairs a device with its address rather than an address alone", () => {
+    // Founder UAT: prefer "PC-C (192.168.2.20)" to an address the learner has
+    // to remember the owner of.
+    const view = buildPacketJourneyView(journey, BEGUN, "demonstrate");
+    const from = view.quickReference.find((row) => row.label === "From");
+
+    expect(from?.value).toContain("PC-A");
+  });
+
+  it("says where the traffic is once the journey has moved", () => {
+    const view = buildPacketJourneyView(
+      journey,
+      advance(BEGUN, journey),
+      "demonstrate"
+    );
+
+    expect(view.quickReference.map((row) => row.label)).toContain("Now at");
+  });
+
+  it("names the current connection when one was crossed", () => {
+    const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
+    const leg = view.quickReference.find((row) => row.label === "Current leg");
+
+    expect(leg?.value.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("shows only what the mission authored", () => {
+    // No field is invented: an address appears only where the author flagged
+    // one for display, which is the mission's own concept boundary.
+    const bare: LearnerPacketJourneyParameters = {
+      ...journey,
+      nodes: journey.nodes.map((node) => ({
+        ...node,
+        interfaces: node.interfaces.map((iface) => ({
+          ...iface,
+          attributes: iface.attributes.map((attribute) => ({
+            label: attribute.label,
+            value: attribute.value
+          }))
+        }))
+      }))
+    };
+
+    const view = buildPacketJourneyView(bare, BEGUN, "demonstrate");
+    const from = view.quickReference.find((row) => row.label === "From");
+
+    // The device is still named; no address is invented for it.
+    expect(from?.value).toBe("PC-A");
+  });
+
+  it("is orientation, never a control", () => {
+    const view = buildPacketJourneyView(journey, BEGUN, "demonstrate");
+
+    for (const row of view.quickReference) {
+      expect(typeof row.label).toBe("string");
+      expect(typeof row.value).toBe("string");
+    }
+  });
+});
+
+describe("the beat says what the device is doing, not only where it is", () => {
+  it("heads with the authored action when one exists", () => {
+    const acting: LearnerPacketJourneyParameters = {
+      ...journey,
+      stages: journey.stages.map((stage, index) =>
+        index === 0 ? { ...stage, action: "deciding how to send it" } : stage
+      )
+    };
+
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(acting, advance(BEGUN, acting), "demonstrate")
+    );
+    const observe = beats.find((beat) => beat.kind === "observe");
+
+    expect(observe?.heading).toBe("PC-A — deciding how to send it");
+  });
+
+  it("falls back to naming the device when the author wrote none", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(BEGUN, journey), "demonstrate")
+    );
+    const observe = beats.find((beat) => beat.kind === "observe");
+
+    expect(observe?.heading).toBe("PC-A");
+  });
+
+  it("does not repeat the observation in a second beat", () => {
+    /*
+      Founder UAT found the stop stated in the headline, the narration and the
+      fault symptom. The symptom beat now carries meaning, not a restatement.
+
+      The fixture is built so the symptom and the stopping narration are the
+      SAME sentence. Mutation testing caught the earlier form: against the
+      authored course the two already differ, so removing the de-duplication
+      changed nothing and the test passed on a rule it never exercised.
+    */
+    const echoed: LearnerPacketJourneyParameters = {
+      ...journey,
+      fault: journey.fault && {
+        ...journey.fault,
+        symptom: stoppingNarration(journey)
+      }
+    };
+
+    const view = buildPacketJourneyView(echoed, walkToFailure(), "commit_first");
+    const beats = resolveJourneyBeats(view);
+
+    const observe = beats.find((beat) => beat.kind === "observe");
+    const symptom = beats.find((beat) => beat.kind === "symptom");
+
+    expect(symptom).toBeDefined();
+
+    for (const line of symptom?.body ?? []) {
+      expect(observe?.body ?? []).not.toContain(line);
+    }
+  });
+
+  it("keeps a symptom that says something the narration did not", () => {
+    // The de-duplication must not swallow a symptom that adds meaning, which
+    // is the whole reason the beat exists.
+    const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
+    const symptom = resolveJourneyBeats(view).find(
+      (beat) => beat.kind === "symptom"
+    );
+
+    expect((symptom?.body ?? []).length).toBeGreaterThan(0);
+  });
+});
+
+
+/** The narration of the stage the authored fault stops at. */
+function stoppingNarration(
+  parameters: LearnerPacketJourneyParameters
+): string {
+  const stage = parameters.stages.find(
+    (candidate) => candidate.stageId === parameters.fault?.stopsAtStageId
+  );
+
+  if (stage === undefined) throw new Error("the fixture authors no stopping stage");
+
+  return stage.narration;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * DEC-066 — ONE JOURNEY STATE, ONE TRUTH
+ *
+ * Founder UAT read a pane saying Switch-1 had forwarded a frame to Router-1
+ * while the marker was still travelling from PC-A to Switch-1, and read one
+ * question twice before answering it once. Neither was a rendering bug: both
+ * were text with no obligation to agree with anything.
+ * ------------------------------------------------------------------ */
+
+describe("every surface agrees about where the traffic is", () => {
+  it("puts the quick reference's location at the stage the model reached", () => {
+    for (let revealed = 1; revealed <= journey.stages.length; revealed += 1) {
+      const state = revealTo(revealed);
+      const view = buildPacketJourneyView(journey, state, "demonstrate");
+      const latest = view.stages[view.stages.length - 1];
+      const nowAt = view.quickReference.find((row) => row.label === "Now at");
+
+      expect(`@${revealed} now at: ${nowAt?.value}`).toBe(
+        `@${revealed} now at: ${latest?.nodeLabel}`
+      );
+    }
+  });
+
+  it("puts the current leg on the link the stage actually crossed", () => {
+    for (let revealed = 1; revealed <= journey.stages.length; revealed += 1) {
+      const state = revealTo(revealed);
+      const view = buildPacketJourneyView(journey, state, "demonstrate");
+      const leg = view.quickReference.find((row) => row.label === "Current leg");
+      const current = view.links.filter((link) => link.current);
+
+      // Either a leg was crossed and exactly one link is current, or neither.
+      expect(`@${revealed} leg and link agree: ${(leg !== undefined) === (current.length > 0)}`)
+        .toBe(`@${revealed} leg and link agree: true`);
+    }
+  });
+
+  it("marks at most one link as the one being travelled", () => {
+    for (let revealed = 0; revealed <= journey.stages.length; revealed += 1) {
+      const view = buildPacketJourneyView(journey, revealTo(revealed), "demonstrate");
+      const current = view.links.filter((link) => link.current);
+
+      expect(`@${revealed} current links: ${current.length <= 1}`).toBe(
+        `@${revealed} current links: true`
+      );
+    }
+  });
+
+  it("heads the beat with the device the journey is actually at", () => {
+    for (let revealed = 1; revealed <= journey.stages.length; revealed += 1) {
+      const view = buildPacketJourneyView(journey, revealTo(revealed), "demonstrate");
+      const latest = view.stages[view.stages.length - 1];
+      const observe = resolveJourneyBeats(view).find(
+        (beat) => beat.kind === "observe" && beat.heading !== "Next"
+      );
+
+      if (observe === undefined || latest === undefined) continue;
+
+      expect(
+        `@${revealed} heading names ${latest.nodeLabel}: ${observe.heading.startsWith(latest.nodeLabel)}`
+      ).toBe(`@${revealed} heading names ${latest.nodeLabel}: true`);
+    }
+  });
+});
+
+describe("the question is emitted once", () => {
+  it("leaves the prompt to the control, not the beat body", () => {
+    // The fieldset legend owns it: it is the accessible group label for the
+    // radios AND it is what sits immediately before the choices.
+    const asking = buildPacketJourneyView(journey, atPrediction(), "commit_first");
+    const question = resolveJourneyBeats(asking).find(
+      (beat) => beat.kind === "question"
+    );
+
+    expect(question).toBeDefined();
+    expect(question?.body).toEqual([]);
+  });
+
+  it("still carries the prompt on the view, so the control can show it", () => {
+    // Emptying the beat body must not lose the question altogether.
+    const asking = buildPacketJourneyView(journey, atPrediction(), "commit_first");
+
+    expect(asking.pendingPrediction?.prompt.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("puts the prompt in no other beat on the same screen", () => {
+    const asking = buildPacketJourneyView(journey, atPrediction(), "commit_first");
+    const prompt = asking.pendingPrediction?.prompt ?? "";
+    const normalise = (text: string) =>
+      text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+    for (const beat of resolveJourneyBeats(asking)) {
+      for (const line of beat.body) {
+        expect(
+          `${beat.kind} restates the prompt: ${normalise(line).includes(normalise(prompt))}`
+        ).toBe(`${beat.kind} restates the prompt: false`);
+      }
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * THE MISSION 8 REFINEMENT
+ *
+ * Troubleshoot the system, rather than follow it. The learner interprets the
+ * evidence before the interface supplies the interpretation, is told plainly
+ * whether their prediction was right, and can act on a wrong repair rather than
+ * restarting the whole journey.
+ * ------------------------------------------------------------------ */
+
+describe("starting lands the learner in something to think about", () => {
+  it("emits no empty beat before anything has happened", () => {
+    // Founder ruling: "Nothing has been sent yet" followed by Continue was two
+    // clicks and no cognition.
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, BEGUN, "demonstrate")
+    );
+
+    for (const beat of beats) {
+      const empty = beat.body.length === 0 && !beat.actionable;
+      expect(`${beat.kind} is an empty pause: ${empty}`).toBe(
+        `${beat.kind} is an empty pause: false`
+      );
+    }
+  });
+
+  it("gives the first beat after Start something to do", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, BEGUN, "commit_first")
+    );
+
+    expect(beats.length).toBeGreaterThan(0);
+    expect(beats.some((beat) => beat.actionable)).toBe(true);
+  });
+
+  it("says nothing about a stage the journey has not reached", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, BEGUN, "demonstrate")
+    );
+
+    expect(beats.some((beat) => beat.kind === "observe" && beat.body.length > 0))
+      .toBe(false);
+  });
+});
+
+describe("a prediction the learner could reason out is resolved explicitly", () => {
+  /** The fixture, with an authored correct option on its prediction. */
+  const gradedJourney: LearnerPacketJourneyParameters = {
+    ...journey,
+    stages: journey.stages.map((stage) =>
+      stage.prediction === undefined
+        ? stage
+        : {
+            ...stage,
+            prediction: { ...stage.prediction, correctOption: "Discard it" }
+          }
+    )
+  };
+
+  function answeredWith(option: string): PacketJourneyViewState {
+    let state = advance(BEGUN, gradedJourney);
+    state = commitPrediction(state, "s2", option);
+    return advance(state, gradedJourney);
+  }
+
+  it("says so, in words, when the learner was right", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(gradedJourney, answeredWith("Discard it"), "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    expect(beat?.heading).toBe("Correct prediction");
+  });
+
+  it("says so calmly when the learner was not", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(gradedJourney, answeredWith("Forward it"), "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    expect(beat?.heading).toBe("Not quite");
+    expect(beat?.body.join(" ")).toContain("The expected answer: Discard it");
+  });
+
+  it("carries the verdict in the heading, never in colour alone", () => {
+    // Accessibility: the pane renders a heading, and the heading is the fact.
+    const cases: readonly (readonly [string, string])[] = [
+      ["Discard it", "Correct prediction"],
+      ["Forward it", "Not quite"]
+    ];
+
+    for (const [option, heading] of cases) {
+      const beat = resolveJourneyBeats(
+        buildPacketJourneyView(gradedJourney, answeredWith(option), "commit_first")
+      ).find((candidate) => candidate.kind === "feedback");
+
+      expect(beat?.heading).toBe(heading);
+    }
+  });
+
+  it("never praises, scores or scolds", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(gradedJourney, answeredWith("Forward it"), "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    const said = `${beat?.heading} ${beat?.body.join(" ")}`.toLowerCase();
+
+    for (const forbidden of [
+      "well done",
+      "great",
+      "excellent",
+      "oops",
+      "sorry",
+      "streak",
+      "score",
+      "points"
+    ]) {
+      expect(`${forbidden}: ${said.includes(forbidden)}`).toBe(`${forbidden}: false`);
+    }
+  });
+
+  it("leaves what actually happened to the beat that owns it", () => {
+    /*
+      Changed on a Founder ruling about redundant teaching. The feedback used
+      to print "What actually happened: <narration>", and the OBSERVE beat then
+      printed the same paragraph as the very next screen.
+
+      What happened is still shown, once, on the screen after the verdict.
+    */
+    for (const option of ["Discard it", "Forward it"]) {
+      const beats = resolveJourneyBeats(
+        buildPacketJourneyView(gradedJourney, answeredWith(option), "commit_first")
+      );
+
+      const feedback = beats.find((candidate) => candidate.kind === "feedback");
+      const observe = beats.find((candidate) => candidate.kind === "observe");
+
+      expect(feedback?.body.join(" ")).not.toContain("What actually happened:");
+      expect(observe?.body.join(" ").length ?? 0).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("a wrong repair teaches and lets the learner try again", () => {
+  it("keeps the choices on offer after a change that did not repair", () => {
+    const wrong = applyAction(walkToFailure(), "restart-pc-a", true);
+    const view = buildPacketJourneyView(journey, wrong, "commit_first");
+
+    expect(view.actions.some((action) => action.available)).toBe(true);
+  });
+
+  it("shows what that particular choice got wrong", () => {
+    const wrong = applyAction(walkToFailure(), "restart-pc-a", true);
+    const view = buildPacketJourneyView(journey, wrong, "commit_first");
+
+    expect(view.chosenAction?.observation).toContain("PC-A restarts");
+  });
+
+  it("accepts a second choice, without restarting the journey", () => {
+    const first = applyAction(walkToFailure(), "restart-pc-a", true);
+    const second = applyAction(first, "add-vlan-20", true);
+
+    expect(second.progress.appliedActionId).toBe("add-vlan-20");
+    // The learner did not lose the stages they had already walked.
+    expect(second.progress.revealedStageCount).toBe(
+      first.progress.revealedStageCount
+    );
+  });
+
+  it("withdraws the choices once one of them repaired the fault", () => {
+    const repaired = applyAction(walkToFailure(), "add-vlan-20", true);
+    const view = buildPacketJourneyView(journey, repaired, "commit_first");
+
+    expect(view.actions.some((action) => action.available)).toBe(false);
+  });
+
+  it("does not let a repair be undone by a later choice", () => {
+    const repaired = applyAction(walkToFailure(), "add-vlan-20", true);
+    const view = buildPacketJourneyView(journey, repaired, "commit_first");
+
+    // The renderer passes the model's availability, which is now false.
+    const after = applyAction(
+      repaired,
+      "restart-pc-a",
+      view.actions.some((action) => action.available)
+    );
+
+    expect(after.progress.appliedActionId).toBe("add-vlan-20");
+  });
+});
+
+describe("the repair is offered only after the reasoning", () => {
+  /** The fixture, with two checks on the stage the fault stops at. */
+  const reasoned: LearnerPacketJourneyParameters = {
+    ...journey,
+    stages: journey.stages.map((stage, index) =>
+      index === 1
+        ? {
+            ...stage,
+            knowledgeChecks: [
+              {
+                checkId: "r1",
+                prompt: "What does the stop rule out?",
+                options: ["Everything", "The devices that received nothing"],
+                correctOption: "The devices that received nothing",
+                explanation: "A device can only mishandle what it was given."
+              },
+              {
+                checkId: "r2",
+                prompt: "What should you inspect next?",
+                options: ["PC-A's configuration", "The cable"],
+                correctOption: "PC-A's configuration",
+                explanation: "The stop was at PC-A, so the inspection stays there."
+              }
+            ]
+          }
+        : stage
+    )
+  };
+
+  it("puts the question before the repair choices", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(reasoned, walkToFailure(), "commit_first")
+    );
+
+    const question = beats.findIndex((beat) => beat.kind === "question");
+    const action = beats.findIndex((beat) => beat.kind === "action");
+
+    expect(question).toBeGreaterThanOrEqual(0);
+    expect(action).toBeGreaterThanOrEqual(0);
+    expect(question).toBeLessThan(action);
+  });
+
+  it("withholds the authored diagnosis while a question is open", () => {
+    // Otherwise the interface answers the question it is about to ask.
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(reasoned, walkToFailure(), "commit_first")
+    );
+
+    const symptom = beats.find((beat) => beat.kind === "symptom");
+    expect(symptom?.more).toBeNull();
+  });
+
+  it("leaves the diagnosis with the questions, before AND after they are answered", () => {
+    /*
+      Tightened on a Founder ruling about redundant teaching.
+
+      Withholding the authored diagnosis while a question is open was right and
+      is unchanged. Returning it afterwards was not: it is the same explanation
+      the learner has just read in the check's own feedback, restated two
+      screens later to no additional effect.
+    */
+    let state = walkToFailure();
+    state = answerKnowledgeCheck(state, "r1", "The devices that received nothing");
+    state = answerKnowledgeCheck(state, "r2", "PC-A's configuration");
+
+    const symptom = resolveJourneyBeats(
+      buildPacketJourneyView(reasoned, state, "commit_first")
+    ).find((beat) => beat.kind === "symptom");
+
+    expect(symptom?.more).toBeNull();
+
+    // And the reasoning itself is still in front of the learner.
+    const feedback = resolveJourneyBeats(
+      buildPacketJourneyView(reasoned, state, "commit_first")
+    ).find((beat) => beat.kind === "feedback");
+
+    expect(feedback?.body.join(" ")).toContain(
+      "The stop was at PC-A, so the inspection stays there."
+    );
+  });
+
+  it("asks one question at a time, in authored order", () => {
+    const first = buildPacketJourneyView(reasoned, walkToFailure(), "commit_first");
+    expect(first.knowledgeCheck?.checkId).toBe("r1");
+    expect(first.knowledgeCheck?.answeredCount).toBe(0);
+    expect(first.knowledgeCheck?.totalCount).toBe(2);
+
+    const answered = answerKnowledgeCheck(
+      walkToFailure(),
+      "r1",
+      "The devices that received nothing"
+    );
+    const second = buildPacketJourneyView(reasoned, answered, "commit_first");
+
+    expect(second.knowledgeCheck?.checkId).toBe("r2");
+    expect(second.knowledgeCheck?.answeredCount).toBe(1);
+  });
+});
+
+describe("the beat says which device it is about", () => {
+  it("names the device on an observation", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(BEGUN, journey), "demonstrate")
+    ).find((candidate) => candidate.kind === "observe");
+
+    expect(beat?.device).toBe("PC-A");
+  });
+
+  it("leaves it null where no single device owns the beat", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    );
+
+    for (const beat of beats.filter((candidate) => candidate.kind !== "observe")) {
+      expect(`${beat.kind} device: ${beat.device}`).toBe(`${beat.kind} device: null`);
+    }
+  });
+
+  it("repeats the device in the heading, so nothing depends on the eyebrow", () => {
+    // The eyebrow is aria-hidden. The heading has to carry the fact.
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(BEGUN, journey), "demonstrate")
+    ).find((candidate) => candidate.kind === "observe");
+
+    expect(beat?.heading.startsWith(beat?.device ?? "")).toBe(true);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * CONSECUTIVE SCREENS MUST ADVANCE
+ *
+ * The pane shows ONE beat at a time, so the beat list is a sequence of screens.
+ * Founder UAT walked Mission 8 and found the same explanation on three of them
+ * in a row: the feedback said "what actually happened", Continue showed the
+ * same paragraph as the observation, and Continue again showed the same reason
+ * the feedback had already offered.
+ *
+ * The requirement is not "never repeat a fact". It is that a learner must never
+ * have to read substantially the same explanation twice in order to progress.
+ * ------------------------------------------------------------------ */
+
+describe("no two consecutive beats say the same thing", () => {
+  /** Every distinct screen a learner walks, from Start to the repair. */
+  function walk(
+    parameters: LearnerPacketJourneyParameters
+  ): readonly (readonly JourneyBeat[])[] {
+    const screens: (readonly JourneyBeat[])[] = [];
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+
+    for (let step = 0; step <= parameters.stages.length + 6; step += 1) {
+      const view = buildPacketJourneyView(parameters, state, "commit_first");
+      screens.push(resolveJourneyBeats(view));
+
+      if (view.pendingPrediction !== null) {
+        state = commitPrediction(
+          state,
+          view.pendingPrediction.stageId,
+          view.pendingPrediction.options[0] ?? ""
+        );
+        continue;
+      }
+
+      if (view.knowledgeCheck !== null && view.knowledgeCheck.answer === null) {
+        state = answerKnowledgeCheck(
+          state,
+          view.knowledgeCheck.checkId,
+          view.knowledgeCheck.options[0] ?? ""
+        );
+        continue;
+      }
+
+      if (view.canAdvance) {
+        state = advance(state, parameters);
+        continue;
+      }
+
+      break;
+    }
+
+    return screens;
+  }
+
+  /*
+    WHAT THIS NORMALISATION ACTUALLY PROTECTS AGAINST — read this before
+    trusting the tests below.
+
+    It lowercases and collapses everything that is not a letter or a digit. So
+    it catches the SAME STRING reaching the learner twice, however it was
+    quoted, spaced, capitalised or punctuated on the way — which is the whole
+    of the defect these tests exist for, because both copies came from one
+    authored field.
+
+    It does NOT detect paraphrase. Two sentences teaching the identical idea in
+    different words pass this cleanly, and no reasonable amount of string
+    processing would change that. Judging whether two explanations are the same
+    explanation is Human UAT's, and CURR-009 section 14a keeps it there.
+
+    That limit is why the ownership suite below exists as well: rather than
+    hunting for similar text, it asserts that each authored paragraph is
+    RENDERED BY EXACTLY ONE REGION. A paraphrase can still slip past; the same
+    paragraph rendered twice cannot.
+  */
+  const normalise = (text: string): string =>
+    text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+  /** Every line a single beat puts in front of the learner, disclosure included. */
+  function linesOf(beat: JourneyBeat): readonly string[] {
+    return [...beat.body, ...(beat.more === null ? [] : [beat.more])];
+  }
+
+  it("never repeats a line from one beat in the beat after it", () => {
+    for (const screen of walk(journey)) {
+      for (let index = 1; index < screen.length; index += 1) {
+        const previous = screen[index - 1];
+        const current = screen[index];
+        if (previous === undefined || current === undefined) continue;
+
+        for (const line of linesOf(current)) {
+          if (normalise(line).length < 40) continue;
+
+          const repeated = linesOf(previous).some(
+            (earlier) => normalise(earlier) === normalise(line)
+          );
+
+          expect(
+            `${previous.kind} -> ${current.kind} repeats a paragraph: ${repeated}`
+          ).toBe(`${previous.kind} -> ${current.kind} repeats a paragraph: false`);
+        }
+      }
+    }
+  });
+
+  it("never shows the same paragraph twice anywhere on one screen", () => {
+    for (const screen of walk(journey)) {
+      const seen = new Set<string>();
+
+      for (const beat of screen) {
+        for (const line of linesOf(beat)) {
+          const key = normalise(line);
+          if (key.length < 40) continue;
+
+          expect(`duplicated on one screen: ${seen.has(key)}`).toBe(
+            "duplicated on one screen: false"
+          );
+          seen.add(key);
+        }
+      }
+    }
+  });
+});
+
+describe("answer feedback resolves the answer, and stops there", () => {
+  const graded: LearnerPacketJourneyParameters = {
+    ...journey,
+    stages: journey.stages.map((stage) =>
+      stage.prediction === undefined
+        ? stage
+        : {
+            ...stage,
+            prediction: { ...stage.prediction, correctOption: "Discard it" }
+          }
+    )
+  };
+
+  function afterPredicting(option: string): PacketJourneyViewState {
+    let state = advance(BEGUN, graded);
+    state = commitPrediction(state, "s2", option);
+    return advance(state, graded);
+  }
+
+  it("does not carry the narration the next beat will show", () => {
+    const state = afterPredicting("Forward it");
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(graded, state, "commit_first")
+    );
+
+    const feedback = beats.find((beat) => beat.kind === "feedback");
+    const observe = beats.find((beat) => beat.kind === "observe");
+
+    expect(feedback?.body.join(" ")).not.toContain(observe?.body[0] ?? "@@");
+  });
+
+  it("does not carry the reason the beat after that will show", () => {
+    const state = afterPredicting("Forward it");
+    const view = buildPacketJourneyView(graded, state, "commit_first");
+    const beats = resolveJourneyBeats(view);
+
+    const feedback = beats.find((beat) => beat.kind === "feedback");
+    const explain = beats.find((beat) => beat.kind === "explain");
+
+    expect(feedback?.more).toBeNull();
+    expect(explain?.body.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("still tells the learner what they chose and what was expected", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(graded, afterPredicting("Forward it"), "commit_first")
+    );
+    const feedback = beats.find((beat) => beat.kind === "feedback");
+
+    expect(feedback?.heading).toBe("Not quite");
+    expect(feedback?.body.join(" ")).toContain("You predicted: Forward it");
+    expect(feedback?.body.join(" ")).toContain("The expected answer: Discard it");
+  });
+
+  it("expires once the learner advances past the stage it resolved", () => {
+    // Founder UAT: stage 1's whole explanation was still the first thing on the
+    // stop screen, on all three reasoning screens, and after the repair.
+    const resolved = buildPacketJourneyView(
+      graded,
+      afterPredicting("Discard it"),
+      "commit_first"
+    );
+    expect(resolved.resolvedPrediction).not.toBeNull();
+
+    /*
+      The fixture stops at s2, so this journey cannot advance past the stage it
+      resolved. The expiry itself is asserted directly: a resolution belongs to
+      the LAST revealed stage, and reading one stage earlier finds none.
+    */
+    const earlier = buildPacketJourneyView(
+      graded,
+      advance(BEGUN, graded),
+      "commit_first"
+    );
+
+    expect(earlier.stages.length).toBe(1);
+    expect(earlier.stages[0]?.committedPrediction).toBeUndefined();
+    expect(earlier.resolvedPrediction).toBeNull();
+  });
+});
+
+describe("every answered check resolves, not only the last one", () => {
+  /** Two checks on the stage the fault stops at. */
+  const sequenced: LearnerPacketJourneyParameters = {
+    ...journey,
+    stages: journey.stages.map((stage, index) =>
+      index === 1
+        ? {
+            ...stage,
+            knowledgeChecks: [
+              {
+                checkId: "c1",
+                prompt: "What does the stop rule out?",
+                options: ["Everything", "The devices that received nothing"],
+                correctOption: "The devices that received nothing",
+                explanation: "A device can only mishandle what it was given."
+              },
+              {
+                checkId: "c2",
+                prompt: "What should you inspect next?",
+                options: ["PC-A's configuration", "The cable"],
+                correctOption: "PC-A's configuration",
+                explanation: "The stop was at PC-A, so the inspection stays there."
+              }
+            ]
+          }
+        : stage
+    )
+  };
+
+  it("gives feedback on the first check while the second is being asked", () => {
+    // Founder UAT: answering the first two of three reasoning steps produced
+    // no feedback at all — the pane went straight to the next prompt.
+    const state = answerKnowledgeCheck(walkToFailure(), "c1", "Everything");
+    const view = buildPacketJourneyView(sequenced, state, "commit_first");
+
+    expect(view.resolvedCheck?.checkId).toBe("c1");
+    expect(view.resolvedCheck?.correct).toBe(false);
+    expect(view.knowledgeCheck?.checkId).toBe("c2");
+    expect(view.knowledgeCheck?.answer).toBeNull();
+  });
+
+  it("puts that feedback before the question that follows it", () => {
+    const state = answerKnowledgeCheck(walkToFailure(), "c1", "Everything");
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(sequenced, state, "commit_first")
+    );
+
+    const feedback = beats.findIndex((beat) => beat.kind === "feedback");
+    const question = beats.findIndex((beat) => beat.kind === "question");
+
+    expect(feedback).toBeGreaterThanOrEqual(0);
+    expect(question).toBeGreaterThan(feedback);
+  });
+
+  it("keeps the check's own explanation, which appears nowhere else", () => {
+    const state = answerKnowledgeCheck(walkToFailure(), "c1", "Everything");
+    const feedback = resolveJourneyBeats(
+      buildPacketJourneyView(sequenced, state, "commit_first")
+    ).find((beat) => beat.kind === "feedback");
+
+    expect(feedback?.body.join(" ")).toContain(
+      "A device can only mishandle what it was given."
+    );
+  });
+
+  it("lets the questions own the diagnosis, rather than restating it", () => {
+    // Before and after the reasoning: the symptom beat's optional depth is the
+    // same explanation the checks make the learner derive.
+    let state = walkToFailure();
+    for (const [checkId, option] of [
+      ["c1", "The devices that received nothing"],
+      ["c2", "PC-A's configuration"]
+    ]) {
+      const open = resolveJourneyBeats(
+        buildPacketJourneyView(sequenced, state, "commit_first")
+      ).find((beat) => beat.kind === "symptom");
+
+      expect(open?.more).toBeNull();
+      state = answerKnowledgeCheck(state, checkId ?? "", option ?? "");
+    }
+
+    const done = resolveJourneyBeats(
+      buildPacketJourneyView(sequenced, state, "commit_first")
+    ).find((beat) => beat.kind === "symptom");
+
+    expect(done?.more).toBeNull();
+  });
+
+  it("still offers the diagnosis on a stage that asks no questions", () => {
+    // The withholding is scoped to stages that make the learner reason. A stop
+    // with no checks keeps its optional depth.
+    const symptom = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    ).find((beat) => beat.kind === "symptom");
+
+    expect(symptom?.more).not.toBeNull();
+  });
+
+  it("clears the resolved check once the learner acts on a repair", () => {
+    const answered = answerKnowledgeCheck(
+      walkToFailure(),
+      "c1",
+      "The devices that received nothing"
+    );
+    const repaired = applyAction(answered, "add-vlan-20", true);
+
+    expect(
+      buildPacketJourneyView(sequenced, repaired, "commit_first").resolvedCheck
+    ).toBeNull();
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * ONE REGION OWNS EACH AUTHORED PARAGRAPH
+ *
+ * The pane renders more than beats. Above the beat card sits a live region that
+ * announces what changed, and the workspace beside it carries standing context.
+ * Founder UAT found the live region ending with the stage's whole narration
+ * while the observation beat showed the same paragraph directly underneath —
+ * the same explanation, twice, on one screen.
+ *
+ * The suite above walks BEATS. It could not have caught this, because the
+ * announcement is not a beat. These walk every region a learner can see.
+ * ------------------------------------------------------------------ */
+
+describe("no authored paragraph is rendered by two regions at once", () => {
+  /** Every visible region of one screen, each tagged with who rendered it. */
+  function regionsOf(
+    parameters: LearnerPacketJourneyParameters,
+    state: PacketJourneyViewState
+  ): readonly { readonly region: string; readonly text: string }[] {
+    const view = buildPacketJourneyView(parameters, state, "commit_first");
+    const regions: { region: string; text: string }[] = [
+      { region: "announcement", text: view.announcement }
+    ];
+
+    resolveJourneyBeats(view).forEach((beat, index) => {
+      for (const line of beat.body) {
+        regions.push({ region: `beat ${index} (${beat.kind})`, text: line });
+      }
+      if (beat.more !== null) {
+        regions.push({ region: `beat ${index} (${beat.kind}) disclosure`, text: beat.more });
+      }
+    });
+
+    for (const row of view.quickReference) {
+      regions.push({ region: "quick reference", text: row.value });
+    }
+
+    for (const shown of view.deviceFacts) {
+      for (const fact of shown.facts) {
+        regions.push({ region: "current network details", text: fact.value });
+      }
+    }
+
+    return regions;
+  }
+
+  /** Every paragraph the CURRICULUM authored as teaching for this journey. */
+  function authoredTeaching(
+    parameters: LearnerPacketJourneyParameters
+  ): readonly string[] {
+    const paragraphs: string[] = [];
+
+    for (const stage of parameters.stages) {
+      paragraphs.push(stage.narration);
+      if (stage.decision !== undefined) paragraphs.push(stage.decision);
+      for (const check of stage.knowledgeChecks ?? []) {
+        paragraphs.push(check.explanation);
+      }
+    }
+
+    if (parameters.fault !== undefined) {
+      paragraphs.push(parameters.fault.symptom);
+      if (parameters.fault.explanation !== undefined) {
+        paragraphs.push(parameters.fault.explanation);
+      }
+    }
+
+    // Long enough to be teaching rather than a label. A device name appearing
+    // in two places is orientation, and orientation is supposed to repeat.
+    return paragraphs.filter((text) => text.length >= 60);
+  }
+
+  /** Every state a learner passes through, from Start to the last stage. */
+  function walkStates(
+    parameters: LearnerPacketJourneyParameters
+  ): readonly PacketJourneyViewState[] {
+    const states: PacketJourneyViewState[] = [];
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+
+    for (let step = 0; step <= parameters.stages.length + 8; step += 1) {
+      states.push(state);
+      const view = buildPacketJourneyView(parameters, state, "commit_first");
+
+      if (view.pendingPrediction !== null) {
+        state = commitPrediction(
+          state,
+          view.pendingPrediction.stageId,
+          view.pendingPrediction.options[0] ?? ""
+        );
+        continue;
+      }
+
+      if (view.knowledgeCheck !== null && view.knowledgeCheck.answer === null) {
+        state = answerKnowledgeCheck(
+          state,
+          view.knowledgeCheck.checkId,
+          view.knowledgeCheck.options[0] ?? ""
+        );
+        continue;
+      }
+
+      if (view.canAdvance) {
+        state = advance(state, parameters);
+        continue;
+      }
+
+      break;
+    }
+
+    return states;
+  }
+
+  const contains = (haystack: string, needle: string): boolean =>
+    haystack.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+      .includes(needle.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+
+  /**
+   * The REAL authored journeys, not only the fixtures.
+   *
+   * Mutation testing caught this: the fixture's paragraphs are short — "Router-1
+   * discards the request." is 29 characters — so the length floor below skipped
+   * every one of them, and putting the narration back into the stop
+   * announcement passed cleanly. The defect the Founder found was in the
+   * authored course, and this is the course.
+   */
+  function authoredJourneys(): readonly LearnerPacketJourneyParameters[] {
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    return parsed.document.missions.flatMap((mission) =>
+      mission.steps.flatMap((step) =>
+        step.content.type === "interaction" &&
+        step.content.parameters.interactionType === "packet_journey"
+          ? [step.content.parameters as LearnerPacketJourneyParameters]
+          : []
+      )
+    );
+  }
+
+  it("renders each authored paragraph in at most one region per screen", () => {
+    /*
+      The ownership invariant, and the reason this suite exists rather than a
+      second string comparison: it does not know which paragraph the defect was
+      about. It asks, of every authored paragraph on every screen, how many
+      regions are rendering it — and one is the only acceptable answer.
+    */
+    for (const parameters of [journey, checkedJourney, ...authoredJourneys()]) {
+      for (const state of walkStates(parameters)) {
+        const regions = regionsOf(parameters, state);
+
+        for (const paragraph of authoredTeaching(parameters)) {
+          const owners = regions
+            .filter((entry) => contains(entry.text, paragraph))
+            .map((entry) => entry.region);
+
+          expect(
+            `"${paragraph.slice(0, 40)}…" rendered by ${owners.length} region(s): ${owners.join(", ")}`
+          ).toBe(
+            `"${paragraph.slice(0, 40)}…" rendered by ${Math.min(owners.length, 1)} region(s): ${owners.slice(0, 1).join(", ")}`
+          );
+        }
+      }
+    }
+  });
+
+  it("keeps the detailed narration out of the live region entirely", () => {
+    // The specific ownership the Founder UAT failure came from: the live region
+    // announces THAT the moment changed and where; the beat card teaches.
+    for (const parameters of [journey, checkedJourney, ...authoredJourneys()]) {
+      for (const state of walkStates(parameters)) {
+        const view = buildPacketJourneyView(parameters, state, "commit_first");
+
+        for (const stage of parameters.stages) {
+          for (const teaching of [stage.narration, stage.decision]) {
+            if (teaching === undefined || teaching.length < 60) continue;
+
+            expect(
+              `announcement carries teaching: ${contains(view.announcement, teaching)}`
+            ).toBe("announcement carries teaching: false");
+          }
+        }
+      }
+    }
+  });
+
+  it("still says where the traffic is, and which link it crossed", () => {
+    // Concise is not empty. The live region is the ONLY text naming the link
+    // crossed — the drawn wire is aria-hidden — so that must survive.
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    state = commitPrediction(state, "s2", "Discard it");
+    state = advance(advance(state, journey), journey);
+
+    const view = buildPacketJourneyView(journey, state, "commit_first");
+
+    expect(view.announcement).toContain("PC-A");
+    expect(view.announcement.length).toBeGreaterThan(10);
+  });
+
+  it("names what the device is doing, from the author's own phrase", () => {
+    const acting: LearnerPacketJourneyParameters = {
+      ...journey,
+      stages: journey.stages.map((stage, index) =>
+        index === 0 ? { ...stage, action: "deciding how to send it" } : stage
+      )
+    };
+
+    const view = buildPacketJourneyView(acting, advance(BEGUN, acting), "commit_first");
+
+    expect(view.announcement).toContain("Deciding how to send it.");
+  });
+
+  it("falls back to the outcome when the author wrote no action", () => {
+    // A journey authored before `action` existed still announces something.
+    const view = buildPacketJourneyView(journey, advance(BEGUN, journey), "commit_first");
+
+    expect(view.announcement).toContain("PC-A");
+    expect(view.announcement.trim().endsWith(".")).toBe(true);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * A GRADED PREDICTION RESOLVES WITH A REASON
+ *
+ * Architect ruling: where a prediction has an objectively correct answer, the
+ * learner commits first, then gets the verdict, what was expected if they were
+ * wrong, and why — in words, with no scoring of any kind.
+ * ------------------------------------------------------------------ */
+
+describe("a graded prediction gives the verdict and the reason", () => {
+  const WHY = "PC-A has one connection, and it leads to Switch-1.";
+
+  const explained: LearnerPacketJourneyParameters = {
+    ...journey,
+    stages: journey.stages.map((stage) =>
+      stage.prediction === undefined
+        ? stage
+        : {
+            ...stage,
+            prediction: {
+              ...stage.prediction,
+              correctOption: "Discard it",
+              explanation: WHY
+            }
+          }
+    )
+  };
+
+  function afterAnswering(option: string): PacketJourneyViewState {
+    let state = advance(BEGUN, explained);
+    state = commitPrediction(state, "s2", option);
+    return advance(state, explained);
+  }
+
+  it("reveals no correctness before the learner commits", () => {
+    const asking = buildPacketJourneyView(explained, atPrediction(), "commit_first");
+
+    expect(asking.pendingPrediction).not.toBeNull();
+    expect(asking.resolvedPrediction).toBeNull();
+
+    for (const beat of resolveJourneyBeats(asking)) {
+      const text = `${beat.heading} ${beat.body.join(" ")} ${beat.more ?? ""}`;
+      expect(`${beat.kind} leaks the answer: ${text.includes(WHY)}`).toBe(
+        `${beat.kind} leaks the answer: false`
+      );
+    }
+  });
+
+  it("says the answer was right, and why", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(explained, afterAnswering("Discard it"), "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    expect(beat?.heading).toBe("Correct prediction");
+    expect(beat?.body.join(" ")).toContain(WHY);
+  });
+
+  it("says the answer was wrong, what was expected, and why", () => {
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(explained, afterAnswering("Forward it"), "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    expect(beat?.heading).toBe("Not quite");
+    expect(beat?.body.join(" ")).toContain("You predicted: Forward it");
+    expect(beat?.body.join(" ")).toContain("The expected answer: Discard it");
+    expect(beat?.body.join(" ")).toContain(WHY);
+  });
+
+  it("does not put the reason on the beat that follows it", () => {
+    // The feedback owns why the answer was right; the observation owns what
+    // the network did. Exact-text ownership — paraphrase is Tier 3 review.
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(explained, afterAnswering("Forward it"), "commit_first")
+    );
+
+    for (const beat of beats.filter((candidate) => candidate.kind !== "feedback")) {
+      const text = `${beat.body.join(" ")} ${beat.more ?? ""}`;
+      expect(`${beat.kind} repeats the reason: ${text.includes(WHY)}`).toBe(
+        `${beat.kind} repeats the reason: false`
+      );
+    }
+  });
+
+  it("adds no score, streak or praise to the resolution", () => {
+    const state = afterAnswering("Discard it");
+    const recorded = JSON.stringify(state).toLowerCase();
+
+    for (const forbidden of ["score", "streak", "grade", "correct", "points"]) {
+      expect(`recorded ${forbidden}: ${recorded.includes(forbidden)}`).toBe(
+        `recorded ${forbidden}: false`
+      );
+    }
+
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(explained, state, "commit_first")
+    ).find((candidate) => candidate.kind === "feedback");
+
+    const said = `${beat?.heading} ${beat?.body.join(" ")}`.toLowerCase();
+    for (const noise of ["well done", "great", "excellent", "nice", "keep it up"]) {
+      expect(`${noise}: ${said.includes(noise)}`).toBe(`${noise}: false`);
+    }
+  });
+
+  it("leaves an ungraded prediction resolving by comparison", () => {
+    // Missions that have not been repaired keep the original behaviour: no
+    // verdict, and the observation is the answer.
+    const ungraded = resolveJourneyBeats(
+      buildPacketJourneyView(journey, afterAnswering("Forward it"), "commit_first")
+    );
+
+    expect(journey.stages[1]?.prediction?.correctOption).toBeUndefined();
+
+    const beat = resolveJourneyBeats(
+      buildPacketJourneyView(
+        journey,
+        (() => {
+          let state = advance(BEGUN, journey);
+          state = commitPrediction(state, "s2", "Forward it");
+          return advance(state, journey);
+        })(),
+        "commit_first"
+      )
+    ).find((candidate) => candidate.kind === "feedback");
+
+    expect(beat?.heading).toBe("Your prediction");
+    expect(ungraded.length).toBeGreaterThan(0);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * FOUNDER VIDEO UAT — JOURNEY SEMANTICS
+ *
+ * Traffic does not arrive at its own source; a stage number describes the
+ * network rather than the pane; and a leg is named in the direction it was
+ * actually travelled.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A journey that crosses one link in both directions.
+ *
+ * The reverse-direction case is the whole point: the same `link-a` carries the
+ * outbound leg PC-A to Router-1 and the return leg Router-1 to PC-A. Direction
+ * therefore cannot come from how the link is stored.
+ */
+const roundTrip: LearnerPacketJourneyParameters = {
+  ...journey,
+  stages: [
+    { ...journey.stages[0]!, outcome: "proceeds" },
+    {
+      stageId: "r1",
+      atNodeId: "r-1",
+      narration: "It reaches Router-1.",
+      outcome: "proceeds",
+      viaLinkId: "link-a"
+    },
+    {
+      stageId: "r2",
+      atNodeId: "pc-a",
+      narration: "The reply reaches PC-A.",
+      outcome: "proceeds",
+      viaLinkId: "link-a"
+    }
+  ],
+  fault: undefined,
+  actions: []
+};
+
+describe("a device is described by its role on the current leg", () => {
+  it("says the traffic STARTED at a stage it reached without crossing a link", () => {
+    const layout = buildTopologyLayout(
+      buildPacketJourneyObservationModel(journey as never, {
+        revealedStageCount: 1,
+        appliedActionId: null,
+        committedPredictions: {}
+      } as never),
+      null
+    );
+
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    const source = layout.devices.find((device) => device.nodeId === "pc-a");
+
+    expect(source?.state).toBe("origin");
+    expect(describeDeviceState("origin")).toBe("Started here");
+    expect(describeDeviceState("origin")).not.toBe("Arrived here");
+  });
+
+  it("says a later arrival ARRIVED, even at the device that started it", () => {
+    /*
+      Leg-aware, not node-aware. Mission 6's reply comes back to PC-A across a
+      real link, and that IS an arrival — the role follows the current leg.
+    */
+    const layout = buildTopologyLayout(
+      buildPacketJourneyObservationModel(roundTrip as never, {
+        revealedStageCount: 3,
+        appliedActionId: null,
+        committedPredictions: {}
+      } as never),
+      null
+    );
+
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    // PC-A started the journey AND is where the reply lands. The role follows
+    // the current leg, so it is no longer the origin.
+    expect(layout.devices.find((device) => device.nodeId === "pc-a")?.state).not.toBe(
+      "origin"
+    );
+  });
+
+  it("keeps the other role wordings distinct", () => {
+    expect(describeDeviceState("visited")).toBe("Passed through");
+    expect(describeDeviceState("confirmed")).toBe("Delivered here");
+  });
+});
+
+describe("the visible step number counts network stages", () => {
+  it("numbers an observation by the stage, out of the journey's total", () => {
+    for (let revealed = 1; revealed <= journey.stages.length; revealed += 1) {
+      const view = buildPacketJourneyView(journey, revealTo(revealed), "demonstrate");
+      const observe = resolveJourneyBeats(view).find(
+        (beat) => beat.kind === "observe"
+      );
+
+      expect(`@${revealed} step`).toBe(`@${revealed} step`);
+      expect(observe?.journeyStep).toEqual({
+        current: revealed,
+        total: journey.stages.length
+      });
+    }
+  });
+
+  it("gives no number to a beat that is not a network stage", () => {
+    const beats = resolveJourneyBeats(
+      buildPacketJourneyView(journey, walkToFailure(), "commit_first")
+    );
+
+    for (const beat of beats.filter((candidate) => candidate.kind !== "observe")) {
+      expect(`${beat.kind} numbered: ${beat.journeyStep !== null}`).toBe(
+        `${beat.kind} numbered: false`
+      );
+    }
+  });
+
+  it("does not restart when a presentation sub-beat appears", () => {
+    // The Founder video defect: answering a question reset "Step 1 of 3".
+    const before = resolveJourneyBeats(
+      buildPacketJourneyView(journey, revealTo(2), "demonstrate")
+    ).find((beat) => beat.kind === "observe")?.journeyStep;
+
+    const state = commitPrediction(revealTo(1), "s2", "Discard it");
+    const after = resolveJourneyBeats(
+      buildPacketJourneyView(journey, advance(state, journey), "commit_first")
+    ).find((beat) => beat.kind === "observe")?.journeyStep;
+
+    expect(after?.current).toBe(before?.current);
+    expect(after?.total).toBe(journey.stages.length);
+  });
+});
+
+describe("the current leg is named in the direction it was travelled", () => {
+  it("puts the device the traffic came from first", () => {
+    const view = buildPacketJourneyView(journey, revealTo(2), "demonstrate");
+    const leg = view.quickReference.find((row) => row.label === "Current leg");
+
+    // Stage 2 arrives at Router-1 from PC-A across link-a.
+    expect(leg?.value.indexOf("PC-A")).toBeGreaterThanOrEqual(0);
+    expect(leg?.value.indexOf("PC-A")).toBeLessThan(
+      leg?.value.indexOf("Router-1") ?? Number.MAX_SAFE_INTEGER
+    );
+  });
+
+  it("reverses when the same link is travelled the other way", () => {
+    /*
+      The Founder video defect: the final leg read "Printer … to Switch-1"
+      when the print request had moved from Switch-1 to the Printer. Direction
+      must come from the journey, not from how the link happens to be stored.
+    */
+    // Stage 2 is the outbound leg; stage 3 is the reply across the same link.
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    state = advance(advance(advance(state, roundTrip), roundTrip), roundTrip);
+
+    const view = buildPacketJourneyView(roundTrip, state, "demonstrate");
+    const leg = view.quickReference.find((row) => row.label === "Current leg");
+
+    /*
+      The reply travelled Router-1 → PC-A across the SAME link the outbound leg
+      used, so Router-1 is named first this time. Compared against the OUTBOUND
+      leg's own text, which is the honest form of "it reversed".
+    */
+    let outboundState = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    outboundState = advance(advance(outboundState, roundTrip), roundTrip);
+
+    const outbound = buildPacketJourneyView(roundTrip, outboundState, "demonstrate")
+      .quickReference.find((row) => row.label === "Current leg")?.value ?? "";
+
+    const returnLeg = leg?.value ?? "";
+
+    expect(outbound.length).toBeGreaterThan(0);
+    expect(returnLeg.length).toBeGreaterThan(0);
+
+    // Same link, opposite order.
+    expect(`the return leg reversed: ${returnLeg !== outbound}`).toBe(
+      "the return leg reversed: true"
+    );
+    expect(returnLeg.startsWith("Router-1")).toBe(true);
+    expect(outbound.startsWith("PC-A")).toBe(true);
+  });
+});
+
+describe("completion language matches the scenario", () => {
+  it("does not call a successful delivery a repair", () => {
+    const finished = buildPacketJourneyView(
+      completingJourney,
+      (() => {
+        let state = applyAction(walkToStop(), "add-vlan-20");
+        state = advance(state, completingJourney);
+        return advance(state, completingJourney);
+      })(),
+      "demonstrate"
+    );
+
+    expect(`announces a repair: ${finished.announcement.includes("Fixed")}`).toBe(
+      "announces a repair: false"
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * FOUNDER VIDEO UAT — MISSION 1 FINAL CLEANUP
+ *
+ * Four defects the Founder read on screen, each protected against the REAL
+ * authored course rather than a fixture. Three of the four had already had
+ * their rendering removed once and came back, because the STATE that produced
+ * them was still reachable.
+ * ------------------------------------------------------------------ */
+
+describe("committing a prediction shows what happened", () => {
+  /** Mission 1's authored journey, through the real parser. */
+  function missionOneJourney(): LearnerPacketJourneyParameters {
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const mission = parsed.document.missions.find(
+      (candidate) => candidate.stableId === "nf-m1-what-a-network-is"
+    );
+    const step = mission?.steps.find(
+      (candidate) => candidate.content.type === "interaction"
+    );
+
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 1 authors no interaction");
+    }
+    if (step.content.parameters.interactionType !== "packet_journey") {
+      throw new Error("Mission 1's interaction is not a packet journey");
+    }
+
+    return step.content.parameters as LearnerPacketJourneyParameters;
+  }
+
+  /** Commit Mission 1's only prediction, the way the component does. */
+  function afterCommit(): {
+    readonly parameters: LearnerPacketJourneyParameters;
+    readonly view: PacketJourneyView;
+  } {
+    const parameters = missionOneJourney();
+    const stage = parameters.stages[0];
+    if (stage?.prediction === undefined) {
+      throw new Error("Mission 1's first stage asks no prediction");
+    }
+
+    const state = commitPrediction(
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      stage.stageId,
+      stage.prediction.options[0]!,
+      parameters
+    );
+
+    return { parameters, view: buildPacketJourneyView(parameters, state) };
+  }
+
+  it("reveals the stage the prediction was about, with nothing in between", () => {
+    // The defect, at the level that produced it. Removing the interstitial
+    // BEAT was not enough: the state it rendered survived, the pane fell
+    // through to the orientation, and the live region went on announcing the
+    // recording. This asserts the state itself is unreachable.
+    const { view } = afterCommit();
+
+    expect(view.stages).toHaveLength(1);
+    expect(view.pendingCommitment).toBeNull();
+  });
+
+  it("announces what the device is doing, not that a form was submitted", () => {
+    const { view } = afterCommit();
+
+    expect(view.announcement).toBe("At PC-A. Sending the print request.");
+
+    for (const interstitial of [
+      "Prediction recorded",
+      "Nothing has been sent yet",
+      "to see what actually happens"
+    ]) {
+      expect(
+        `announces "${interstitial}": ${view.announcement.includes(interstitial)}`
+      ).toBe(`announces "${interstitial}": false`);
+    }
+  });
+
+  it("puts the learner on the resolution of their own prediction", () => {
+    const { view } = afterCommit();
+    const beats = resolveJourneyBeats(view);
+
+    // Not an acknowledgement screen: the first thing after committing is the
+    // comparison between what they said and what happened.
+    expect(beats.some((beat) => beat.kind === "feedback")).toBe(true);
+    expect(beats.some((beat) => beat.kind === "start")).toBe(false);
+
+    const rendered = JSON.stringify(beats);
+    expect(rendered).not.toContain("Prediction recorded");
+    expect(rendered).not.toContain("Nothing has been sent yet");
+  });
+
+  it("says what to do first, rather than offering an action that is not next", () => {
+    // "Ready to start. Send the print request when you are ready." described
+    // an action the learner could not take: the journey opens on a prediction.
+    const parameters = missionOneJourney();
+    const view = buildPacketJourneyView(
+      parameters,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.announcement).toBe(
+      "Before anything moves, predict which device receives the print request first."
+    );
+  });
+
+  it("keeps the start form for a journey that opens on no question", () => {
+    // Generic, not written for Mission 1. Where the send IS the next action,
+    // the status still says so.
+    const view = buildPacketJourneyView(
+      journey,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.announcement).toContain("Ready to start");
+  });
+
+  /* ---------------------------------------------------------------- *
+   * The full text account, before anything has been revealed
+   * ---------------------------------------------------------------- */
+
+  it("opens the text account with the same sentence as the status line", () => {
+    /*
+      Founder video UAT: the "Full text account" disclosure sat directly
+      beneath a status line asking for a prediction, and said "Nothing has
+      been sent yet. Send the print request to begin." — telling the learner
+      to do the one thing they were not being asked to do yet.
+
+      Neither surface was wrong about its own state. They were two independent
+      sentences about one state. There is one sentence now, and this asserts
+      both surfaces read it.
+    */
+    const parameters = missionOneJourney();
+    const view = buildPacketJourneyView(
+      parameters,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    expect(view.textTrace[0]).toBe(
+      "Before anything moves, predict which device receives the print request first."
+    );
+    expect(view.textTrace[0]).toBe(view.announcement);
+  });
+
+  it("never tells the learner to send before they have predicted", () => {
+    const parameters = missionOneJourney();
+    const view = buildPacketJourneyView(
+      parameters,
+      INITIAL_PACKET_JOURNEY_VIEW_STATE
+    );
+
+    // Read across the WHOLE account, not only its first line: a second entry
+    // saying it would be the same defect one row lower.
+    const account = view.textTrace.join(" ");
+
+    for (const stale of [
+      "Nothing has been sent yet",
+      "to begin",
+      "Send the print request"
+    ]) {
+      expect(`the account says "${stale}": ${account.includes(stale)}`).toBe(
+        `the account says "${stale}": false`
+      );
+    }
+  });
+
+  it("gives each authored journey the opening its own first stage calls for", () => {
+    /*
+      The generic half, against the real course and in both directions.
+
+      Mission 8's first stage asks a prediction too, so this repair changes it
+      as well as Mission 1 — and nothing guarded Mission 8's opening before
+      this. Mission 6's first stage asks nothing, so the send IS its next
+      action and it must keep saying so. A fix that told every journey to
+      predict first would be a new defect in the other direction, and this is
+      the test that would catch it.
+    */
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const openingOf = (missionStableId: string) => {
+      const step = parsed.document.missions
+        .find((mission) => mission.stableId === missionStableId)
+        ?.steps.find((candidate) => candidate.content.type === "interaction");
+
+      if (step === undefined || step.content.type !== "interaction") {
+        throw new Error(`${missionStableId} authors no interaction`);
+      }
+
+      const parameters = step.content
+        .parameters as LearnerPacketJourneyParameters;
+      const view = buildPacketJourneyView(
+        parameters,
+        INITIAL_PACKET_JOURNEY_VIEW_STATE
+      );
+
+      return {
+        asks: parameters.stages[0]?.prediction !== undefined,
+        trace: view.textTrace[0] ?? "",
+        announcement: view.announcement
+      };
+    };
+
+    const mission6 = openingOf("nf-m6-routers-and-the-journey");
+    expect(mission6.asks).toBe(false);
+    expect(mission6.trace).toContain("Ready to start");
+    expect(mission6.trace).toBe(mission6.announcement);
+
+    const mission8 = openingOf("nf-m8-when-it-does-not-work");
+    expect(mission8.asks).toBe(true);
+    expect(mission8.trace).toContain("Before anything moves, predict");
+    expect(mission8.trace).toBe(mission8.announcement);
+    expect(mission8.trace).not.toContain("Nothing has been sent yet");
+  });
+
+  it("keeps the two surfaces in step across every authored journey", () => {
+    // The invariant rather than three examples: whatever the status line says
+    // before anything is revealed, the account's opening entry says too.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    for (const mission of parsed.document.missions) {
+      for (const step of mission.steps) {
+        if (step.content.type !== "interaction") continue;
+        if (step.content.parameters.interactionType !== "packet_journey") continue;
+
+        const view = buildPacketJourneyView(
+          step.content.parameters as LearnerPacketJourneyParameters,
+          INITIAL_PACKET_JOURNEY_VIEW_STATE
+        );
+
+        expect(view.textTrace[0]).toBe(view.announcement);
+      }
+    }
+  });
+});
+
+describe("the source stays the source for the whole leg", () => {
+  /** Every device's state label, at each revealed stage of a journey. */
+  function labelsAlong(
+    parameters: LearnerPacketJourneyParameters
+  ): readonly Readonly<Record<string, string>>[] {
+    const along: Record<string, string>[] = [];
+    let state = INITIAL_PACKET_JOURNEY_VIEW_STATE;
+
+    for (let step = 0; step < parameters.stages.length; step += 1) {
+      const next = parameters.stages[state.progress.revealedStageCount];
+      state =
+        next?.prediction === undefined
+          ? advance(state, parameters)
+          : commitPrediction(
+              state,
+              next.stageId,
+              next.prediction.options[0]!,
+              parameters
+            );
+
+      const model = buildPacketJourneyObservationModel(parameters, state.progress);
+      const layout = buildTopologyLayout(model, parameters.traffic.sourceNodeId);
+      if (layout.state !== "available") throw new Error("no layout");
+
+      along.push(
+        Object.fromEntries(
+          layout.devices.map((device) => [device.label, device.stateLabel])
+        )
+      );
+    }
+
+    return along;
+  }
+
+  it("keeps PC-A as the origin through Mission 1's whole forward journey", () => {
+    // Founder video UAT: PC-A said "Started here", then silently became
+    // "Passed through" once the request reached Switch-1 — so by the delivery
+    // screen the picture no longer said where the request came from.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const step = parsed.document.missions
+      .find((mission) => mission.stableId === "nf-m1-what-a-network-is")
+      ?.steps.find((candidate) => candidate.content.type === "interaction");
+
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 1 authors no interaction");
+    }
+
+    const along = labelsAlong(
+      step.content.parameters as LearnerPacketJourneyParameters
+    );
+
+    expect(along).toHaveLength(3);
+    for (const stage of along) {
+      expect(stage["PC-A"]).toBe("Started here");
+    }
+
+    expect(along[1]?.["Switch-1"]).toBe("Arrived here");
+    expect(along[2]?.["Switch-1"]).toBe("Passed through");
+    expect(along[2]?.["Printer"]).toBe("Delivered here");
+  });
+
+  it("moves the origin to the device that starts the return leg", () => {
+    // The rule is per LEG and knows nothing about PC-A. Mission 6's reply
+    // starts at PC-C, which becomes the origin from that stage on — and the
+    // return arrives back at PC-A across a real link, where PC-A is an
+    // arrival like any other.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const step = parsed.document.missions
+      .find((mission) => mission.stableId === "nf-m6-routers-and-the-journey")
+      ?.steps.find((candidate) => candidate.content.type === "interaction");
+
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 6 authors no interaction");
+    }
+
+    const along = labelsAlong(
+      step.content.parameters as LearnerPacketJourneyParameters
+    );
+
+    // Outbound: PC-A is the origin.
+    expect(along[0]?.["PC-A"]).toBe("Started here");
+    expect(along[3]?.["PC-A"]).toBe("Started here");
+
+    // The reply starts at PC-C, and the origin moves with it.
+    expect(along[4]?.["PC-C"]).toBe("Started here");
+    expect(along[4]?.["PC-A"]).toBe("Passed through");
+
+    // And PC-A is a destination on the way back.
+    expect(along[7]?.["PC-A"]).toBe("Delivered here");
+  });
+});
+
+describe("the live region says where, what moved, and what changed", () => {
+  it("uses the arrival form when traffic crossed a connection", () => {
+    // Founder video UAT read "At Switch-1. Carrying the print request. Arrived
+    // across PC-A Network interface to Switch-1 Port 1." — three clauses, two
+    // naming the same event, and a link description written for a reference
+    // row rather than for a sentence.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const step = parsed.document.missions
+      .find((mission) => mission.stableId === "nf-m1-what-a-network-is")
+      ?.steps.find((candidate) => candidate.content.type === "interaction");
+
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 1 authors no interaction");
+    }
+
+    const parameters = step.content.parameters as LearnerPacketJourneyParameters;
+    let state = commitPrediction(
+      INITIAL_PACKET_JOURNEY_VIEW_STATE,
+      parameters.stages[0]!.stageId,
+      parameters.stages[0]!.prediction!.options[0]!,
+      parameters
+    );
+    state = advance(state, parameters);
+
+    expect(buildPacketJourneyView(parameters, state).announcement).toBe(
+      "At Switch-1. The print request arrived from PC-A on port 1."
+    );
+
+    state = advance(state, parameters);
+    expect(buildPacketJourneyView(parameters, state).announcement).toBe(
+      "At Printer. The print request was delivered."
+    );
+  });
+
+  it("never repeats the stage narration it sits above", () => {
+    // The ownership rule: the card owns the teaching, the region owns the
+    // change. Asserted over every authored journey, at every state.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    for (const mission of parsed.document.missions) {
+      for (const step of mission.steps) {
+        if (step.content.type !== "interaction") continue;
+        if (step.content.parameters.interactionType !== "packet_journey") continue;
+
+        const parameters = step.content
+          .parameters as LearnerPacketJourneyParameters;
+
+        let state = INITIAL_PACKET_JOURNEY_VIEW_STATE;
+        for (let i = 0; i < parameters.stages.length; i += 1) {
+          const next = parameters.stages[state.progress.revealedStageCount];
+          state =
+            next?.prediction === undefined
+              ? advance(state, parameters)
+              : commitPrediction(
+                  state,
+                  next.stageId,
+                  next.prediction.options[0]!,
+                  parameters
+                );
+
+          const announcement = buildPacketJourneyView(parameters, state)
+            .announcement;
+
+          for (const stage of parameters.stages) {
+            if (stage.narration.length < 40) continue;
+            expect(announcement).not.toContain(stage.narration);
+          }
+        }
+      }
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * FOUNDER VIDEO UAT — the workspace control names its own action
+ * ------------------------------------------------------------------ */
+
+describe("the workspace control", () => {
+  it("offers to expand and to collapse", () => {
+    expect(describeWorkspaceExpandLabel()).toBe("Expand network workspace");
+    expect(describeWorkspaceCollapseLabel()).toBe("Collapse network workspace");
+  });
+
+  it("does not promise to reveal something already on screen", () => {
+    /*
+      Founder video UAT read "Open the network workspace" while the network
+      workspace was already visible. Nothing is hidden behind the control: the
+      same tree is re-laid out as a full-viewport overlay. "Open" described an
+      action that does not occur.
+    */
+    const labels = [
+      describeWorkspaceExpandLabel(),
+      describeWorkspaceCollapseLabel()
+    ].join(" ");
+
+    for (const stale of ["Open the network", "Close the network"]) {
+      expect(`still says "${stale}": ${labels.includes(stale)}`).toBe(
+        `still says "${stale}": false`
+      );
+    }
+  });
+
+  it("names an action in each direction, and two different ones", () => {
+    // One control in two states. If both read the same the learner could not
+    // tell which way it would go.
+    expect(describeWorkspaceExpandLabel()).not.toBe(
+      describeWorkspaceCollapseLabel()
+    );
   });
 });

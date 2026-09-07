@@ -117,7 +117,7 @@ type, no new progress node type, and no new publication target.
 
 # 8. Step Type Vocabulary
 
-The vocabulary is **closed at seven types** (DEC-054).
+The vocabulary is **closed at eight types** (DEC-054, as amended by WP-NF-NT1).
 
 | Type | Instructional purpose |
 |---|---|
@@ -127,6 +127,7 @@ The vocabulary is **closed at seven types** (DEC-054).
 | `prediction` | The learner commits to an expected outcome before observing. |
 | `interaction` | Manipulate a system and observe the consequence. |
 | `practice` | Place an existing assessment where it becomes fair to ask. |
+| `near_transfer` | Apply a concept just taught to a different but structurally related situation, before the mission closes. |
 | `reference` | Concise optional material the learner may open when needed. |
 
 ## 8.1 Semantic boundaries
@@ -145,6 +146,64 @@ The vocabulary is **closed at seven types** (DEC-054).
 - **`reference` is optional enrichment and may never carry prerequisite
   instruction required to satisfy BEGINNER-COMPLETE-1.** If a learner must read
   it to proceed, it is a `concept`, and the quality gate treats it as one.
+- **`near_transfer` carries its own questions, answers and explanations**, and
+  never an assessment reference. It is the one step type that both asks and
+  answers, which is why the boundary in 8.2 is stated rather than assumed.
+
+## 8.2 Five things that ask the learner a question
+
+These are five different instructional jobs. They are recorded here, once,
+because the difference between them is what decides whether a learner's answer
+becomes part of their record — and four of the five must never do so.
+
+| | Purpose | Where it lives | Produces |
+|---|---|---|---|
+| **Prediction** | Commit to what will happen, before observing it. | A `prediction` step, or a packet-journey stage. | Nothing. |
+| **Knowledge check** | Reason about or interpret the concept being taught right now. | A packet-journey stage, beside the thing on screen. | Nothing. |
+| **Near-transfer check** | Apply an already-taught concept to a meaningfully different scenario, before instructional closure. | A `near_transfer` step. | Nothing. |
+| **Practice** | Additional repetition or application after instruction. Not automatically equivalent to competency evidence. | A `practice` step, referencing an Assessment Engine definition. | Nothing recorded as evidence. |
+| **Mastery / evidence assessment** | Produce recorded evidence against competency requirements. | The Evidence and Assessment Engines, never curriculum content. | Attempts, scores and competency evidence. |
+
+Only the last row produces a record. A near-transfer check in particular
+requires that every question be **attempted**, never that any be answered
+correctly: incorrect responses are instruction, and a wrong answer must never
+prevent a learner from continuing. It emits no score, no percentage, no points,
+no attempts history and no competency state.
+
+Where such an activity is **required**, the mission's completion action waits
+for it to be **finished** — every question attempted and its authored feedback
+read past — because reading the feedback is part of the instruction. That is a
+statement about *when*, not about *how well*: correctness plays no part in it,
+and a learner who answered every question wrongly finishes exactly as one who
+answered them all correctly does.
+
+Correctness in the first four is **authored and deterministic**. AI may explain
+an answer; it never decides one.
+
+## 8.3 A fact a learner must reason from belongs in the picture
+
+Where a step carries a diagram, **any topology fact the learner needs in order
+to answer that step must be represented by the diagram itself.** Visible
+instructional prose may restate it. Prose may not be its only source.
+
+CURR-011 section 14 already requires the accessible representation to be
+functionally equivalent to the visual one. This is the same requirement read in
+the other direction, and it is stated because the first near-transfer check
+authored under this specification failed it: the question *"which device
+connects this local network to another network?"* was answerable from the
+authored text equivalent and from nothing in the drawing, because the device's
+onward connection had no far end to draw. A sighted beginner had to read a
+sentence to discover a relationship the topology should have shown.
+
+The correction is not to move the fact into prose for everyone. It is to give
+the diagram what it was missing — here, an authored representation of a network
+continuing past the edge of the drawing — so that **both** representations carry
+the same relationships, and neither is the only place a required fact appears.
+
+A renderer may never infer such a fact. What lies beyond the edge of a drawing
+is authored, exactly as group membership is, for the reason given in
+`ObservationGroup`: every available inference would be a networking claim
+invented by a picture.
 
 ---
 
@@ -390,3 +449,6 @@ Approved by DEC-054.
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-30 | Initial Feature specification. Approved by DEC-054 following the BEGINNER-COMPLETE-1 architecture review. Read-time failure is fail-safe at Mission granularity; the security boundary is inertness and renderer escaping rather than pattern matching, so code-bearing instructional content remains teachable. |
+| 1.1 | 2026-09-06 | WP-NF-NT1. The step vocabulary is closed at eight: `near_transfer` added for embedded near-transfer checks, which carry their own authored questions, answers and explanations and produce no score, attempt, evidence or competency state. Section 8.2 records, once, the boundary between prediction, knowledge check, near-transfer, practice and mastery assessment. Approved by the DEC-054 amendment. |
+| 1.2 | 2026-09-06 | WP-NF-NT1B. Section 8.3 records that a topology fact a learner must reason from belongs in the diagram and may not have visible prose as its only source, after the first authored near-transfer check failed it. A required inline activity — currently only `near_transfer` — also gates the mission completion action until every question has been ATTEMPTED; correctness remains irrelevant to eligibility, and no score, attempt, evidence or competency state is produced. |
+| 1.3 | 2026-09-06 | Mission 1 closeout. **Amends the completion clause in 1.2.** A required inline activity gates the mission completion action until it is **FINISHED** — every question attempted *and* its authored feedback read past — not merely until every question has been attempted. Rendered UAT showed a learner able to mark a mission complete while the final verdict and explanation were still on screen: reading the feedback is part of the instruction. **Correctness remains irrelevant to eligibility**, exactly as before, and no score, percentage, attempt, evidence or competency state is produced. |

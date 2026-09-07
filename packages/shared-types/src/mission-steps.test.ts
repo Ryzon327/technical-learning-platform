@@ -139,6 +139,36 @@ const reference: MissionStepContent = {
   note: "Open this only if the dotted form is still unfamiliar."
 };
 
+/** A minimal valid near-transfer check, for the vocabulary coverage below. */
+const nearTransfer: MissionStepContent = {
+  type: "near_transfer",
+  title: "Try it on a different network",
+  framing: "The same ideas, a different network.",
+  topology: {
+    nodes: [
+      { nodeId: "n1", label: "Host-9", role: "host" },
+      { nodeId: "n2", label: "Switch-9", role: "switch" }
+    ],
+    links: [
+      { linkId: "l1", label: "Host-9 to Switch-9", endpoints: ["n1", "n2"] }
+    ],
+    textEquivalent: "Host-9 connects to Switch-9."
+  },
+  questions: [
+    {
+      questionStableId: "nt.q1",
+      type: "single_choice",
+      prompt: "Which device carries the traffic?",
+      options: [
+        { optionId: "a", text: "Switch-9" },
+        { optionId: "b", text: "Host-9" }
+      ],
+      correctOptionIds: ["a"],
+      explanation: "Both ends connect to the switch."
+    }
+  ]
+};
+
 const oneOfEach: readonly MissionStepContent[] = [
   concept,
   diagram,
@@ -146,6 +176,7 @@ const oneOfEach: readonly MissionStepContent[] = [
   prediction,
   interaction,
   practice,
+  nearTransfer,
   reference
 ];
 
@@ -160,7 +191,9 @@ const step = (
  * ------------------------------------------------------------------ */
 
 describe("WP-C mission step vocabulary", () => {
-  it("accepts all seven approved step types", () => {
+  it("accepts all eight approved step types", () => {
+    // Eight since WP-NF-NT1 amended DEC-054. The set is still CLOSED — this
+    // list is the whole vocabulary, and an unlisted type is rejected below.
     expect([...MISSION_STEP_TYPES]).toEqual([
       "concept",
       "diagram",
@@ -168,6 +201,7 @@ describe("WP-C mission step vocabulary", () => {
       "prediction",
       "interaction",
       "practice",
+      "near_transfer",
       "reference"
     ]);
 
