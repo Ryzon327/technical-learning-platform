@@ -863,6 +863,32 @@ describe("mission steps", () => {
         assessmentStableId: "arch.fixture-practice",
         framing: "F"
       },
+      near_transfer: {
+        type: "near_transfer",
+        title: "T",
+        framing: "F",
+        topology: {
+          nodes: [
+            { nodeId: "n1", label: "N1", role: "host" },
+            { nodeId: "n2", label: "N2", role: "switch" }
+          ],
+          links: [{ linkId: "l1", label: "N1 to N2", endpoints: ["n1", "n2"] }],
+          textEquivalent: "N1 connects to N2."
+        },
+        questions: [
+          {
+            questionStableId: "q1",
+            type: "single_choice",
+            prompt: "P",
+            options: [
+              { optionId: "o1", text: "N1" },
+              { optionId: "o2", text: "N2" }
+            ],
+            correctOptionIds: ["o2"],
+            explanation: "E"
+          }
+        ]
+      },
       reference: {
         type: "reference",
         label: "L",

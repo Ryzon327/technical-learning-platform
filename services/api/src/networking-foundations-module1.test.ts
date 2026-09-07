@@ -223,6 +223,33 @@ function learnerFacingText(stableId: string): string {
       case "prediction":
         parts.push(content.prompt);
         break;
+      case "near_transfer":
+        // WP-NF-NT1. Every vocabulary rule below applies to a near-transfer
+        // check exactly as it applies to a paragraph, and this case is what
+        // makes that true. Without it the eighth step type would be the one
+        // place in a mission where a deferred term, an address or a routing
+        // mechanism could be introduced with every rule still reporting
+        // success — the "passes, on one step fewer" failure this file's
+        // isEndDevice comment already describes once.
+        //
+        // Identifiers are excluded by construction, as everywhere else here:
+        // `questionStableId` and `optionId` are never collected, so a rule
+        // cannot fire on the schema's own spelling.
+        if (content.title !== undefined) parts.push(content.title);
+        if (content.framing !== undefined) parts.push(content.framing);
+        if (content.topology !== undefined) {
+          parts.push(content.topology.textEquivalent);
+          for (const node of content.topology.nodes) {
+            parts.push(node.label);
+            if (node.about !== undefined) parts.push(node.about);
+          }
+          for (const link of content.topology.links) parts.push(link.label);
+        }
+        for (const question of content.questions) {
+          parts.push(question.prompt, question.explanation);
+          for (const option of question.options) parts.push(option.text);
+        }
+        break;
     }
   }
 
@@ -350,6 +377,15 @@ describe("both Packet Journeys are authored teaching and nothing else", () => {
       for (const node of journeyOf(stableId).nodes) {
         expect(equivalent).toContain(node.label);
       }
+
+      // The substance floor, moved here from `verify-wpj-m1.sh` by WP-NF-NT1.
+      // In shell it swept every `textEquivalent` in the document and could not
+      // tell a journey's from a near-transfer topology's; here `content.type`
+      // says which is which, so the floor applies to the thing it was
+      // calibrated for. A one-word equivalent satisfies the contract and fails
+      // the learner, and naming every device is not on its own enough — a list
+      // of five labels is not a description of a walkthrough.
+      expect(equivalent.length).toBeGreaterThanOrEqual(400);
     });
 
     it(`${stableId} authors no fault and no remediation`, () => {
@@ -372,14 +408,35 @@ describe("both Packet Journeys are authored teaching and nothing else", () => {
       expect(confirmation.summary.length).toBeGreaterThan(0);
     });
 
-    it(`${stableId} gives every prediction at least two options and no answer key`, () => {
+    it(`${stableId} gives every prediction at least two options, and any answer key is answerable`, () => {
+      /*
+        Inverted on an Architect ruling, and the change is bounded.
+
+        This used to assert that no prediction could carry a correct option at
+        all, on the reasoning that a guess made before the evidence must not be
+        graded. The ruling standardises predictions toward the Mission 8
+        behaviour: where a prediction has an objectively correct answer, the
+        learner commits first and is then told plainly whether they were right.
+
+        What is still forbidden is a prediction that cannot be answered — an
+        answer key naming an option nobody can pick — and any outcome field,
+        which would let the browser reconstruct a consequence.
+      */
       for (const stage of journeyOf(stableId).stages) {
         if (stage.prediction === undefined) continue;
+
         expect(stage.prediction.options.length).toBeGreaterThanOrEqual(2);
-        // The contract has no correct-option field. Asserting the absence
-        // keeps a future author from adding one by widening the type.
-        expect(stage.prediction).not.toHaveProperty("correctOption");
         expect(stage.prediction).not.toHaveProperty("expectedOutcome");
+
+        const correct = stage.prediction.correctOption;
+        if (correct === undefined) continue;
+
+        expect(
+          `${stage.stageId} answer is on offer: ${stage.prediction.options.includes(correct)}`
+        ).toBe(`${stage.stageId} answer is on offer: true`);
+
+        // A verdict with no reason leaves a wrong learner no better off.
+        expect((stage.prediction.explanation ?? "").length).toBeGreaterThan(0);
       }
     });
 
@@ -562,9 +619,16 @@ describe("PJ1 orients the learner in a topology", () => {
   });
 
   it("is not complete at Switch-1", () => {
-    // The learner must not be told the activity is finished at the halfway
-    // point. Switch-1 is a stage the journey passes through, and the authored
-    // reason there points FORWARD rather than closing the walkthrough.
+    /*
+      The learner must not be told the activity is finished at the halfway
+      point. Switch-1 is a stage the journey passes through.
+
+      The forward-pointing sentence that used to live here is gone on a Founder
+      video-UAT ruling: previewing Mission 2 between Switch-1 and the Printer
+      interrupted the causal event the learner was following. The preview now
+      sits at mission consolidation, and this checks the STRUCTURE plus the fact
+      that the stage points onward toward the destination.
+    */
     const journeyValue = journey();
     const atSwitch = journeyValue.stages.findIndex(
       (stage) => stage.atNodeId === "sw-1"
@@ -572,7 +636,22 @@ describe("PJ1 orients the learner in a topology", () => {
 
     expect(atSwitch).toBeGreaterThan(0);
     expect(atSwitch).toBeLessThan(journeyValue.stages.length - 1);
-    expect(journeyValue.stages[atSwitch]?.decision ?? "").toMatch(/continue/i);
+
+    const stage = journeyValue.stages[atSwitch];
+
+    // It carries the journey onward rather than concluding.
+    expect(stage?.narration ?? "").toMatch(/toward the Printer/i);
+
+    // No mid-journey preview, and no navigation instruction: the pane owns
+    // the control, and the unanswered question belongs after the journey.
+    const text = `${stage?.narration ?? ""} ${stage?.decision ?? ""}`;
+    expect(`the switch stage previews Mission 2: ${text.includes("Mission 2")}`)
+      .toBe("the switch stage previews Mission 2: false");
+
+    for (const instruction of ["press", "click", "continue to see", "button"]) {
+      expect(`switch stage instructs "${instruction}": ${text.toLowerCase().includes(instruction)}`)
+        .toBe(`switch stage instructs "${instruction}": false`);
+    }
   });
 
   it("confirms a successful delivery in words", () => {
@@ -582,7 +661,18 @@ describe("PJ1 orients the learner in a topology", () => {
 
     expect(confirmation.narration).toMatch(/print request/);
     expect(confirmation.narration).toMatch(/printer/i);
-    expect(confirmation.narration).toMatch(/accepted/i);
+
+    /*
+      Arrival is stated, not only coloured. This used to require the word
+      "accepted" in the confirmation; under the Architect ruling the acceptance
+      is stated by the Printer's own stage — "The Printer accepts the print
+      job" — and the confirmation states the outcome of the journey. Both facts
+      are still required, each of the surface that owns it.
+    */
+    expect(confirmation.narration).toMatch(/reached/i);
+
+    const printerStage = journey().stages.find((stage) => stage.atNodeId === "printer");
+    expect(printerStage?.narration ?? "").toMatch(/accept/i);
 
     // The summary is the RECAP, and the approved Mission 1 specification asks
     // for it to be the three-beat journey rather than a restatement of the
@@ -594,22 +684,31 @@ describe("PJ1 orients the learner in a topology", () => {
     expect(confirmation.summary).toMatch(/received/i);
   });
 
-  it("leaves the learner with the two questions Mission 1 sets up", () => {
-    // The curiosity bridge the approved specification requires. Mission 1
-    // deliberately stops short of switching mechanics and of what a router
-    // does, so it has to hand the learner both questions rather than let them
-    // look like gaps — and it must say where each one is answered.
+  it("leaves the learner with ONE unresolved question, after the journey", () => {
+    /*
+      Founder video-UAT ruling: Mission 1 closes on one open question — how a
+      switch decides which port to use — and it is asked AFTER the learner has
+      named the concepts, not inside the packet journey.
+
+      So the journey's confirmation must NOT carry it, and the mission's final
+      teaching step must.
+    */
     const summary = journey().confirmation.summary;
 
-    expect(summary).toMatch(/how Switch-1 knew where to send it/i);
-    expect(summary).toMatch(/Router-1/);
-    expect(summary).toMatch(/Mission 2/);
-    expect(summary).toMatch(/Missions? 5/);
+    expect(`the journey previews Mission 2: ${summary.includes("Mission 2")}`).toBe(
+      "the journey previews Mission 2: false"
+    );
 
-    // And it must not answer either of them here.
-    for (const answered of ["MAC", "flooding", "routing", "gateway"]) {
-      expect(usesWord(summary, answered)).toBe(false);
-    }
+    const closing = mission(M1).steps[mission(M1).steps.length - 1]?.content;
+    if (closing?.type !== "concept") throw new Error("Mission 1 does not close on a concept");
+
+    const text = closing.paragraphs.join("\n");
+
+    expect(text).toMatch(/how a switch decides which port to use/i);
+    expect(text).toMatch(/Mission 2/);
+    expect(`the closing previews routing too: ${/Missions? [56]/.test(text)}`).toBe(
+      "the closing previews routing too: false"
+    );
   });
 
   it("traverses only authored links, one per arrival", () => {
@@ -647,16 +746,26 @@ describe("PJ1 orients the learner in a topology", () => {
   });
 
   it("still defers the switching mechanism to Mission 2", () => {
-    // The learner SEES the print request continue from Switch-1 to the
-    // printer. Nothing tells them how Switch-1 chose the port — that is
-    // Mission 2, and behaviour before vocabulary is the method.
-    const journeyValue = journey();
-    const text = [
-      journeyValue.stages[1]?.decision ?? "",
-      journeyValue.confirmation.summary
-    ].join("\n");
+    /*
+      The learner SEES the print request continue from Switch-1 to the Printer.
+      Nothing tells them how Switch-1 chose the port — that is Mission 2, and
+      behaviour before vocabulary is the method.
+
+      Where the deferral is STATED moved on a Founder video-UAT ruling: out of
+      the journey, into consolidation. The mission still defers it; it no longer
+      interrupts the journey to say so.
+    */
+    const text = learnerFacingTextFor(M1);
 
     expect(text).toContain("Mission 2");
+    expect(text).toMatch(/how a switch decides which port to use/i);
+
+    // And it still teaches none of the mechanism.
+    for (const mechanism of ["MAC address table", "flooding", "learns which port"]) {
+      expect(`Mission 1 teaches ${mechanism}: ${text.includes(mechanism)}`).toBe(
+        `Mission 1 teaches ${mechanism}: false`
+      );
+    }
   });
 });
 
@@ -1067,24 +1176,80 @@ describe("no learner-facing term arrives before it is taught", () => {
       interface first, and the preview is the only place the order differs.
     */
     const steps = mission(M1).steps.slice(1);
+
+    /*
+      A DEVICE NAME IS NOT THE CONCEPT.
+
+      "Switch-1" is the label the learner has been looking at since the journey;
+      the word "switch" as a KIND of device is what a later step teaches. The
+      Founder video-UAT copy names Switch-1 while explaining ports, which is
+      correct — it is pointing at the thing on screen, not defining a category.
+
+      So device names are removed before the term search. The invariant is
+      unchanged: no step may teach WITH a concept the learner has not been
+      given.
+    */
+    const withoutDeviceNames = (text: string): string =>
+      text.replace(/\b(?:Switch|Router|PC|Printer)-?[A-Z0-9]*\b/g, "");
+
     const positionOfFirstUse = (word: string): number =>
       steps.findIndex((step) => {
         const content = step.content;
         if (content.type !== "concept") return false;
         return usesWord(
-          [content.title ?? "", ...content.paragraphs].join("\n"),
+          withoutDeviceNames([content.title ?? "", ...content.paragraphs].join("\n")),
           word
         );
       });
 
-    // The connection point, then the device those connections lead into.
-    expect(positionOfFirstUse("interface")).toBeGreaterThanOrEqual(0);
-    expect(positionOfFirstUse("interface")).toBeLessThan(
-      positionOfFirstUse("switch")
+    /*
+      ORDERED BY THE STEP THAT TEACHES THE TERM, not by first mention.
+
+      The Founder video-UAT copy says "In this topology, PC-A has one link"
+      while teaching connections — pointing at the drawing the learner has been
+      using, several steps before the step that defines what a topology is.
+      Counting that as "introducing topology" measures mentions, not teaching.
+
+      A step teaches a term when its TITLE names it. That is the authored
+      signal, and it is what this orders: connections, then switches and
+      routers, then reading the topology.
+    */
+    const teaches = (word: string): number =>
+      steps.findIndex((step) => {
+        const content = step.content;
+        if (content.type !== "concept") return false;
+        return usesWord(content.title ?? "", word);
+      });
+
+    // `usesWord` matches whole words, so the plural titles are searched as
+    // authored: "Network connections", "Switches and routers".
+    const connections = teaches("connections");
+    const switches = teaches("switches");
+    const topology = teaches("topology");
+
+    for (const [label, position] of [
+      ["connections", connections],
+      ["switches and routers", switches],
+      ["reading the topology", topology]
+    ] as const) {
+      expect(`${label} has a teaching step: ${position >= 0}`).toBe(
+        `${label} has a teaching step: true`
+      );
+    }
+
+    // The connection point, then the devices those connections lead into,
+    // then the drawing that shows how they are arranged.
+    expect(`connections before switches: ${connections < switches}`).toBe(
+      "connections before switches: true"
     );
-    // And the topology is named only after the learner has walked one.
-    expect(positionOfFirstUse("topology")).toBeGreaterThan(
-      positionOfFirstUse("switch")
+    expect(`switches before topology: ${switches < topology}`).toBe(
+      "switches before topology: true"
+    );
+
+    // And every one of them comes after the journey (index 0 of `steps`,
+    // which is the interaction, since `steps` drops the opening concept).
+    expect(`the journey precedes the vocabulary: ${connections > 0}`).toBe(
+      "the journey precedes the vocabulary: true"
     );
   });
 
@@ -1102,8 +1267,26 @@ describe("no learner-facing term arrives before it is taught", () => {
 
     // The concrete scenario, up front rather than discovered in the exercise.
     expect(prose).toMatch(/print/i);
-    // And an objectives preview the learner can scan.
-    expect(prose).toMatch(/you will learn/i);
+
+    /*
+      An objective the learner can scan — but NOT a preview of the vocabulary.
+
+      This used to require "you will learn", which was a list of the terms the
+      mission would name. The Architect ruling removes that preview: Mission 1
+      is the course's reference example of experience before explanation, and
+      naming host, interface, switch and router before the journey undercuts
+      the very ordering the mission exists to demonstrate.
+
+      So the opening must state the job and defer the naming, and this checks
+      both halves.
+    */
+    expect(prose).toMatch(/your job/i);
+    expect(prose.toLowerCase()).toContain("afterward");
+
+    for (const premature of ["host", "interface", "topology"]) {
+      expect(`the opening names "${premature}": ${new RegExp(`\\b${premature}s?\\b`, "i").test(prose)}`)
+        .toBe(`the opening names "${premature}": false`);
+    }
   });
 
   it("names the identity in Mission 2 only after the journey that motivates it", () => {
@@ -1183,9 +1366,25 @@ describe("the server projection protects what it should", () => {
       if (projected.presentation.state !== "available") return;
       const parameters = projected.presentation.parameters;
       expect(parameters.confirmation).toBeDefined();
-      expect(
-        parameters.stages.some((stage) => stage.decision !== undefined)
-      ).toBe(true);
+
+      /*
+        SHOW ME sends the answer-revealing content the journey authors. Mission
+        1's stages now author no `decision` — the Founder video-UAT ruling moved
+        its one explanatory beat out of the journey — so what is checked is that
+        nothing is WITHHELD at this level, rather than that a particular field
+        happens to exist.
+      */
+      const authored = journeyOf(stableId);
+      const authoredDecisions = authored.stages.filter(
+        (stage) => stage.decision !== undefined
+      ).length;
+      const sentDecisions = parameters.stages.filter(
+        (stage) => stage.decision !== undefined
+      ).length;
+
+      expect(`${stableId} decisions sent: ${sentDecisions}`).toBe(
+        `${stableId} decisions sent: ${authoredDecisions}`
+      );
     });
 
     it(`${stableId} withholds every explanation at CHALLENGE ME`, () => {
@@ -1274,7 +1473,6 @@ describe("Module 1 creates no learner state", () => {
       "score",
       "passed",
       "correct",
-      "correctOption",
       "answer",
       "expectedOutcome",
       "resolvesFault"
@@ -1283,6 +1481,23 @@ describe("Module 1 creates no learner state", () => {
         forbidden,
         present: false
       });
+    }
+
+    /*
+      `correctOption` came OFF that list on an Architect ruling.
+
+      It is AUTHORED CURRICULUM, not learner state: the mission says which
+      answer is right so the pane can tell the learner. Nothing about it is
+      recorded, scored or carried anywhere. The invariant this list protects —
+      that a mission step creates no learner state — is unchanged, and the
+      fields that would carry such state are all still forbidden above.
+    */
+    expect(`the mission authors an answer key: ${keys.has("correctOption")}`).toBe(
+      "the mission authors an answer key: true"
+    );
+
+    for (const state of ["evidence", "progress", "score", "attempts", "streak"]) {
+      expect(`${state} recorded: ${keys.has(state)}`).toBe(`${state} recorded: false`);
     }
   });
 
@@ -1538,7 +1753,10 @@ describe("Module 1 names what is moving, and never a placeholder", () => {
 
     // The options are the device names themselves. A learner choosing between
     // three devices is choosing between three devices, not three sentences.
-    expect(prediction?.options).toEqual(["The Printer", "Switch-1", "Router-1"]);
+    // Order and labels set by the Architect ruling; the correct answer is
+    // Switch-1, derived from PC-A's single link ending on Switch-1 port 1.
+    expect(prediction?.options).toEqual(["Switch-1", "Printer", "Router-1"]);
+    expect(prediction?.correctOption).toBe("Switch-1");
   });
 
   it("names the print request in what the learner observes", () => {
@@ -1593,11 +1811,26 @@ describe("Module 1 names what is moving, and never a placeholder", () => {
 
     expect(sentenceStarts.length).toBeLessThanOrEqual(2);
 
-    // It must say what PC-A IS in ordinary words. The exact phrase used to be
-    // "a user's computer"; the approved Mission 1 specification names PC-A as
-    // "the computer sending our print request", so what is pinned here is
-    // that the description is concrete, not which of those sentences it is.
-    expect(prose).toMatch(/computer/i);
+    /*
+      It must say what PC-A IS in ordinary words — read from the surface that
+      OWNS that job.
+
+      This used to require the word "computer" in the stage's own text. Under
+      the Architect ruling the stage narrates what the print request did, and
+      the device note is where PC-A is described. Requiring both would put the
+      same description on two surfaces at once, which is the duplication the
+      Founder-UAT work removed.
+    */
+    const about =
+      journeyOf(M1).nodes.find((node) => node.nodeId === "pc-a")?.about ?? "";
+
+    expect(about).toMatch(/computer/i);
+    expect(about).toMatch(/one network connection/i);
+
+    // And the stage does not repeat the description.
+    expect(`the stage re-describes PC-A: ${/computer/i.test(prose)}`).toBe(
+      "the stage re-describes PC-A: false"
+    );
   });
 
   it("keeps the device descriptions concrete", () => {
@@ -1805,33 +2038,37 @@ describe("the topology carries the connection facts the lesson depends on", () =
   const switchInterfaces = () =>
     journey().nodes.find((node) => node.nodeId === "sw-1")?.interfaces ?? [];
 
-  it("marks the ports the walkthrough names to be drawn", () => {
+  it("marks every switch port to be drawn", () => {
+    // Founder UAT, second round: "the learner should not have to infer which
+    // switch port". An earlier ruling drew three of the four and left Port 4
+    // off because Mission 1 defers Router-1 — but a learner looking at a wire
+    // with no name on it does not know it is deferred, only that it is
+    // unlabelled. Naming a port is orientation; it teaches no routing.
     const drawn = switchInterfaces()
       .filter((iface) => iface.prominent === true)
       .map((iface) => iface.label);
 
-    expect(drawn).toEqual(["Port 1", "Port 2", "Port 3"]);
+    expect(drawn).toEqual(["Port 1", "Port 2", "Port 3", "Port 4"]);
   });
 
-  it("leaves the port this mission never uses unmarked", () => {
-    // Router-1's port is real, listed, and inspectable — and deliberately not
-    // on the picture, because Mission 1 defers Router-1 entirely. It is also
-    // the proof that the flag is an authoring decision: a presentation that
-    // labelled "the switch's ports" would have labelled this one too.
-    const router = switchInterfaces().find(
-      (iface) => iface.interfaceId === "sw-1-p4"
+  it("marks both of the router's connections to be drawn", () => {
+    // Same finding: "which router interface" must not have to be inferred.
+    const router = journey().nodes.find((node) => node.nodeId === "r-1");
+    const drawn = (router?.interfaces ?? []).filter(
+      (iface) => iface.prominent === true
     );
 
-    expect(router?.label).toBe("Port 4");
-    expect(router?.prominent).toBeUndefined();
+    expect(drawn).toHaveLength(router?.interfaces.length ?? 0);
+    expect(drawn.length).toBeGreaterThan(0);
   });
 
-  it("marks no host interface, so the diagram stays to three labels", () => {
-    // Calm is a requirement, not a preference. Labelling both ends of every
-    // wire would put six labels on a five-device picture and turn it into a
-    // patch panel.
+  it("still marks no host interface, so the drawing does not become a patch panel", () => {
+    // Restraint survives the correction, because the Founder asked for the
+    // important labels and explicitly not for an overloaded canvas. A host has
+    // exactly one interface and its card already carries the host's name, so a
+    // label on that wire end would repeat what the card says.
     for (const node of journey().nodes) {
-      if (node.nodeId === "sw-1") continue;
+      if (node.nodeId === "sw-1" || node.nodeId === "r-1") continue;
 
       for (const iface of node.interfaces) {
         expect({ node: node.nodeId, drawn: iface.prominent }).toEqual({
@@ -1870,8 +2107,13 @@ describe("the topology carries the connection facts the lesson depends on", () =
     // The specification's real test: could a learner follow the walkthrough
     // without ever opening the inspector? The stages name ports 1 and 3, and
     // both of those are drawn, so the answer is yes.
+    // Read from everything the stage puts in front of the learner. The ports
+    // used to be named in the authored `decision`; under the Architect ruling
+    // they are named in the narration, which is the beat the learner reads
+    // first. Either surface satisfies the invariant — the ports must be
+    // readable without opening the inspector.
     const named = journey()
-      .stages.map((stage) => stage.decision ?? "")
+      .stages.map((stage) => `${stage.narration} ${stage.decision ?? ""}`)
       .join(" ");
 
     const drawn = switchInterfaces()
@@ -1888,5 +2130,814 @@ describe("the topology carries the connection facts the lesson depends on", () =
         drawn: true
       });
     }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * MISSION 1 — THE ARCHITECT-AUTHORED REPAIR
+ *
+ * Mission 1 is the course's reference example of experience before
+ * explanation: the learner follows the print request, and only then are the
+ * devices and connections named. These protect that ordering, the graded
+ * prediction, and the boundaries Mission 1 must not cross.
+ *
+ * Structure and disclosure only. Whether the prose teaches is Tier 3 review
+ * and Founder UAT (CURR-009 s14a).
+ * ------------------------------------------------------------------ */
+
+describe("Mission 1 follows the network before naming it", () => {
+  const M1_ID = "nf-m1-what-a-network-is";
+
+  function stepIndex(stableId: string): number {
+    return mission(M1_ID).steps.findIndex((step) => step.stableId === stableId);
+  }
+
+  it("puts the journey before every vocabulary step", () => {
+    const journeyAt = stepIndex("m1-s5-orientation");
+
+    expect(journeyAt).toBeGreaterThanOrEqual(0);
+
+    for (const vocabulary of [
+      "m1-s2-the-machines-people-use",
+      "m1-s3-where-a-machine-joins",
+      "m1-s4-the-middle-and-the-edge",
+      "m1-s6-reading-the-picture"
+    ]) {
+      const at = stepIndex(vocabulary);
+      expect(`${vocabulary} comes after the journey: ${at > journeyAt}`).toBe(
+        `${vocabulary} comes after the journey: true`
+      );
+    }
+  });
+
+  it("opens on the situation and the job, and names no vocabulary", () => {
+    const first = mission(M1_ID).steps[0]?.content;
+    if (first?.type !== "concept") throw new Error("Mission 1 does not open on a concept");
+
+    const prose = [first.title ?? "", ...first.paragraphs].join("\n");
+
+    expect(prose).toMatch(/print request/);
+    expect(prose).toMatch(/your job/i);
+
+    // The naming is deferred, explicitly.
+    expect(prose.toLowerCase()).toContain("afterward");
+
+    for (const deferred of ["host", "interface", "port", "topology"]) {
+      expect(`the opening names "${deferred}": ${new RegExp(`\\b${deferred}s?\\b`, "i").test(prose)}`)
+        .toBe(`the opening names "${deferred}": false`);
+    }
+  });
+
+  it("does not tell the learner they are configuring anything", () => {
+    const first = mission(M1_ID).steps[0]?.content;
+    if (first?.type !== "concept") throw new Error("no opening concept");
+
+    expect(first.paragraphs.join("\n")).toMatch(/not configure/i);
+  });
+
+  it("carries no whimsy where a technical statement belongs", () => {
+    // Founder finding: the course's only reach for whimsy, and a voice outlier.
+    const text = learnerFacingTextFor(M1_ID);
+
+    expect(`says it is not magic: ${/magic/i.test(text)}`).toBe(
+      "says it is not magic: false"
+    );
+  });
+
+  it("grades the prediction, with the answer the topology settles", () => {
+    const prediction = journeyOf(M1_ID).stages[0]?.prediction;
+
+    expect(prediction?.correctOption).toBe("Switch-1");
+    expect(prediction?.options).toContain("Switch-1");
+    expect((prediction?.explanation ?? "").length).toBeGreaterThan(0);
+
+    // The answer is derivable from authored truth, not asserted: PC-A has one
+    // link, and it ends on Switch-1.
+    const links = journeyOf(M1_ID).links.filter((link) =>
+      link.endpoints.some((endpoint) => endpoint.startsWith("pc-a"))
+    );
+
+    expect(links).toHaveLength(1);
+    expect(links[0]?.endpoints.some((endpoint) => endpoint.startsWith("sw-1"))).toBe(true);
+  });
+
+  it("does not reveal the answer inside the question", () => {
+    const prediction = journeyOf(M1_ID).stages[0]?.prediction;
+    const prompt = prediction?.prompt ?? "";
+
+    // The prompt names the source and the eventual destination, and does not
+    // name the device that answers it.
+    expect(prompt).toMatch(/PC-A/);
+    expect(prompt).toMatch(/Printer/);
+    expect(`the prompt names the answer: ${prompt.includes("Switch-1")}`).toBe(
+      "the prompt names the answer: false"
+    );
+  });
+
+  it("does not repeat the prediction's reason in the stage it resolves at", () => {
+    /*
+      Region ownership: the feedback beat carries WHY the answer was right; the
+      stage narration carries what the network did. This asserts they are
+      different authored fields with different text — it cannot detect a
+      paraphrase, and no string test could. Semantic overlap is Tier 3 review.
+    */
+    const stage = journeyOf(M1_ID).stages[0];
+    const reason = stage?.prediction?.explanation ?? "";
+
+    expect(reason.length).toBeGreaterThan(0);
+    expect(stage?.narration).not.toBe(reason);
+    expect(stage?.narration.includes(reason)).toBe(false);
+  });
+
+  it("keeps the switching mechanism out of Mission 1", () => {
+    const text = learnerFacingTextFor(M1_ID);
+
+    for (const later of [
+      "MAC address",
+      "MAC address table",
+      "ARP",
+      "routing",
+      "default gateway",
+      "flooding",
+      "broadcast",
+      "IPv4",
+      "prefix"
+    ]) {
+      expect(`Mission 1 teaches ${later}: ${text.includes(later)}`).toBe(
+        `Mission 1 teaches ${later}: false`
+      );
+    }
+  });
+
+  it("shows Router-1 without the print request ever reaching it", () => {
+    const journeyValue = journeyOf(M1_ID);
+
+    // Present in the topology…
+    expect(journeyValue.nodes.some((node) => node.nodeId === "r-1")).toBe(true);
+
+    // …and on no stage of the journey.
+    expect(journeyValue.stages.some((stage) => stage.atNodeId === "r-1")).toBe(false);
+
+    // And the vocabulary step says so in words.
+    const edge = mission(M1_ID).steps.find(
+      (step) => step.stableId === "m1-s4-the-middle-and-the-edge"
+    )?.content;
+
+    if (edge?.type !== "concept") throw new Error("no edge-device concept step");
+    expect(edge.paragraphs.join("\n")).toMatch(/did not use Router-1/i);
+  });
+
+  it("uses the device names once the mission has named them", () => {
+    // Plain English may introduce a role; it may not replace the name after it
+    // has been earned. The final vocabulary step and the closing step are read.
+    const closing = mission(M1_ID).steps.find(
+      (step) => step.stableId === "m1-s6-reading-the-picture"
+    )?.content;
+
+    if (closing?.type !== "concept") throw new Error("no closing concept step");
+
+    const text = closing.paragraphs.join("\n");
+    expect(`the closing step says "device in the middle": ${text.includes("device in the middle")}`)
+      .toBe('the closing step says "device in the middle": false');
+  });
+
+  it("names the ports the walkthrough depends on, in the stages", () => {
+    const stages = journeyOf(M1_ID)
+      .stages.map((stage) => `${stage.narration} ${stage.decision ?? ""}`)
+      .join(" ");
+
+    expect(stages).toMatch(/port 1/);
+    expect(stages).toMatch(/port 3/);
+  });
+
+  it("closes on one unresolved question, and issues no button instruction", () => {
+    /*
+      The question moved out of the journey and into consolidation on a Founder
+      video-UAT ruling: previewing Mission 2 between Switch-1 and the Printer
+      interrupted the event the learner was following.
+    */
+    const journeyValue = journeyOf(M1_ID);
+    const closing = mission(M1_ID).steps[mission(M1_ID).steps.length - 1]?.content;
+    if (closing?.type !== "concept") throw new Error("Mission 1 does not close on a concept");
+
+    const text = closing.paragraphs.join("\n");
+
+    expect(text).toMatch(/how a switch decides which port to use/i);
+    expect(text).toMatch(/Mission 2/);
+    expect(`previews routing too: ${/Missions? [56]/.test(text)}`).toBe(
+      "previews routing too: false"
+    );
+    expect(
+      `the journey previews it: ${journeyValue.confirmation.summary.includes("Mission 2")}`
+    ).toBe("the journey previews it: false");
+
+    const stageText = journeyValue.stages
+      .map((stage) => `${stage.narration} ${stage.decision ?? ""}`)
+      .join(" ")
+      .toLowerCase();
+
+    for (const instruction of ["press ", "click ", "continue to see"]) {
+      expect(`a stage instructs "${instruction.trim()}": ${stageText.includes(instruction)}`)
+        .toBe(`a stage instructs "${instruction.trim()}": false`);
+    }
+  });
+});
+
+/** Every learner-facing string of one mission, for the boundary checks above. */
+function learnerFacingTextFor(missionStableId: string): string {
+  const parts: string[] = [];
+
+  for (const step of mission(missionStableId).steps) {
+    const content = step.content;
+    if (content.type === "concept") {
+      parts.push(content.title ?? "", ...content.paragraphs);
+    } else if (content.type === "near_transfer") {
+      // WP-NF-NT1. The boundary checks that use this helper — what Mission 1
+      // may claim, which terms it may use, what it must not promise — apply to
+      // a near-transfer check exactly as they apply to a paragraph.
+      parts.push(content.title ?? "", content.framing ?? "");
+      if (content.topology !== undefined) {
+        parts.push(content.topology.textEquivalent);
+      }
+      for (const question of content.questions) {
+        parts.push(question.prompt, question.explanation);
+        for (const option of question.options) parts.push(option.text);
+      }
+    } else if (content.type === "command") {
+      parts.push(content.caption ?? "", content.command ?? "", content.output ?? "");
+    } else if (content.type === "interaction") {
+      parts.push(content.caption ?? "", content.textEquivalent ?? "");
+      const parameters = content.parameters;
+      if (parameters.interactionType === "packet_journey") {
+        for (const node of parameters.nodes) parts.push(node.about ?? "");
+        for (const stage of parameters.stages) {
+          parts.push(stage.narration, stage.decision ?? "", stage.action ?? "");
+          if (stage.prediction !== undefined) {
+            parts.push(
+              stage.prediction.prompt,
+              ...stage.prediction.options,
+              stage.prediction.explanation ?? ""
+            );
+          }
+        }
+        parts.push(parameters.confirmation.narration, parameters.confirmation.summary);
+      }
+    }
+  }
+
+  return parts.join("\n");
+}
+
+
+/* ------------------------------------------------------------------ *
+ * FOUNDER VIDEO UAT — MISSION 1 CURRICULUM INVARIANTS
+ * ------------------------------------------------------------------ */
+
+describe("Mission 1 after the video review", () => {
+  const M1_ID = "nf-m1-what-a-network-is";
+
+  it("names the print request in the visible title", () => {
+    expect(mission(M1_ID).title).toContain("print request");
+    expect(mission(M1_ID).title).not.toContain("something");
+    // The identity is not renamed because the visible title changed.
+    expect(mission(M1_ID).stableId).toBe(M1_ID);
+  });
+
+  it("authors exactly three network stages", () => {
+    const stages = journeyOf(M1_ID).stages;
+
+    expect(stages.map((stage) => stage.atNodeId)).toEqual([
+      "pc-a",
+      "sw-1",
+      "printer"
+    ]);
+  });
+
+  it("opens the workspace on the prediction", () => {
+    // No stage before it, so nothing stands between entry and the decision.
+    expect(journeyOf(M1_ID).stages[0]?.prediction).toBeDefined();
+  });
+
+  it("gives the Printer its own stage before the confirmation", () => {
+    const stages = journeyOf(M1_ID).stages;
+    const last = stages[stages.length - 1];
+
+    expect(last?.atNodeId).toBe("printer");
+    expect(last?.narration).toMatch(/accepts the print job/i);
+    expect(journeyOf(M1_ID).confirmation.narration).not.toBe(last?.narration);
+  });
+
+  it("confirms a delivery rather than a repair", () => {
+    const confirmation = journeyOf(M1_ID).confirmation;
+
+    expect(confirmation.narration).toBe(
+      "Delivered. The print request reached the Printer."
+    );
+    expect(`says Fixed: ${confirmation.narration.includes("Fixed")}`).toBe(
+      "says Fixed: false"
+    );
+    expect(journeyOf(M1_ID).fault).toBeUndefined();
+  });
+
+  it("carries no mid-journey preview and no navigation instruction", () => {
+    const text = journeyOf(M1_ID)
+      .stages.map((stage) => `${stage.narration} ${stage.decision ?? ""}`)
+      .join(" ");
+
+    expect(`previews Mission 2 mid-journey: ${text.includes("Mission 2")}`).toBe(
+      "previews Mission 2 mid-journey: false"
+    );
+    for (const instruction of ["press", "click", "continue to see"]) {
+      expect(`instructs "${instruction}": ${text.toLowerCase().includes(instruction)}`)
+        .toBe(`instructs "${instruction}": false`);
+    }
+  });
+
+  it("names switch and router once they are earned", () => {
+    const closing = mission(M1_ID).steps.find(
+      (step) => step.stableId === "m1-s4-the-middle-and-the-edge"
+    )?.content;
+
+    if (closing?.type !== "concept") throw new Error("no switch/router step");
+
+    expect(closing.title).toBe("Switches and routers");
+
+    const text = [closing.title, ...closing.paragraphs].join("\n");
+    for (const substitute of ["device in the middle", "device at the edge"]) {
+      expect(`uses "${substitute}": ${text.includes(substitute)}`).toBe(
+        `uses "${substitute}": false`
+      );
+    }
+  });
+
+  it("does not equate port and interface, or a printer and a computer", () => {
+    const text = learnerFacingTextFor(M1_ID);
+
+    for (const claim of [
+      "Port and interface name the same idea",
+      "behaves exactly as a computer does",
+      "aerial",
+      "most common way to misread"
+    ]) {
+      expect(`Mission 1 still says "${claim}": ${text.includes(claim)}`).toBe(
+        `Mission 1 still says "${claim}": false`
+      );
+    }
+  });
+
+  it("keeps Router-1 visible and unused by the print request", () => {
+    const journeyValue = journeyOf(M1_ID);
+
+    expect(journeyValue.nodes.some((node) => node.nodeId === "r-1")).toBe(true);
+    expect(journeyValue.stages.some((stage) => stage.atNodeId === "r-1")).toBe(false);
+    expect(learnerFacingTextFor(M1_ID)).toMatch(/did not use Router-1/i);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-NF-NT1 — Mission 1's embedded near-transfer check
+ *
+ * The generic capability is protected in `packages/shared-types` and
+ * `apps/web`. What is protected HERE is the authored Mission 1 content: that
+ * it exists, that it sits where the instruction needs it, and that its four
+ * answers are the ones the Architect authored.
+ *
+ * Read through the real parser, like everything else in this file. A suite
+ * that re-read the JSON would be a second curriculum truth.
+ * ------------------------------------------------------------------ */
+
+describe("Mission 1 applies what it taught to a different network", () => {
+  const M1_ID = "nf-m1-what-a-network-is";
+
+  /** Mission 1's steps in the order a learner meets them. */
+  function orderedSteps(): readonly MissionStep[] {
+    return [...mission(M1_ID).steps].sort((a, b) => a.position - b.position);
+  }
+
+  function nearTransferStep(): MissionStep {
+    const step = orderedSteps().find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step === undefined) {
+      throw new Error("Mission 1 authors no near-transfer check");
+    }
+    return step;
+  }
+
+  function nearTransfer() {
+    const content = nearTransferStep().content;
+    if (content.type !== "near_transfer") throw new Error("not a near transfer");
+    return content;
+  }
+
+  function questionById(questionStableId: string) {
+    const question = nearTransfer().questions.find(
+      (candidate) => candidate.questionStableId === questionStableId
+    );
+    if (question === undefined) {
+      throw new Error(`Mission 1 authors no question ${questionStableId}`);
+    }
+    return question;
+  }
+
+  /** The authored answer, as the option TEXT a learner reads. */
+  function answerText(questionStableId: string): readonly string[] {
+    const question = questionById(questionStableId);
+    return question.options
+      .filter((option) => question.correctOptionIds.includes(option.optionId))
+      .map((option) => option.text);
+  }
+
+  it("places the check after the topology step that earns it", () => {
+    // Mission 1 test 1. Position, not order of storage: the two have differed
+    // in this document before.
+    const ids = orderedSteps().map((step) => step.stableId);
+
+    expect(ids.indexOf("m1-s7-try-a-different-network")).toBeGreaterThan(
+      ids.indexOf("m1-s6-reading-the-picture")
+    );
+  });
+
+  it("places it before the mission's closing handoff", () => {
+    // Mission 1 test 2. The handoff answers the question the activity asks;
+    // ahead of it, it would answer it before the learner tried.
+    const ids = orderedSteps().map((step) => step.stableId);
+
+    expect(ids.indexOf("m1-s7-try-a-different-network")).toBeLessThan(
+      ids.indexOf("m1-s8-what-comes-next")
+    );
+    expect(ids[ids.length - 1]).toBe("m1-s8-what-comes-next");
+  });
+
+  it("carries the authored title and framing", () => {
+    // Mission 1 tests 3 and 4.
+    const content = nearTransfer();
+
+    expect(content.title).toBe("Try it on a different network");
+    expect(content.framing).toBe(
+      "This network uses different devices, but the same ideas still apply. Use the topology to answer each question."
+    );
+  });
+
+  it("shows a different network, not the one the mission just walked", () => {
+    // Mission 1 test 5, and the whole point of near transfer: applying the
+    // idea to the SAME topology would be recall. Neither device from the
+    // mission's own journey may appear here.
+    const labels = nearTransfer()
+      .topology?.nodes.map((node) => node.label)
+      .sort();
+
+    expect(labels).toEqual(["Laptop-A", "Router-2", "Server-A", "Switch-2"]);
+
+    const text = JSON.stringify(nearTransfer());
+    for (const fromTheJourney of ["PC-A", "PC-B", "Switch-1", "Router-1", "Printer"]) {
+      expect(`the scenario reuses ${fromTheJourney}: ${text.includes(fromTheJourney)}`)
+        .toBe(`the scenario reuses ${fromTheJourney}: false`);
+    }
+  });
+
+  it("wires both hosts and the router to the switch", () => {
+    // Mission 1 test 6, read as the RELATIONSHIPS rather than as link ids:
+    // renaming a link must not be able to satisfy this.
+    const topology = nearTransfer().topology;
+    if (topology === undefined) throw new Error("no topology");
+
+    const label = (nodeId: string) =>
+      topology.nodes.find((node) => node.nodeId === nodeId)?.label ?? nodeId;
+
+    const pairs = topology.links
+      .map((link) => [label(link.endpoints[0]), label(link.endpoints[1])].sort().join(" — "))
+      .sort();
+
+    expect(pairs).toEqual([
+      "Laptop-A — Switch-2",
+      "Router-2 — Switch-2",
+      "Server-A — Switch-2"
+    ]);
+  });
+
+  it("draws the network Router-2 reaches, rather than only stating it", () => {
+    // WP-NF-NT1B. Question 3 asks which device connects this local network to
+    // another network, and until this existed the only thing that answered it
+    // was a sentence: the onward connection had no far end, so the diagram
+    // drew nothing. A sighted beginner had to read prose to find a topology
+    // fact. The author now declares the far end, and it is drawn.
+    const external = nearTransfer().topology?.externalNetworks ?? [];
+
+    expect(external).toHaveLength(1);
+    expect(external[0]?.label).toBe("Another network");
+    expect(external[0]?.attachedToNodeId).toBe("router-2");
+  });
+
+  it("does not offer that network as an answer to any question", () => {
+    // It is not a device, it is not in `nodes`, and no question may name it.
+    // "Which device connects this local network to another network?" is
+    // answered by Router-2 — offering the network itself would make the
+    // question answer itself.
+    const content = nearTransfer();
+    const label = content.topology?.externalNetworks?.[0]?.label ?? "";
+
+    expect(content.topology?.nodes.map((node) => node.label)).not.toContain(
+      label
+    );
+
+    for (const question of content.questions) {
+      for (const option of question.options) {
+        expect(option.text).not.toBe(label);
+      }
+    }
+  });
+
+  it("says in words what the drawing shows, including the way out", () => {
+    // The accessible equivalent states the same four relationships the picture
+    // now draws. Neither is the only source of any of them.
+    const text = nearTransfer().topology?.textEquivalent ?? "";
+
+    for (const relationship of [
+      "Laptop-A connects to Switch-2",
+      "Server-A connects to Switch-2",
+      "Router-2 connects to Switch-2",
+      "Router-2 also connects to another network"
+    ]) {
+      expect(`states "${relationship}": ${text.includes(relationship)}`).toBe(
+        `states "${relationship}": true`
+      );
+    }
+  });
+
+  it("teaches no address, identity or mechanism it has not earned", () => {
+    // Mission 1 tests 7 and 14. The near-transfer prose is collected by
+    // `learnerFacingText`, so the deferred-vocabulary and no-IP-address rules
+    // above already cover it; this pins the specific exclusions the Architect
+    // named for this activity, so removing the collection case is caught here
+    // rather than being silently unprotected.
+    const text = [
+      nearTransfer().title ?? "",
+      nearTransfer().framing ?? "",
+      nearTransfer().topology?.textEquivalent ?? "",
+      ...nearTransfer().questions.flatMap((question) => [
+        question.prompt,
+        question.explanation,
+        ...question.options.map((option) => option.text)
+      ])
+    ].join("\n");
+
+    expect(text).not.toMatch(/\b\d{1,3}(\.\d{1,3}){3}\b/);
+
+    for (const term of ["MAC", "VLANs?", "gateway", "routing", "route", "subnets?", "table", "forwards?"]) {
+      expect({ term, used: usesWord(text, term) }).toEqual({ term, used: false });
+    }
+  });
+
+  it("asks which two devices are hosts, and accepts only both", () => {
+    // Mission 1 test 8.
+    const question = questionById("m1-nt-q1-hosts");
+
+    expect(question.type).toBe("multiple_choice");
+    expect(question.prompt).toBe("Which two devices are hosts in this topology?");
+    expect([...answerText("m1-nt-q1-hosts")].sort()).toEqual([
+      "Laptop-A",
+      "Server-A"
+    ]);
+
+    // Both, and the switch and the router are genuinely on offer — a question
+    // whose only wrong answers were absent would not be a question.
+    expect(question.options.map((option) => option.text).sort()).toEqual([
+      "Laptop-A",
+      "Router-2",
+      "Server-A",
+      "Switch-2"
+    ]);
+  });
+
+  it("asks which device carries local traffic, and answers Switch-2", () => {
+    // Mission 1 test 9.
+    const question = questionById("m1-nt-q2-carries");
+
+    expect(question.type).toBe("single_choice");
+    expect(answerText("m1-nt-q2-carries")).toEqual(["Switch-2"]);
+  });
+
+  it("asks which device reaches another network, and answers Router-2", () => {
+    // Mission 1 test 10.
+    const question = questionById("m1-nt-q3-connects-networks");
+
+    expect(question.type).toBe("single_choice");
+    expect(answerText("m1-nt-q3-connects-networks")).toEqual(["Router-2"]);
+  });
+
+  it("asks what traffic reaches first, and answers Switch-2", () => {
+    // Mission 1 test 11. The one question that requires following a path
+    // rather than naming a category, which is why Server-A is on offer.
+    const question = questionById("m1-nt-q4-reaches-first");
+
+    expect(question.type).toBe("single_choice");
+    expect(answerText("m1-nt-q4-reaches-first")).toEqual(["Switch-2"]);
+    expect(question.options.map((option) => option.text)).toContain("Server-A");
+  });
+
+  it("attaches each authored explanation to the question it explains", () => {
+    // Mission 1 test 12. Explanations are the instruction here, and four
+    // reasons attached to the wrong four questions would read as plausible
+    // nonsense rather than as an obvious defect.
+    const expected: Record<string, string> = {
+      "m1-nt-q1-hosts":
+        "Laptop-A and Server-A send or receive network traffic for themselves, so both are hosts.",
+      "m1-nt-q2-carries":
+        "Both hosts connect to Switch-2, so traffic between them passes through the switch.",
+      "m1-nt-q3-connects-networks":
+        "Router-2 has a connection to this network and another connection leading beyond it, so it connects different networks.",
+      "m1-nt-q4-reaches-first":
+        "Laptop-A's link connects to Switch-2, so the traffic reaches Switch-2 before it can reach Server-A."
+    };
+
+    for (const [questionStableId, explanation] of Object.entries(expected)) {
+      expect(questionById(questionStableId).explanation).toBe(explanation);
+    }
+  });
+
+  it("leaves exactly one unresolved forward question, and it is the handoff", () => {
+    // Mission 1 test 13. "Do not add another summary" — a second closing
+    // paragraph would make the mission end twice.
+    const forward = orderedSteps().filter((step) => {
+      if (step.content.type !== "concept") return false;
+      return step.content.paragraphs.some((paragraph) =>
+        paragraph.includes("The next question is")
+      );
+    });
+
+    expect(forward.map((step) => step.stableId)).toEqual([
+      "m1-s8-what-comes-next"
+    ]);
+
+    const handoff = forward[0]?.content;
+    if (handoff?.type !== "concept") throw new Error("no handoff");
+
+    expect(handoff.paragraphs).toEqual([
+      "You can now identify the main devices and connections in a small network and follow traffic between two hosts. The next question is how a switch decides which port to use. Mission 2 answers that."
+    ]);
+  });
+
+  it("produces no evidence, and asks nothing of the learner's record", () => {
+    // The completion doctrine, at the content level. Nothing in an authored
+    // near-transfer check can name a competency or a score, so attempting one
+    // cannot change anything about the learner.
+    const serialised = JSON.stringify(nearTransferStep());
+
+    const names = new Set<string>();
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item);
+        return;
+      }
+      if (value === null || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        names.add(key);
+        walk(nested);
+      }
+    };
+    walk(JSON.parse(serialised));
+
+    for (const forbidden of [
+      "score",
+      "points",
+      "passingPercent",
+      "attempts",
+      "mastery",
+      "evidence",
+      "competencyStableId",
+      "assessmentStableId"
+    ]) {
+      expect(names.has(forbidden)).toBe(false);
+    }
+  });
+
+  it("hands the renderer the questions without their answers", () => {
+    // The projection seam, through the real projection. A renderer drawing a
+    // question cannot reach the answer by accident: it is not on the object.
+    const projected = projectMissionStepContent(nearTransfer());
+    if (projected.type !== "near_transfer") throw new Error("not projected");
+
+    for (const question of projected.questions) {
+      expect("correctOptionIds" in question).toBe(false);
+      expect("explanation" in question).toBe(false);
+      expect(projected.answers[question.questionStableId]).toBeDefined();
+    }
+
+    expect(projected.questions).toHaveLength(4);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * FOUNDER VIDEO UAT — MISSION 1 FINAL CLEANUP
+ *
+ * The curriculum half of the final video pass. The presentation half — the
+ * prediction flow, the device-state labels, the live-region forms and the
+ * near-transfer counter — is asserted in `apps/web`, where those functions
+ * live.
+ * ------------------------------------------------------------------ */
+
+describe("Mission 1's full description is current, and gives nothing away", () => {
+  const M1_ID = "nf-m1-what-a-network-is";
+
+  /** The "Full description of this activity" disclosure the Founder opened. */
+  function fullDescription(): string {
+    return interactionOf(M1_ID).textEquivalent;
+  }
+
+  it("is the Architect-authored replacement, word for word", () => {
+    expect(fullDescription()).toBe(
+      "This activity shows five devices: PC-A, PC-B, the Printer, Switch-1, and " +
+        "Router-1. PC-A, PC-B, and the Printer each connect to Switch-1. Router-1 " +
+        "also connects to Switch-1 and has another connection leading beyond this " +
+        "local network. PC-A is sending a print request to the Printer. Use the " +
+        "connections in the topology to predict which device receives the print " +
+        "request first. You can select any device to inspect what it connects to."
+    );
+  });
+
+  it("no longer carries the stale curriculum the Founder read", () => {
+    // Every one of these was in the description this replaced. It had been
+    // written against an earlier instructional sequence and had gone on
+    // teaching it from a secondary surface: switch mechanism, routing, the
+    // vocabulary of later missions, and a narration of the finished journey.
+    const text = fullDescription();
+
+    for (const stale of [
+      "device in the middle",
+      "Mission 2",
+      "Mission 5",
+      "Mission 6",
+      "works out which port",
+      "decides which port",
+      "passes it on",
+      "walkthrough is then complete",
+      "accepts the print job",
+      "are not visited"
+    ]) {
+      expect(`still says "${stale}": ${text.includes(stale)}`).toBe(
+        `still says "${stale}": false`
+      );
+    }
+  });
+
+  it("does not answer the prediction it can be opened before", () => {
+    // The disclosure is reachable BEFORE the learner commits, so it is bound
+    // by the pre-commitment boundary: it may describe the topology, because
+    // reading the topology is the reasoning task, and it may not hand over the
+    // conclusion or narrate the journey that has not happened yet.
+    const text = fullDescription();
+
+    // It names Switch-1 as a device on the diagram — it must, or the
+    // accessible path is poorer than the visual one.
+    expect(text).toContain("Switch-1");
+
+    // What it must not do is say the request reaches it, or reaches it first.
+    for (const reveal of [
+      "reaches Switch-1",
+      "arrives at Switch-1",
+      "Switch-1 first",
+      "receives the print request first is Switch-1",
+      "The print request leaves PC-A",
+      "arrives at the Printer"
+    ]) {
+      expect(`gives away "${reveal}": ${text.includes(reveal)}`).toBe(
+        `gives away "${reveal}": false`
+      );
+    }
+
+    // And it must not carry the authored prediction explanation.
+    const prediction = journeyOf(M1_ID).stages.find(
+      (stage) => stage.prediction !== undefined
+    )?.prediction;
+
+    expect(prediction?.explanation).toBeDefined();
+    expect(text).not.toContain(prediction?.explanation ?? "@@ never @@");
+  });
+
+  it("still describes every device and every connection the learner reasons from", () => {
+    // The boundary cuts one way only. Withholding the topology to hide the
+    // answer would take the reasoning task away from the learner who cannot
+    // see the diagram, which is the opposite of equivalence.
+    const text = fullDescription();
+
+    for (const node of journeyOf(M1_ID).nodes) {
+      expect(text).toContain(node.label);
+    }
+
+    for (const relationship of [
+      "PC-A, PC-B, and the Printer each connect to Switch-1",
+      "Router-1 also connects to Switch-1",
+      "another connection leading beyond this local network"
+    ]) {
+      expect(text).toContain(relationship);
+    }
+  });
+
+  it("says what the learner is being asked to do", () => {
+    expect(fullDescription()).toContain(
+      "predict which device receives the print request first"
+    );
   });
 });

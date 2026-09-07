@@ -11,7 +11,8 @@ import { MissionInstruction } from "./MissionInstruction";
 import {
   selectInstructionSource,
   type InstructionSource,
-  type MissionInstructionRequest
+  type MissionInstructionRequest,
+  type RequiredInstructionState
 } from "./mission-instruction-presentation";
 import { PracticeCheckPanel } from "./PracticeCheckPanel";
 import {
@@ -113,17 +114,28 @@ function renderBriefBlock(block: BriefBlock, index: number) {
  */
 function MissionInstructionBody({
   source,
-  mission
+  mission,
+  onRequiredInstructionChange
 }: {
   source: InstructionSource;
   mission: LearnerMission;
+  onRequiredInstructionChange: (state: RequiredInstructionState) => void;
 }) {
   if (source.kind === "structured") {
     return (
+      /*
+        Keyed by the mission, so opening a different one starts its lesson
+        fresh. React reconciles by position, so without this the near-transfer
+        answers from the mission the learner just left would still be held
+        while a different mission's questions were on screen — and the
+        completion state reported upward would be the previous lesson's.
+      */
       <MissionInstruction
+        key={mission.stableId}
         steps={source.steps}
         assets={source.assets}
         missionStableId={mission.stableId}
+        onRequiredInstructionChange={onRequiredInstructionChange}
       />
     );
   }
@@ -148,7 +160,8 @@ function MissionDetail({
   feedback,
   practice,
   instructionSource,
-  onRecord
+  onRecord,
+  onRequiredInstructionChange
 }: {
   mission: LearnerMission;
   totalMissions: number;
@@ -162,6 +175,7 @@ function MissionDetail({
   /** Already reduced to one source. See selectInstructionSource. */
   instructionSource: InstructionSource;
   onRecord: (action: "start" | "complete") => void;
+  onRequiredInstructionChange: (state: RequiredInstructionState) => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = `${buildMissionRegionId(mission.stableId)}-title`;
@@ -185,7 +199,11 @@ function MissionDetail({
       </h3>
       <p className="mission-state">{progressLabel}</p>
 
-      <MissionInstructionBody source={instructionSource} mission={mission} />
+      <MissionInstructionBody
+        source={instructionSource}
+        mission={mission}
+        onRequiredInstructionChange={onRequiredInstructionChange}
+      />
 
       {mission.isDemonstration && (
         <p className="mission-note">{describeDemonstrationAvailability()}</p>
@@ -306,6 +324,24 @@ export function LearningView() {
   >(null);
   const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<ProgressFeedback | null>(null);
+
+  /*
+    WP-NF-NT1B — whether the open mission's lesson still has required inline
+    instruction outstanding.
+
+    Reported UP by `MissionInstruction`, which is the only thing that knows
+    what the lesson requires and what the learner has done. This view holds one
+    word and hands it to `resolveMissionControlState`; it never learns what the
+    activity was.
+
+    Session state, deliberately not persisted and not sent anywhere. A
+    near-transfer check records nothing (DEC-054, as amended), so there is
+    nothing to store: a reload starts the activity again, and a mission the
+    SERVER already records as completed stays completed regardless — that
+    branch of `resolveMissionControlState` is not narrowed by this at all.
+  */
+  const [requiredInstruction, setRequiredInstruction] =
+    useState<RequiredInstructionState>("none");
 
   // WP-F. The open mission's instructional content.
   //
@@ -690,13 +726,15 @@ export function LearningView() {
               availability,
               progress,
               selectedMission.stableId
-            )
+            ),
+            requiredInstruction
           })}
           saving={saving}
           feedback={resolveProgressFeedback(
             feedback,
             selectedMission.stableId
           )}
+          onRequiredInstructionChange={setRequiredInstruction}
           practice={selectMissionPractice(course, selectedMission.stableId)}
           instructionSource={selectInstructionSource(
             instructionRequest,

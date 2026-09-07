@@ -621,7 +621,7 @@ Walk the journey from the start.
 
 ### 8.4 Findings 9 and 10 — the workspace
 
-Press **Open the network workspace** part-way through the journey — after
+Press **Expand network workspace** part-way through the journey — after
 committing a prediction and revealing at least one stage.
 
 - [ ] The network becomes the main thing on screen
@@ -719,7 +719,7 @@ Start with **Reset the interaction**, mission
 - [ ] PC-B shows **VLAN 20**
 
 **3. Enter the workspace.**
-- [ ] Press **Open the network workspace**
+- [ ] Press **Expand network workspace**
 - [ ] The network fills the left; reference material is on the right
 
 **4. Correlate the VLAN chain in the interactive topology.**
@@ -823,7 +823,7 @@ it stays pinned at the top while you read and act below it.
 
 **The run.**
 
-1. [ ] Open the Packet Journey, then **Open the network workspace**
+1. [ ] Open the Packet Journey, then **Expand network workspace**
 2. [ ] Work down to Router-1 as usual — predict, advance, predict, advance
 3. [ ] At the failure, the symptom, the explanation and **What will you change?**
        are all directly below the Router-1 entry. You did not scroll up

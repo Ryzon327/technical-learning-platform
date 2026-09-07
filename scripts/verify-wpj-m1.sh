@@ -178,17 +178,44 @@ echo "PASS:  3. neither journey authors a fault or a repair"
 # Required by the type, so this cannot be missing — which is exactly why it is
 # worth asserting that it is SUBSTANTIAL. A one-word text equivalent satisfies
 # the contract and fails the learner.
+#
+# This counted `"textEquivalent"` and required exactly 2 until WP-NF-NT1, when
+# the `near_transfer` step type introduced a SECOND kind of text equivalent —
+# the one belonging to a static topology — inside the same mission. The count
+# then measured "how many accessible descriptions exist in Module 1", which is
+# not the rule it was written to protect, and the only ways to keep it green
+# were to raise the number (so a removed interaction equivalent would hide
+# behind a near-transfer one) or to teach it to parse JSON in shell.
+#
+# So the rule moved to where the parser already is. `networking-foundations-
+# module1.test.ts` asserts, per interaction, that the text equivalent names
+# EVERY device the journey declares — which is strictly stronger than counting
+# fields, and cannot be satisfied by a one-word string. This gate runs that
+# suite below.
+#
+# What stays here is the one thing a file can see and a parsed test cannot
+# distinguish from a legitimately short string: an equivalent authored empty.
+grep -q '"textEquivalent": *""' "$MODULE1_BLOCK" \
+  && fail "Module 1 authors an empty text equivalent; the accessible path is not equivalent to the visual one"
+
 TEXT_EQUIVALENTS="$(grep -c '"textEquivalent"' "$MODULE1_BLOCK" || true)"
-[ "$TEXT_EQUIVALENTS" = "2" ] \
-  || fail "$TEXT_EQUIVALENTS of 2 interactions carry a text equivalent"
+[ "$TEXT_EQUIVALENTS" -ge 2 ] \
+  || fail "Module 1 carries $TEXT_EQUIVALENTS text equivalents; both interactions must author one"
 
-while IFS= read -r line; do
-  LENGTH="${#line}"
-  [ "$LENGTH" -ge 400 ] \
-    || fail "a text equivalent is $LENGTH characters; it must describe the whole network, not label it"
-done < <(grep -o '"textEquivalent": "[^"]*"' "$DOCUMENT")
+# The 400-character floor that used to run here is gone for the same reason the
+# exact count is. It swept EVERY `textEquivalent` in the document, and after
+# WP-NF-NT1 that includes a near-transfer topology's — four sentences about
+# four devices, which is the right length for what it describes and a tenth of
+# what a five-device journey with stages needs. A floor that cannot tell those
+# apart would be satisfied only by padding the shorter one, which means
+# inventing curriculum to please a gate.
+#
+# The threshold moved into the test, where `content.type` says which kind of
+# equivalent is being measured. Nothing was lowered: the test applies the same
+# 400-character floor to interaction equivalents AND still requires each to
+# name every device in its journey.
 
-echo "PASS:  4. every interaction carries a substantial authored text equivalent"
+echo "PASS:  4. every text equivalent is authored and non-empty (substance is asserted per type in the suite below)"
 
 # ------------------------------------------------------------
 # 5. No step type this slice ruled out
@@ -386,7 +413,9 @@ echo "PASS: 6c. device categories are drawn from authored roles, and stay honest
 for constant in 'export const NODE_WIDTH = 156;' \
                 'export const NODE_BASE_HEIGHT = 96;' \
                 'export const NODE_FACTS_HEADER_HEIGHT = 14;' \
-                'export const NODE_FACT_ROW_HEIGHT = 19;'; do
+                'export const NODE_FACT_LABEL_HEIGHT = 12;' \
+                'export const NODE_FACT_VALUE_HEIGHT = 16;' \
+                'export const NODE_INTERFACE_HEADING_HEIGHT = 13;'; do
   grep -Fq "$constant" "$LAYOUT" \
     || fail "a card geometry constant moved in the layout: $constant"
 done
@@ -404,15 +433,55 @@ grep -Eq '\.topology-device-name \{[^}]*height: 18px;' "$STYLES_FLAT" \
 grep -Eq '\.topology-device-ports \{[^}]*margin-top: 5px;' "$STYLES_FLAT" \
   || fail "the facts divider moved without NODE_FACTS_HEADER_HEIGHT"
 
-# One fact, one line, 19px, mirroring NODE_FACT_ROW_HEIGHT. It must not wrap:
-# a wrapped value makes the card taller than the box the wires were drawn
-# around, which is the defect this whole section exists to prevent.
-grep -Eq '\.topology-port-row \{[^}]*height: 19px;' "$STYLES_FLAT" \
-  || fail "a face fact row moved without NODE_FACT_ROW_HEIGHT"
-grep -Eq '\.topology-port-row \{[^}]*white-space: nowrap;' "$STYLES_FLAT" \
-  || fail "a face fact row may wrap; the card would outgrow its box"
+# A fact is a LABEL LINE and a VALUE LINE, under an interface heading when the
+# card carries more than one interface's facts. Each height mirrors its
+# constant, and none of them may wrap: a wrapped value makes the card taller
+# than the box the wires were drawn around, which is the defect this whole
+# section exists to prevent.
+#
+# The single 19px row this replaces could not hold "Network interface" and
+# "IPv4 address 192.168.1.10/24" at once, and Founder UAT read the result off
+# the screen as "Network interface I…".
+grep -Eq '\.topology-face-interface \{[^}]*height: 13px;' "$STYLES_FLAT" \
+  || fail "the interface heading moved without NODE_INTERFACE_HEADING_HEIGHT"
+grep -Eq '\.topology-fact-label \{[^}]*height: 12px;' "$STYLES_FLAT" \
+  || fail "a fact label line moved without NODE_FACT_LABEL_HEIGHT"
+grep -Eq '\.topology-fact-value \{[^}]*height: 16px;' "$STYLES_FLAT" \
+  || fail "a fact value line moved without NODE_FACT_VALUE_HEIGHT"
+
+for face_rule in 'topology-face-interface' 'topology-fact-label' \
+                 'topology-fact-value'; do
+  grep -Eq "\.$face_rule \{[^}]*white-space: nowrap;" "$STYLES_FLAT" \
+    || fail "a face line may wrap ($face_rule); the card would outgrow its box"
+
+  # The wave-8 invariant. An instructional fact is shown in full or it is not
+  # on the face at all; a learner cannot act on a fact they can see was cut.
+  grep -Eq "\.$face_rule \{[^}]*text-overflow" "$STYLES_FLAT" \
+    && fail "$face_rule ellipsises an instructional fact; take it off the face instead"
+done
 grep -Eq '\.topology-device \{[^}]*overflow: hidden;' "$STYLES_FLAT" \
   || fail "a card may spill past the box the wires were drawn around"
+
+# The card draws the face the LAYOUT composed, and composes none of its own.
+#
+# No DOM runs in this repository, so the layout suite can prove the face is
+# correct and still not notice a component that stopped rendering it. Mutation
+# testing did exactly that: emptying the face loop left every layout assertion
+# green. This is the only place that failure is observable.
+DEVICE_NODE="apps/web/src/learning/DeviceNode.tsx"
+[ -f "$DEVICE_NODE" ] || fail "the device card component is missing: $DEVICE_NODE"
+
+grep -Fq '{device.face.map((group) => (' "$DEVICE_NODE" \
+  || fail "the card no longer renders the face the layout composed"
+grep -Fq '{group.facts.map((fact) => (' "$DEVICE_NODE" \
+  || fail "the card no longer renders the facts inside a face group"
+grep -Fq 'className="topology-fact-value"' "$DEVICE_NODE" \
+  || fail "the card no longer renders a fact's value on its own line"
+
+# And it composes nothing itself. A component that flattened ports back into
+# rows would disagree with the box the layout gave it.
+grep -Fq 'device.ports.flatMap' "$DEVICE_NODE" \
+  && fail "the card composes its own face again; it must render the layout's"
 
 # The renderer computes no geometry. A constant reappearing in the component is
 # the second coordinate space coming back.
@@ -558,9 +627,27 @@ for specific in 'subnetId' 'subnetMask' 'vlanId' 'broadcastDomain' \
 done
 
 # 8. Module 1 actually uses it, and uses it once per journey.
-AUTHORED_GROUPS="$(grep -c '"groupId": "local-network", "label": "Local network"' "$MODULE1_BLOCK" || true)"
+#
+# Counted on the id alone rather than on an id-and-label pair written on one
+# line. The pair form was a JSON FORMATTING dependency: reserialising a mission
+# block — which the Founder UAT repair did when Mission 1's journey moved
+# earlier — spreads the same two fields over two lines and the count silently
+# halves. A gate that fails on whitespace is a gate that gets worked around.
+# Counted on the group's LABEL, which only a group declaration carries — a
+# node carries `groupId` as membership, so counting the id counts both and
+# reports ten where two were meant.
+AUTHORED_GROUPS="$(grep -c '"groups"' "$MODULE1_BLOCK" || true)"
 [ "$AUTHORED_GROUPS" = "2" ] \
-  || fail "$AUTHORED_GROUPS of 2 Module 1 journeys declare their authored group"
+  || fail "$AUTHORED_GROUPS of 2 Module 1 journeys declare an authored group"
+
+MEMBERSHIP="$(grep -c '"groupId": "local-network"' "$MODULE1_BLOCK" || true)"
+[ "$MEMBERSHIP" -ge "2" ] \
+  || fail "Module 1's devices no longer declare membership of the authored group"
+
+# The label is asserted separately, so both halves are still pinned.
+LOCAL_LABELS="$(grep -c '"label": "Local network"' "$MODULE1_BLOCK" || true)"
+[ "$LOCAL_LABELS" = "2" ] \
+  || fail "$LOCAL_LABELS of 2 Module 1 journeys name their group \"Local network\""
 
 echo "PASS: 6e. group membership is authored and the chain is unbroken"
 
@@ -804,9 +891,17 @@ grep -Fq 'content/curriculum/networking-foundations.json' "$HARNESS" \
   || fail "the UAT harness cannot reach the authored course"
 
 # And there is no second copy of Module 1 anywhere.
-COPIES="$(grep -rl 'nf-pj2-local-delivery' content apps services packages 2>/dev/null | wc -l | tr -d ' ')"
+#
+# Matched on the AUTHORING form — the interaction's declaration — rather than on
+# the bare identifier. A test that names a journey in order to LOAD it from the
+# authored document is referencing it, not duplicating it, and the Founder UAT
+# motion tests do exactly that. Counting the identifier made a test that proves
+# the document is the only source look like a second source.
+#
+# A real second copy still fails here, because a copy carries the declaration.
+COPIES="$(grep -rl '"interactionStableId": "nf-pj2-local-delivery"' content apps services packages 2>/dev/null | wc -l | tr -d ' ')"
 [ "$COPIES" = "1" ] \
-  || fail "Module 1's journey appears in $COPIES files; it must exist once, in the authored document"
+  || fail "Module 1's journey is declared in $COPIES files; it must exist once, in the authored document"
 
 # The production bundle carries none of it. `verify-wpj15.sh` asserts the same
 # fact — deliberately, because it is the compensating control for that gate's

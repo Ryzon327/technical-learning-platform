@@ -1,17 +1,20 @@
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useRef, useState, type KeyboardEvent } from "react";
 import type { LearnerPacketJourneyParameters } from "@tlp/shared-types";
 import {
   INITIAL_PACKET_JOURNEY_VIEW_STATE,
+  activeJourneyBeat,
   advance,
+  answerKnowledgeCheck,
   applyAction,
   buildPacketJourneyView,
   commitPrediction,
   describeObservationLabel,
   describePredictionLabel,
   describeUnobservedCommitment,
-  describeWorkspaceCloseLabel,
-  describeWorkspaceOpenLabel,
+  describeWorkspaceCollapseLabel,
+  describeWorkspaceExpandLabel,
   resetJourney,
+  resolveJourneyBeats,
   resolveSequencing,
   startJourney,
   type PacketJourneyViewState
@@ -98,7 +101,7 @@ import { connectionsForDevice, describeConnectionFrom } from "./topology-layout"
  * instance rendering the SAME `PacketJourneyViewState` with a different class.
  * There is no second mount, no context, no store and no synchronisation,
  * because divergence is not representable: there is exactly one `useState` and
- * exactly one `buildPacketJourneyView` call. Opening or closing the workspace
+ * exactly one `buildPacketJourneyView` call. Expanding or collapsing the workspace
  * therefore cannot lose a prediction, a revealed stage, a remediation or a
  * selected device — it changes only how the same tree is laid out.
  *
@@ -114,7 +117,7 @@ import { connectionsForDevice, describeConnectionFrom } from "./topology-layout"
  * shared `ObservationModel`. Nothing in this file decides where traffic goes,
  * whether it arrives, or whether the learner was right. The three `useState`
  * hooks hold where the learner is in the AUTHORED sequence, which device they
- * are looking at, and whether the workspace is open — none of which can change
+ * are looking at, and whether the workspace is expanded — none of which can change
  * an outcome, because every outcome was authored before the learner arrived.
  *
  * ## Motion
@@ -152,15 +155,83 @@ export function PacketJourney({
     INITIAL_PACKET_JOURNEY_VIEW_STATE
   );
   const [choice, setChoice] = useState<string | null>(null);
+  const [checkChoice, setCheckChoice] = useState<string | null>(null);
+
+  /* ------------------------------------------------------------------ *
+     How far the learner has read at this journey state.
+
+     The ONLY state the beat model adds. Which beats exist is derived from the
+     view by `resolveJourneyBeats`, so this cannot drift from the journey — and
+     it is reset by `currentEvent.token`, which the journey already moves on
+     every observable change. A reveal, a commitment, a remediation: each puts
+     the learner back at the first beat of the new state, which is the one
+     describing what just happened.
+   * ------------------------------------------------------------------ */
+  const [beatIndex, setBeatIndex] = useState(0);
+  const [beatToken, setBeatToken] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
+  /* ------------------------------------------------------------------ *
+     Where the learner looks after they answer.
+
+     Founder UAT, second round: "after answering a question, the interface
+     moves them back upward and they end up re-reading their answer, other
+     material, then eventually the actual next lesson content."
+
+     There was no programmatic focus at all, which is why. Committing a
+     prediction re-rendered the pane, the browser kept focus on a control that
+     had just been replaced, and the learner was left at whatever the page
+     happened to scroll to — above the result, every time.
+
+     So every control that produces a NEW OBSERVATION moves focus to the
+     "What happened" heading. That heading is `tabIndex={-1}`: reachable
+     programmatically, never a tab stop of its own, and announced by a screen
+     reader when focus lands on it — so the same fix serves sighted and
+     non-sighted learners with one mechanism rather than two.
+
+     `block: "nearest"` scrolls the minimum needed rather than yanking the
+     heading to the top of the viewport, and `preventScroll` is not used
+     because the scroll is the point. Movement is skipped entirely when the
+     element is already in view, which `scrollIntoView` handles itself.
+   * ------------------------------------------------------------------ */
+  const resultRef = useRef<HTMLHeadingElement>(null);
+
+  const moveToBeat = useCallback(() => {
+    // After React has committed the new observation, never before it.
+    requestAnimationFrame(() => {
+      const heading = resultRef.current;
+      if (heading === null) return;
+
+      heading.focus();
+      heading.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  }, []);
+
   const sequencing = resolveSequencing(supportLevel);
   const view = buildPacketJourneyView(parameters, state, sequencing);
   const prediction = view.pendingPrediction;
   const event = view.currentEvent;
+
+
+  /*
+    The beats available at this journey state, and the one the learner is on.
+
+    Derived on every render, so the list can never describe a state the journey
+    has left. The index is reset here rather than in an effect: an effect would
+    render one frame showing the previous beat for the new state, which is the
+    flicker the single-focus pane exists to avoid.
+  */
+  const beats = resolveJourneyBeats(view);
+
+  if (beatToken !== event.token) {
+    setBeatToken(event.token);
+    setBeatIndex(0);
+  }
+
+  const beat = activeJourneyBeat(beats, beatIndex);
 
   // The step the learner has just observed. The instructor pane shows the
   // reason for THIS one and no other; everything earlier is in the history.
@@ -229,14 +300,30 @@ export function PacketJourney({
     >
       {/*
         One control in two states, so focus never has to be moved or restored:
-        it opens the workspace, and it is then the first control inside it.
+        it expands the workspace, and it is then the first control inside it.
+
+        EXPAND and COLLAPSE, not open and close. Founder video UAT read "Open
+        the network workspace" while the workspace was already on screen.
+        Nothing is hidden behind this control — the same tree is re-laid out at
+        a different size — so "open" promised to reveal something already
+        visible.
+
+        It carries no `aria-expanded`. Every other disclosure control in this
+        package pairs that attribute with `aria-controls` naming the region it
+        governs, and there is no such region here: this button is INSIDE the
+        dialog it expands, so it would have to point at its own ancestor. The
+        state is announced instead by the thing that actually changes — the
+        container becomes `role="dialog"` with `aria-modal` — and by the label,
+        which names the action that will happen next.
       */}
       <button
         type="button"
         className="packet-journey-workspace-toggle"
         onClick={() => setExpanded(!expanded)}
       >
-        {expanded ? describeWorkspaceCloseLabel() : describeWorkspaceOpenLabel()}
+        {expanded
+          ? describeWorkspaceCollapseLabel()
+          : describeWorkspaceExpandLabel()}
       </button>
 
       {/* ---------------------------------------------------------------- *
@@ -260,6 +347,16 @@ export function PacketJourney({
             Everything the learner has already read moves below it.
          * ------------------------------------------------------------ */}
         <div className="packet-journey-visual">
+          {/* ------------------------------------------------------------ *
+              THE WORKSPACE — the learner's network, and it stays put.
+
+              Persistent by design (DEC-065). The topology is never remounted
+              between beats, so a learner keeps their mental map while the
+              instruction beside it advances. Inspection lives here too,
+              because inspecting a device is a question about the network
+              rather than a step in the lesson.
+           * ------------------------------------------------------------ */}
+          <div className="packet-journey-workspace">
           {/*
             Orientation. Two short lines: what this is, and what to do. The
             summary is built from the AUTHORED start label, so the course's own
@@ -300,300 +397,7 @@ export function PacketJourney({
             />
           </div>
 
-          {/* ------------------------------------------------------------ *
-              What to do now.
-
-              This block EVOLVES rather than accumulates: it holds the latest
-              observation and the one control that moves the journey on, and
-              nothing else. Every earlier observation is in the history below,
-              which is where reading belongs and where it can grow without
-              pushing the next action off the screen.
-           * ------------------------------------------------------------ */}
-          <div className="packet-journey-next">
-            <p className="packet-journey-task-label">
-              {view.currentTask.label}
-            </p>
-
-            {/*
-              What just happened, directly under the picture it happened in.
-              The headline is the glanceable half; the live region below it
-              carries the authored narration and is the one thing assistive
-              technology is told about on every change.
-            */}
-            <section
-              className={`packet-journey-event is-${event.kind}`}
-              aria-label="Current event"
-            >
-              {/*
-                Keyed so its settle animation replays on every event. The live
-                region below is deliberately not keyed — remounting one risks a
-                missed or duplicated announcement.
-              */}
-              {view.startAction === null && (
-                <p key={event.token} className="packet-journey-event-headline">
-                  {event.headline}
-                </p>
-              )}
-
-              {/*
-                The connection crossed, in words. The wire that lights up is
-                decorative and hidden, so without this sentence that fact would
-                exist only in the picture.
-              */}
-              {event.via !== null && (
-                <p className="packet-journey-event-via">Across {event.via}</p>
-              )}
-
-              {/*
-                Never unmounted, at any point in the journey — including before
-                the learner starts. A live region that appears and disappears
-                risks a missed or duplicated announcement.
-              */}
-              <p
-                role="status"
-                aria-live="polite"
-                className="packet-journey-announcement"
-              >
-                {view.announcement}
-              </p>
-            </section>
-
-            {/* ---------------------------------------------------------- *
-                What a device knows now — authored teaching state.
-
-                Directly under what just happened, because in Mission 2 the
-                two are the same lesson: the switch received something, and
-                THAT is how it came to know where the sender is. A learner who
-                has to click a device to discover the point of the mission has
-                been handed the point as optional reading.
-
-                It is a definition list because that is exactly the shape of
-                the content — a device, and where it is — and because it gives
-                assistive technology the pairing for free. Not a table, not
-                cards, not badges: it is two short columns and a caption.
-
-                Deliberately NOT a live region. The authored narration in the
-                announcement above already says what changed, and a second
-                region announcing the same change would say it twice.
-             * ---------------------------------------------------------- */}
-            {view.deviceFacts.length > 0 && (
-              <section
-                className="packet-journey-knows"
-                aria-label="What the devices know now"
-              >
-                {view.deviceFacts.map((shown) => (
-                  <div key={shown.nodeId}>
-                    <h5 className="packet-journey-knows-label">
-                      {shown.label}
-                    </h5>
-                    <dl className="packet-journey-knows-facts">
-                      {shown.facts.map((fact) => (
-                        <div key={`${fact.label} ${fact.value}`}>
-                          <dt>{fact.label}</dt>
-                          <dd>{fact.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </div>
-                ))}
-              </section>
-            )}
-
-            {/* ---------------------------------------------------------- *
-                Before you begin.
-
-                Founder UAT asked for an obvious Start, and this is it: one
-                sentence and one visually dominant control, with nothing else
-                competing for the learner's attention.
-
-                It reveals nothing. No prediction is offered yet, no stage is
-                revealed and no answer is named — the sentence says only that
-                a prediction will be asked for first.
-
-                Pressing it records ENGAGEMENT and nothing else. It produces no
-                competency, no evidence, no progress and no lab state.
-             * ---------------------------------------------------------- */}
-            {view.startAction !== null && (
-              <div className="packet-journey-start">
-                <p className="packet-journey-start-instruction">
-                  {view.startAction.instruction}
-                </p>
-                <button
-                  type="button"
-                  className="packet-journey-start-action"
-                  onClick={() => setState(startJourney(state))}
-                >
-                  {view.startAction.label}
-                </button>
-              </div>
-            )}
-
-            {view.symptom !== null && (
-              <p className="packet-journey-symptom">{view.symptom}</p>
-            )}
-
-            {/* ---------------------------------------------------------- *
-                Why it happened — for the step the learner is on, and no
-                other.
-
-                Founder UAT: "I did not even notice the bottom information
-                expanding during the exercise." The authored reason used to
-                live only in the history below the workspace, which meant the
-                one explanation the learner needed at that moment was the one
-                thing they were least likely to read.
-
-                It is the LATEST observation only. Earlier reasons stay in the
-                history, where they belong: the pane evolves rather than
-                accumulating a transcript above the next action.
-             * ---------------------------------------------------------- */}
-            {latestObservation?.decision !== undefined &&
-              (view.decisionDisclosed ? (
-                <details className="packet-journey-why-disclosure">
-                  <summary>Why this happened</summary>
-                  <p className="packet-journey-why">
-                    {latestObservation.decision}
-                  </p>
-                </details>
-              ) : (
-                <p className="packet-journey-why">
-                  {latestObservation.decision}
-                </p>
-              ))}
-
-            {view.inspectionPrompt !== null && (
-              <p className="instruction-note">{view.inspectionPrompt}</p>
-            )}
-
-            {/*
-              A commitment the learner has made but not yet observed.
-
-              It appears the instant the prediction is committed and stays until
-              the stage it is about is revealed, so committing can never look
-              like the interaction discarded the answer and started over.
-            */}
-            {view.pendingCommitment !== null && (
-              <div className="packet-journey-commitment">
-                <p className="packet-journey-commitment-label">
-                  {describePredictionLabel()}
-                </p>
-                <p className="packet-journey-commitment-option">
-                  {view.pendingCommitment.option}
-                </p>
-                <p className="packet-journey-commitment-note">
-                  {describeUnobservedCommitment()}
-                </p>
-              </div>
-            )}
-
-            {/* Predict before observing. */}
-            {prediction !== null && (
-              /*
-                The question, then the choices — never the question ACROSS the
-                choices.
-
-                Founder UAT: "the question is overlapping the box." That is
-                what a `<legend>` does by default: it is painted on the
-                fieldset's top border, and a prompt long enough to wrap sits
-                across it.
-
-                The fix is structural rather than cosmetic. The fieldset keeps
-                its semantics and its legend — the strongest available grouping
-                for a set of radios — and simply carries NO BORDER, so there is
-                nothing for the legend to overlap. The border moves inward onto
-                the choices, which is also the hierarchy the pane wants:
-                question first, answers in their own quiet box beneath it.
-
-                No negative margins, no absolute positioning, no pixel offsets
-                and nothing hidden behind the text. Native radio semantics and
-                arrow-key behaviour are untouched.
-              */
-              <fieldset className="packet-journey-prediction">
-                <legend className="packet-journey-prediction-question">
-                  {prediction.prompt}
-                </legend>
-
-                <div className="packet-journey-options">
-                  {prediction.options.map((option) => (
-                    <label key={option} className="packet-journey-option">
-                      <input
-                        type="radio"
-                        name={`${instanceId}-${prediction.stageId}`}
-                        value={option}
-                        checked={choice === option}
-                        onChange={() => setChoice(option)}
-                      />
-                      {option}
-                    </label>
-                  ))}
-                </div>
-
-                {choice !== null && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setState(
-                        commitPrediction(state, prediction.stageId, choice)
-                      );
-                      setChoice(null);
-                    }}
-                  >
-                    Commit this prediction
-                  </button>
-                )}
-              </fieldset>
-            )}
-
-            {/* Reveal the next authored observation. The one progression control. */}
-            {view.canAdvance && (
-              <button
-                type="button"
-                className="packet-journey-advance"
-                onClick={() => setState(advance(state, parameters, sequencing))}
-              >
-                {view.advanceLabel}
-              </button>
-            )}
-
-            {/* Remediation, offered only once the failure has been observed. */}
-            {view.actions.some((action) => action.available) && (
-              <div className="packet-journey-actions">
-                <h5>What will you change?</h5>
-                {view.actions.map((action) => (
-                  <button
-                    key={action.actionId}
-                    type="button"
-                    onClick={() => setState(applyAction(state, action.actionId))}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/*
-              The journey stopped and this support level sent no remediation.
-              Saying so is better than a dead end, and it reveals nothing: the
-              component never received the authored fixes.
-            */}
-            {view.remediationWithheld !== null && (
-              <p className="instruction-note">{view.remediationWithheld}</p>
-            )}
-
-            {/*
-              The diagnosis, at the moment the learner meets the failure. Like
-              the reason above, it belongs where the learner is looking rather
-              than beneath the workspace.
-            */}
-            {view.explanation !== null && (
-              <p className="packet-journey-explanation">{view.explanation}</p>
-            )}
-
-            {/* The conclusion, where the activity ends. */}
-            {view.confirmation !== null && (
-              <p className="packet-journey-confirmation">{view.confirmation}</p>
-            )}
-
-            {/* ---------------------------------------------------------- *
+          {/* ---------------------------------------------------------- *
                 Contextual inspection.
 
                 Appears only when the learner deliberately selects a device,
@@ -737,6 +541,398 @@ export function PacketJourney({
                 </>
               )}
             </section>
+          </div>
+          {/* ------------------------------------------------------------ *
+              THE INSTRUCTOR PANE — one beat at a time.
+
+              Founder UX ruling (DEC-065): the five named regions were an
+              improvement on the original stream and still put the question,
+              the answer, the observation, the reason and the next control on
+              screen together. The learner was reading a dashboard of lesson
+              state instead of following a lesson.
+
+              So the workspace splits. The topology stays on the left,
+              persistent and never remounted, because it is the thing being
+              reasoned about and losing it costs the learner their mental map.
+              This side shows exactly ONE beat.
+
+              Which beat is DERIVED — `resolveJourneyBeats` is a pure function
+              of the view, so there is no second progression engine to disagree
+              with `canAdvance`, and nothing is stored twice. The component
+              holds one number: how far the learner has read at this journey
+              state. `currentEvent.token` already moves on every observable
+              change, so it is what resets that number.
+
+              Everything already read is in the history below, closed.
+           * ------------------------------------------------------------ */}
+          <div className="packet-journey-instructor">
+            {/*
+              Progression, announced.
+
+              Never unmounted, at any point in the journey — including before
+              the learner starts. A live region that appears and disappears
+              risks a missed or a duplicated announcement, so it lives OUTSIDE
+              the beat card, which does change.
+
+              It carries the authored narration of what changed. Focus moving
+              to the new beat's heading tells a screen-reader learner WHERE
+              they now are; this tells them WHAT happened in the network, and
+              the two are different facts.
+            */}
+            <p
+              role="status"
+              aria-live="polite"
+              className="packet-journey-announcement"
+            >
+              {view.announcement}
+            </p>
+
+            <section
+              className={`packet-journey-beat is-${beat?.kind ?? "start"}`}
+              aria-labelledby={`${instanceId}-beat`}
+            >
+              {/*
+                WHERE AM I — the device, before the sentence about it.
+
+                Founder ruling, Mission 8 refinement: when the instruction moves
+                to a device the learner should be oriented immediately, not left
+                to infer the location from body prose. It uses the pane's
+                existing type hierarchy; nothing new was invented for it.
+
+                It is `aria-hidden` because the heading below already begins
+                with the same device name — a screen reader would otherwise
+                announce "PC-A. PC-A — deciding how to send the packet."
+              */}
+              {beat?.device != null && (
+                <p className="packet-journey-beat-device" aria-hidden="true">
+                  {beat.device}
+                </p>
+              )}
+
+              <h5
+                className="packet-journey-beat-heading"
+                id={`${instanceId}-beat`}
+                ref={resultRef}
+                tabIndex={-1}
+              >
+                {beat?.heading ?? view.orientation.title}
+              </h5>
+
+              {/*
+                THE NETWORK'S PROGRESS, NOT THE PANE'S.
+
+                Founder video UAT saw "Step 1 of 3" restart whenever a
+                presentation sub-beat appeared, because the number counted
+                beats. A beat is a screen; a journey stage is something the
+                network did. Only a stage observation carries a number now, and
+                a beat that is not a stage shows none.
+              */}
+              {beat?.journeyStep != null && (
+                <p className="packet-journey-beat-progress">
+                  {`Journey step ${beat.journeyStep.current} of ${beat.journeyStep.total}`}
+                </p>
+              )}
+
+              {(beat?.body ?? []).map((line) => (
+                <p key={line} className="packet-journey-beat-body">
+                  {line}
+                </p>
+              ))}
+
+              {/* Optional depth. Never required to follow the thread. */}
+              {beat?.more != null && (
+                <details className="packet-journey-why-disclosure">
+                  <summary>Explain more</summary>
+                  <p className="packet-journey-why">{beat.more}</p>
+                </details>
+              )}
+
+              {/* ---------------------------------------------------------- *
+                  The beat's own control, when it owns one.
+
+                  Exactly one control is primary at any moment, and its label
+                  says what pressing it will do — Founder UAT: "button language
+                  must accurately describe what the learner will get."
+               * ---------------------------------------------------------- */}
+              {beat?.kind === "start" && view.startAction !== null && (
+                <button
+                  type="button"
+                  className="packet-journey-start-action"
+                  onClick={() => {
+                    setState(startJourney(state));
+                    moveToBeat();
+                  }}
+                >
+                  {view.startAction.label}
+                </button>
+              )}
+
+              {beat?.kind === "question" && prediction !== null && (
+                <fieldset className="packet-journey-prediction">
+                  <legend className="packet-journey-prediction-question">
+                    {prediction.prompt}
+                  </legend>
+
+                  <div className="packet-journey-options">
+                    {prediction.options.map((option) => (
+                      <label key={option} className="packet-journey-option">
+                        <input
+                          type="radio"
+                          name={`${instanceId}-${prediction.stageId}`}
+                          value={option}
+                          checked={choice === option}
+                          onChange={() => setChoice(option)}
+                        />
+                        {option}
+                      </label>
+                    ))}
+                  </div>
+
+                  {choice !== null && (
+                    <button
+                      type="button"
+                      className="packet-journey-prediction-submit"
+                      onClick={() => {
+                        // The parameters are passed so committing also
+                        // REVEALS: predict, then observe, with nothing in
+                        // between. See `commitPrediction`.
+                        setState(
+                          commitPrediction(
+                            state,
+                            prediction.stageId,
+                            choice,
+                            parameters
+                          )
+                        );
+                        setChoice(null);
+                        moveToBeat();
+                      }}
+                    >
+                      Submit this prediction
+                    </button>
+                  )}
+                </fieldset>
+              )}
+
+              {beat?.kind === "question" &&
+                prediction === null &&
+                view.knowledgeCheck !== null && (
+                  <fieldset className="packet-journey-prediction is-check">
+                    <legend className="packet-journey-prediction-question">
+                      {view.knowledgeCheck.prompt}
+                    </legend>
+
+                    <div className="packet-journey-options">
+                      {view.knowledgeCheck.options.map((option) => (
+                        <label key={option} className="packet-journey-option">
+                          <input
+                            type="radio"
+                            name={`${instanceId}-check`}
+                            value={option}
+                            checked={checkChoice === option}
+                            onChange={() => setCheckChoice(option)}
+                          />
+                          {option}
+                        </label>
+                      ))}
+                    </div>
+
+                    {checkChoice !== null && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setState(
+                            answerKnowledgeCheck(
+                              state,
+                              view.knowledgeCheck?.checkId ?? "",
+                              checkChoice
+                            )
+                          );
+                          setCheckChoice(null);
+                          moveToBeat();
+                        }}
+                      >
+                        Submit this answer
+                      </button>
+                    )}
+                  </fieldset>
+                )}
+
+              {beat?.kind === "action" && (
+                <div className="packet-journey-actions">
+                  {view.actions.map((action) => (
+                    <button
+                      key={action.actionId}
+                      type="button"
+                      disabled={!action.available}
+                      onClick={() => {
+                        /*
+                          `action.available` is the model still offering a
+                          choice here, which it does after a change that did
+                          not repair the fault and stops doing once one has.
+                          Passing it lets the learner try again — and it is
+                          NOT the answer key, which this component may not
+                          read.
+                        */
+                        setState(
+                          applyAction(state, action.actionId, action.available)
+                        );
+                        moveToBeat();
+                      }}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {view.remediationWithheld !== null && beat?.kind === "symptom" && (
+                <p className="instruction-note">{view.remediationWithheld}</p>
+              )}
+
+              {/* ---------------------------------------------------------- *
+                  Moving on.
+
+                  Two different controls, deliberately. CONTINUE walks the
+                  beats already available at this journey state — reading, not
+                  progress. The authored advance control is what moves the
+                  NETWORK, and it only appears on the last beat, so pressing it
+                  is always the thing that changes the picture.
+               * ---------------------------------------------------------- */}
+              <div className="packet-journey-beat-controls">
+                {beatIndex > 0 && (
+                  <button
+                    type="button"
+                    className="packet-journey-beat-back"
+                    onClick={() => setBeatIndex((index) => index - 1)}
+                  >
+                    Previous step
+                  </button>
+                )}
+
+                {/*
+                  CONTINUE reads on. It walks the beats already available at
+                  this journey state and changes nothing in the network, so it
+                  is deliberately NOT the progression control — a learner who
+                  cannot tell "read the next thing" from "move the traffic" has
+                  two primary buttons and no idea which is live.
+                */}
+                {beatIndex < beats.length - 1 && (
+                  <button
+                    type="button"
+                    className="packet-journey-continue"
+                    onClick={() => {
+                      setBeatIndex((index) => index + 1);
+                      moveToBeat();
+                    }}
+                  >
+                    Continue
+                  </button>
+                )}
+
+                {beatIndex === beats.length - 1 &&
+                  view.canAdvance &&
+                  beat?.kind !== "question" &&
+                  beat?.kind !== "action" && (
+                    <button
+                      type="button"
+                      className="packet-journey-advance"
+                      onClick={() => {
+                        setState(advance(state, parameters, sequencing));
+                        moveToBeat();
+                      }}
+                    >
+                      {view.advanceLabel}
+                    </button>
+                  )}
+              </div>
+            </section>
+
+            {/* ---------------------------------------------------------- *
+                QUICK REFERENCE — orientation, deliberately secondary.
+
+                Founder UAT: "I did not notice the existing leg information
+                because it was below the topology." Who is sending, what, to
+                whom, where it is now, which connection — the questions asked
+                at every step, beside the beat rather than under the drawing.
+
+                Visually quieter than the beat and never a control: it answers
+                orientation questions, it does not set tasks. Every value is
+                copied from authored data, so a field the mission has not
+                taught is simply not there.
+             * ---------------------------------------------------------- */}
+            {view.quickReference.length > 0 && (
+              <section
+                className="packet-journey-reference"
+                aria-labelledby={`${instanceId}-reference`}
+              >
+                <h6
+                  className="packet-journey-reference-label"
+                  id={`${instanceId}-reference`}
+                >
+                  Quick reference
+                </h6>
+                <dl className="packet-journey-reference-rows">
+                  {view.quickReference.map((row) => (
+                    <div key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            )}
+
+            {/* ---------------------------------------------------------- *
+                CURRENT NETWORK DETAILS — the state facts for this moment.
+
+                These used to sit under the topology, in the workspace column.
+                Founder UAT: "THIS LEG'S LOCAL DELIVERY", "WHAT ROUTER-1 SEES"
+                and "WHAT ARRIVED" are journey state, not part of the picture,
+                and putting them below the drawing made the left column a
+                second thing to read while the instruction waited on the right.
+
+                So they move here, BELOW the beat and BELOW the quick
+                reference. That order is the requirement: instruction first,
+                orientation second, detail third. The heading and the quieter
+                treatment are what tell a learner this is supporting material
+                rather than another step they have to complete.
+
+                A definition list because that is the shape of the content — a
+                device, and what it is showing — and because it gives assistive
+                technology the pairing for free.
+
+                Deliberately NOT a live region: the announcement above already
+                says what changed, and a second region announcing the same
+                change would say it twice.
+             * ---------------------------------------------------------- */}
+            {view.deviceFacts.length > 0 && (
+              <section
+                className="packet-journey-knows"
+                aria-labelledby={`${instanceId}-details`}
+              >
+                <h6
+                  className="packet-journey-reference-label"
+                  id={`${instanceId}-details`}
+                >
+                  Current network details
+                </h6>
+
+                {view.deviceFacts.map((shown) => (
+                  <div key={shown.nodeId} className="packet-journey-knows-block">
+                    <p className="packet-journey-knows-label">{shown.label}</p>
+                    <dl className="packet-journey-knows-facts">
+                      {shown.facts.map((fact) => (
+                        <div key={`${fact.label} ${fact.value}`}>
+                          <dt>{fact.label}</dt>
+                          <dd>{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
+              </section>
+            )}
           </div>
         </div>
 

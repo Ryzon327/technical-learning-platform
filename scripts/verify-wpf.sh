@@ -177,7 +177,16 @@ done
 
 # The presentation module is pure: it may reach the shared contract and the
 # existing brief parser, and nothing else.
-PRESENTATION_IMPORTS="$(grep -oE 'from "[^"]+"' "$PRESENTATION" | sed 's/from //' | tr -d '"' \
+#
+# Read from COMMENT-STRIPPED code, like every other absence check in this file.
+#
+# It read the raw file until the Mission 1 checkpoint, where it fired on a doc
+# comment containing `...indistinguishable from "the requirement is met"...` —
+# prose about a naming decision, not an import of anything. The file header
+# already states the rule this now follows: a comment explaining a thing must
+# not trip the check that governs it. A guard a true sentence can break is one
+# the next author fixes by deleting the sentence.
+PRESENTATION_IMPORTS="$(grep -oE 'from "[^"]+"' "$PRESENTATION_LOGIC" | sed 's/from //' | tr -d '"' \
   | LC_ALL=C sort -u | tr '\n' ' ')"
 [ "$PRESENTATION_IMPORTS" = "./roas-course-content @tlp/shared-types " ] \
   || fail "the presentation module imports beyond the contract and the brief parser: $PRESENTATION_IMPORTS"
@@ -201,19 +210,27 @@ done
 echo "PASS:  5. WP-E's projection is authoritative and is not re-validated"
 
 # ------------------------------------------------------------
-# 6. All seven approved types are handled, and no eighth
+# 6. Every approved type is handled, and nothing else
 # ------------------------------------------------------------
-# The vocabulary is closed by DEC-054 and owned by packages/shared-types. A type
-# handled here that the shared contract does not define would be frontend-created
-# curriculum vocabulary.
-for step_type in concept diagram command prediction interaction practice reference; do
+# The vocabulary is closed by DEC-054 — as amended by WP-NF-NT1, at EIGHT — and
+# owned by packages/shared-types. A type handled here that the shared contract
+# does not define would be frontend-created curriculum vocabulary.
+#
+# The count is derived from the list rather than written beside it. It was a
+# literal `7`, and when the amendment added `near_transfer` the two disagreed:
+# the list said one thing, the arity said another, and only the arity failed.
+# Deriving it means adding a type is one edit and the guard stays honest.
+APPROVED_STEP_TYPES="concept diagram command prediction interaction practice near_transfer reference"
+
+for step_type in $APPROVED_STEP_TYPES; do
   grep -Fq "case \"$step_type\":" "$RENDERER" \
     || fail "the renderer does not handle the approved step type: $step_type"
 done
 
+APPROVED_COUNT="$(printf '%s\n' $APPROVED_STEP_TYPES | grep -c .)"
 HANDLED="$(grep -cE '^\s*case "' "$RENDERER_LOGIC" || true)"
-[ "$HANDLED" = "7" ] \
-  || fail "the renderer handles $HANDLED step types; exactly 7 are approved"
+[ "$HANDLED" = "$APPROVED_COUNT" ] \
+  || fail "the renderer handles $HANDLED step types; exactly $APPROVED_COUNT are approved"
 
 # The shared vocabulary still has exactly seven entries, so the count above is
 # measured against the contract rather than against a number typed here.
@@ -221,7 +238,7 @@ AUTHORED_TYPES="$(grep -cE '^\s{2}"[a-z]+"' "$STEP_MODEL" || true)"
 [ "$AUTHORED_TYPES" -ge 7 ] \
   || fail "the shared step vocabulary no longer lists the approved types"
 
-echo "PASS:  6. exactly the seven approved step types are rendered"
+echo "PASS:  6. exactly the $APPROVED_COUNT approved step types are rendered"
 
 # ------------------------------------------------------------
 # 7. The two accessibility fields keep their distinct roles

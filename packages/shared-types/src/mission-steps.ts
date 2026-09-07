@@ -57,13 +57,19 @@ import {
   type InteractionType
 } from "./instruction-interaction";
 import type { ObservationSourceKind } from "./observation-model";
+import {
+  validateNearTransferContent,
+  type NearTransferContent
+} from "./near-transfer";
 
 /* ------------------------------------------------------------------ *
  * The closed vocabulary
  * ------------------------------------------------------------------ */
 
 /**
- * Exactly seven types (DEC-054). The set is closed.
+ * Exactly eight types (DEC-054, as amended by WP-NF-NT1). The set is closed.
+ * `near_transfer` is the eighth: applying a taught concept to a different
+ * situation, inline, before the mission closes. `near-transfer.ts` owns it.
  *
  * Deliberately absent, each for a recorded reason:
  *
@@ -83,6 +89,7 @@ export const MISSION_STEP_TYPES = [
   "prediction",
   "interaction",
   "practice",
+  "near_transfer",
   "reference"
 ] as const;
 
@@ -280,6 +287,18 @@ export interface MissionStepReferenceContent {
   readonly note?: string;
 }
 
+/**
+ * `near_transfer` — apply what was just taught to a DIFFERENT situation.
+ *
+ * Substantive instruction, not optional practice. `near-transfer.ts` owns every
+ * rule about the payload, and the comment at the top of that module records why
+ * this is a step type of its own rather than an `AssessmentDefinition`: it
+ * produces no score, no attempt, no evidence and no competency state, and the
+ * assessment contract could carry neither the authored explanations nor the
+ * scenario a transfer question is about.
+ */
+export type MissionStepNearTransferContent = NearTransferContent;
+
 /** The discriminated union. `type` determines the whole shape. */
 export type MissionStepContent =
   | MissionStepConceptContent
@@ -288,6 +307,7 @@ export type MissionStepContent =
   | MissionStepPredictionContent
   | MissionStepInteractionContent
   | MissionStepPracticeContent
+  | MissionStepNearTransferContent
   | MissionStepReferenceContent;
 
 /* ------------------------------------------------------------------ *
@@ -483,6 +503,16 @@ export function validateMissionStepContent(
         at(
           `assessment reference is not a valid stable id: ${content.assessmentStableId}`
         );
+      }
+      break;
+    }
+
+    case "near_transfer": {
+      // `near-transfer.ts` owns every payload rule, the way
+      // `instruction-interaction.ts` owns an interaction's parameters. Mirroring
+      // any of it here would be a second definition of the same contract.
+      for (const error of validateNearTransferContent(content, "near-transfer")) {
+        at(error);
       }
       break;
     }

@@ -449,13 +449,25 @@ describe("the local journey establishes the decision, then reuses Mission 2", ()
     expect(j.stages.every((stage) => stage.outcome === "proceeds")).toBe(true);
   });
 
-  it("names Mission 2 where it is being reused", () => {
+  it("reuses the local delivery by restating it, not by citing a mission", () => {
+    /*
+      Inverted in wave 8, on a Founder ruling: a learner returning after a
+      break cannot be sent to a numbered mission to understand the sentence in
+      front of them. What the citation stood for — that this journey ends in
+      the ordinary local delivery the learner already knows — is checked as the
+      description itself.
+    */
     const j = journey(LOCAL_JOURNEY);
-    const text = j.stages
-      .map((stage) => `${stage.narration}\n${stage.decision ?? ""}`)
-      .join("\n");
+    const text = [
+      ...j.stages.flatMap((stage) => [stage.narration, stage.decision ?? ""]),
+      ...j.nodes.map((node) => node.about ?? ""),
+      j.confirmation.narration,
+      j.confirmation.summary
+    ].join("\n");
 
-    expect(text).toMatch(/Mission 2/);
+    expect(text).toContain("ordinary local delivery");
+    expect(text).toContain("factory identity");
+    expect(text.match(/Mission \d+/g) ?? []).toEqual([]);
   });
 });
 
@@ -649,11 +661,32 @@ describe("no later mission's vocabulary arrives in Mission 4", () => {
   }
 
   it("does not turn the prefix into arithmetic", () => {
-    // The approved scope is conceptual and operational: read which part names
-    // the network and compare. Binary, mask conversion and CIDR tables are all
-    // explicitly out of scope.
+    /*
+      The approved scope is conceptual and operational: read which part names
+      the network and compare. Binary, mask conversion and CIDR tables are all
+      explicitly out of scope.
+
+      "octet" came OFF this list in wave 8. Founder UAT ruled that teaching a
+      /24 as "the first three numbers" is not what a /24 says, and directed the
+      correct word with a one-line refresher. Naming the four parts of an
+      address is vocabulary, not arithmetic — the arithmetic bans below are
+      untouched, and they are what this test is actually for.
+    */
     const text = learnerFacingText();
-    for (const term of ["binary", "bits?", "octets?", "255\\.255\\.255\\.0"]) {
+    for (const term of ["binary", "bits?", "255\\.255\\.255\\.0"]) {
+      expect({ term, used: usesWord(text, term) }).toEqual({ term, used: false });
+    }
+  });
+
+  it("names the octet without teaching subnetting", () => {
+    // The Founder's condition on the word: define it once, in one line, and do
+    // not let it become a lesson in splitting networks.
+    const text = learnerFacingText();
+
+    expect(usesWord(text, "octets?")).toBe(true);
+    expect(text).toContain("Each of those four numbers is called an octet");
+
+    for (const term of ["subnet", "subnetting", "mask", "borrow"]) {
       expect({ term, used: usesWord(text, term) }).toEqual({ term, used: false });
     }
   });

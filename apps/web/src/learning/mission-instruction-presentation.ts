@@ -369,3 +369,82 @@ export function describePracticeCheckpoint(): string {
     "does not complete the mission."
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Required inline instruction (WP-NF-NT1B)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Whether a mission still has instructional work the learner must do inside
+ * the lesson before it can be called finished.
+ *
+ * ## Why this exists
+ *
+ * WP-NF-NT1 gated the lesson's own closing steps behind an embedded
+ * near-transfer check, and left the separate "Mark as complete" control
+ * untouched — so a learner could skip the required activity entirely and
+ * still record the mission as done. Architecture review closed that.
+ *
+ * ## Why it is a state and not a boolean
+ *
+ * `"none"` and `"satisfied"` both permit completion, and they are different
+ * facts. A mission that authors no required activity has nothing to satisfy;
+ * one that authors four questions has satisfied it once all four have been
+ * attempted AND the activity finished. Collapsing them to `true` would make "this mission has no
+ * requirement" indistinguishable from "the requirement is met", and the first
+ * regression anyone would write — *a mission with no near-transfer completes
+ * exactly as it did before* — would be asserting the wrong thing.
+ */
+export type RequiredInstructionState = "none" | "outstanding" | "satisfied";
+
+/**
+ * What a learner is told while required instruction is outstanding.
+ *
+ * The wording says "finish" rather than "answer" because answering is no
+ * longer the whole of it: a learner may have answered every question and
+ * still be reading the feedback for the last one, and the activity is not
+ * finished until they say it is.
+ *
+ * It says neither "pass" nor "get right", and never will. Correctness is not
+ * the gate and never becomes one — a learner who answered everything wrongly
+ * has done the instructional work and finishes exactly as anyone else does.
+ */
+export function describeRequiredInstructionOutstanding(): string {
+  return "Finish all required activities before marking this mission complete.";
+}
+
+/**
+ * Resolve a mission's required-instruction state from its projected steps.
+ *
+ * ## The seam, and its deliberate size
+ *
+ * `isSatisfied` is asked about every step and answers `null` for the ones it
+ * has no opinion about. Today exactly one step type is required — a
+ * `near_transfer` check — and the caller supplies that opinion, so this
+ * function contains no knowledge of near-transfer, of questions, or of any
+ * mission.
+ *
+ * That is the whole abstraction. A future required interaction or required
+ * practical handoff answers the same predicate; nothing here becomes a
+ * workflow engine, a step-state machine, or a progression graph, because the
+ * question being asked is genuinely this small: *is anything the learner has
+ * to do still undone?*
+ */
+export function resolveRequiredInstruction(
+  steps: readonly LearnerMissionStep[],
+  isSatisfied: (step: LearnerMissionStep) => boolean | null
+): RequiredInstructionState {
+  let required = false;
+
+  for (const step of steps) {
+    const satisfied = isSatisfied(step);
+    if (satisfied === null) continue;
+
+    required = true;
+    // One outstanding activity is enough. There is no partial state and no
+    // count, because there is nothing to score.
+    if (!satisfied) return "outstanding";
+  }
+
+  return required ? "satisfied" : "none";
+}

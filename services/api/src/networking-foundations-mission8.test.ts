@@ -315,10 +315,28 @@ describe("Mission 8 begins from an observable failed result", () => {
   });
 
   it("tells the learner the output is displayed, not executed", () => {
+    /*
+      LC-062's honesty convention, pinned as the CLAIM rather than as one
+      wording of it. The caption must say the output is displayed AND must
+      explicitly deny that anything ran. It used to require the exact phrase
+      "no live network"; the architect-authored rewrite denies execution as
+      "nothing here runs a live command", which is the same claim.
+
+      Both accepted forms are enumerated, so removing the denial altogether
+      still fails. This is not weaker: it went from one required phrase to a
+      required phrase plus a required denial from a closed set.
+    */
     const only = commandSteps()[0];
     if (only?.type !== "command") throw new Error("no command step");
+
     expect(only.caption).toContain("displayed output");
-    expect(only.caption).toContain("no live network");
+
+    const denials = ["no live network", "nothing here runs a live command"];
+    const denied = denials.some((phrase) => only.caption?.includes(phrase));
+
+    expect(`the caption denies live execution: ${denied}`).toBe(
+      "the caption denies live execution: true"
+    );
   });
 
   it("asks the learner to commit before the reasoning arrives", () => {
@@ -343,12 +361,27 @@ describe("Mission 8 begins from an observable failed result", () => {
   });
 
   it("applies Mission 7's habit to the failure rather than restating the command", () => {
-    const text = prose().join("\n");
-    // The point of reusing ping here is the inference, not the tool. If the
-    // mission started explaining the command again it would be re-teaching
-    // Mission 7 rather than requiring it.
-    expect(text).toContain("what else would have produced");
-    expect(text).toContain("starting point");
+    /*
+      The point of reusing ping here is the inference, not the tool. If the
+      mission started explaining the command again it would be re-teaching
+      Mission 7 rather than requiring it.
+
+      The two frozen phrases — "what else would have produced" and "starting
+      point" — were one wording of two invariants. The architect-authored
+      rewrite states both differently: the habit is reactivated as "what else
+      could have produced the same result?", and a failed result is
+      distinguished from a diagnosis rather than called a starting point.
+      Both invariants are asserted here as CONCEPTS.
+    */
+    const text = prose().join("\n").toLowerCase();
+
+    // Mission 7's question, reactivated rather than re-derived.
+    expect(`reactivates the habit: ${text.includes("what else could have produced") || text.includes("what else would have produced")}`)
+      .toBe("reactivates the habit: true");
+
+    // A failed result is not a diagnosis. Named as the distinction it is.
+    expect(`distinguishes result from diagnosis: ${text.includes("diagnosis")}`)
+      .toBe("distinguishes result from diagnosis: true");
   });
 
   it("teaches no ping syntax and no further ICMP", () => {
@@ -477,10 +510,25 @@ describe("the fault is a wrong default gateway, and Mission 5's rule explains it
   });
 
   it("explains the stop with the reachability rule rather than by assertion", () => {
+    /*
+      The rule, stated where it is used. The "mission 5" clause this used to
+      require was removed on a Founder ruling in wave 8: the explanation has to
+      stand on its own for a learner who has not opened Mission 5 in weeks, so
+      the citation is replaced by the rule it was pointing at.
+    */
     const explanation = journey().fault?.explanation ?? "";
-    expect(explanation).toContain("own group");
+
+    expect(explanation).toContain("local delivery");
+    expect(explanation).toContain("own network");
+    // The circularity, which is the argument rather than an assertion.
+    expect(explanation).toContain("gateway in order to reach");
     expect(explanation).toContain(BAD_GATEWAY);
-    expect(explanation.toLowerCase()).toContain("mission 5");
+    expect(explanation).toContain("192.168.1.10/24");
+  });
+
+  it("explains the stop without sending the learner to another mission", () => {
+    const explanation = journey().fault?.explanation ?? "";
+    expect(explanation.match(/Mission \d+/g) ?? []).toEqual([]);
   });
 
   it("states the circularity that makes the setting impossible", () => {
@@ -733,7 +781,8 @@ describe("the repair is bounded, enumerated and reasoned", () => {
 describe("the stop is read for what it rules in and what it rules out", () => {
   it("says what was still intact when it stopped", () => {
     const text = prose().join("\n").toLowerCase();
-    expect(text).toContain("still intact");
+    // Wording, not invariant: the mission says "what was still working".
+    expect(text).toContain("still working");
   });
 
   it("names the devices that never received anything", () => {
@@ -745,12 +794,31 @@ describe("the stop is read for what it rules in and what it rules out", () => {
 
   it("states the rule that a device receiving nothing cannot have failed", () => {
     const text = learnerFacingText().toLowerCase();
-    expect(text).toContain("never received anything cannot be");
+    expect(text).toContain("received nothing cannot be the device that failed");
   });
 
   it("says that a failed result on its own does not locate anything", () => {
+    /*
+      The invariant is that the mission states, in words, that the failure does
+      not identify WHICH PART of the path caused it. The old assertion froze one
+      phrasing of that ("does not tell you which part"); the architect-authored
+      rewrite says "it does not identify which part of the path caused that
+      result".
+
+      Pinned as the claim: a negation, about which part.
+    */
     const text = prose().join("\n").toLowerCase();
-    expect(text).toContain("does not tell you which part");
+
+    const stated =
+      text.includes("does not tell you which part") ||
+      text.includes("does not identify which part");
+
+    expect(`states that the failure locates nothing: ${stated}`).toBe(
+      "states that the failure locates nothing: true"
+    );
+
+    // And the observable fact it DOES establish is stated plainly.
+    expect(text).toContain("did not receive a reply");
   });
 });
 
@@ -825,11 +893,49 @@ describe("the repair is confirmed, and the confirmation is the point", () => {
  * ------------------------------------------------------------------ */
 
 describe("Mission 8 requires the earlier missions rather than reciting them", () => {
-  it("names the missions whose reasoning the learner has to apply", () => {
+  it("carries the reasoning of the earlier missions, restated where it is used", () => {
+    /*
+      Inverted in wave 8, on a Founder ruling. This required the strings
+      "Mission 4" through "Mission 7" to appear in Mission 8, as evidence that
+      the integration mission drew on them. Founder UAT ruled that a learner
+      returning after a break cannot be sent to a numbered mission to
+      understand the sentence in front of them.
+
+      What the citations stood for is checked instead: the address comparison,
+      the gateway rule, the routed path, and the test result — each present in
+      Mission 8's own words, where the learner needs it.
+    */
     const text = learnerFacingText();
-    for (const named of ["Mission 4", "Mission 5", "Mission 6", "Mission 7"]) {
-      expect(`${named}: ${text.includes(named)}`).toBe(`${named}: true`);
+
+    for (const carried of [
+      "192.168.1.10/24",
+      "octets name the network",
+      "default gateway",
+      "Router-1",
+      "ping"
+    ]) {
+      expect(`carries "${carried}": ${text.includes(carried)}`).toBe(
+        `carries "${carried}": true`
+      );
     }
+  });
+
+  it("asks the learner to remember no numbered mission during the journey", () => {
+    const j = journey();
+    const parts = [
+      ...j.stages.flatMap((stage) => [
+        stage.narration,
+        stage.decision ?? "",
+        stage.action ?? ""
+      ]),
+      ...j.nodes.map((node) => node.about ?? ""),
+      j.fault?.symptom ?? "",
+      j.fault?.explanation ?? "",
+      j.confirmation.narration,
+      j.confirmation.summary
+    ];
+
+    expect(parts.join("\n").match(/Mission \d+/g) ?? []).toEqual([]);
   });
 
   it("keeps every established address exactly as earlier missions left it", () => {
@@ -1113,5 +1219,446 @@ describe("the mission authority declaration records the terminal state", () => {
     const declared = rows.map((row) => row[1]);
     const actual = document.missions.map((m) => m.stableId);
     expect(declared).toEqual(actual);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * TROUBLESHOOT, RATHER THAN FOLLOW
+ *
+ * Mission 6 says "come with me". Mission 8 says "you know how this should work
+ * — something failed, tell me what the evidence means". These assert that the
+ * mission actually asks, rather than showing the diagnosis and then asking the
+ * learner to recognise the repair.
+ * ------------------------------------------------------------------ */
+
+describe("the learner reasons before the interface explains", () => {
+  it("opens by asking what PC-A does, before narrating what PC-A does", () => {
+    const first = journey().stages[0];
+
+    expect(first?.prediction).toBeDefined();
+    expect(first?.prediction?.correctOption).toBeDefined();
+
+    // The prompt states the two facts the learner reasons from, and neither
+    // the prompt nor the options give the comparison away as the answer.
+    expect(first?.prediction?.prompt).toContain("192.168.2.20");
+    expect(first?.prediction?.prompt).toContain("192.168.1.10/24");
+  });
+
+  it("asks the learner what the stopping point rules out", () => {
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    const prompts = (stop?.knowledgeChecks ?? []).map((check) => check.prompt);
+
+    expect(prompts.some((prompt) => prompt.includes("conclude"))).toBe(true);
+  });
+
+  it("asks the learner what to inspect next, before showing them", () => {
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    const inspect = (stop?.knowledgeChecks ?? []).find((check) =>
+      check.prompt.includes("inspect next")
+    );
+
+    expect(inspect).toBeDefined();
+    expect(inspect?.correctOption).toContain("hand off to");
+  });
+
+  it("asks the learner to apply the /24 rule to the configured gateway", () => {
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    const reach = (stop?.knowledgeChecks ?? []).find((check) =>
+      check.prompt.includes("directly")
+    );
+
+    expect(reach).toBeDefined();
+    expect(reach?.prompt).toContain("192.168.1.10/24");
+    expect(reach?.prompt).toContain("192.168.2.1");
+    expect(reach?.correctOption).toContain("192.168.1.0/24");
+  });
+
+  it("orders the three reasoning steps: rule out, then inspect, then evaluate", () => {
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    expect((stop?.knowledgeChecks ?? []).map((check) => check.checkId)).toEqual([
+      "f2-what-it-rules-out",
+      "f2-what-to-inspect",
+      "f2-can-it-reach-the-gateway"
+    ]);
+  });
+
+  it("hands the learner no diagnosis in the stage that stops", () => {
+    /*
+      The stopping stage used to carry a `decision` telling the learner to
+      compare the gateway against PC-A's own address — which is the answer to
+      the question the mission is about to ask. The narration states what is
+      observable and stops there.
+    */
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    expect(stop?.decision).toBeUndefined();
+    expect(stop?.narration).toContain("never leaves PC-A");
+    expect(stop?.narration).not.toContain("192.168.2.1");
+  });
+
+  it("puts the evidence on screen without interpreting it", () => {
+    // The learner needs PC-A's address, PC-A's network and the configured
+    // gateway to answer. All three are readings, not conclusions.
+    const stop = journey().stages.find(
+      (stage) => stage.stageId === journey().fault?.stopsAtStageId
+    );
+
+    /*
+      Checked as LABEL AND VALUE together. Mutation testing renamed a label to
+      something meaningless and left the address in place; a value-only
+      assertion passed, while a learner would have been looking at an
+      unattributed number and asked to reason from it.
+    */
+    const pairs = (stop?.deviceFacts ?? []).flatMap((entry) =>
+      entry.facts.map((fact) => `${fact.label} = ${fact.value}`)
+    );
+
+    expect(pairs).toContain("PC-A's own address = 192.168.1.10/24");
+    expect(pairs).toContain("PC-A's own network = 192.168.1.0/24");
+    expect(pairs).toContain(
+      "Currently configured to hand off to = 192.168.2.1"
+    );
+
+    // And nothing there does the reasoning for the learner.
+    for (const pair of pairs) {
+      expect(`${pair} concludes: ${/not in|cannot|wrong|unreachable/i.test(pair)}`)
+        .toBe(`${pair} concludes: false`);
+    }
+  });
+});
+
+describe("the repair choices are misconceptions rather than filler", () => {
+  it("offers exactly one change that repairs the fault", () => {
+    const resolving = actions().filter((action) => action.resolvesFault);
+    expect(resolving).toHaveLength(1);
+    expect(resolving[0]?.label).toContain("192.168.1.1");
+  });
+
+  it("offers the local-reachability misconception", () => {
+    // "PC-A can reach the Printer, so the Printer can be its gateway."
+    const printer = actions().find((action) => action.label.includes("192.168.1.12"));
+
+    expect(printer?.resolvesFault).toBe(false);
+    expect(printer?.observation).toContain("CAN reach");
+    expect(printer?.observation).toContain("not sufficient");
+  });
+
+  it("offers the destination-as-gateway misconception", () => {
+    const asGateway = actions().find(
+      (action) =>
+        action.label.includes("gateway") && action.label.includes("192.168.2.20")
+    );
+
+    expect(asGateway?.resolvesFault).toBe(false);
+    expect(asGateway?.observation).toContain("not on PC-A's network");
+  });
+
+  it("offers the change-the-destination misconception", () => {
+    const destination = actions().find((action) =>
+      action.label.startsWith("Change the destination")
+    );
+
+    expect(destination?.resolvesFault).toBe(false);
+    expect(destination?.observation).toContain("repairs nothing");
+  });
+
+  it("gives every wrong choice targeted remediation and an invitation to retry", () => {
+    for (const action of actions().filter((entry) => !entry.resolvesFault)) {
+      expect(`${action.actionId} invites another attempt: ${action.observation.includes("Choose again")}`)
+        .toBe(`${action.actionId} invites another attempt: true`);
+
+      // Targeted, not a replay of the generic explanation.
+      expect(action.observation).not.toBe(journey().fault?.explanation);
+      expect(action.observation.length).toBeGreaterThan(120);
+    }
+  });
+
+  it("needs no concept the course has not taught", () => {
+    const text = actions()
+      .map((action) => `${action.label} ${action.observation}`)
+      .join("\n");
+
+    for (const untaught of ["VLAN", "trunk", "NAT", "DHCP", "route table", "metric"]) {
+      expect(`${untaught}: ${text.includes(untaught)}`).toBe(`${untaught}: false`);
+    }
+  });
+});
+
+/** The authored remediation choices. */
+function actions() {
+  return journey().actions;
+}
+
+
+/* ------------------------------------------------------------------ *
+ * THE PRE-WORKSPACE SETUP
+ *
+ * Mission 8's new instructional problem is HOW TO INTERPRET A FAILED RESULT.
+ * Missions 1 to 7 already taught everything else it needs, so the setup
+ * reactivates the topology, shows the failure, and reasons about it — without
+ * re-teaching the course and without disclosing the diagnosis.
+ *
+ * These protect structure, ordering and disclosure. Whether the prose teaches
+ * well is Tier 3 review and Founder UAT (CURR-009 s14a); nothing here tries to
+ * judge writing quality.
+ * ------------------------------------------------------------------ */
+
+describe("the setup establishes the situation without giving the answer", () => {
+  const PRE_WORKSPACE = [
+    "m8-s1-a-result-you-have-to-act-on",
+    "m8-s2-the-test-that-fails",
+    "m8-s3-a-failure-points-in-many-directions"
+  ] as const;
+
+  function step(stableId: string) {
+    const found = mission(M8).steps.find((entry) => entry.stableId === stableId);
+    if (found === undefined) throw new Error(`no step ${stableId}`);
+    return found;
+  }
+
+  function paragraphsOf(stableId: string): readonly string[] {
+    const content = step(stableId).content;
+    if (content.type !== "concept") throw new Error(`${stableId} is not a concept`);
+    return content.paragraphs;
+  }
+
+  /** Everything the learner reads BEFORE the workspace opens. */
+  function setupText(): string {
+    return PRE_WORKSPACE.map((stableId) => {
+      const content = step(stableId).content;
+      if (content.type === "concept") {
+        return [content.title ?? "", ...content.paragraphs].join("\n");
+      }
+      if (content.type === "command") {
+        return [content.caption ?? "", content.command ?? "", content.output ?? ""].join("\n");
+      }
+      return "";
+    }).join("\n");
+  }
+
+  it("keeps the pre-workspace steps, their ids and their order", () => {
+    // Step ids are curriculum identity. A rewrite replaces copy, not steps.
+    const ids = mission(M8).steps.map((entry) => entry.stableId);
+
+    expect(ids.slice(0, 3)).toEqual([...PRE_WORKSPACE]);
+    expect(ids).toHaveLength(7);
+    expect(ids[3]).toBe("m8-s4-watching-where-it-stops");
+  });
+
+  it("names the source, the destination, both networks and the router", () => {
+    const opening = paragraphsOf("m8-s1-a-result-you-have-to-act-on").join("\n");
+
+    for (const fact of [
+      "PC-A",
+      "PC-C",
+      "192.168.1.0/24",
+      "192.168.2.0/24",
+      "Router-1"
+    ]) {
+      expect(`the setup names ${fact}: ${opening.includes(fact)}`).toBe(
+        `the setup names ${fact}: true`
+      );
+    }
+  });
+
+  it("reactivates the topology rather than re-teaching the prefix", () => {
+    // Mission 4 taught /24. The setup needs the two networks, not the lesson.
+    const opening = paragraphsOf("m8-s1-a-result-you-have-to-act-on").join("\n").toLowerCase();
+
+    for (const reteaching of ["octet", "network portion", "host portion", "prefix length"]) {
+      expect(`the setup re-teaches "${reteaching}": ${opening.includes(reteaching)}`).toBe(
+        `the setup re-teaches "${reteaching}": false`
+      );
+    }
+  });
+
+  it("reaches the evidence in three paragraphs or fewer", () => {
+    // The instructional problem is reading a failure, so the failure has to
+    // arrive quickly rather than after a refresher.
+    expect(paragraphsOf("m8-s1-a-result-you-have-to-act-on").length).toBeLessThanOrEqual(3);
+  });
+
+  it("discloses no part of the diagnosis before the workspace", () => {
+    /*
+      The central invariant of this pass. The learner derives the fault inside
+      the workspace; nothing before it may name the faulty device, the faulty
+      setting, the wrong value, the correct value, or the shape of the repair.
+    */
+    const text = setupText();
+
+    for (const disclosure of [
+      BAD_GATEWAY,
+      GOOD_GATEWAY,
+      "default gateway",
+      "one correction",
+      "single wrong setting",
+      "one setting",
+      "Mission 5",
+      "misconfigured",
+      "wrong setting",
+      "where the packet stops"
+    ]) {
+      expect(`the setup discloses "${disclosure}": ${text.includes(disclosure)}`).toBe(
+        `the setup discloses "${disclosure}": false`
+      );
+    }
+  });
+
+  it("states only what the failed test actually establishes", () => {
+    // Not "the connection failed", not "PC-C was unreachable" — the evidence is
+    // specifically that PC-A received no reply.
+    const reasoning = paragraphsOf("m8-s3-a-failure-points-in-many-directions");
+    const first = reasoning[0] ?? "";
+
+    expect(first).toContain("PC-A did not receive a reply from 192.168.2.20");
+
+    for (const overclaim of [
+      "PC-C was unreachable",
+      "the connection failed",
+      "the network is down.",
+      "the packet failed",
+      "something went wrong"
+    ]) {
+      expect(`the setup overclaims "${overclaim}": ${reasoning.join("\n").includes(overclaim)}`)
+        .toBe(`the setup overclaims "${overclaim}": false`);
+    }
+  });
+
+  it("reasons in order: fact, then limit, then meaning, then next move", () => {
+    /*
+      CONCRETE BEFORE ABSTRACT. The observable fact must come before the
+      principle drawn from it — the ordering DEC-067 requires, and the specific
+      thing Founder UAT rejected when the abstraction led.
+    */
+    const reasoning = paragraphsOf("m8-s3-a-failure-points-in-many-directions");
+    const index = (needle: string) =>
+      reasoning.findIndex((paragraph) => paragraph.includes(needle));
+
+    const fact = index("did not receive a reply");
+    const limit = index("It does not tell you why");
+    const meaning = index("failed test and a diagnosis");
+    const nextMove = index("follow the packet from PC-A");
+    const scope = index("later course");
+
+    for (const [label, position] of [
+      ["the observable fact", fact],
+      ["the limit of the evidence", limit],
+      ["the technical meaning", meaning],
+      ["the next move", nextMove],
+      ["the scope boundary", scope]
+    ] as const) {
+      expect(`${label} is present: ${position >= 0}`).toBe(`${label} is present: true`);
+    }
+
+    expect(`fact before limit: ${fact < limit}`).toBe("fact before limit: true");
+    expect(`limit before meaning: ${limit < meaning}`).toBe("limit before meaning: true");
+    expect(`meaning before the next move: ${meaning < nextMove}`).toBe(
+      "meaning before the next move: true"
+    );
+    expect(`the next move before the scope boundary: ${nextMove < scope}`).toBe(
+      "the next move before the scope boundary: true"
+    );
+  });
+
+  it("leaves several causes open, naming more than one candidate", () => {
+    // If only one cause survived the setup, the workspace would be a formality.
+    const reasoning = paragraphsOf("m8-s3-a-failure-points-in-many-directions").join("\n");
+
+    for (const candidate of ["PC-C", "Router-1", "PC-A", "connection"]) {
+      expect(`the setup leaves ${candidate} open: ${reasoning.includes(candidate)}`).toBe(
+        `the setup leaves ${candidate} open: true`
+      );
+    }
+  });
+
+  it("states the learner's job once, not on every screen", () => {
+    /*
+      Founder UAT found the same instruction three times before the workspace.
+      The job is set where the reasoning produces it — in the setup's closing
+      paragraphs — and the workspace caption then says what to DO, not what the
+      exercise is for.
+    */
+    const setup = setupText().toLowerCase();
+    const restatements = (setup.match(/your job/g) ?? []).length;
+
+    expect(`the job is stated ${restatements} time(s)`).toBe(
+      "the job is stated 1 time(s)"
+    );
+  });
+
+  it("introduces no deferred protocol vocabulary in the setup", () => {
+    const text = setupText();
+
+    for (const deferred of [
+      "ICMP",
+      "TTL",
+      "Layer 2",
+      "Layer 3",
+      "ARP",
+      "routing table",
+      "subnetting"
+    ]) {
+      expect(`the setup introduces ${deferred}: ${text.includes(deferred)}`).toBe(
+        `the setup introduces ${deferred}: false`
+      );
+    }
+  });
+});
+
+describe("the mission description does not answer the mission", () => {
+  /**
+   * The description is learner-facing on a FALLBACK rendering path — the
+   * bundled brief, shown while the instruction request is idle, loading, or
+   * has failed in a way that permits fallback. Repository discovery found it
+   * naming the fault class and the mission that teaches it.
+   */
+  it("discloses no part of the diagnosis", () => {
+    const description = mission(M8).description ?? "";
+
+    for (const disclosure of [
+      BAD_GATEWAY,
+      GOOD_GATEWAY,
+      "default gateway",
+      "single wrong setting",
+      "one wrong setting",
+      "Mission 5",
+      "PC-A",
+      "wrong setting",
+      "misconfigured"
+    ]) {
+      expect(`the description discloses "${disclosure}": ${description.includes(disclosure)}`)
+        .toBe(`the description discloses "${disclosure}": false`);
+    }
+  });
+
+  it("still declares what the learner needs before starting", () => {
+    // BEGINNER-COMPLETE-1, counted across all eight missions by verify-wpj.sh.
+    // The prerequisite declaration carries no disclosure and is preserved.
+    const description = mission(M8).description ?? "";
+
+    expect(description).toContain("Before this mission you should be able to:");
+    expect(description).toContain("Mission 7");
+  });
+
+  it("says what the learner will do, in one sentence of orientation", () => {
+    const description = mission(M8).description ?? "";
+
+    expect(description).toContain("A test that worked before now fails");
+    expect(description).toContain("use the stopping point to decide what to investigate next");
   });
 });

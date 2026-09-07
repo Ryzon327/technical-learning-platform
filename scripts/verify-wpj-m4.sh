@@ -215,10 +215,52 @@ echo "PASS:  4. the local/remote decision is authored, never computed"
 # silent pass, because a stray non-text byte once made grep treat a source file
 # as binary and every absence check below would have passed while reading zero
 # bytes.
+#
+# The line filter it used to be — drop any line starting with `//`, `*`, `/*`
+# or `--` — assumed every block comment puts an asterisk on its continuation
+# lines. This repository's explanatory blocks mostly do not, so the BODY of a
+# `/* ... */` reached the scan while its opening line did not.
+#
+# That is not theoretical. The Founder UAT repair added a comment recording
+# that the confirmation "used to be prefixed \"Fixed.\"" — an accurate note
+# about a string that was REMOVED — and the filter passed the word `prefix`
+# straight through to a rule about subnet arithmetic. The only ways to pass
+# were to delete a true comment or to weaken the rule, which is exactly the
+# outcome the paragraph above says this helper exists to prevent.
+#
+# So it is a real comment stripper now: a state machine that removes `/* … */`
+# across lines and `// …` to end of line, and leaves code.
 code_of() {
   local source="$1"
   local scanned
-  scanned="$(grep -vE '^\s*(//|\*|/\*|--)' "$source" || true)"
+
+  scanned="$(awk '
+    {
+      line = $0
+      out = ""
+      while (length(line) > 0) {
+        if (inblock) {
+          end = index(line, "*/")
+          if (end == 0) { line = ""; break }
+          line = substr(line, end + 2)
+          inblock = 0
+          continue
+        }
+        start = index(line, "/*")
+        eol = index(line, "//")
+        if (eol > 0 && (start == 0 || eol < start)) {
+          out = out substr(line, 1, eol - 1)
+          line = ""
+          break
+        }
+        if (start == 0) { out = out line; line = ""; break }
+        out = out substr(line, 1, start - 1)
+        line = substr(line, start + 2)
+        inblock = 1
+      }
+      if (length(out) > 0) print out
+    }
+  ' "$source" || true)"
 
   if [ -s "$source" ] && [ -z "$scanned" ]; then
     fail "scanning $source produced nothing, but the file is not empty — every absence check reading it would pass while examining no code"
@@ -274,13 +316,72 @@ if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 
   fail "this slice changed a migration; Mission 4 authors curriculum only"
 fi
 
-for contract in packages/shared-types/src/instruction-interaction.ts \
-                packages/shared-types/src/mission-steps.ts \
-                packages/shared-types/src/observation-model.ts; do
-  if ! git diff --quiet HEAD -- "$contract" 2>/dev/null; then
-    fail "this slice changed a contract; Mission 4 uses the existing one: $contract"
-  fi
-done
+# ## Why the interaction contract is no longer in this list
+#
+# It used to assert `git diff --quiet HEAD` over
+# `instruction-interaction.ts`, on the reasoning that a CURRICULUM slice has no
+# business editing the contract. That was right for a curriculum slice and
+# wrong as a permanent rule: DEC-064 adds the knowledge-check type to that file
+# under Founder approval, and a guard that fails on authorised work is a guard
+# that gets deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# that Mission 4 USES the contract rather than bending it — and specifically
+# that a prediction never acquires an answer key, which `verify-wph.sh` asserts
+# directly on the prediction type. The remaining contracts stay pinned below.
+# Rebased in the Mission 8 refinement. `verify-wph.sh` used to forbid
+# `correctOption` on the prediction contract outright, and every mission gate
+# delegated to that one string. A Founder ruling then made the field available,
+# optionally, so that a learner never has to infer from "what actually
+# happened" whether their own model was right.
+#
+# Delegation alone was always the weaker check: it asserted something about a
+# TYPE, in another file, and said nothing about this mission. So each gate now
+# asserts what its own mission actually relies on. Mission 4 authors
+# exploratory predictions — the learner cannot yet reason the answer out, the
+# observation IS the answer, and marking the guess would punish them for doing
+# what was asked. None of its predictions may carry a correct option.
+grep -Fq 'const PREDICTION_KEYS = ["prompt", "options"] as const;' packages/shared-types/src/instruction-interaction.ts \
+  || fail "correctOption became REQUIRED on a prediction; Mission 4 relies on a prediction staying ungradeable"
+
+# The per-mission half of this — that Mission 4 authors no GRADED prediction —
+# is asserted in `networking-foundations.test.ts`, which parses the document.
+# A grep here cannot tell a prediction's correct option from a knowledge
+# check's, and a knowledge check is supposed to have one.
+
+# `observation-model.ts` is excluded for the same reason
+# `instruction-interaction.ts` is (DEC-064 note above): the Founder UAT repair
+# adds an authored `action` to a stage so the pane can head with what a device
+# is DOING rather than only where the learner is. What must not change is that
+# the model reports authored observations rather than computing them, and
+# `verify-wpj-m1.sh` section 7 asserts that over every presentation source.
+grep -Fq 'networking truth entered the presentation layer' scripts/verify-wpj-m1.sh \
+  || fail "the renderer-computes-nothing guard is gone"
+
+# `mission-steps.ts` left this pin for the same reason `instruction-interaction.ts`
+# did above. It was `git diff --quiet HEAD`, on the reasoning that a curriculum
+# slice has no business editing the step contract — right for a curriculum
+# slice, wrong as a permanent rule. WP-NF-NT1 adds `near_transfer` to the
+# vocabulary under a DEC-054 amendment, and a guard that fails on authorised
+# work is a guard that gets deleted rather than fixed.
+#
+# The invariant underneath was that Mission 4 USES the vocabulary rather than
+# inventing one for itself. So: the vocabulary stays closed, and Mission 4
+# authors only types inside it.
+grep -Fq 'The set is closed.' packages/shared-types/src/mission-steps.ts \
+  || fail "the step vocabulary is no longer declared closed; Mission 4 relies on authoring within a fixed set"
+
+grep -Fq 'the vocabulary is closed at ${MISSION_STEP_TYPES.join(", ")}' packages/shared-types/src/mission-steps.ts \
+  || fail "an unapproved step type no longer fails validation; the closed vocabulary would be advisory"
+
+# Read from Mission 4's own block, so a type introduced anywhere else in the
+# course cannot satisfy this and a type introduced HERE cannot hide.
+while IFS= read -r authored; do
+  case "$authored" in
+    concept|diagram|command|prediction|interaction|practice|near_transfer|reference) ;;
+    *) fail "Mission 4 authors the step type \"$authored\", which is not in the closed vocabulary" ;;
+  esac
+done < <(grep -o '"type": "[a-z_]*"' "$M4_BLOCK" | sed 's/.*: "//; s/"//')
 
 if ! git diff --quiet HEAD -- packages/shared-types/src/roas-curriculum.ts 2>/dev/null; then
   fail "this slice modified Router-on-a-Stick"

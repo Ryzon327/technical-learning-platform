@@ -55,6 +55,61 @@ Validation may check:
 
 Checks are defined by approved validation profiles.
 
+## 5.1 Operational state versus persisted state
+
+Recorded for the practical networking path; the curriculum doctrine behind it is
+owned by `CURR-012` §14.
+
+A configuration task is **not complete** merely because the commands were
+accepted, or because the running state happens to work. Where the device model
+supports persistence, the running state and the saved state are **two separate
+facts about the lab**, and a validator must be architecturally able to report
+them separately:
+
+```
+Operational state:      PASS
+Persistent/saved state: NOT COMPLETE
+```
+
+A profile that checks only the running state cannot establish that a learner
+saved their work, and a learner whose lab is reset would lose it. A profile that
+conflates the two cannot tell the learner which of the two things they missed.
+
+This is a **contract requirement on the validator model**, not a UI
+specification. No presentation of these two results is specified or authorized
+here.
+
+## 5.2 Network-state validation categories
+
+Target categories for the practical networking path, recorded so future
+validation profiles are scoped in advance rather than invented per mission.
+**None of these is implemented, and this section authorizes no implementation.**
+
+- hostname;
+- interface administrative and operational state;
+- interface address and prefix;
+- VLAN existence;
+- access-port VLAN membership;
+- trunk state and required allowed VLANs;
+- router subinterface state;
+- encapsulation and VLAN mapping;
+- gateway address;
+- management SVI;
+- remote-management reachability;
+- DHCP lease or binding, or client-side result;
+- DNS resolution outcome;
+- routing-table state;
+- OSPF neighbour state;
+- OSPF-learned route;
+- end-to-end reachability;
+- paths that must remain **unreachable**;
+- ACL or NAT result where applicable;
+- running configuration;
+- saved/persisted configuration.
+
+The deterministic validator remains the sole authority for correctness in every
+category. AI does not decide any of them (`DEC-062`, `CURR-011` §12).
+
 ---
 
 # 6. Explicitly Excluded Scope
@@ -197,6 +252,7 @@ LAB-008 is complete when:
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-10 | Initial Feature specification |
+| 1.1 | 2026-09-06 | Added section 5.1, recording that operational state and persisted state are two separate facts about the lab and that a validator must be architecturally able to report them separately: a profile checking only the running state cannot establish that a learner saved their work, and one that conflates the two cannot tell the learner which they missed. Stated as a contract requirement on the validator model, not a UI specification, and specifying no presentation of the two results. Added section 5.2, recording the target network-state validation categories so future profiles are scoped in advance rather than invented per mission, none of which is implemented and none of which is authorized here; the deterministic validator remains the sole authority for correctness in every category and AI decides none of them. Curriculum doctrine behind section 5.1 is owned by CURR-012 section 14; see DEC-062 and CURR-011 section 12 |
 
 ---
 

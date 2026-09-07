@@ -1,23 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
   OBSERVATION_NODE_ROLES,
+  buildPacketJourneyObservationModel,
+  parseCurriculumDocument,
   unavailableObservationModel,
-  type ObservationModel
+  type ObservationModel,
+  type PacketJourneyParameters
 } from "@tlp/shared-types";
+import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
 import {
+  CANVAS_PADDING,
   GROUP_LABEL_HEIGHT,
   MARKER_CLEARANCE,
+  FACE_INTERFACE_FONT_PX,
+  FACE_LABEL_FONT_PX,
+  FACE_VALUE_FONT_PX,
   NODE_BASE_HEIGHT,
+  NODE_FACTS_HEADER_HEIGHT,
+  NODE_FACT_ROW_HEIGHT,
+  NODE_INTERFACE_HEADING_HEIGHT,
   NODE_WIDTH,
   TOPOLOGY_HEIGHT_BUDGET,
+  TOPOLOGY_MIN_SCALE,
   TOPOLOGY_WIDTH_BUDGET,
+  describeWorkspaceColumns,
   buildTopologyLayout,
   connectionsForDevice,
   describeConnectionFrom,
   describeDeviceState,
   describePacketState,
   describeTopologyRole,
-  distanceToBox
+  distanceToBox,
+  faceTextFits,
+  fitTopologyScale
 } from "./topology-layout";
 
 /**
@@ -540,12 +555,17 @@ describe("wires are routed geometry, not pathfinding", () => {
 });
 
 describe("journey state comes from fields, never from adjacency", () => {
-  it("marks the current, visited and unreached devices", () => {
+  it("marks the origin, the current device and the unreached ones", () => {
+    // `pc-a` was `visited` here until Founder video UAT. It is the stage the
+    // traffic did not cross a link to reach — the leg's ORIGIN — and a source
+    // the traffic has left is not a device it passed through. The picture has
+    // to keep saying where the journey began after the traffic moves on.
     const byId = new Map(
       layoutOf(model).devices.map((device) => [device.nodeId, device])
     );
 
-    expect(byId.get("pc-a")?.state).toBe("visited");
+    expect(byId.get("pc-a")?.state).toBe("origin");
+    expect(byId.get("pc-a")?.stateLabel).toBe("Started here");
     expect(byId.get("sw-1")?.state).toBe("current");
     expect(byId.get("r-1")?.state).toBe("idle");
     expect(byId.get("pc-b")?.state).toBe("idle");
@@ -2249,5 +2269,965 @@ describe("authored port labels are drawn beside their connections", () => {
 
     expect(layoutOf(reordered).portLabels.map((port) => port.interfaceId).sort())
       .toEqual(layoutOf(labelled).portLabels.map((port) => port.interfaceId).sort());
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * The REAL authored journeys
+ *
+ * Founder UAT, second round: the far network sat off the right-hand edge of
+ * Missions 4, 6 and 8, and the reviewer was reconstructing the topology from
+ * memory instead of reasoning about it.
+ *
+ * Every assertion above this point runs against SYNTHETIC fixtures, and the
+ * budget test explicitly excused the two-group shape as "a synthetic worst
+ * case ... allowed to scroll". That exemption was written when Module 1 was
+ * the only authored content. Missions 4, 6 and 8 are now exactly that shape —
+ * so the suite was passing on fixtures while the real course clipped.
+ *
+ * These run against the authored curriculum itself. A fixture cannot be tuned
+ * to make them pass.
+ * ------------------------------------------------------------------ */
+
+/**
+ * The width the NETWORK column actually gets, at the Founder's desktop.
+ *
+ * Founder UAT found the topology squeezed into a fraction of the screen and
+ * then scaled past readability. The earlier assertions targeted the reading
+ * column — about 624px — which was the defect written down as a requirement:
+ * a lesson-reading width was deciding how big the network could be.
+ *
+ * A workspace is not a paragraph. These now assert against the width the
+ * layout really gives the network, modelled by `describeWorkspaceColumns`.
+ */
+const FOUNDER_VIEWPORT = 1440;
+const NETWORK_COLUMN = describeWorkspaceColumns(FOUNDER_VIEWPORT).network;
+
+function authoredJourneys(): {
+  readonly name: string;
+  readonly parameters: PacketJourneyParameters;
+}[] {
+  const parsed = parseCurriculumDocument(networkingFoundations);
+  if (!parsed.valid) throw new Error("the authored course does not parse");
+
+  return parsed.document.missions.flatMap((mission) =>
+    mission.steps.flatMap((step) =>
+      step.content.type === "interaction"
+        ? [
+            {
+              name: step.content.interactionStableId,
+              parameters: step.content.parameters as PacketJourneyParameters
+            }
+          ]
+        : []
+    )
+  );
+}
+
+function authoredLayout(parameters: PacketJourneyParameters, revealed: number) {
+  const model = buildPacketJourneyObservationModel(parameters, {
+    revealedStageCount: revealed,
+    appliedActionId: null,
+    committedPredictions: {}
+  } as never);
+
+  return buildTopologyLayout(model, null);
+}
+
+describe("every authored journey fits the lesson column", () => {
+  it("scales to fit the reading column without scrolling sideways", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+      const width = layout.frame.width * scale;
+
+      expect(`${name} fits ${NETWORK_COLUMN}: ${width <= NETWORK_COLUMN + 0.5}`).toBe(
+        `${name} fits ${NETWORK_COLUMN}: true`
+      );
+    }
+  });
+
+  it("leaves vertical room for the task beside it", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+      const height = layout.frame.height * scale;
+
+      expect(
+        `${name} height ${Math.round(height)} <= ${TOPOLOGY_HEIGHT_BUDGET}: ${height <= TOPOLOGY_HEIGHT_BUDGET + 0.5}`
+      ).toBe(`${name} height ${Math.round(height)} <= ${TOPOLOGY_HEIGHT_BUDGET}: true`);
+    }
+  });
+
+  it("never scales below the readable floor to achieve that", () => {
+    // The budget must not be met by shrinking the picture until nobody can read
+    // it. If a journey ever needs less than the floor, the layout is what has
+    // to change — not this number.
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+      expect(`${name} scale >= floor: ${scale >= TOPOLOGY_MIN_SCALE}`).toBe(
+        `${name} scale >= floor: true`
+      );
+
+      const needed = Math.min(
+        NETWORK_COLUMN / layout.frame.width,
+        TOPOLOGY_HEIGHT_BUDGET / layout.frame.height
+      );
+
+      expect(`${name} needs no more than the floor: ${needed >= TOPOLOGY_MIN_SCALE}`).toBe(
+        `${name} needs no more than the floor: true`
+      );
+    }
+  });
+
+  it("fits at every point in the journey, not only at the end", () => {
+    // Cards grow as stages reveal device facts, so the last stage is not
+    // automatically the widest or the tallest moment.
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 0; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+        expect(
+          `${name}@${revealed}: ${layout.frame.width * scale <= NETWORK_COLUMN + 0.5 && layout.frame.height * scale <= TOPOLOGY_HEIGHT_BUDGET + 0.5}`
+        ).toBe(`${name}@${revealed}: true`);
+      }
+    }
+  });
+
+  it("leaves a drawing that already fits at its authored size", () => {
+    // Never magnified. A small topology is not stretched to fill the column.
+    const small = { width: 300, height: 200 };
+    expect(fitTopologyScale(small, NETWORK_COLUMN)).toBe(1);
+  });
+});
+
+describe("every authored journey names the connections that matter", () => {
+  it("labels every switch port and every router interface", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, 0);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      const labelled = new Set(layout.portLabels.map((port) => port.interfaceId));
+
+      for (const node of parameters.nodes) {
+        if (node.role !== "switch" && node.role !== "router") continue;
+
+        for (const iface of node.interfaces) {
+          // Only ends that are actually attached to a drawn link can carry a
+          // label; an unattached interface has no wire to sit beside.
+          const attached = parameters.links.some((link) =>
+            link.endpoints.includes(iface.interfaceId)
+          );
+          if (!attached) continue;
+
+          expect(`${name} ${iface.interfaceId} labelled: ${labelled.has(iface.interfaceId)}`).toBe(
+            `${name} ${iface.interfaceId} labelled: true`
+          );
+        }
+      }
+    }
+  });
+
+  it("keeps port labels clear of every device card", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, 0);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      for (const port of layout.portLabels) {
+        for (const device of layout.devices) {
+          const inside =
+            port.at.x > device.box.x &&
+            port.at.x < device.box.x + device.box.width &&
+            port.at.y > device.box.y &&
+            port.at.y < device.box.y + device.box.height;
+
+          expect(`${name} ${port.interfaceId} inside ${device.nodeId}: ${inside}`).toBe(
+            `${name} ${port.interfaceId} inside ${device.nodeId}: false`
+          );
+        }
+      }
+    }
+  });
+
+  it("does not stack two port labels on the same point", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, 0);
+      if (layout.state !== "available") throw new Error(`${name} is unavailable`);
+
+      const seen = new Set<string>();
+
+      for (const port of layout.portLabels) {
+        const key = `${Math.round(port.at.x)},${Math.round(port.at.y)}`;
+        expect(`${name} ${key} already used: ${seen.has(key)}`).toBe(
+          `${name} ${key} already used: false`
+        );
+        seen.add(key);
+      }
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * The marker travels the wire
+ *
+ * Founder UAT, third round: "traffic must follow the physical/authored line
+ * continuously ... it must NOT jump directly between node centers, skip bends,
+ * teleport between disconnected visual coordinates, leave the actual wire,
+ * infer a shortcut, animate across empty space."
+ *
+ * The defect was that the marker was positioned at a point and moved by a CSS
+ * transition, which interpolates in a straight line — so on any bent wire it
+ * cut the corner. These assertions pin the replacement: the marker carries the
+ * link's own path string, and the browser walks that.
+ * ------------------------------------------------------------------ */
+
+describe("traffic follows the wire it is authored to travel", () => {
+  it("carries the same path string the link is drawn with", () => {
+    // One source of geometry, asserted literally: not an equal-looking path,
+    // the identical string.
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const marker of layout.packets) {
+          // A marker with no path is parked, whether or not it sits beside a
+          // wire. Only a travelling marker carries geometry, and when it does
+          // the geometry must be the link's own string.
+          if (marker.path === null) continue;
+
+          const link = layout.links.find(
+            (candidate) => candidate.linkId === marker.linkId
+          );
+
+          expect(`${name}@${revealed} ${marker.linkId}: ${marker.path === link?.path}`).toBe(
+            `${name}@${revealed} ${marker.linkId}: true`
+          );
+        }
+      }
+    }
+  });
+
+  it("follows every bend, because the path it carries has them", () => {
+    // A wire with corners must hand the marker a path with corners. If the
+    // marker were given a two-point shortcut the bends would be gone.
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const marker of layout.packets) {
+          if (marker.path === null) continue;
+
+          const link = layout.links.find((c) => c.linkId === marker.linkId);
+          const corners = (link?.points.length ?? 0) - 1;
+          const segments = (marker.path.match(/L/g) ?? []).length;
+
+          expect(`${name} ${marker.linkId} segments: ${segments}`).toBe(
+            `${name} ${marker.linkId} segments: ${corners}`
+          );
+        }
+      }
+    }
+  });
+
+  it("never takes a straight line between two device centres", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const marker of layout.packets) {
+          if (marker.path === null) continue;
+
+          const centres = layout.devices.map((device) => ({
+            x: device.box.x + device.box.width / 2,
+            y: device.box.y + device.box.height / 2
+          }));
+
+          const start = marker.path
+            .replace(/^M\s*/, "")
+            .split(/[ L]/)
+            .slice(0, 2)
+            .map(Number);
+
+          const onACentre = centres.some(
+            (centre) =>
+              Math.abs(centre.x - (start[0] ?? 0)) < 0.5 &&
+              Math.abs(centre.y - (start[1] ?? 0)) < 0.5
+          );
+
+          expect(`${name} ${marker.linkId} starts at a device centre: ${onACentre}`).toBe(
+            `${name} ${marker.linkId} starts at a device centre: false`
+          );
+        }
+      }
+    }
+  });
+
+  it("animates only the links the authored stage occupies", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        const current = new Set(
+          layout.links.filter((link) => link.current).map((link) => link.linkId)
+        );
+
+        for (const marker of layout.packets) {
+          // A marker may be PARKED beside a wire the stage did not name — the
+          // origin, before anything has moved, is exactly that. What it may
+          // not do is travel one: a path is carried only for an authored link.
+          if (marker.path === null) continue;
+
+          expect(`${name}@${revealed} ${marker.linkId} is current: ${current.has(marker.linkId ?? "")}`)
+            .toBe(`${name}@${revealed} ${marker.linkId} is current: true`);
+        }
+      }
+    }
+  });
+
+  it("parks rather than travels when the stage names no link", () => {
+    // The origin. Nothing has crossed anything, so there is no authored wire
+    // to travel and the marker must carry no path at all.
+    for (const { name, parameters } of authoredJourneys()) {
+      const originStage = parameters.stages[0];
+      if (originStage?.viaLinkId !== undefined) continue;
+
+      const layout = authoredLayout(parameters, 1);
+      if (layout.state !== "available") continue;
+
+      for (const marker of layout.packets) {
+        expect(`${name} origin marker path: ${marker.path}`).toBe(
+          `${name} origin marker path: null`
+        );
+      }
+    }
+  });
+
+  it("puts one marker on every link a fan-out moment occupies", () => {
+    // Mission 2 floods: `viaLinkId` plus every `alsoOnLinkIds` entry. Each of
+    // those wires gets its own marker, and they are all anchored at the same
+    // device, so the moment reads as copies leaving together.
+    const flood = authoredJourneys().find(
+      (entry) => entry.name === "nf-pj2-local-delivery"
+    );
+    if (flood === undefined) throw new Error("Mission 2's journey is missing");
+
+    const fanOut = flood.parameters.stages.findIndex(
+      (stage) => (stage.alsoOnLinkIds ?? []).length > 0
+    );
+
+    expect(fanOut).toBeGreaterThanOrEqual(0);
+
+    const stage = flood.parameters.stages[fanOut];
+    const layout = authoredLayout(flood.parameters, fanOut + 1);
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    const expected = new Set<string>([
+      ...(stage?.viaLinkId === undefined ? [] : [stage.viaLinkId]),
+      ...(stage?.alsoOnLinkIds ?? [])
+    ]);
+
+    expect(new Set(layout.packets.map((marker) => marker.linkId))).toEqual(expected);
+    expect(new Set(layout.packets.map((marker) => marker.nodeId)).size).toBe(1);
+  });
+
+  it("sends the arriving copy inward and the leaving copies outward", () => {
+    // Direction is read from the authored stage: the link it arrived on
+    // travels towards the device, every link it left on travels away.
+    const flood = authoredJourneys().find(
+      (entry) => entry.name === "nf-pj2-local-delivery"
+    );
+    if (flood === undefined) throw new Error("Mission 2's journey is missing");
+
+    const fanOut = flood.parameters.stages.findIndex(
+      (stage) => (stage.alsoOnLinkIds ?? []).length > 0
+    );
+    const stage = flood.parameters.stages[fanOut];
+    const layout = authoredLayout(flood.parameters, fanOut + 1);
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    for (const marker of layout.packets) {
+      const link = layout.links.find((c) => c.linkId === marker.linkId);
+      if (link === undefined) throw new Error("no link");
+
+      const arriving = marker.linkId === stage?.viaLinkId;
+      const deviceIsPathEnd = link.to.nodeId === marker.nodeId;
+      const expected = arriving ? deviceIsPathEnd : !deviceIsPathEnd;
+
+      expect(`${marker.linkId} travelsToEnd: ${marker.travelsToEnd}`).toBe(
+        `${marker.linkId} travelsToEnd: ${expected}`
+      );
+    }
+  });
+
+  it("reverses on the return leg of the round trip", () => {
+    // Mission 6 crosses the same wires outbound and back. The same link must
+    // travel opposite ways at those two moments, without the path changing.
+    const trip = authoredJourneys().find(
+      (entry) => entry.name === "nf-pj6-end-to-end"
+    );
+    if (trip === undefined) throw new Error("Mission 6's journey is missing");
+
+    const directions = new Map<string, boolean[]>();
+
+    for (let revealed = 1; revealed <= trip.parameters.stages.length; revealed += 1) {
+      const layout = authoredLayout(trip.parameters, revealed);
+      if (layout.state !== "available") continue;
+
+      for (const marker of layout.packets) {
+        if (marker.linkId === null) continue;
+        const seen = directions.get(marker.linkId) ?? [];
+        seen.push(marker.travelsToEnd);
+        directions.set(marker.linkId, seen);
+      }
+    }
+
+    const reversed = [...directions.entries()].filter(
+      ([, seen]) => seen.includes(true) && seen.includes(false)
+    );
+
+    expect(reversed.length).toBeGreaterThan(0);
+  });
+
+  it("does not travel past an authored stop", () => {
+    // Mission 8 stops before anything leaves PC-A. The marker must not be in a
+    // travelling state there, or the picture would contradict the authored
+    // outcome the whole mission is about.
+    const faulted = authoredJourneys().find(
+      (entry) => entry.name === "nf-pj8-the-stop-and-the-repair"
+    );
+    if (faulted === undefined) throw new Error("Mission 8's journey is missing");
+
+    const stopIndex = faulted.parameters.stages.findIndex(
+      (stage) => stage.outcome === "stops"
+    );
+
+    const layout = authoredLayout(faulted.parameters, stopIndex + 1);
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    for (const marker of layout.packets) {
+      expect(`stopped marker state: ${marker.state}`).toBe(
+        "stopped marker state: stopped"
+      );
+    }
+  });
+
+  it("travels again once the authored repair releases the journey", () => {
+    const faulted = authoredJourneys().find(
+      (entry) => entry.name === "nf-pj8-the-stop-and-the-repair"
+    );
+    if (faulted === undefined) throw new Error("Mission 8's journey is missing");
+
+    const resolving = faulted.parameters.actions.find(
+      (action) => action.resolvesFault
+    );
+
+    const stopIndex = faulted.parameters.stages.findIndex(
+      (stage) => stage.outcome === "stops"
+    );
+
+    const model = buildPacketJourneyObservationModel(faulted.parameters, {
+      revealedStageCount: stopIndex + 2,
+      appliedActionId: resolving?.actionId ?? null,
+      committedPredictions: {}
+    } as never);
+
+    const layout = buildTopologyLayout(model, null);
+    if (layout.state !== "available") throw new Error("unavailable");
+
+    expect(layout.packets.length).toBeGreaterThan(0);
+    for (const marker of layout.packets) {
+      expect(`repaired marker state: ${marker.state}`).toBe(
+        "repaired marker state: moving"
+      );
+      expect(marker.path).not.toBeNull();
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * THE WORKSPACE IS BIGGER THAN THE PANE
+ *
+ * Founder UAT, blocking: "the network must not become a thumbnail beside a
+ * text pane." These assert the geometry the layout actually produces, at the
+ * Founder's own viewport, against the real authored journeys.
+ * ------------------------------------------------------------------ */
+
+describe("the network is the dominant surface at desktop widths", () => {
+  const DESKTOP = [1280, 1440, 1728, 1920];
+
+  it("gives the network more width than the instructor pane", () => {
+    for (const viewport of DESKTOP) {
+      for (const mode of ["embedded", "expanded"] as const) {
+        const columns = describeWorkspaceColumns(viewport, mode);
+
+        expect(
+          `${viewport} ${mode}: network wider: ${columns.network > columns.instructor}`
+        ).toBe(`${viewport} ${mode}: network wider: true`);
+      }
+    }
+  });
+
+  it("keeps the network between 55% and 65% of the workspace", () => {
+    // The perceptual requirement, stated as the band the Founder approved.
+    for (const viewport of DESKTOP) {
+      for (const mode of ["embedded", "expanded"] as const) {
+        const { network, instructor } = describeWorkspaceColumns(viewport, mode);
+        const share = network / (network + instructor);
+
+        expect(
+          `${viewport} ${mode}: share in band: ${share >= 0.55 && share <= 0.65}`
+        ).toBe(`${viewport} ${mode}: share in band: true`);
+      }
+    }
+  });
+
+  it("escapes the reading column, so prose width never sizes the network", () => {
+    // `.card` is min(760px, 100%) with up to 3rem of padding — about 664px of
+    // content. The workspace must be substantially wider than that.
+    expect(describeWorkspaceColumns(1440).total).toBeGreaterThan(664 * 1.5);
+  });
+
+  it("collapses to a single full-width column below the breakout", () => {
+    const narrow = describeWorkspaceColumns(900);
+
+    expect(narrow.instructor).toBe(0);
+    expect(narrow.network).toBe(narrow.total);
+  });
+});
+
+describe("every authored journey is readable in the network column", () => {
+  it("never scales below the readable floor at the Founder's viewport", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 0; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+        expect(`${name}@${revealed} scale ${scale.toFixed(2)} >= floor: ${scale >= TOPOLOGY_MIN_SCALE}`)
+          .toBe(`${name}@${revealed} scale ${scale.toFixed(2)} >= floor: true`);
+
+        // And the floor is not being MET by clipping: the scaled drawing has
+        // to actually fit the column it is given.
+        expect(`${name}@${revealed} fits: ${layout.frame.width * scale <= NETWORK_COLUMN + 0.5}`)
+          .toBe(`${name}@${revealed} fits: true`);
+      }
+    }
+  });
+
+  it("keeps every device card inside the network column", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") continue;
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+      for (const device of layout.devices) {
+        const right = (device.box.x + device.box.width) * scale;
+
+        expect(`${name} ${device.nodeId} clipped: ${right > NETWORK_COLUMN + 0.5}`).toBe(
+          `${name} ${device.nodeId} clipped: false`
+        );
+      }
+    }
+  });
+
+  it("keeps every network group inside the column", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") continue;
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+      for (const group of layout.groups) {
+        const right = (group.box.x + group.box.width) * scale;
+
+        expect(`${name} ${group.groupId} clipped: ${right > NETWORK_COLUMN + 0.5}`).toBe(
+          `${name} ${group.groupId} clipped: false`
+        );
+      }
+    }
+  });
+
+  it("keeps every port label inside the column", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, 0);
+      if (layout.state !== "available") continue;
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+      for (const port of layout.portLabels) {
+        expect(`${name} ${port.interfaceId} clipped: ${port.at.x * scale > NETWORK_COLUMN + 0.5}`)
+          .toBe(`${name} ${port.interfaceId} clipped: false`);
+      }
+    }
+  });
+
+  it("draws Missions 1, 2, 6 and 8 at a comfortable size", () => {
+    // The four the Founder retests. None of them should need shrinking at all
+    // in the expanded workspace: if one does, the column is too narrow rather
+    // than the drawing too big.
+    const expanded = describeWorkspaceColumns(FOUNDER_VIEWPORT, "expanded").network;
+
+    for (const name of [
+      "nf-pj1-topology-orientation",
+      "nf-pj2-local-delivery",
+      "nf-pj6-end-to-end",
+      "nf-pj8-the-stop-and-the-repair"
+    ]) {
+      const entry = authoredJourneys().find((candidate) => candidate.name === name);
+      if (entry === undefined) throw new Error(`${name} is missing`);
+
+      const layout = authoredLayout(entry.parameters, entry.parameters.stages.length);
+      if (layout.state !== "available") throw new Error("unavailable");
+
+      expect(`${name} fits the expanded column unscaled: ${layout.frame.width <= expanded}`)
+        .toBe(`${name} fits the expanded column unscaled: true`);
+    }
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * THE CARD CARRIES NETWORK IDENTITY WITHOUT BECOMING A DUMP
+ *
+ * Founder UAT: "if the instructional text references an IP address, the learner
+ * should be able to find it on the topology rather than opening Full text" —
+ * and, immediately after it, "the cards must not become cluttered". Those pull
+ * against each other, so both directions are pinned here.
+ * ------------------------------------------------------------------ */
+
+describe("device faces carry identity without clutter", () => {
+  /*
+    Founder UAT, wave 8: the cards showed "Network interface I…" and
+    "Network interface Ha…". The previous version of this suite capped a face
+    at three facts, which was the wrong instrument entirely — three facts on
+    one line each still did not fit, and Router-1 needs four to say which of
+    its addresses is on which network.
+
+    The cap is gone. What replaces it is a measurement: every string the course
+    puts on a card face must fit the card, under a budget model deliberately
+    more pessimistic than the real font. A fact that does not fit is a fact the
+    author has to take off the face — never one the renderer quietly cuts.
+  */
+
+  it("shows every face line in full, with nothing cut", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 0; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const device of layout.devices) {
+          for (const group of device.face) {
+            if (group.heading !== null) {
+              expect(
+                `${name} ${device.nodeId} heading "${group.heading}" fits: ${faceTextFits(group.heading, FACE_INTERFACE_FONT_PX)}`
+              ).toBe(
+                `${name} ${device.nodeId} heading "${group.heading}" fits: true`
+              );
+            }
+
+            for (const fact of group.facts) {
+              expect(
+                `${name} ${device.nodeId} label "${fact.label}" fits: ${faceTextFits(fact.label, FACE_LABEL_FONT_PX)}`
+              ).toBe(
+                `${name} ${device.nodeId} label "${fact.label}" fits: true`
+              );
+
+              expect(
+                `${name} ${device.nodeId} value "${fact.value}" fits: ${faceTextFits(fact.value, FACE_VALUE_FONT_PX)}`
+              ).toBe(
+                `${name} ${device.nodeId} value "${fact.value}" fits: true`
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("gives every card a box its face actually fits in", () => {
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 0; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const device of layout.devices) {
+          const factRows = device.face.reduce(
+            (total, group) => total + group.facts.length,
+            0
+          );
+          const headingRows = device.face.filter(
+            (group) => group.heading !== null
+          ).length;
+
+          const needed =
+            NODE_BASE_HEIGHT +
+            (factRows === 0
+              ? 0
+              : NODE_FACTS_HEADER_HEIGHT +
+                headingRows * NODE_INTERFACE_HEADING_HEIGHT +
+                factRows * NODE_FACT_ROW_HEIGHT);
+
+          expect(
+            `${name}@${revealed} ${device.nodeId} fits: ${device.box.height >= needed}`
+          ).toBe(`${name}@${revealed} ${device.nodeId} fits: true`);
+        }
+      }
+    }
+  });
+
+  it("names the interface only when there is more than one to tell apart", () => {
+    // A host's single "Network interface" heading is a line of the card spent
+    // saying something the learner can already see. Router-1's two are the
+    // point of the card.
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") continue;
+
+      for (const device of layout.devices) {
+        const headed = device.face.filter((group) => group.heading !== null);
+
+        expect(
+          `${name} ${device.nodeId} headings: ${headed.length === 0 || headed.length === device.face.length}`
+        ).toBe(`${name} ${device.nodeId} headings: true`);
+
+        expect(
+          `${name} ${device.nodeId} heads only when it must: ${device.face.length > 1 ? headed.length > 0 : headed.length === 0}`
+        ).toBe(`${name} ${device.nodeId} heads only when it must: true`);
+      }
+    }
+  });
+
+  it("still fits the Founder column once identity is on the face", () => {
+    // Every fact added to a face costs a row of height, and the floor scale is
+    // not permitted to absorb it.
+    for (const { name, parameters } of authoredJourneys()) {
+      const layout = authoredLayout(parameters, parameters.stages.length);
+      if (layout.state !== "available") continue;
+
+      const scale = fitTopologyScale(layout.frame, NETWORK_COLUMN);
+
+      expect(`${name} above the floor: ${scale > TOPOLOGY_MIN_SCALE || scale === 1}`).toBe(
+        `${name} above the floor: true`
+      );
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-NF-NT1B — a network past the edge of the drawing
+ *
+ * The defect this closes: Mission 1's near-transfer asks which device
+ * connects the local network to another network, and the only thing that
+ * answered it was a sentence. The router's onward connection had no far end,
+ * so the diagram drew nothing and a sighted beginner had to read prose to
+ * find a topology fact.
+ * ------------------------------------------------------------------ */
+
+/** Two hosts on a switch, a router above it, and a network past the router. */
+const beyondTheRouter: ObservationModel = {
+  ...emptyJourney,
+  externalNetworks: [
+    {
+      networkId: "beyond",
+      label: "Another network",
+      attachedToNodeId: "r-2"
+    }
+  ],
+  nodes: [
+    node("r-2", "Router-2", "router", ["r-2-local"]),
+    node("sw-2", "Switch-2", "switch", ["sw-2-p1", "sw-2-p2", "sw-2-p3"]),
+    node("laptop-a", "Laptop-A", "host", ["laptop-a-nic"]),
+    node("server-a", "Server-A", "host", ["server-a-nic"])
+  ],
+  links: [
+    wire("link-laptop", "laptop-a-nic", "sw-2-p1"),
+    wire("link-server", "server-a-nic", "sw-2-p2"),
+    wire("link-router", "r-2-local", "sw-2-p3")
+  ]
+};
+
+describe("a network past the edge of the drawing", () => {
+  it("is drawn when the author declares one", () => {
+    const layout = layoutOf(beyondTheRouter);
+
+    expect(layout.externalNetworks).toHaveLength(1);
+    expect(layout.externalNetworks[0]?.label).toBe("Another network");
+    expect(layout.externalNetworks[0]?.attachedToNodeId).toBe("r-2");
+  });
+
+  it("is not a device", () => {
+    // The load-bearing separation. Everything that reasons about traffic
+    // iterates `devices` and `links`, so a network that is in neither can
+    // never acquire journey state, be arrived at, or be offered as an answer
+    // to "which device…".
+    const layout = layoutOf(beyondTheRouter);
+
+    expect(layout.devices.map((device) => device.label)).not.toContain(
+      "Another network"
+    );
+    expect(layout.devices).toHaveLength(4);
+    expect(layout.links).toHaveLength(3);
+  });
+
+  it("carries no journey state, because no traffic can reach it", () => {
+    // A wire and a label. There is no `traversed`, no `current`, no direction
+    // and no marker — not "they are false", but no field to set.
+    const network = layoutOf(beyondTheRouter).externalNetworks[0];
+
+    expect(Object.keys(network ?? {}).sort()).toEqual([
+      "attachedToNodeId",
+      "box",
+      "label",
+      "networkId",
+      "path"
+    ]);
+  });
+
+  it("is never carrying the packet marker", () => {
+    const layout = layoutOf({
+      ...beyondTheRouter,
+      stages: [
+        {
+          stageId: "s1",
+          atNodeId: "laptop-a",
+          narration: "It leaves Laptop-A.",
+          outcome: "proceeds",
+          availability: "available"
+        }
+      ],
+      currentStageId: "s1"
+    });
+
+    for (const marker of layout.packets) {
+      expect(marker.nodeId).not.toBe("beyond");
+      expect(
+        layout.externalNetworks.some(
+          (network) => network.path === marker.path
+        )
+      ).toBe(false);
+    }
+  });
+
+  it("draws a wire that actually reaches the device it names", () => {
+    // The failure this catches is a plate floating unconnected, which would
+    // look like a fifth device rather than a continuation.
+    const layout = layoutOf(beyondTheRouter);
+    const network = layout.externalNetworks[0];
+    const router = layout.devices.find((device) => device.nodeId === "r-2");
+
+    if (network === undefined || router === undefined) {
+      throw new Error("expected a network and the router it attaches to");
+    }
+
+    // Ends on the plate's bottom edge, and on the router card's top edge.
+    expect(network.path).toContain(
+      `M ${network.box.x + network.box.width / 2} ${network.box.y + network.box.height}`
+    );
+    expect(network.path).toContain(
+      `L ${router.box.x + router.box.width / 2} ${router.box.y}`
+    );
+  });
+
+  it("sits above every device, inside the canvas", () => {
+    const layout = layoutOf(beyondTheRouter);
+    const network = layout.externalNetworks[0];
+    if (network === undefined) throw new Error("expected a network");
+
+    expect(network.box.x).toBeGreaterThanOrEqual(CANVAS_PADDING);
+    expect(network.box.x + network.box.width).toBeLessThanOrEqual(
+      layout.frame.width
+    );
+
+    for (const device of layout.devices) {
+      expect(network.box.y + network.box.height).toBeLessThanOrEqual(
+        device.box.y
+      );
+    }
+  });
+
+  it("makes room for itself rather than overlapping the drawing", () => {
+    // The strip is reserved through the same shift a group boundary uses, so
+    // nothing moves relative to anything else — the drawing simply starts
+    // lower. Compared against the identical model with the declaration
+    // removed, so this measures the strip and not the arithmetic.
+    const withNetwork = layoutOf(beyondTheRouter);
+    const without = layoutOf({ ...beyondTheRouter, externalNetworks: [] });
+
+    const topOf = (layout: ReturnType<typeof layoutOf>) =>
+      Math.min(...layout.devices.map((device) => device.box.y));
+
+    expect(topOf(withNetwork)).toBeGreaterThan(topOf(without));
+    expect(withNetwork.frame.height).toBeGreaterThan(without.frame.height);
+  });
+
+  it("says the same relationship in the arrangement description", () => {
+    // Test 7 of the work package: the picture and the words stay aligned. If
+    // the plate is drawn and this sentence is not said, a screen-reader
+    // learner cannot answer a question a sighted learner can.
+    const layout = layoutOf(beyondTheRouter);
+
+    expect(layout.description).toContain(
+      "Router-2 also has a line to Another network"
+    );
+  });
+
+  it("does not describe it as a connection between two devices", () => {
+    // It would then be announced as a fifth device with that name.
+    const layout = layoutOf(beyondTheRouter);
+
+    expect(layout.description).not.toContain(
+      "Router-2 and Another network"
+    );
+    expect(layout.description).not.toContain("Another network, a ");
+  });
+
+  it("changes nothing at all for a topology that declares none", () => {
+    // Every packet journey in the course. The field is optional and absent,
+    // and the drawing must be byte-identical to what it was.
+    const before = layoutOf(moduleOne);
+    const after = layoutOf({ ...moduleOne, externalNetworks: [] });
+
+    expect(after).toEqual(before);
+    expect(before.externalNetworks).toEqual([]);
+  });
+
+  it("ignores a network attached to a device that is not drawn", () => {
+    // Fail quietly rather than drawing a wire from nowhere. A dangling link
+    // refuses the whole layout because a missing wire changes what a learner
+    // concludes; a dangling external network is additive, so dropping it
+    // leaves an honest picture rather than no picture.
+    const layout = layoutOf({
+      ...beyondTheRouter,
+      externalNetworks: [
+        {
+          networkId: "nowhere",
+          label: "Another network",
+          attachedToNodeId: "not-a-device"
+        }
+      ]
+    });
+
+    expect(layout.externalNetworks).toEqual([]);
+    expect(layout.description).not.toContain("Another network");
   });
 });

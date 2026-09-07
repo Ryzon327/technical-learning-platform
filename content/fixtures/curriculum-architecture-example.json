@@ -84,7 +84,10 @@
           "content": {
             "type": "prediction",
             "prompt": "Before reading on, decide which interface would answer a request to 10.0.0.5.",
-            "options": ["lo", "eth0"],
+            "options": [
+              "lo",
+              "eth0"
+            ],
             "expectedOutcome": "eth0, because it holds 10.0.0.5/24. This field is authored here and is structurally withheld from the learner projection by WP-E."
           }
         },
@@ -111,9 +114,19 @@
                       "interfaceId": "pc-a-eth0",
                       "label": "eth0",
                       "attributes": [
-                        { "label": "IP address", "value": "192.168.10.10/24" },
-                        { "label": "Default gateway", "value": "192.168.10.1" },
-                        { "label": "VLAN", "value": "10", "prominent": true }
+                        {
+                          "label": "IP address",
+                          "value": "192.168.10.10/24"
+                        },
+                        {
+                          "label": "Default gateway",
+                          "value": "192.168.10.1"
+                        },
+                        {
+                          "label": "VLAN",
+                          "value": "10",
+                          "prominent": true
+                        }
                       ]
                     }
                   ]
@@ -127,16 +140,32 @@
                       "interfaceId": "sw-1-fa0-1",
                       "label": "Fa0/1",
                       "attributes": [
-                        { "label": "Mode", "value": "access", "prominent": true },
-                        { "label": "VLAN", "value": "10", "prominent": true }
+                        {
+                          "label": "Mode",
+                          "value": "access",
+                          "prominent": true
+                        },
+                        {
+                          "label": "VLAN",
+                          "value": "10",
+                          "prominent": true
+                        }
                       ]
                     },
                     {
                       "interfaceId": "sw-1-fa0-24",
                       "label": "Fa0/24",
                       "attributes": [
-                        { "label": "Mode", "value": "trunk", "prominent": true },
-                        { "label": "Allowed VLANs", "value": "10,20", "prominent": true }
+                        {
+                          "label": "Mode",
+                          "value": "trunk",
+                          "prominent": true
+                        },
+                        {
+                          "label": "Allowed VLANs",
+                          "value": "10,20",
+                          "prominent": true
+                        }
                       ]
                     }
                   ]
@@ -155,7 +184,10 @@
                           "value": "dot1Q 10",
                           "prominent": true
                         },
-                        { "label": "IP address", "value": "192.168.10.1/24" }
+                        {
+                          "label": "IP address",
+                          "value": "192.168.10.1/24"
+                        }
                       ]
                     }
                   ]
@@ -169,8 +201,15 @@
                       "interfaceId": "pc-b-eth0",
                       "label": "eth0",
                       "attributes": [
-                        { "label": "IP address", "value": "192.168.20.10/24" },
-                        { "label": "VLAN", "value": "20", "prominent": true }
+                        {
+                          "label": "IP address",
+                          "value": "192.168.20.10/24"
+                        },
+                        {
+                          "label": "VLAN",
+                          "value": "20",
+                          "prominent": true
+                        }
                       ]
                     }
                   ]
@@ -180,17 +219,26 @@
                 {
                   "linkId": "link-pc-a",
                   "label": "PC-A to Switch-1 Fa0/1",
-                  "endpoints": ["pc-a-eth0", "sw-1-fa0-1"]
+                  "endpoints": [
+                    "pc-a-eth0",
+                    "sw-1-fa0-1"
+                  ]
                 },
                 {
                   "linkId": "link-trunk",
                   "label": "Switch-1 Fa0/24 to Router-1 Gi0/0",
-                  "endpoints": ["sw-1-fa0-24", "r-1-gi0-0-10"]
+                  "endpoints": [
+                    "sw-1-fa0-24",
+                    "r-1-gi0-0-10"
+                  ]
                 },
                 {
                   "linkId": "link-pc-b",
                   "label": "PC-B to Switch-1",
-                  "endpoints": ["pc-b-eth0", "sw-1-fa0-1"]
+                  "endpoints": [
+                    "pc-b-eth0",
+                    "sw-1-fa0-1"
+                  ]
                 }
               ],
               "traffic": {
@@ -329,8 +377,87 @@
           }
         },
         {
-          "stableId": "step-reference",
+          "stableId": "step-near-transfer",
           "position": 6,
+          "content": {
+            "type": "near_transfer",
+            "title": "Contract exercise — near transfer",
+            "framing": "A fixture scenario, so the renderer has one of every step type to draw.",
+            "topology": {
+              "nodes": [
+                {
+                  "nodeId": "fx-host",
+                  "label": "Fixture-Host",
+                  "role": "host"
+                },
+                {
+                  "nodeId": "fx-switch",
+                  "label": "Fixture-Switch",
+                  "role": "switch"
+                }
+              ],
+              "links": [
+                {
+                  "linkId": "fx-link",
+                  "label": "Fixture-Host to Fixture-Switch",
+                  "endpoints": [
+                    "fx-host",
+                    "fx-switch"
+                  ]
+                }
+              ],
+              "textEquivalent": "Fixture-Host connects to Fixture-Switch."
+            },
+            "questions": [
+              {
+                "questionStableId": "fx-q1",
+                "type": "single_choice",
+                "prompt": "Which fixture device is the switch?",
+                "options": [
+                  {
+                    "optionId": "fx-a",
+                    "text": "Fixture-Switch"
+                  },
+                  {
+                    "optionId": "fx-b",
+                    "text": "Fixture-Host"
+                  }
+                ],
+                "correctOptionIds": [
+                  "fx-a"
+                ],
+                "explanation": "Fixture-Switch is authored with the switch role."
+              },
+              {
+                "questionStableId": "fx-q2",
+                "type": "multiple_choice",
+                "prompt": "Which fixture devices are in this topology?",
+                "options": [
+                  {
+                    "optionId": "fx-c",
+                    "text": "Fixture-Host"
+                  },
+                  {
+                    "optionId": "fx-d",
+                    "text": "Fixture-Switch"
+                  },
+                  {
+                    "optionId": "fx-e",
+                    "text": "Fixture-Router"
+                  }
+                ],
+                "correctOptionIds": [
+                  "fx-c",
+                  "fx-d"
+                ],
+                "explanation": "The fixture authors two devices; no router is present."
+              }
+            ]
+          }
+        },
+        {
+          "stableId": "step-reference",
+          "position": 7,
           "content": {
             "type": "reference",
             "label": "The fixture topology image",

@@ -129,8 +129,91 @@ export const NODE_BASE_HEIGHT = 96;
 /** The rule and spacing that separate the face facts from the name above. */
 export const NODE_FACTS_HEADER_HEIGHT = 14;
 
-/** One authored display fact on the face. One line, never wrapped. */
-export const NODE_FACT_ROW_HEIGHT = 19;
+/* ------------------------------------------------------------------ *
+ * WHY A FACE FACT IS TWO LINES
+ *
+ * It used to be one: an interface chip, then the label, then the value, all on
+ * a 19px line inside a 156px card. Nothing of that width fits. Founder UAT read
+ * the result off the screen — "Network interface I…", "Network interface Ha…" —
+ * and it is the worst possible failure for instructional content, because the
+ * learner cannot tell that anything was withheld, let alone what.
+ *
+ * The card did not get wider and the type did not get smaller. The line got
+ * shorter: the interface name is now a heading over the facts that belong to
+ * it, and each fact puts its LABEL on one line and its VALUE on the next.
+ * Every one of those strings fits the card with room to spare, which
+ * `faceTextFits` asserts rather than assumes.
+ *
+ * Ellipsis is gone from the fact rows entirely. A fact that does not fit is a
+ * fact that must not be on the face — the authoring boundary, not a rendering
+ * trick. `verify-wpi.sh` pins the absence of `text-overflow` on those rows.
+ * ------------------------------------------------------------------ */
+
+/** The label line of one authored fact. */
+export const NODE_FACT_LABEL_HEIGHT = 12;
+
+/** The value line of one authored fact. */
+export const NODE_FACT_VALUE_HEIGHT = 16;
+
+/** One authored display fact on the face: its label, then its value. */
+export const NODE_FACT_ROW_HEIGHT =
+  NODE_FACT_LABEL_HEIGHT + NODE_FACT_VALUE_HEIGHT;
+
+/**
+ * The interface name over the facts that belong to it.
+ *
+ * Present only when a card carries facts from MORE THAN ONE interface. On a
+ * host with a single interface it is a heading over the only group there is,
+ * and Founder UAT is explicit that a card must prefer a few high-value facts
+ * over many compressed ones.
+ *
+ * On Router-1 it is the point of the card. The mission reasons about two
+ * router interfaces on two different networks, and without this heading the
+ * learner cannot tell which address belongs to which side without opening the
+ * full text account.
+ */
+export const NODE_INTERFACE_HEADING_HEIGHT = 13;
+
+/* ------------------------------------------------------------------ *
+ * DOES IT FIT?
+ *
+ * No browser runs in this repository, so "fits" has to be a computation the
+ * tests can make. This is a deliberately CONSERVATIVE model: a ratio of glyph
+ * width to font size chosen above the real average for the UI stack, so a
+ * string this function accepts has margin at every size that ships.
+ *
+ * It is not a text metric and does not pretend to be. It is a budget, and its
+ * job is to fail loudly in a test when authored content grows past what the
+ * card can show — the failure Founder UAT had to catch by reading a screen.
+ * ------------------------------------------------------------------ */
+
+/** Conservative glyph width as a fraction of font size, for the UI stack. */
+export const FACE_GLYPH_RATIO = 0.58;
+
+/** Horizontal padding inside a card, both sides together. */
+export const NODE_FACE_PADDING = 20;
+
+/** The width a face line actually has to live in. */
+export const NODE_FACE_CONTENT_WIDTH = NODE_WIDTH - NODE_FACE_PADDING;
+
+/** Font size of an interface heading on the face, in px. Mirrors the CSS. */
+export const FACE_INTERFACE_FONT_PX = 9.92;
+
+/** Font size of a fact label on the face, in px. Mirrors the CSS. */
+export const FACE_LABEL_FONT_PX = 9.92;
+
+/** Font size of a fact value on the face, in px. Mirrors the CSS. */
+export const FACE_VALUE_FONT_PX = 11.52;
+
+/** The width this text would need on a card face, under the budget model. */
+export function faceTextWidth(text: string, fontPx: number): number {
+  return text.length * fontPx * FACE_GLYPH_RATIO;
+}
+
+/** Whether this text can be shown in full on a card face. */
+export function faceTextFits(text: string, fontPx: number): boolean {
+  return faceTextWidth(text, fontPx) <= NODE_FACE_CONTENT_WIDTH;
+}
 
 /** Clear space between two cards in the same row. */
 export const NODE_GAP = 22;
@@ -162,6 +245,17 @@ export const CHANNEL_STEP = 30;
  * interface or a control.
  */
 export const MARKER_CLEARANCE = 16;
+
+/**
+ * The plate drawn for a network that continues past the edge of the drawing
+ * (WP-NF-NT1B).
+ *
+ * Deliberately smaller and shorter than a device card. It is not equipment and
+ * must not read as another box of the same kind: it carries a label and
+ * nothing else — no category word, no interfaces, no facts, no state.
+ */
+export const EXTERNAL_NETWORK_WIDTH = 150;
+export const EXTERNAL_NETWORK_HEIGHT = 40;
 
 /** Clear space between a group's boundary and the cards inside it. */
 export const GROUP_PADDING = 16;
@@ -214,10 +308,150 @@ export const GROUP_GAP = NODE_GAP + 2 * GROUP_PADDING;
 export const TOPOLOGY_WIDTH_BUDGET = 620;
 
 /**
- * The tallest a drawing may be and still leave room, in one pinned workspace,
- * for the orientation above it and the current task below it.
+ * The tallest a drawing may be in the workspace column.
+ *
+ * Raised from 470 by the Founder layout repair, and the old number was not
+ * wrong when it was set: the task used to sit BELOW the topology, so every
+ * pixel the drawing took was a pixel the current action lost, and 470 was what
+ * left room for both.
+ *
+ * The single-focus split moved the task BESIDE the network. Nothing competes
+ * for vertical space in that column any more, so the old ceiling was doing
+ * nothing but shrinking the picture — Missions 4, 6 and 8 were scaled to 0.86
+ * on height alone while 15% of their column sat empty.
+ *
+ * This is the "allow controlled vertical growth" strategy rather than
+ * "shrink until it fits": the drawing may be taller, because being taller no
+ * longer costs the learner anything.
  */
-export const TOPOLOGY_HEIGHT_BUDGET = 470;
+export const TOPOLOGY_HEIGHT_BUDGET = 620;
+
+/**
+ * The smallest the drawing may be scaled before it stops being readable.
+ *
+ * Port labels are the smallest text in the picture at 0.66rem — about 10.5px.
+ * At 0.82 that becomes ~8.7px: small, and still legible.
+ *
+ * Raised from 0.72 by Founder UAT. The lower floor was reachable, and being
+ * reachable was the problem — the layout was solving "everything must
+ * mathematically fit" by shrinking until the device names and port labels
+ * stopped being comfortable to read. Containment was achieved and the picture
+ * was useless.
+ *
+ * The floor is now high enough that hitting it means the WORKSPACE is too
+ * narrow, not that the drawing is too big. That is a layout problem and it is
+ * fixed in the layout: the interactive workspace escapes the reading column at
+ * 64em, and the network takes the larger share of it. Below the floor the
+ * drawing scrolls rather than shrinking further, because a picture nobody can
+ * read is not a smaller picture, it is a broken one.
+ */
+export const TOPOLOGY_MIN_SCALE = 0.82;
+
+/**
+ * The width each workspace column actually gets, at a viewport width.
+ *
+ * ## Why this exists, and what it is not
+ *
+ * It is a MODEL of the layout in `styles.css`, not a second implementation of
+ * it. Nothing renders from it. It exists because this repository has no
+ * browser harness, and the Founder UAT defect — a topology squeezed into a
+ * fraction of the screen and then scaled past readability — is a geometry
+ * failure that no test could otherwise see.
+ *
+ * It mirrors three CSS facts, and `verify-wpi.sh` pins each of them in the
+ * stylesheet so the model cannot drift away from what actually renders:
+ *
+ *   - the interactive workspace escapes the reading column at 64em, up to
+ *     1240px, so a lesson-reading width never decides how big the network is;
+ *   - the columns are network-dominant — about 1.62fr to 1fr embedded, 1.7fr
+ *     to 1fr expanded;
+ *   - the expanded workspace is the viewport, less its own padding.
+ */
+export interface WorkspaceColumns {
+  readonly total: number;
+  readonly network: number;
+  readonly instructor: number;
+}
+
+export function describeWorkspaceColumns(
+  viewportWidth: number,
+  mode: "embedded" | "expanded" = "embedded"
+): WorkspaceColumns {
+  const rootFontSize = 16;
+
+  // Below the breakout the workspace is still the reading column: `.card` is
+  // min(760px, 100%) with up to 3rem of padding on each side.
+  if (viewportWidth < 64 * rootFontSize) {
+    const card = Math.min(760, viewportWidth);
+    const total = Math.max(0, card - 2 * 48);
+    // One column below the breakout, so the network gets all of it.
+    return { total, network: total, instructor: 0 };
+  }
+
+  const gap = mode === "expanded" ? 2.5 * rootFontSize : 2.25 * rootFontSize;
+
+  const total =
+    mode === "expanded"
+      ? viewportWidth - 2 * Math.min(2.5 * rootFontSize, 0.04 * viewportWidth)
+      : Math.min(1240, viewportWidth - 3 * rootFontSize);
+
+  const share = mode === "expanded" ? 1.7 : 1.62;
+  const usable = Math.max(0, total - gap);
+
+  const network = (usable * share) / (share + 1);
+
+  return { total, network, instructor: usable - network };
+}
+
+/**
+ * How much to scale the drawing so it fits the space it is given.
+ *
+ * ## Why this exists
+ *
+ * The earlier ruling was that cards never shrink and a drawing wider than the
+ * column scrolls sideways inside its own box. Founder UAT overruled it: the
+ * far network was off the right-hand edge of Missions 4, 6 and 8, and the
+ * reviewer was reconstructing the topology from memory instead of reasoning
+ * about it.
+ *
+ * The budgets were not wrong, and they are still asserted. What was missing was
+ * what to do when a drawing exceeds them — the previous answer was "scroll",
+ * which is the defect. This is the deliberate responsive strategy that replaces
+ * it: scale the whole drawing down, uniformly, to a floor, and scroll only
+ * below that floor.
+ *
+ * ## Why it is a pure function
+ *
+ * The same reason everything else here is: it can then be asserted over the
+ * real authored journeys without a browser. `TopologyView` measures the
+ * available width and applies the result; it decides nothing.
+ *
+ * Scaling is uniform, so no relationship in the picture changes — the drawing
+ * is the same drawing, further away. It carries no networking meaning and
+ * cannot: it is one number derived from two box sizes.
+ */
+export function fitTopologyScale(
+  frame: TopologyFrame,
+  availableWidth: number,
+  availableHeight: number = TOPOLOGY_HEIGHT_BUDGET
+): number {
+  if (frame.width <= 0 || frame.height <= 0) return 1;
+  if (!Number.isFinite(availableWidth) || availableWidth <= 0) return 1;
+
+  const byWidth = availableWidth / frame.width;
+  const byHeight =
+    Number.isFinite(availableHeight) && availableHeight > 0
+      ? availableHeight / frame.height
+      : 1;
+
+  const wanted = Math.min(byWidth, byHeight);
+
+  // Never magnify: a small drawing stays its authored size rather than being
+  // stretched to fill a wide screen.
+  if (wanted >= 1) return 1;
+
+  return Math.max(TOPOLOGY_MIN_SCALE, wanted);
+}
 
 /* ------------------------------------------------------------------ *
  * The shapes a renderer receives
@@ -238,6 +472,7 @@ export const TOPOLOGY_HEIGHT_BUDGET = 470;
 export type TopologyDeviceState =
   | "idle"
   | "visited"
+  | "origin"
   | "current"
   | "stopped"
   | "confirmed";
@@ -324,6 +559,25 @@ export interface TopologyPort {
 }
 
 /**
+ * One interface's worth of the card face, ready to render.
+ *
+ * The renderer draws exactly this and computes none of it, because the LAYOUT
+ * sized the card from exactly this. Before, the renderer flattened ports into
+ * rows on its own and the layout counted facts on its own; the two agreed only
+ * because both were simple. They are no longer simple, and a card whose face
+ * disagreed with its box would be drawn across the wires below it.
+ *
+ * `heading` is null when the card carries facts from only one interface — a
+ * host's single "Network interface" heading is a line of the card spent saying
+ * something the learner can already see.
+ */
+export interface TopologyFaceGroup {
+  readonly interfaceId: string;
+  readonly heading: string | null;
+  readonly facts: readonly TopologyFact[];
+}
+
+/**
  * One authored group, turned into something drawable.
  *
  * `groupId`, `label` and `nodeIds` are COPIED from the observation model. `box`
@@ -366,6 +620,12 @@ export interface TopologyDevice {
   readonly state: TopologyDeviceState;
   readonly stateLabel: string;
   readonly ports: readonly TopologyPort[];
+  /**
+   * The card face, in render order, sized to the box above.
+   *
+   * `ports` remains the authored structure; this is what the face shows.
+   */
+  readonly face: readonly TopologyFaceGroup[];
 }
 
 /**
@@ -409,6 +669,31 @@ export interface TopologyLink {
   readonly current: boolean;
 }
 
+/**
+ * A network past the edge of the drawing, and the wire reaching it.
+ *
+ * Held apart from `devices` and `links` on purpose. Everything that reasons
+ * about traffic — traversal, the packet marker, journey state, the device
+ * inspector — iterates those two lists, and an external network belongs in
+ * none of it. Keeping it in its own list means "traffic can never be drawn as
+ * arriving here" is a property of the type rather than a rule somebody has to
+ * remember.
+ */
+export interface TopologyExternalNetwork {
+  readonly networkId: string;
+  readonly label: string;
+  /** The device the drawing reaches it through. */
+  readonly attachedToNodeId: string;
+  readonly box: TopologyBox;
+  /**
+   * The wire between the attached device and this plate, as an SVG path.
+   *
+   * A plain line with no `traversed`, no `current` and no direction, because
+   * there is no traffic on it and never can be.
+   */
+  readonly path: string;
+}
+
 export interface TopologyPacket {
   readonly nodeId: string;
   readonly state: "waiting" | "moving" | "stopped" | "confirmed";
@@ -423,6 +708,31 @@ export interface TopologyPacket {
   readonly at: TopologyPoint;
   /** The link the marker is riding, when the source named one. */
   readonly linkId: string | null;
+  /**
+   * The wire to travel, exactly as the link is drawn.
+   *
+   * This is the SAME string the SVG uses for that link's `d`, copied rather
+   * than rebuilt. Founder UAT, third round: "the animation must use the SAME
+   * rendered path geometry as the link. One source of geometry. No separately
+   * guessed animation coordinates." Copying it here is what makes that literal
+   * — a renderer that animated between node centres would have to invent
+   * coordinates this field already forbids.
+   *
+   * `null` when the marker is parked beside a device rather than riding a
+   * wire, which is the origin state and the fault stop.
+   */
+  readonly path: string | null;
+  /**
+   * Which way along `path` the traffic travels.
+   *
+   * `true` runs from the path's first point to its last; `false` runs back.
+   * Decided from AUTHORED fields only — the stage's own node, and whether the
+   * link was named as the one traffic arrived on (`viaLinkId`) or as one it
+   * left on (`alsoOnLinkIds`). Nothing reads the picture to work out a
+   * direction, and nothing reverses a path because a later stage looked like a
+   * return trip.
+   */
+  readonly travelsToEnd: boolean;
 }
 
 export interface TopologyFrame {
@@ -455,6 +765,12 @@ export type TopologyLayout =
        * drawn as one event rather than as a queue of arrivals.
        */
       readonly packets: readonly TopologyPacket[];
+      /**
+       * Networks the author declared past the edge of the drawing.
+       *
+       * Empty unless the source reported one, which is every packet journey.
+       */
+      readonly externalNetworks: readonly TopologyExternalNetwork[];
       /**
        * Authored interface labels drawn beside their connections.
        *
@@ -516,6 +832,16 @@ export function describeTopologyRole(role: ObservationNodeRole): string {
  * carrier of the fact.
  */
 export function describeDeviceState(state: TopologyDeviceState): string {
+  /*
+    Founder video UAT: PC-A was captioned "Arrived here" on the stage where the
+    print request LEAVES it. Traffic does not arrive at its own source.
+
+    `origin` is the leg-aware answer: a stage the traffic reached without
+    crossing a link is a stage where it started. That is a fact about the
+    CURRENT leg, not about the node — Mission 6's reply arrives back at PC-A
+    across a real link, so PC-A is a normal arrival there.
+  */
+  if (state === "origin") return "Started here";
   if (state === "current") return "Arrived here";
   if (state === "stopped") return "Stopped here";
   if (state === "confirmed") return "Delivered here";
@@ -570,7 +896,8 @@ export function describeTopologyArrangement(
   devices: readonly TopologyDevice[],
   links: readonly TopologyLink[],
   rows: number,
-  groups: readonly TopologyGroup[]
+  groups: readonly TopologyGroup[],
+  externalNetworks: readonly TopologyExternalNetwork[] = []
 ): string {
   const sentences: string[] = [];
 
@@ -656,6 +983,30 @@ export function describeTopologyArrangement(
       `A line is drawn between ${joinWithSemicolons(
         links.map((link) => `${named(link.from)} and ${named(link.to)}`)
       )}.`
+    );
+  }
+
+  /*
+    A network past the edge of the drawing (WP-NF-NT1B).
+
+    Last, and stated as its own relationship rather than folded into the line
+    list above: it is not a connection between two devices, and describing it
+    as one would tell a screen-reader user there is a second device called
+    "Another network".
+
+    This sentence is what makes the picture and the spoken description carry
+    the same four relationships. Mission 1's near-transfer asks which device
+    reaches another network, and if this were missing the diagram would answer
+    a question the description could not.
+  */
+  for (const network of externalNetworks) {
+    const device = devices.find(
+      (candidate) => candidate.nodeId === network.attachedToNodeId
+    );
+    if (device === undefined) continue;
+
+    sentences.push(
+      `${device.label} also has a line to ${network.label}, drawn above it at the edge of the diagram.`
     );
   }
 
@@ -822,6 +1173,30 @@ export function buildTopologyLayout(
       : model.stages.find((stage) => stage.stageId === model.currentStageId);
 
   const visitedNodeIds = new Set(revealed.map((stage) => stage.atNodeId));
+
+  /*
+    Where the CURRENT LEG started (Founder video UAT).
+
+    PC-A was captioned "Started here" while the print request was still at it,
+    and then silently became "Passed through" the moment the request reached
+    Switch-1 — because a node the journey had left fell into `visitedNodeIds`
+    like any other. For a forward journey that is wrong twice over: the origin
+    is not somewhere the traffic passed through, and by the time the learner
+    reaches the delivery screen the picture no longer says where the request
+    came from.
+
+    A leg begins at a stage the traffic did NOT cross a link to reach, so the
+    most recent revealed stage with no `viaLinkId` is the current leg's origin.
+    Authored fact, read rather than inferred.
+
+    It is deliberately per-LEG and not per-node. Mission 6's reply starts at
+    PC-C, which becomes the origin from that stage on, and its return arrives
+    back at PC-A across a real link — where PC-A is an arrival like any other.
+    Nothing here knows that PC-A is a source in any particular course.
+  */
+  const legOriginNodeId = [...revealed]
+    .reverse()
+    .find((stage) => stage.viaLinkId === undefined)?.atNodeId;
 
   const knownLinkIds = new Set(model.links.map((link) => link.linkId));
 
@@ -1055,6 +1430,7 @@ export function buildTopologyLayout(
   /* --- card heights and row tops ------------------------------------ */
 
   const portsOf = new Map<string, readonly TopologyPort[]>();
+  const faceOf = new Map<string, readonly TopologyFaceGroup[]>();
   const contentHeightOf = new Map<string, number>();
 
   for (const node of model.nodes) {
@@ -1075,17 +1451,37 @@ export function buildTopologyLayout(
 
     portsOf.set(node.nodeId, ports);
 
-    const factRows = ports.reduce(
-      (total, port) => total + port.facts.length,
-      0
-    );
+    /*
+      The face, and the height it costs, decided in one place.
+
+      An interface with no flagged fact contributes nothing — Switch-1 has four
+      ports and, in most missions, nothing worth putting on its face. An
+      interface heading appears only when there is more than one group to tell
+      apart, which is what keeps a host's card to the facts themselves and
+      makes Router-1's card say which of its addresses is on which side.
+    */
+    const bearing = ports.filter((port) => port.facts.length > 0);
+    const named = bearing.length > 1;
+
+    const face: readonly TopologyFaceGroup[] = bearing.map((port) => ({
+      interfaceId: port.interfaceId,
+      heading: named ? port.label : null,
+      facts: port.facts
+    }));
+
+    faceOf.set(node.nodeId, face);
+
+    const factRows = face.reduce((total, group) => total + group.facts.length, 0);
+    const headingRows = face.filter((group) => group.heading !== null).length;
 
     contentHeightOf.set(
       node.nodeId,
       NODE_BASE_HEIGHT +
         (factRows === 0
           ? 0
-          : NODE_FACTS_HEADER_HEIGHT + factRows * NODE_FACT_ROW_HEIGHT)
+          : NODE_FACTS_HEADER_HEIGHT +
+            headingRows * NODE_INTERFACE_HEADING_HEIGHT +
+            factRows * NODE_FACT_ROW_HEIGHT)
     );
   }
 
@@ -1245,13 +1641,33 @@ export function buildTopologyLayout(
   // each use, so every coordinate downstream — cards, anchors, lanes, the
   // marker, the frame — is already in the shifted space and no caller has to
   // remember to add it.
+  /*
+    A network past the edge of the drawing needs a strip above everything else
+    (WP-NF-NT1B), and it is reserved by adding to the SAME shift a group
+    boundary uses.
+
+    That is the whole of the placement change. `shiftY` is already applied to
+    the row tops before any card, anchor, lane, marker or frame coordinate is
+    computed, so reserving space here needs no second pass and no downstream
+    caller has to know the strip exists. Nothing moves relative to anything
+    else; the drawing simply starts lower.
+  */
+  const declaredNetworks = model.externalNetworks ?? [];
+
+  const attachedNetworks = declaredNetworks.filter((network) =>
+    model.nodes.some((node) => node.nodeId === network.attachedToNodeId)
+  );
+
+  const externalStrip =
+    attachedNetworks.length === 0 ? 0 : EXTERNAL_NETWORK_HEIGHT + ROW_GAP;
+
   const shiftX = Math.max(
     0,
     ...boundsOfGroups.map((bounds) => CANVAS_PADDING - bounds.left)
   );
   const shiftY = Math.max(
-    0,
-    ...boundsOfGroups.map((bounds) => CANVAS_PADDING - bounds.top)
+    externalStrip,
+    ...boundsOfGroups.map((bounds) => CANVAS_PADDING - bounds.top + externalStrip)
   );
 
   if (shiftX !== 0 || shiftY !== 0) {
@@ -1306,7 +1722,9 @@ export function buildTopologyLayout(
       currentStage?.atNodeId,
       visitedNodeIds,
       currentStage?.outcome === "stops",
-      consequence?.state === "confirmed"
+      consequence?.state === "confirmed",
+      currentStage?.viaLinkId !== undefined,
+      legOriginNodeId
     );
 
     return {
@@ -1322,7 +1740,8 @@ export function buildTopologyLayout(
       box,
       state,
       stateLabel: describeDeviceState(state),
-      ports: portsOf.get(node.nodeId) ?? []
+      ports: portsOf.get(node.nodeId) ?? [],
+      face: faceOf.get(node.nodeId) ?? []
     };
   });
 
@@ -1681,10 +2100,72 @@ export function buildTopologyLayout(
               boxOf,
               waiting,
               stopped,
-              confirmed
+              confirmed,
+              // Read from the authored stage, never worked out. The link the
+              // stage names as `viaLinkId` is the one traffic came in on;
+              // every link in `alsoOnLinkIds` is one it went out on.
+              linkId === currentStage?.viaLinkId ? "arriving" : "leaving"
             )
           )
         );
+
+  /* --- networks past the edge of the drawing ------------------------ */
+
+  /*
+    Placed AFTER the devices, so each plate can be centred on the card it
+    reaches — which is what makes "Router-2 connects to another network" read
+    as one relationship rather than as two objects that happen to be near each
+    other.
+
+    The wire is a straight line between two facing edges. There is no routing
+    to do: the plate sits directly above its device in the strip reserved for
+    it, in the band `ROW_GAP` guarantees is empty, so a line between them can
+    cross nothing.
+
+    Deliberately not a `TopologyLink`. There is no traffic here, so there is
+    nothing to mark traversed, nothing to ride it, and no direction to travel.
+  */
+  const externalNetworks: TopologyExternalNetwork[] = attachedNetworks.flatMap(
+    (network) => {
+      const attachedBox = boxOf.get(network.attachedToNodeId);
+      if (attachedBox === undefined) return [];
+
+      const box: TopologyBox = {
+        // Centred on the card, but never off the left edge. A plate wider than
+        // the card it reaches, above a device at the left of the drawing,
+        // would otherwise be clipped. The wire then runs slightly diagonally,
+        // which still says exactly what it says.
+        x: round(
+          Math.max(
+            CANVAS_PADDING,
+            attachedBox.x + attachedBox.width / 2 - EXTERNAL_NETWORK_WIDTH / 2
+          )
+        ),
+        y: round(CANVAS_PADDING),
+        width: EXTERNAL_NETWORK_WIDTH,
+        height: EXTERNAL_NETWORK_HEIGHT
+      };
+
+      const from: TopologyPoint = {
+        x: round(box.x + box.width / 2),
+        y: round(box.y + box.height)
+      };
+      const to: TopologyPoint = {
+        x: round(attachedBox.x + attachedBox.width / 2),
+        y: round(attachedBox.y)
+      };
+
+      return [
+        {
+          networkId: network.networkId,
+          label: network.label,
+          attachedToNodeId: network.attachedToNodeId,
+          box,
+          path: pointsToPath([from, to])
+        }
+      ];
+    }
+  );
 
   /* --- the canvas --------------------------------------------------- */
 
@@ -1698,7 +2179,13 @@ export function buildTopologyLayout(
     width: round(
       Math.max(
         drawnRight + CANVAS_PADDING,
-        channels === 0 ? 0 : channelX(channels - 1) + CANVAS_PADDING
+        channels === 0 ? 0 : channelX(channels - 1) + CANVAS_PADDING,
+        // A plate wider than the card it sits above would otherwise be clipped
+        // at the right-hand edge, which is the same defect the group boundary
+        // shift exists to prevent at the left.
+        ...externalNetworks.map(
+          (network) => network.box.x + network.box.width + CANVAS_PADDING
+        )
       )
     ),
     height: round(
@@ -1720,8 +2207,15 @@ export function buildTopologyLayout(
     devices,
     links,
     packets,
+    externalNetworks,
     portLabels,
-    description: describeTopologyArrangement(devices, links, rowCount, groups)
+    description: describeTopologyArrangement(
+      devices,
+      links,
+      rowCount,
+      groups,
+      externalNetworks
+    )
   };
 }
 
@@ -1821,13 +2315,23 @@ function resolveDeviceState(
   currentNodeId: string | undefined,
   visitedNodeIds: ReadonlySet<string>,
   stopped: boolean,
-  confirmed: boolean
+  confirmed: boolean,
+  /** Whether the current stage was reached by crossing an authored link. */
+  arrivedByLink: boolean,
+  /** Where the current leg started, from the authored stages. */
+  legOriginNodeId: string | undefined
 ): TopologyDeviceState {
   if (nodeId === currentNodeId) {
     if (confirmed) return "confirmed";
     if (stopped) return "stopped";
-    return "current";
+    // Nothing travelled to get here, so nothing arrived: the traffic started.
+    return arrivedByLink ? "current" : "origin";
   }
+
+  // The origin STAYS the origin for the whole leg. A source the traffic has
+  // left is not a device it passed through, and the picture has to keep saying
+  // where the journey began after the traffic has moved on.
+  if (nodeId === legOriginNodeId) return "origin";
 
   return visitedNodeIds.has(nodeId) ? "visited" : "idle";
 }
@@ -1854,7 +2358,13 @@ function resolvePacket(
   boxOf: ReadonlyMap<string, TopologyBox>,
   waiting: boolean,
   stopped: boolean,
-  confirmed: boolean
+  confirmed: boolean,
+  /**
+   * `arriving` when the stage named this link as the one traffic came in on,
+   * `leaving` when the author named it among the links traffic went out on.
+   * Both are authored facts; this function never decides which a link is.
+   */
+  travel: "arriving" | "leaving" = "arriving"
 ): TopologyPacket | null {
   if (nodeId === null || nodeId === undefined) return null;
 
@@ -1892,7 +2402,9 @@ function resolvePacket(
         x: round(box.x + box.width / 2),
         y: round(box.y + box.height + MARKER_CLEARANCE)
       },
-      linkId: null
+      linkId: null,
+      path: null,
+      travelsToEnd: true
     };
   }
 
@@ -1902,12 +2414,39 @@ function resolvePacket(
   const ordered =
     ride.to.nodeId === nodeId ? [...ride.points].reverse() : [...ride.points];
 
+  /*
+    Which end the traffic is heading for.
+
+    A link the stage ARRIVED on carries traffic towards this device; a link the
+    author named among those it LEFT on carries traffic away from it. So the
+    same wire animates one way on the outbound leg and the other way on the
+    return, without any stage being re-read or any path being reversed — the
+    authored `atNodeId` is the only thing consulted.
+  */
+  const towardsThisDevice = travel === "arriving";
+  const thisDeviceIsPathEnd = ride.to.nodeId === nodeId;
+
+  /*
+    Only an AUTHORED link may be travelled.
+
+    `ride` falls back to any wire touching this device when the stage named
+    none — the origin, before anything has moved, is exactly that case. That
+    fallback is fine for POSITIONING a parked marker beside its device, and it
+    must never become motion: animating it would show traffic crossing a link
+    the curriculum never said carried any, which is the "do not animate to
+    devices the curriculum did not author as recipients" rule.
+
+    So the path is carried only when the stage itself named the link. A parked
+    marker has no path, and a marker with no path cannot travel.
+  */
   return {
     nodeId,
     state,
     stateLabel: describePacketState(state),
     at: pointClearOfBox(ordered, box, MARKER_CLEARANCE),
-    linkId: ride.linkId
+    linkId: ride.linkId,
+    path: named === undefined ? null : ride.path,
+    travelsToEnd: towardsThisDevice ? thisDeviceIsPathEnd : !thisDeviceIsPathEnd
   };
 }
 

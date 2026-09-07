@@ -118,6 +118,35 @@ echo "PASS: publication history is present"
 echo "PASS: curriculum asset registry is present"
 echo "PASS: version-lineage foundation is present"
 
+# ------------------------------------------------------------
+# The two-site practical topology names the same devices in both
+# documents that describe it.
+# ------------------------------------------------------------
+# CURR-012 section 18 and LAB-012 section 5.2 both enumerate the learner-facing
+# identities a lesson carries into the lab. Two lists of the same thing drift,
+# and this one already had: the checkpoint audit found CURR-012 naming seven
+# devices and LAB-012 naming eight, with PC-B missing from CURR-012 — while
+# CURR-012's own topology diagram showed it. Nothing caught that, because no
+# gate read either document's content.
+#
+# Asserted per device rather than as a count, so the failure names what is
+# missing instead of reporting an arithmetic mismatch.
+PRACTICAL_TOPOLOGY="docs/Feature-Registry/Curriculum-Engine/CURR-012_PRACTICAL_NETWORKING_ARCHITECTURE.md"
+PRACTICAL_PROVIDER="docs/Feature-Registry/Lab-Engine/LAB-012_PROXMOX_LAB_PROVIDER.md"
+
+for required in "$PRACTICAL_TOPOLOGY" "$PRACTICAL_PROVIDER"; do
+  [ -f "$required" ] || { echo "FAIL: missing $required" >&2; exit 1; }
+done
+
+for device in PC-A PC-B PC-C PC-D Switch-1 Switch-2 Router-1 Router-2; do
+  grep -Fq "**$device**" "$PRACTICAL_TOPOLOGY" \
+    || { echo "FAIL: CURR-012 no longer names $device in the learner-facing identity list; instruction and lab would disagree about what a device is called" >&2; exit 1; }
+  grep -Fq "**$device**" "$PRACTICAL_PROVIDER" \
+    || { echo "FAIL: LAB-012 no longer names $device in the learner-facing identity list; instruction and lab would disagree about what a device is called" >&2; exit 1; }
+done
+
+echo "PASS: the two-site topology names the same eight devices in CURR-012 and LAB-012"
+
 echo
 echo "Running Wave 2 verification..."
 bash scripts/verify-wave2.sh

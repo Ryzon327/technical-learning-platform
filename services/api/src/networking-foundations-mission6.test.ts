@@ -114,6 +114,50 @@ function journey(): PacketJourneyParameters {
   return parameters;
 }
 
+/**
+ * Every string the JOURNEY puts in front of a learner.
+ *
+ * Narrower than `learnerFacingText` on purpose. The journey is the surface a
+ * learner reads while the network moves beside it, so it is the surface that
+ * has to stand on its own — Founder UAT, wave 8. A concept step may still
+ * point at an earlier mission as supplemental review.
+ */
+function journeyText(): string {
+  const j = journey();
+  const parts: string[] = [j.traffic.label, j.traffic.startActionLabel];
+
+  for (const group of j.groups ?? []) parts.push(group.label);
+
+  for (const node of j.nodes) {
+    parts.push(node.label);
+    if (node.about !== undefined) parts.push(node.about);
+    for (const iface of node.interfaces) {
+      parts.push(iface.label);
+      for (const attribute of iface.attributes) {
+        parts.push(attribute.label, attribute.value);
+      }
+    }
+  }
+
+  for (const stage of j.stages) {
+    parts.push(stage.narration);
+    if (stage.action !== undefined) parts.push(stage.action);
+    if (stage.decision !== undefined) parts.push(stage.decision);
+    if (stage.prediction !== undefined) {
+      parts.push(stage.prediction.prompt, ...stage.prediction.options);
+    }
+    for (const facts of stage.deviceFacts ?? []) {
+      parts.push(facts.label);
+      for (const fact of facts.facts) parts.push(fact.label, fact.value);
+    }
+  }
+
+  for (const action of j.actions) parts.push(action.label, action.observation);
+  parts.push(j.confirmation.narration, j.confirmation.summary);
+
+  return parts.join("\n");
+}
+
 /** Every string Mission 6 puts in front of a learner, from parsed content. */
 function learnerFacingText(): string {
   const parts: string[] = [];
@@ -666,14 +710,46 @@ describe("every value the earlier missions established is unchanged", () => {
  * ------------------------------------------------------------------ */
 
 describe("Mission 6 is the payoff for Missions 1 to 5", () => {
-  it("names each earlier mission it is drawing on", () => {
-    const text = learnerFacingText();
-    for (const label of ["Mission 1", "Mission 2", "Mission 4", "Mission 5"]) {
-      expect({ label, named: text.includes(label) }).toEqual({
-        label,
-        named: true
-      });
+  it("reuses the earlier rules by restating them, not by citing them", () => {
+    /*
+      This assertion is inverted from what it was, on a Founder ruling.
+
+      It used to require Mission 6 to NAME Missions 1, 2, 4 and 5 in
+      learner-facing text, as evidence that the payoff mission drew on them.
+      Founder UAT then read "it decided, back in Mission 4, that 192.168.2.20
+      was not in its group" and ruled that a learner returning after weeks
+      cannot be sent to a numbered mission to understand the sentence in front
+      of them.
+
+      So the invariant moves to what the citation was standing in for: the
+      rules themselves have to be present, in this mission's own words, where
+      they are used. The journey is where that matters most, and it is checked
+      strictly — the mission's own concept prose may still point at an earlier
+      mission as supplemental review.
+    */
+    const text = journeyText();
+
+    for (const restated of [
+      // Mission 4's comparison, made here rather than referred to.
+      "192.168.1.10/24",
+      "octets name the network",
+      // Mission 5's hand-off, named as a rule rather than as a mission.
+      "default gateway",
+      // Mission 2's delivery, in the terms Mission 2 taught.
+      "MAC address"
+    ]) {
+      expect(`journey restates "${restated}": ${text.includes(restated)}`).toBe(
+        `journey restates "${restated}": true`
+      );
     }
+  });
+
+  it("sends the learner to no numbered mission to follow the journey", () => {
+    // Founder UAT, wave 8. The journey must stand on its own.
+    const text = journeyText();
+    const cited = text.match(/Mission \d+/g) ?? [];
+
+    expect(`journey cites: ${cited.join(", ")}`).toBe("journey cites: ");
   });
 
   it("asks the learner to commit inside the journey", () => {

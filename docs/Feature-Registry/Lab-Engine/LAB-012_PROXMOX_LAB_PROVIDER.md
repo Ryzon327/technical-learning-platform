@@ -51,6 +51,44 @@ The adapter may support:
 - cleanup.
 - normalized errors.
 
+## 5.1 Learn / Do / Prove — where this provider sits
+
+Recorded for the practical networking path. The curriculum doctrine is owned by
+`CURR-012` §17; the validator contract by `LAB-008`.
+
+| Layer | Owns | Owner |
+|---|---|---|
+| **LEARN** | Architect-authored instruction, topology, packet journeys, explanations, predictions | Curriculum Engine |
+| **DO** | The isolated environment, real command entry, real configuration state | Lab Engine — **Proxmox sits beneath it** |
+| **PROVE** | Deterministic examination of the actual required state and behaviour | `LAB-008` |
+
+**Proxmox is infrastructure beneath the Lab Engine, never a learner-facing
+concept.** The product continues to present *Launch Lab*; it does not expose
+node, cluster, template or hypervisor detail to a learner. `LAB-002` keeps the
+provider interface the boundary, and §6 already forbids hardcoding platform logic
+to Proxmox.
+
+**AI coaches; AI does not validate.** AI may explain, hint and repair
+misconceptions against lab state. It may not silently complete a learner's
+practical work, and it is never the factual authority for pass or fail
+(`DEC-062`, `CURR-011` §12).
+
+## 5.2 Topology identity consistency
+
+A device the lesson calls **PC-A**, **PC-B**, **Switch-1**, **Router-1**,
+**Router-2**, **Switch-2**, **PC-C** or **PC-D** must carry that same
+learner-facing identity into the lab.
+
+Implementation-specific names — an interface such as `ens18`, `eth0`,
+`ge-0/0/0` or `GigabitEthernet0/1` — remain authentic where they are real, and
+must be **explicitly mapped back** to the learner-facing topology by the
+authored instruction.
+
+A learner must not enter a lab and find unrelated hostnames, addresses or
+interfaces with no mapping to the lesson they just completed. This is a
+requirement on how a lab definition is authored and templated; it specifies no
+implementation here.
+
 ---
 
 # 6. Explicitly Excluded Scope
@@ -203,6 +241,7 @@ LAB-012 is complete when:
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-10 | Initial Feature specification |
+| 1.1 | 2026-09-06 | Added section 5.1, recording where this provider sits in Learn / Do / Prove: the Lab Engine owns DO and Proxmox sits beneath it as infrastructure, never as a learner-facing concept, and AI may coach against lab state but is never the factual authority for pass or fail. Added section 5.2, requiring a device the lesson calls PC-A, PC-B, Switch-1, Router-1, Router-2, Switch-2, PC-C or PC-D to carry that same learner-facing identity into the lab, with authentic implementation-specific interface names explicitly mapped back by the authored instruction. Curriculum doctrine remains owned by CURR-012 section 17 and the validator contract by LAB-008. Specifies no implementation and authors no learner-facing curriculum |
 
 ---
 

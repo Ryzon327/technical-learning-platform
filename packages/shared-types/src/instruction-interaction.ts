@@ -261,6 +261,90 @@ export interface PacketJourneyTraffic {
 export interface PacketJourneyPrediction {
   readonly prompt: string;
   readonly options: readonly string[];
+  /**
+   * The option a learner with the taught model should choose — OPTIONAL, and
+   * the reason it is optional is the whole of the rule above.
+   *
+   * Founder ruling, Mission 8 refinement: a learner must never have to infer
+   * from "what actually happened" whether their own model was right. When a
+   * prediction asks something the course has ALREADY taught them to work out —
+   * Mission 8 asking what PC-A does with a remote destination — the pane says
+   * "Correct prediction" or "Not quite", calmly, and the learner gets the
+   * cognitive confirmation they came for.
+   *
+   * It stays absent wherever the learner genuinely cannot know yet. Mission 1
+   * asking which device a print request reaches first is exploratory: the
+   * observation IS the answer, and marking that guess would punish the learner
+   * for doing exactly what was asked. Those predictions are unchanged.
+   *
+   * This does not make a prediction an assessment. Nothing is scored, nothing
+   * is recorded, and no evidence or competency is produced — the same as a
+   * knowledge check. Must appear in `options` when present; validation refuses
+   * the document otherwise.
+   */
+  readonly correctOption?: string;
+  /**
+   * Why that option is the right one — OPTIONAL, and meaningful only beside
+   * `correctOption`.
+   *
+   * A verdict without a reason tells a learner they were wrong and leaves them
+   * no better off. Where a prediction is graded, the pane says what the learner
+   * chose, what the expected answer was, and why — the same three things a
+   * knowledge check resolves with.
+   *
+   * It is authored SEPARATELY from the stage's narration on purpose. The
+   * narration is what the network did; this is why the answer was what it was.
+   * Two fields, two owners, so neither has to carry the other's job.
+   */
+  readonly explanation?: string;
+}
+
+/**
+ * A knowledge check on a stage.
+ *
+ * ## Why this is not a field on `PacketJourneyPrediction`
+ *
+ * They are different instruments and DEC-063 keeps them apart.
+ *
+ * A PREDICTION asks "what do you think will happen?" before the learner can
+ * know. It is exploratory, it gates the reveal, and it carries no correct
+ * option — the observation IS the answer, and grading a guess made before the
+ * evidence would punish the learner for doing exactly what they were asked.
+ *
+ * A KNOWLEDGE CHECK asks "based on what you have already been shown, which
+ * answer is correct?" It comes AFTER the teaching, it does not gate anything,
+ * and it has an authored right answer — so the learner can find out whether
+ * they actually understood, which "recorded" never told them.
+ *
+ * Bolting `correctOption` onto the prediction type would have collapsed that
+ * distinction and made every prediction gradable by omission.
+ *
+ * ## Correctness is authored and deterministic
+ *
+ * `correctOption` must be one of `options`, and correctness is decided by
+ * comparing the learner's selection against it. Nothing infers it, nothing
+ * scores it, and no AI is consulted — the same rule the lab validator follows.
+ * This produces no evidence and no competency: it tells a learner whether they
+ * understood, and nothing records that they did.
+ */
+export interface PacketJourneyKnowledgeCheck {
+  /**
+   * Unique within its stage.
+   *
+   * A stage may now author SEVERAL checks, in order, because troubleshooting
+   * reasoning is a sequence and it all happens at one stopping point. Mission 8
+   * asks what the stop rules out, then what to inspect next, then whether the
+   * configured gateway is reachable — three decisions, one stage, because the
+   * fault holds the journey there until the learner repairs it. Keying answers
+   * by stage alone could not tell those three apart.
+   */
+  readonly checkId: string;
+  readonly prompt: string;
+  readonly options: readonly string[];
+  /** Must appear in `options`. Validation refuses the document otherwise. */
+  readonly correctOption: string;
+  /** Why that answer is the right one. Shown whichever way the learner answers. */
+  readonly explanation: string;
 }
 
 /**
@@ -287,6 +371,19 @@ export interface PacketJourneyPrediction {
 export interface PacketJourneyStage {
   readonly stageId: string;
   readonly atNodeId: string;
+  /**
+   * What this device is DOING at this moment, in a few words.
+   *
+   * Founder UAT: a heading of "At PC-A" says where the learner is and not what
+   * is happening there. The pane now reads "PC-A — deciding how to send the
+   * packet", and the second half has to be authored: a renderer that inferred
+   * "deciding which port to use" from a device role would be writing
+   * curriculum, and it would be wrong the first time a switch did something
+   * else.
+   *
+   * Optional. A stage without one falls back to naming the device.
+   */
+  readonly action?: string;
   readonly narration: string;
   readonly decision?: string;
   readonly outcome: ObservationStageOutcome;
@@ -307,6 +404,14 @@ export interface PacketJourneyStage {
    */
   readonly deviceFacts?: readonly PacketJourneyDeviceFacts[];
   readonly prediction?: PacketJourneyPrediction;
+  /**
+   * An optional check that the learner understood what they have been shown.
+   *
+   * Offered once this stage is REVEALED, so it can only ever ask about
+   * material already on screen. It does not gate the journey: a learner may
+   * answer it, or read on.
+   */
+  readonly knowledgeChecks?: readonly PacketJourneyKnowledgeCheck[];
 }
 
 /** One device's authored display at one stage. */
@@ -541,16 +646,31 @@ const TRAFFIC_KEYS = [
   "startActionLabel"
 ] as const;
 const PREDICTION_KEYS = ["prompt", "options"] as const;
+const PREDICTION_OPTIONAL_KEYS = [
+  "prompt",
+  "options",
+  "correctOption",
+  "explanation"
+] as const;
+const KNOWLEDGE_CHECK_KEYS = [
+  "checkId",
+  "prompt",
+  "options",
+  "correctOption",
+  "explanation"
+] as const;
 const STAGE_KEYS = [
   "stageId",
   "atNodeId",
+  "action",
   "narration",
   "decision",
   "outcome",
   "viaLinkId",
   "alsoOnLinkIds",
   "deviceFacts",
-  "prediction"
+  "prediction",
+  "knowledgeChecks"
 ] as const;
 const DEVICE_FACTS_KEYS = ["nodeId", "label", "facts"] as const;
 const DEVICE_FACT_KEYS = ["label", "value"] as const;
@@ -828,6 +948,7 @@ export function validatePacketJourneyParameters(
       // Publication-blocking: the text trace is required (CURR-011 s14.3).
       checkText(entry, "narration", stageLabel, at);
       checkOptionalText(entry, "decision", stageLabel, at);
+      checkOptionalText(entry, "action", stageLabel, at);
 
       if (!nonEmpty(entry.atNodeId) || !knownNodes.has(entry.atNodeId)) {
         at(
@@ -956,7 +1077,8 @@ export function validatePacketJourneyParameters(
         if (
           checkKeys(
             entry.prediction,
-            PREDICTION_KEYS,
+            // allowed, then required: `correctOption` may appear and need not.
+            PREDICTION_OPTIONAL_KEYS,
             PREDICTION_KEYS,
             predictionLabel,
             at
@@ -973,7 +1095,101 @@ export function validatePacketJourneyParameters(
                 at(`${predictionLabel}.options[${optionIndex}] is empty`);
               }
             });
+
+            // Optional, and checked exactly as strictly as a knowledge check's
+            // when it is present. An unauthored one leaves the prediction
+            // exploratory, which is what most of the course wants.
+            const correct = entry.prediction.correctOption;
+
+            if (correct !== undefined) {
+              if (!nonEmpty(correct)) {
+                at(`${predictionLabel}.correctOption is empty`);
+              } else if (!options.includes(correct)) {
+                at(
+                  `${predictionLabel}.correctOption is not one of the offered options: ${String(correct)}`
+                );
+              }
+            }
+
+            // An explanation without a correct option has nothing to explain:
+            // an ungraded prediction resolves by comparison, and the stage's
+            // narration is already the answer.
+            const why = entry.prediction.explanation;
+
+            if (why !== undefined) {
+              if (!nonEmpty(why)) {
+                at(`${predictionLabel}.explanation is empty`);
+              }
+              if (correct === undefined) {
+                at(
+                  `${predictionLabel}.explanation is authored without a correctOption to explain`
+                );
+              }
+            }
           }
+        }
+      }
+
+      if (entry.knowledgeChecks !== undefined) {
+        const checksLabel = `${stageLabel}.knowledgeChecks`;
+
+        if (!Array.isArray(entry.knowledgeChecks)) {
+          at(`${checksLabel} must be a list`);
+        } else {
+          const checkIds: (string | undefined)[] = [];
+
+          entry.knowledgeChecks.forEach((check, checkIndex) => {
+            const checkLabel = `${checksLabel}[${checkIndex}]`;
+
+            if (
+              !checkKeys(
+                check,
+                KNOWLEDGE_CHECK_KEYS,
+                KNOWLEDGE_CHECK_KEYS,
+                checkLabel,
+                at
+              )
+            ) {
+              return;
+            }
+
+            checkText(check, "checkId", checkLabel, at);
+            checkText(check, "prompt", checkLabel, at);
+            checkText(check, "explanation", checkLabel, at);
+            checkIds.push(typeof check.checkId === "string" ? check.checkId : undefined);
+
+            const options = check.options;
+
+            if (!Array.isArray(options) || options.length < 2) {
+              at(`${checkLabel}.options must offer at least two choices`);
+              return;
+            }
+
+            options.forEach((option, optionIndex) => {
+              if (!nonEmpty(option)) {
+                at(`${checkLabel}.options[${optionIndex}] is empty`);
+              }
+            });
+
+            // The whole point of the type: correctness is AUTHORED, and it
+            // names one of the choices the learner can actually pick. A right
+            // answer that is not on the list is a question nobody can get
+            // right, and it would only be discovered by a learner.
+            const correct = check.correctOption;
+
+            if (!nonEmpty(correct)) {
+              at(`${checkLabel}.correctOption is empty`);
+            } else if (!options.includes(correct)) {
+              at(
+                `${checkLabel}.correctOption is not one of the offered options: ${String(correct)}`
+              );
+            }
+          });
+
+          // Answers are keyed by check id. Two checks sharing one id on the
+          // same stage would make the second unanswerable, and the learner
+          // would be the one to discover it.
+          reportDuplicates(checkIds, checksLabel, at);
         }
       }
     });
@@ -1300,6 +1516,7 @@ export function buildPacketJourneyObservationModel(
       stageId: stage.stageId,
       atNodeId: stage.atNodeId,
       narration: stage.narration,
+      ...(stage.action !== undefined ? { action: stage.action } : {}),
       ...(stage.decision !== undefined ? { decision: stage.decision } : {}),
       outcome:
         isFaultStage && faultResolved ? ("proceeds" as const) : stage.outcome,
@@ -1373,10 +1590,26 @@ export function buildPacketJourneyObservationModel(
             }
           : { state: "proceeding", narration: currentStage.narration };
 
-  // Remediation is offered once the learner has actually met the failure, and
-  // withdrawn once it has been applied. Offering it earlier would give away
-  // that something is wrong before they observe it.
-  const actionsAvailable = atAuthoredStop && appliedAction === undefined;
+  /*
+    Remediation is offered once the learner has actually met the failure.
+    Offering it earlier would give away that something is wrong before they
+    observe it.
+
+    It is withdrawn when a change RESOLVED the fault, because there is nothing
+    left to repair. It is NOT withdrawn after a change that did not: Founder
+    ruling, Mission 8 refinement — a wrong choice must teach the misconception
+    it represents and then let the learner choose again. Before this, a wrong
+    answer ended the journey, and the only way on was to restart from the
+    beginning and re-read everything.
+
+    Nothing about the fault itself moves. `faultResolved` above still turns on
+    the authored `resolvesFault` flag alone, so a second attempt is a second
+    attempt at the same authored fault — not a second fault, and not a state
+    the author did not write.
+  */
+  const actionsAvailable =
+    atAuthoredStop &&
+    (appliedAction === undefined || appliedAction.resolvesFault !== true);
 
   const actions: ObservationAction[] = authoredActions.map((action) => ({
     actionId: action.actionId,
@@ -1438,6 +1671,21 @@ export interface LearnerPacketJourneyStage {
    */
   readonly deviceFacts?: readonly PacketJourneyDeviceFacts[];
   readonly prediction?: PacketJourneyPrediction;
+  /** What this device is doing now. Carried at every support level: it says
+   *  what is happening, never why, and the pane's heading needs it. */
+  readonly action?: string;
+  /**
+   * Answer-BEARING, and carried anyway at the levels that offer it.
+   *
+   * A knowledge check exists to tell a learner whether they understood, which
+   * it cannot do without the right answer. So it belongs to the teaching
+   * levels — SHOW ME, HELP ME, ASK ME — and is dropped entirely at CHALLENGE
+   * ME and PROVE IT, where a teaching interaction that reveals its own answers
+   * is withheld rather than shipped and concealed. That is the same reasoning
+   * `actions` follows, and for the same reason: with no server round-trip per
+   * answer, the correct option IS the protected content.
+   */
+  readonly knowledgeChecks?: readonly PacketJourneyKnowledgeCheck[];
 }
 
 export interface LearnerPacketJourneyFault {

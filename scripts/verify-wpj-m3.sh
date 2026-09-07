@@ -252,13 +252,64 @@ if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 
   fail "this slice changed a migration; Mission 3 authors curriculum only"
 fi
 
-if ! git diff --quiet HEAD -- packages/shared-types/src/instruction-interaction.ts 2>/dev/null; then
-  fail "this slice changed the interaction contract; Mission 3 uses the existing one"
-fi
+# ## Why this no longer forbids the interaction contract from changing
+#
+# It used to assert `git diff --quiet HEAD` over
+# `instruction-interaction.ts`, on the reasoning that a CURRICULUM slice has no
+# business editing the contract. That was right for a curriculum slice and
+# wrong as a permanent rule: DEC-064 adds the knowledge-check type to that file
+# under Founder approval, and a guard that fails on authorised work is a guard
+# that gets deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# that Mission 3 USES the contract rather than bending it — and specifically
+# that a prediction never acquires an answer key, which `verify-wph.sh` now
+# asserts directly on the prediction type. This asserts that guard still
+# exists, which is the part Mission 3's gate can meaningfully own.
+# Rebased in the Mission 8 refinement. `verify-wph.sh` used to forbid
+# `correctOption` on the prediction contract outright, and every mission gate
+# delegated to that one string. A Founder ruling then made the field available,
+# optionally, so that a learner never has to infer from "what actually
+# happened" whether their own model was right.
+#
+# Delegation alone was always the weaker check: it asserted something about a
+# TYPE, in another file, and said nothing about this mission. So each gate now
+# asserts what its own mission actually relies on. Mission 3 authors
+# exploratory predictions — the learner cannot yet reason the answer out, the
+# observation IS the answer, and marking the guess would punish them for doing
+# what was asked. None of its predictions may carry a correct option.
+grep -Fq 'const PREDICTION_KEYS = ["prompt", "options"] as const;' packages/shared-types/src/instruction-interaction.ts \
+  || fail "correctOption became REQUIRED on a prediction; Mission 3 relies on a prediction staying ungradeable"
 
-if ! git diff --quiet HEAD -- packages/shared-types/src/mission-steps.ts 2>/dev/null; then
-  fail "this slice changed the step vocabulary; Mission 3 uses the existing one"
-fi
+# The per-mission half of this — that Mission 3 authors no GRADED prediction —
+# is asserted in `networking-foundations.test.ts`, which parses the document.
+# A grep here cannot tell a prediction's correct option from a knowledge
+# check's, and a knowledge check is supposed to have one.
+
+# `mission-steps.ts` left this pin for the same reason `instruction-interaction.ts`
+# did above. It was `git diff --quiet HEAD`, on the reasoning that a curriculum
+# slice has no business editing the step contract — right for a curriculum
+# slice, wrong as a permanent rule. WP-NF-NT1 adds `near_transfer` to the
+# vocabulary under a DEC-054 amendment, and a guard that fails on authorised
+# work is a guard that gets deleted rather than fixed.
+#
+# The invariant underneath was that Mission 3 USES the vocabulary rather than
+# inventing one for itself. So: the vocabulary stays closed, and Mission 3
+# authors only types inside it.
+grep -Fq 'The set is closed.' packages/shared-types/src/mission-steps.ts \
+  || fail "the step vocabulary is no longer declared closed; Mission 3 relies on authoring within a fixed set"
+
+grep -Fq 'the vocabulary is closed at ${MISSION_STEP_TYPES.join(", ")}' packages/shared-types/src/mission-steps.ts \
+  || fail "an unapproved step type no longer fails validation; the closed vocabulary would be advisory"
+
+# Read from Mission 3's own block, so a type introduced anywhere else in the
+# course cannot satisfy this and a type introduced HERE cannot hide.
+while IFS= read -r authored; do
+  case "$authored" in
+    concept|diagram|command|prediction|interaction|practice|near_transfer|reference) ;;
+    *) fail "Mission 3 authors the step type \"$authored\", which is not in the closed vocabulary" ;;
+  esac
+done < <(grep -o '"type": "[a-z_]*"' "$M3_BLOCK" | sed 's/.*: "//; s/"//')
 
 echo "PASS:  6. no contract, dependency or migration change"
 

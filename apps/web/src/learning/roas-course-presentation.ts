@@ -10,6 +10,10 @@ import type {
   LearnerMission,
   LearnerPracticeCheck
 } from "./roas-course-content";
+import {
+  describeRequiredInstructionOutstanding,
+  type RequiredInstructionState
+} from "./mission-instruction-presentation";
 
 /**
  * ROAS-3 — where authored content meets server-owned learner state.
@@ -419,6 +423,18 @@ export function resolveMissionControlState(input: {
   publishedMissionStableIds: readonly string[] | null;
   mission: Pick<LearnerMission, "stableId" | "isDemonstration">;
   missionProgress: MissionProgressDisplay;
+  /**
+   * Whether the lesson still has required inline instruction outstanding
+   * (WP-NF-NT1B).
+   *
+   * Optional, and `"none"` when omitted, so every caller and every mission
+   * that authors no required activity behaves exactly as it did before.
+   *
+   * This is the whole of what completion knows about instruction: a state.
+   * It is never told which step type, which activity, how many questions, or
+   * which mission — the lesson decides all of that and reports one word.
+   */
+  requiredInstruction?: RequiredInstructionState;
 }): MissionControlState {
   const canRecord = canRecordMissionProgress(
     input.availability,
@@ -437,7 +453,10 @@ export function resolveMissionControlState(input: {
   }
 
   if (!input.missionProgress.known) {
-    return { canStart: true, canComplete: true, explanation };
+    return withRequiredInstruction(
+      { canStart: true, canComplete: true, explanation },
+      input.requiredInstruction
+    );
   }
 
   switch (input.missionProgress.state) {
@@ -445,6 +464,13 @@ export function resolveMissionControlState(input: {
     case "competency_demonstrated":
       // Already recorded. Re-asserting it would be a no-op the learner cannot
       // distinguish from a fresh save.
+      //
+      // Deliberately NOT narrowed by outstanding instruction. A mission the
+      // server already records as finished stays finished: near-transfer state
+      // lives only in this browsing session, so a learner returning to a
+      // mission they completed last week would otherwise be told their own
+      // recorded progress no longer counts. Completion history is the server's,
+      // and this function has never had the authority to withdraw it.
       return {
         canStart: false,
         canComplete: false,
@@ -452,15 +478,57 @@ export function resolveMissionControlState(input: {
       };
 
     case "in_progress":
-      return {
-        canStart: false,
-        canComplete: true,
-        explanation: "You have started this mission. Mark it complete when you are done."
-      };
+      return withRequiredInstruction(
+        {
+          canStart: false,
+          canComplete: true,
+          explanation:
+            "You have started this mission. Mark it complete when you are done."
+        },
+        input.requiredInstruction
+      );
 
     default:
-      return { canStart: true, canComplete: true, explanation };
+      return withRequiredInstruction(
+        { canStart: true, canComplete: true, explanation },
+        input.requiredInstruction
+      );
   }
+}
+
+/**
+ * Close completion while the lesson still has required work in it.
+ *
+ * ## Why it only ever narrows
+ *
+ * Everything above it — an unpublished course, a signed-out learner, the
+ * demonstration mission, a mission already recorded as finished — has its own
+ * reason to refuse, and each of those reasons stands on its own. This is one
+ * more reason to refuse, never a reason to allow: it can turn `canComplete`
+ * off and can never turn it on.
+ *
+ * ## What it is not
+ *
+ * Not a score, not a threshold, and not a pass mark. The state it reads is
+ * about whether the required activity has been FINISHED — attempted, and its
+ * feedback read past. A learner who answered every question incorrectly
+ * reaches `"satisfied"` exactly as one who answered them all correctly does,
+ * which is why the sentence says "finish" and never "pass".
+ *
+ * `"Mark as started"` is untouched: starting a mission is not a claim about
+ * having done the work in it.
+ */
+function withRequiredInstruction(
+  state: MissionControlState,
+  requiredInstruction: RequiredInstructionState | undefined
+): MissionControlState {
+  if (requiredInstruction !== "outstanding") return state;
+
+  return {
+    ...state,
+    canComplete: false,
+    explanation: describeRequiredInstructionOutstanding()
+  };
 }
 
 /**

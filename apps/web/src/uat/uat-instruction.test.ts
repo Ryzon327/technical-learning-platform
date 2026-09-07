@@ -251,17 +251,106 @@ describe("protected fixture content does not reach the renderer", () => {
   });
 
   it("the prediction answer key never exists at any level", () => {
+    // These three are answer-key spellings the learner payload has no
+    // legitimate use for anywhere, at any support level, so the whole
+    // projection is swept for them.
     for (const level of INTERACTION_SUPPORT_LEVELS) {
       const serialised = JSON.stringify(availableAt(level));
 
       for (const forbidden of [
         "expectedOutcome",
         "expectedOptionIndex",
-        "correctOption",
         "answerKey"
       ]) {
         expect(serialised).not.toContain(forbidden);
       }
+    }
+  });
+
+  it("the prediction's own answer key never reaches the renderer", () => {
+    // `correctOption` was swept for across the whole projection until
+    // WP-NF-NT1, when `near_transfer` introduced a second, deliberate and
+    // differently-governed `correctOptionIds` (see the test below). A
+    // substring sweep would then have been protecting the spelling rather
+    // than the invariant, and the only way to keep it passing would have
+    // been to rename one of the two — which protects nothing.
+    //
+    // So this is aimed at what the guard was always for: the packet
+    // journey's prediction, whose answer is withheld at protected levels
+    // because a learner is being asked to commit to it before observing.
+    for (const level of INTERACTION_SUPPORT_LEVELS) {
+      const instruction = availableAt(level);
+
+      for (const step of instruction.steps) {
+        if (step.content.type === "prediction") {
+          expect(JSON.stringify(step.content)).not.toContain("correctOption");
+        }
+        if (step.content.type === "interaction") {
+          expect(JSON.stringify(step.content)).not.toContain("correctOption");
+        }
+      }
+    }
+  });
+
+  it("near-transfer answers are disclosed deliberately, and produce no evidence", () => {
+    // WP-NF-NT1 records this rather than leaving it implicit. Near-transfer
+    // correctness is authored, deterministic and adjudicated in the browser,
+    // so the authored answers necessarily reach the client — exactly as ROAS
+    // practice already does. That is acceptable for the same reason it is
+    // acceptable there and for no other: near-transfer produces no score, no
+    // attempt, no evidence and no competency, so a learner who reads the
+    // payload has only denied themselves the exercise.
+    //
+    // What must NOT happen is the presentation revealing the answer before
+    // the learner commits. That is a presentation invariant, and it is held
+    // in near-transfer-presentation.test.ts, not here.
+    const step = availableAt("show_me").steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step === undefined) throw new Error("the fixture carries no near transfer");
+
+    const content = step.content as Extract<
+      LearnerMissionStepContent,
+      { type: "near_transfer" }
+    >;
+
+    // The answers are held apart from the questions, so a renderer has to
+    // reach for them on purpose rather than receive them attached.
+    for (const question of content.questions) {
+      expect(JSON.stringify(question)).not.toContain("correctOptionIds");
+      expect(JSON.stringify(question)).not.toContain("explanation");
+      expect(content.answers[question.questionStableId]).toBeDefined();
+    }
+
+    // And nothing in it is evidence-shaped. Checked against the payload's
+    // field NAMES rather than a substring sweep: "points" is a substring of
+    // the topology's own `endpoints`, and a sweep would have to be weakened
+    // to a spelling nobody uses to stay green.
+    const names = new Set<string>();
+    const walk = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        for (const item of value) walk(item);
+        return;
+      }
+      if (value === null || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        names.add(key);
+        walk(nested);
+      }
+    };
+    walk(content);
+
+    for (const forbidden of [
+      "score",
+      "points",
+      "streak",
+      "attempts",
+      "attemptId",
+      "mastery",
+      "evidence",
+      "competencyStableId"
+    ]) {
+      expect(names.has(forbidden)).toBe(false);
     }
   });
 });

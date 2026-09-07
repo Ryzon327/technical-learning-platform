@@ -304,12 +304,97 @@ grep -Fq 'export function resolveSequencing' "$PRESENTATION" \
 grep -Fq 'return "commit_first"' "$PRESENTATION" \
   || fail "sequencing has no strict default arm"
 
-# Answer-revealing authored fields must never reach a learner type.
-for forbidden in expectedOptionIndex correctOption answerKey isCorrect; do
-  if grep -qF -e "$forbidden" "$WPH_LOGIC"; then
-    fail "an answer key exists in the interaction contract: $forbidden"
-  fi
+# A PREDICTION carries no answer key. Ever.
+#
+# ## Why this is no longer a blanket ban on the word
+#
+# It used to forbid `correctOption` anywhere in the contract, which was right
+# while a prediction was the only question the contract could express. DEC-064
+# adds a second and deliberately different one: a KNOWLEDGE CHECK asks about
+# material already taught, and it exists precisely to tell a learner whether
+# they understood — which it cannot do without an authored right answer.
+#
+# The invariant was never "the file contains no correctness". It was "a guess
+# made before the evidence is not graded", and under it sat the real rule: a
+# prediction is not an assessment and produces nothing.
+#
+# The Mission 8 refinement moved the line again, on a Founder ruling: a learner
+# must not have to infer from "what actually happened" whether their own model
+# was right. So a prediction MAY now carry `correctOption` — and everything the
+# original guard was defending is asserted here directly instead of by the
+# absence of a field.
+#
+# 1. It is OPTIONAL. A prediction the learner cannot yet reason about stays
+#    exploratory, which is most of the course.
+grep -Fq 'const PREDICTION_KEYS = ["prompt", "options"] as const;' "$WPH_LOGIC" \
+  || fail "correctOption became REQUIRED on a prediction; a guess made before the evidence must stay ungradeable"
+grep -Fq '"correctOption",' "$WPH_LOGIC" \
+  || fail "the prediction key set no longer admits an optional correctness field"
+grep -Fq 'const PREDICTION_OPTIONAL_KEYS = [' "$WPH_LOGIC" \
+  || fail "the prediction key set no longer separates required keys from optional ones"
+
+PREDICTION_TYPE="$(awk '/^export interface PacketJourneyPrediction \{/,/^\}/' "$WPH_LOGIC")"
+
+# 2. It carries a correct OPTION and nothing that looks like a score.
+# `isCorrect` and `streak` are on this list too, so the type-scoped sweep and
+# the file-wide one below agree about what a grader looks like. They did not:
+# the prediction type could have carried a verdict field that only the
+# file-wide sweep would have caught, and until this pass that sweep could not
+# see a bare declaration.
+for forbidden in expectedOptionIndex answerKey points score grade weight \
+                 mastery isCorrect streak; do
+  case "$PREDICTION_TYPE" in
+    *"$forbidden"*)
+      fail "a scoring field exists on the prediction contract: $forbidden"
+      ;;
+  esac
 done
+
+case "$PREDICTION_TYPE" in
+  *"readonly correctOption?: string;"*) : ;;
+  *"correctOption"*)
+    fail "correctOption on the prediction contract is not the optional string the ruling allows"
+    ;;
+esac
+
+# 3. It is withheld from a learner who is being tested rather than taught. With
+#    no per-answer round trip, a shipped correct option IS the answer.
+grep -Fq 'prediction: withhold' packages/shared-types/src/mission-instruction.ts \
+  || fail "a prediction's correct option is shipped at protected support levels"
+
+# And the withheld branch REBUILDS the prediction from the two safe fields
+# rather than forwarding the authored object. Mutation testing replaced the
+# rebuilt object with `stage.prediction` and this section still passed: the
+# grep above only proved a conditional existed, not that it withheld anything.
+grep -Fq '{ prompt: stage.prediction.prompt, options: stage.prediction.options }' \
+  packages/shared-types/src/mission-instruction.ts \
+  || fail "the withheld prediction is not rebuilt from prompt and options; the answer ships with the question"
+
+# The knowledge check is the ONLY place correctness may be authored, and it
+# must be a separate type rather than a widened prediction.
+grep -Fq 'export interface PacketJourneyKnowledgeCheck' "$WPH_LOGIC" \
+  || fail "authored correctness exists without a knowledge check type to own it"
+
+# And these never become authored fields anywhere: they are the shapes of a
+# grader, not of a question.
+#
+# Matched as a FIELD DECLARATION — an identifier followed by an optional `?`
+# and a colon — rather than as a bare word or as a quoted string.
+#
+# It was a quoted match, and the checkpoint audit found what that let through:
+# only a string literal was caught, so `readonly isCorrect?: boolean` on any
+# learner-facing type sailed past. A bare-word match is not the answer either,
+# because `score` is a substring of `underscore`, which appears twice in
+# legitimate prose that this file's line-based stripper does not remove.
+#
+# The declaration shape catches both forms — a JSON key `"isCorrect":` still
+# matches — is file-wide rather than per-type, and needs no maintenance when a
+# new type is added.
+GRADING_FIELD='(^|[^A-Za-z0-9_])(expectedOptionIndex|answerKey|isCorrect|score|streak)[[:space:]]*\??[[:space:]]*:'
+
+if grep -qE "$GRADING_FIELD" "$WPH_LOGIC"; then
+  fail "a grading field entered the interaction contract: $(grep -oE "$GRADING_FIELD" "$WPH_LOGIC" | head -1)"
+fi
 
 # --- 7b. Answer-BEARING content is withheld, not merely undrawn -------
 #

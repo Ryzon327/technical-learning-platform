@@ -120,6 +120,7 @@ Not every Mission requires every child type, but every item must have a defined 
 | CURR-009 | Curriculum Quality Checklist | Essential | Approved |
 | CURR-010 | Mission Instructional Steps | Core | Specified |
 | CURR-011 | Instructional Interaction Contract | Core | Specified |
+| CURR-012 | Practical Networking Learning-Path Architecture | Core | Specified |
 
 ---
 
@@ -168,6 +169,10 @@ Defines the ordered, typed instructional content beneath a Mission — the unit 
 ## CURR-011 — Instructional Interaction Contract
 
 Defines the single authoritative contract for learner-manipulable instructional experiences, including the shared `ObservationModel`, the teaching-mode Packet Journey, and accessible interaction equivalence.
+
+## CURR-012 — Practical Networking Learning-Path Architecture
+
+Owns the boundary between Networking Foundations and Router-on-a-Stick, the scope each course holds, the two-site practical target, and the practical doctrine that governs hands-on networking instruction — evidence commands, the assistance gradient, and configuration persistence.
 
 ---
 

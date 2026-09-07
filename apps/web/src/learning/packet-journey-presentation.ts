@@ -131,12 +131,34 @@ export interface PacketJourneyViewState {
   readonly started: boolean;
   readonly progress: PacketJourneyProgress;
   readonly committedPredictions: Readonly<Record<string, string>>;
+  /**
+   * Which option the learner chose for each stage's knowledge check.
+   *
+   * Separate from `committedPredictions` because the two mean different things
+   * (DEC-063): a prediction is a guess made before the evidence and is never
+   * graded; a knowledge check is an answer given after the teaching and is.
+   * Merging them would make every prediction gradable by accident.
+   *
+   * Recorded once, like a commitment — the point is to find out what the
+   * learner actually believed, not to let them reach the right option by
+   * elimination.
+   */
+  readonly answeredChecks: Readonly<Record<string, string>>;
 }
 
 export const INITIAL_PACKET_JOURNEY_VIEW_STATE: PacketJourneyViewState = {
-  started: false,
+  /*
+    Founder video UAT: pressing Start moved no traffic. It only revealed the
+    prediction the learner had already been told to make, which is a click that
+    teaches nothing (the Mechanical Interaction Law).
+
+    The journey therefore begins ENGAGED. Nothing moves until the learner acts;
+    what is gone is the ceremony in front of the first real decision.
+  */
+  started: true,
   progress: INITIAL_PACKET_JOURNEY_PROGRESS,
-  committedPredictions: {}
+  committedPredictions: {},
+  answeredChecks: {}
 };
 
 /**
@@ -160,16 +182,79 @@ export function startJourney(
  * is what makes "predict, then observe" mean anything. Committing is the only
  * thing that unlocks the next reveal when a stage asks for a prediction.
  */
-export function commitPrediction(
+/**
+ * Record the learner's answer to a stage's knowledge check.
+ *
+ * Nothing here decides whether it is right. Correctness is a comparison
+ * against the AUTHORED `correctOption`, made when the view is built — so it is
+ * deterministic, inspectable and identical for every learner. No AI is
+ * consulted, nothing is scored, and no evidence is produced.
+ */
+export function answerKnowledgeCheck(
   state: PacketJourneyViewState,
-  stageId: string,
+  /** The CHECK's id, not the stage's — a stage may author several. */
+  checkId: string,
   option: string
 ): PacketJourneyViewState {
-  if (state.committedPredictions[stageId] !== undefined) return state;
+  if (state.answeredChecks[checkId] !== undefined) return state;
 
   return {
     ...state,
+    answeredChecks: { ...state.answeredChecks, [checkId]: option }
+  };
+}
+
+/**
+ * Record the learner's prediction, and show them what actually happened.
+ *
+ * ## Why committing also reveals
+ *
+ * Founder video UAT, twice. Committing used to record the answer and stop
+ * there, which left the learner on a screen that said "Prediction recorded:
+ * Switch-1. Nothing has been sent yet." above a second button. Acknowledging a
+ * submission is not an instructional beat — the learner knows they submitted,
+ * because they submitted — and the screen answered nothing they had just been
+ * asked.
+ *
+ * An earlier pass removed the BEAT that rendered it. The state it rendered
+ * survived: with the question answered and nothing revealed, the pane fell
+ * through to the orientation, and the live region still announced the
+ * recording. Deleting text would have moved the defect rather than fixed it.
+ *
+ * So the transition itself is now atomic: predict, and observe. The pending
+ * state stops being reachable rather than stopping being rendered.
+ *
+ * ## Why only the stage that was predicted
+ *
+ * The reveal is released by the commitment for the stage the reveal is about.
+ * A prediction committed for anything other than the next unrevealed stage
+ * cannot exist — committing is what releases the reveal — and reading exactly
+ * that one slot keeps the rule visible rather than implied.
+ */
+export function commitPrediction(
+  state: PacketJourneyViewState,
+  stageId: string,
+  option: string,
+  parameters?: LearnerPacketJourneyParameters
+): PacketJourneyViewState {
+  if (state.committedPredictions[stageId] !== undefined) return state;
+
+  const committed = {
+    ...state,
     committedPredictions: { ...state.committedPredictions, [stageId]: option }
+  };
+
+  if (parameters === undefined) return committed;
+
+  const next = parameters.stages[state.progress.revealedStageCount];
+  if (next?.stageId !== stageId) return committed;
+
+  return {
+    ...committed,
+    progress: {
+      ...committed.progress,
+      revealedStageCount: committed.progress.revealedStageCount + 1
+    }
   };
 }
 
@@ -206,9 +291,26 @@ export function advance(
  */
 export function applyAction(
   state: PacketJourneyViewState,
-  actionId: string
+  actionId: string,
+  /**
+   * Whether the model is still offering a choice here.
+   *
+   * Founder ruling, Mission 8 refinement: a change that did not repair the
+   * fault must teach its misconception and let the learner choose again,
+   * instead of ending the journey and making them restart from the beginning.
+   *
+   * This is deliberately NOT `resolvesFault`. Whether a change worked is the
+   * observation model's to decide, and the browser must not be able to read
+   * the answer key or rebuild a consequence from it (`verify-wph.sh`). The
+   * model already withdraws remediation once the fault is resolved, so "is a
+   * choice still on offer" is the same fact expressed without the answer —
+   * and it is what the renderer is already using to enable the button.
+   *
+   * Omitted, it keeps the old behaviour: one choice, final.
+   */
+  stillOffered = false
 ): PacketJourneyViewState {
-  if (state.progress.appliedActionId !== null) return state;
+  if (state.progress.appliedActionId !== null && !stillOffered) return state;
 
   return {
     ...state,
@@ -314,6 +416,8 @@ export interface PacketJourneyStageView {
   readonly outcomeLabel: string;
   readonly stopped: boolean;
   readonly committedPrediction?: string;
+  /** What this device is doing at this stage, in the author's words. */
+  readonly action?: string;
 }
 
 /**
@@ -551,7 +655,10 @@ export function describeOrientationSummary(
   trafficLabel: string,
   sourceLabel: string
 ): string {
-  return `${capitaliseFirst(trafficLabel)} starts at ${sourceLabel}.`;
+  // A helper line above the network, not a sentence competing with the beat.
+  // Founder UAT rejected "X starts at Y" as awkward; this says whose network
+  // the learner is looking at, which is what orientation is for.
+  return `${capitaliseFirst(sourceLabel)} is sending ${trafficLabel}.`;
 }
 
 export interface PacketJourneyInterfaceView {
@@ -644,6 +751,8 @@ export interface PacketJourneyView {
    */
   readonly topology: TopologyLayout;
   readonly stages: readonly PacketJourneyStageView[];
+  /** How many network stages the journey authors, revealed or not. */
+  readonly totalStages: number;
   /**
    * What devices are showing RIGHT NOW, as the author wrote it.
    *
@@ -671,6 +780,123 @@ export interface PacketJourneyView {
   /** Whether committing a prediction is required before the next reveal. */
   readonly predictionRequired: boolean;
   readonly actions: readonly PacketJourneyActionView[];
+  /**
+   * The remediation the learner actually chose, and what it produced.
+   *
+   * Founder UAT, second round: "the learner must always be able to distinguish
+   * ... MY ANSWER / CHOICE". The choice was already known here — it decided
+   * whether the fault stage proceeds — but it reached the learner only as a
+   * line inside the text trace, several screens down. Surfacing it is carrying
+   * an authored value to the surface, not deciding anything new.
+   *
+   * `null` until a remediation is applied, and at every support level that
+   * withheld the remediation set.
+   */
+  readonly chosenAction: {
+    readonly label: string;
+    readonly observation: string;
+  } | null;
+  /**
+   * A prediction the learner made, now that the stage it was about has been
+   * observed.
+   *
+   * Founder UAT: "'Recorded' alone is NOT adequate ... after observation
+   * clearly expose YOUR PREDICTION / WHAT ACTUALLY HAPPENED / WHY."
+   *
+   * All three values were already authored and already on screen somewhere —
+   * the comparison existed, but only inside the history disclosure the Founder
+   * had already reported not noticing. This carries it to the live pane.
+   *
+   * It is deliberately NOT graded. `PacketJourneyPrediction` carries no correct
+   * option and CURR-011 forbids adding one, because an answer key in
+   * curriculum content is an assessment answer. The learner compares what they
+   * expected against what happened; nothing declares them right or wrong.
+   */
+  readonly resolvedPrediction: {
+    readonly option: string;
+    readonly observed: string;
+    readonly why: string | null;
+    /**
+     * Whether the learner's prediction matched the authored one — or `null`
+     * where the mission authored no correct option, which is most of them.
+     *
+     * Founder ruling, Mission 8 refinement: a learner must never have to infer
+     * from "what actually happened" whether their own model was right. Where
+     * the course has already taught them enough to work the answer out, the
+     * pane says so plainly. Where it has not, this stays null and the beat
+     * compares expectation with observation exactly as before.
+     */
+    readonly correct: boolean | null;
+    readonly correctOption: string | null;
+    /** Why the expected answer is the expected answer. Authored, or null. */
+    readonly explanation: string | null;
+  } | null;
+  /**
+   * A knowledge check on the stage the learner is looking at.
+   *
+   * DEC-063 keeps this apart from a prediction. It asks about material already
+   * shown, it carries an authored right answer, and once answered it resolves
+   * explicitly — the learner is told whether they were correct, what the
+   * correct answer was, and why.
+   *
+   * `answer` is `null` until they respond. Correctness is a comparison against
+   * the authored `correctOption` and nothing else: no inference, no scoring,
+   * no AI, and no evidence.
+   */
+  /**
+   * The orientation facts, beside the current beat.
+   *
+   * Founder UAT: "I did not notice the existing leg information because it was
+   * below the topology." Who is sending, what, to whom, where it is now and
+   * which connection it is crossing are the questions a learner asks at every
+   * step, and hunting for them under the drawing is the friction this removes.
+   *
+   * Every field is COPIED — a device's authored label, its flagged address,
+   * the link's own endpoint summary. Nothing is computed, and a field the
+   * mission has not authorised is simply absent rather than blank.
+   */
+  readonly quickReference: readonly {
+    readonly label: string;
+    readonly value: string;
+  }[];
+  readonly knowledgeCheck: {
+    readonly stageId: string;
+    /** The check being offered. A stage may author several, in order. */
+    readonly checkId: string;
+    readonly prompt: string;
+    readonly options: readonly string[];
+    /** How far through this stage's checks the learner is, for orientation. */
+    readonly answeredCount: number;
+    readonly totalCount: number;
+    readonly answer: {
+      readonly option: string;
+      readonly correct: boolean;
+      readonly correctOption: string;
+      readonly explanation: string;
+    } | null;
+  } | null;
+  /**
+   * The check the learner most recently ANSWERED on the stage they are on.
+   *
+   * Separate from `knowledgeCheck`, which is the one being asked. A stage may
+   * author a sequence, and while the learner is part-way through it those are
+   * two different checks: answering the first must resolve the first, not
+   * silently move on to the second.
+   *
+   * Founder UAT walked Mission 8's three reasoning steps and got no feedback at
+   * all for the first two — the pane skipped straight to the next question, so
+   * every transition read as the same two screens followed by another prompt.
+   *
+   * Cleared once the learner has acted on a repair: the reasoning is finished
+   * and the answer belongs to the history disclosure from then on.
+   */
+  readonly resolvedCheck: {
+    readonly checkId: string;
+    readonly option: string;
+    readonly correct: boolean;
+    readonly correctOption: string;
+    readonly explanation: string;
+  } | null;
   readonly symptom: string | null;
   readonly explanation: string | null;
   readonly confirmation: string | null;
@@ -713,6 +939,7 @@ export function buildPacketJourneyView(
     nodeLabel: nodeLabels.get(stage.atNodeId) ?? stage.atNodeId,
     narration: stage.narration,
     ...(stage.decision !== undefined ? { decision: stage.decision } : {}),
+    ...(stage.action !== undefined ? { action: stage.action } : {}),
     outcomeLabel: describeStageOutcome(stage.outcome),
     stopped: stage.outcome === "stops",
     ...(state.committedPredictions[stage.stageId] !== undefined
@@ -802,7 +1029,25 @@ export function buildPacketJourneyView(
     }))
   }));
 
-  const textTrace = buildTextTrace(parameters, state, stages, appliedAction);
+  /*
+    Whether the learner is being asked to predict before anything moves.
+
+    Read from the stage the next reveal would show, so the opening status
+    describes the action actually in front of them. Derived HERE, above both
+    consumers, so the status line and the text account are told the same thing
+    rather than each working it out.
+  */
+  const nextStageAsks =
+    parameters.stages[state.progress.revealedStageCount]?.prediction !==
+    undefined;
+
+  const textTrace = buildTextTrace(
+    parameters,
+    state,
+    stages,
+    appliedAction,
+    nextStageAsks
+  );
 
   // Built from the model this view already read, never from the authored
   // parameters and never from a second walk of the topology.
@@ -843,12 +1088,85 @@ export function buildPacketJourneyView(
       ? undefined
       : model.stages.find((stage) => stage.stageId === model.currentStageId);
 
-  const via =
-    currentStage?.viaLinkId === undefined
-      ? null
-      : (resolvedLinks?.find(
-          (link) => link.linkId === currentStage.viaLinkId
-        )?.endpointSummary ?? null);
+  /*
+    THE CURRENT LEG, IN THE DIRECTION THE TRAFFIC ACTUALLY MOVED.
+
+    Founder video UAT read "Printer Network interface to Switch-1 Port 3" at the
+    end of Mission 1, when the print request had moved from Switch-1 to the
+    Printer. `endpointSummary` is built from the link's stored from/to order,
+    which is arbitrary and fixed — and the same physical link is traversed in
+    both directions elsewhere in the course.
+
+    So the leg is composed from the JOURNEY: the stage before this one is where
+    the traffic came from, this stage is where it arrived. Storage order decides
+    nothing.
+  */
+  const via = (() => {
+    if (currentStage?.viaLinkId === undefined) return null;
+
+    const link = resolvedLinks?.find(
+      (candidate) => candidate.linkId === currentStage.viaLinkId
+    );
+    if (link === undefined) return null;
+
+    const arrivedAt = currentStage.atNodeId;
+    const currentIndex = model.stages.findIndex(
+      (stage) => stage.stageId === currentStage.stageId
+    );
+    const cameFrom = model.stages[currentIndex - 1]?.atNodeId;
+
+    const endpoints = [link.from, link.to];
+    const source = endpoints.find((end) => end.nodeId === cameFrom);
+    const destination = endpoints.find((end) => end.nodeId === arrivedAt);
+
+    // Both ends identified from the journey: say it in travel order.
+    if (source !== undefined && destination !== undefined) {
+      return (
+        `${source.nodeLabel} ${source.interfaceLabel} to ` +
+        `${destination.nodeLabel} ${destination.interfaceLabel}`
+      );
+    }
+
+    // A link whose ends the journey cannot place — the authored summary, which
+    // at least names the two devices, rather than a direction that may be wrong.
+    return link.endpointSummary;
+  })();
+
+  /*
+    The same arrival, structured rather than pre-composed.
+
+    `via` is written for the Quick Reference's "Current leg" row, where naming
+    both ends and both ports is exactly right. A sentence needs different
+    parts: who it came from, and the port it came in on. Both are read from the
+    same authored link and the same journey order, so the two can never
+    describe different events.
+  */
+  const arrival = (() => {
+    if (currentStage?.viaLinkId === undefined) return null;
+
+    const link = resolvedLinks?.find(
+      (candidate) => candidate.linkId === currentStage.viaLinkId
+    );
+    if (link === undefined) return null;
+
+    const currentIndex = model.stages.findIndex(
+      (stage) => stage.stageId === currentStage.stageId
+    );
+    const cameFrom = model.stages[currentIndex - 1]?.atNodeId;
+
+    const endpoints = [link.from, link.to];
+    const source = endpoints.find((end) => end.nodeId === cameFrom);
+    const destination = endpoints.find(
+      (end) => end.nodeId === currentStage.atNodeId
+    );
+
+    if (source === undefined || destination === undefined) return null;
+
+    return {
+      fromNodeLabel: source.nodeLabel,
+      atInterfaceLabel: destination.interfaceLabel
+    };
+  })();
 
   // The remediation's own observation belongs to the MOMENT it was applied, at
   // the stage it repaired. Once the learner advances past that stage, the new
@@ -874,7 +1192,10 @@ export function buildPacketJourneyView(
       atRemediatedStage,
       latestStage?.nodeLabel,
       pendingCommitment !== null,
-      parameters.traffic.label
+      parameters.traffic.label,
+      via !== null,
+      nodeLabels.get(parameters.traffic.sourceNodeId),
+      nodeLabels.get(parameters.traffic.destinationNodeId)
     ),
     via,
     // Every observable change moves this on: a reveal, a commitment, a
@@ -931,6 +1252,7 @@ export function buildPacketJourneyView(
     links,
     topology,
     stages,
+    totalStages: parameters.stages.length,
     deviceFacts,
     currentEvent,
     // Withheld until the learner begins. Before Start there is exactly one
@@ -945,8 +1267,25 @@ export function buildPacketJourneyView(
     // hint is. Elsewhere it reads inline, or is simply absent because the
     // server never sent it.
     decisionDisclosed: sequencing === "guide",
+    /*
+      Founder UAT, second round: "the Founder sees 'Show Me' and expects: show
+      me the network and the information I need ... SHOW ME should NOT primarily
+      mean: show me several paragraphs."
+
+      Most of that was answered in the authored topology — port and interface
+      names, addresses and network identity are now ON the drawing rather than
+      behind a click. What was still missing at SHOW ME is that a learner had no
+      way of knowing the devices were readable at all: the prompt appeared only
+      at HELP ME, so the richest support level was the one that never mentioned
+      the inspector.
+
+      So SHOW ME now gets the prompt too. It is not extended to the levels below,
+      because at ASK ME and beyond, working out what is worth inspecting is part
+      of what the learner is being asked to do.
+    */
     inspectionPrompt:
-      sequencing === "guide" && (openPrediction !== null || stages.length === 0)
+      (sequencing === "demonstrate" || sequencing === "guide") &&
+      (openPrediction !== null || stages.length === 0)
         ? describeInspectionPrompt()
         : null,
     predictionRequired: sequencing === "commit_first",
@@ -955,6 +1294,207 @@ export function buildPacketJourneyView(
       label: action.label,
       available: action.available
     })),
+    /*
+      The most recently OBSERVED stage that carried a commitment. Only the
+      latest one: the pane evolves rather than accumulating a transcript, and
+      every earlier comparison is still in the history below.
+    */
+    /*
+      Offered on the latest REVEALED stage that authors one, so it can only
+      ever ask about something already on screen. It gates nothing: a learner
+      may answer it or read on, which is what keeps a course from becoming
+      read-answer-read-answer.
+    */
+    quickReference: (() => {
+      const rows: { label: string; value: string }[] = [];
+
+      const named = (nodeId: string): string =>
+        nodeLabels.get(nodeId) ?? nodeId;
+
+      // A device's address, only where the author flagged one for display —
+      // which is the mission's own concept boundary, already enforced.
+      const addressOf = (nodeId: string): string | null => {
+        const node = parameters.nodes.find(
+          (candidate) => candidate.nodeId === nodeId
+        );
+
+        for (const iface of node?.interfaces ?? []) {
+          for (const attribute of iface.attributes) {
+            if (attribute.prominent === true && attribute.label.includes("IPv4")) {
+              return attribute.value;
+            }
+          }
+        }
+        return null;
+      };
+
+      const withAddress = (nodeId: string): string => {
+        const address = addressOf(nodeId);
+        return address === null ? named(nodeId) : `${named(nodeId)} — ${address}`;
+      };
+
+      rows.push({ label: "From", value: withAddress(parameters.traffic.sourceNodeId) });
+      rows.push({ label: "To", value: withAddress(parameters.traffic.destinationNodeId) });
+
+      /*
+        "Carrying", not "Sending", and the noun is the mission's own.
+
+        Founder UAT read "Sending — a message" in Mission 6, two steps after
+        the course had taught both frame and packet. The vagueness was
+        authored: `traffic.label` said "a message". The word is fixed in the
+        curriculum, where terminology boundaries are decided; this row just
+        stops describing the journey as an act in progress when what the
+        learner wants to know is what is being carried.
+      */
+      rows.push({ label: "Carrying", value: parameters.traffic.label });
+
+      const at = stages[stages.length - 1];
+      if (at !== undefined) {
+        rows.push({ label: "Now at", value: at.nodeLabel });
+      }
+
+      if (via !== null) {
+        rows.push({ label: "Current leg", value: via });
+      }
+
+      return rows;
+    })(),
+    knowledgeCheck: (() => {
+      /*
+        Read from the AUTHORED stages, not from the observation model: a
+        knowledge check is instruction, and the model is a record of what
+        happened. Which stages are revealed comes from the model; what each one
+        asks comes from the curriculum.
+
+        A stage may author SEVERAL checks, in order. The one offered is the
+        first UNANSWERED check on the latest revealed stage that has any — so
+        Mission 8's three reasoning steps at the stop arrive one at a time,
+        each resolving before the next is set, which is DEC-065. Once every
+        check on a stage is answered, the most recent answer stays on screen so
+        the learner can still read the explanation.
+      */
+      for (let index = revealed.length - 1; index >= 0; index -= 1) {
+        const revealedStage = revealed[index];
+        if (revealedStage === undefined) continue;
+
+        const stage = parameters.stages.find(
+          (candidate) => candidate.stageId === revealedStage.stageId
+        );
+        const authored = stage?.knowledgeChecks;
+        if (stage === undefined || authored === undefined || authored.length === 0) {
+          continue;
+        }
+
+        const open =
+          authored.find(
+            (check) => state.answeredChecks[check.checkId] === undefined
+          ) ?? authored[authored.length - 1];
+
+        if (open === undefined) continue;
+
+        const chosen = state.answeredChecks[open.checkId];
+
+        return {
+          stageId: stage.stageId,
+          checkId: open.checkId,
+          prompt: open.prompt,
+          options: open.options,
+          /** How many of this stage's checks are answered, and of how many. */
+          answeredCount: authored.filter(
+            (check) => state.answeredChecks[check.checkId] !== undefined
+          ).length,
+          totalCount: authored.length,
+          answer:
+            chosen === undefined
+              ? null
+              : {
+                  option: chosen,
+                  // Deterministic, and the only place correctness is decided.
+                  correct: chosen === open.correctOption,
+                  correctOption: open.correctOption,
+                  explanation: open.explanation
+                }
+        };
+      }
+      return null;
+    })(),
+    resolvedCheck: (() => {
+      // The last check the learner answered on the stage they are looking at.
+      // Read from the AUTHORED stage, in authored order, so "most recent" is
+      // the sequence's order rather than the order answers happened to arrive.
+      if (appliedAction !== undefined) return null;
+
+      const latestStageId = revealed[revealed.length - 1]?.stageId;
+      if (latestStageId === undefined) return null;
+
+      const authored = parameters.stages.find(
+        (candidate) => candidate.stageId === latestStageId
+      )?.knowledgeChecks;
+
+      if (authored === undefined) return null;
+
+      for (let index = authored.length - 1; index >= 0; index -= 1) {
+        const check = authored[index];
+        if (check === undefined) continue;
+
+        const chosen = state.answeredChecks[check.checkId];
+        if (chosen === undefined) continue;
+
+        return {
+          checkId: check.checkId,
+          option: chosen,
+          // Deterministic, and the only place correctness is decided.
+          correct: chosen === check.correctOption,
+          correctOption: check.correctOption,
+          explanation: check.explanation
+        };
+      }
+
+      return null;
+    })(),
+    resolvedPrediction: (() => {
+      /*
+        THE STAGE JUST REVEALED, AND NO EARLIER ONE.
+
+        This used to scan backwards for the most recent stage carrying a
+        commitment, which meant a resolved prediction never expired. Founder
+        UAT walked Mission 8 and found stage 1's whole explanation still
+        sitting at the top of the stop screen, of the three reasoning
+        questions after it, and of the screen after the repair — five
+        transitions where the first thing the learner read was the answer to a
+        question they had already finished.
+
+        A resolution belongs to the moment it resolves. Once the learner
+        advances, the network has moved on and so has the instruction; the
+        comparison stays available in the history disclosure below.
+      */
+      const stage = stages[stages.length - 1];
+      if (stage?.committedPrediction === undefined) return null;
+
+      // Authored, and read from the curriculum rather than from the model:
+      // correctness is a teaching fact, and the model records what happened.
+      const prediction = parameters.stages.find(
+        (candidate) => candidate.stageId === stage.stageId
+      )?.prediction;
+      const authored = prediction?.correctOption;
+
+      return {
+        option: stage.committedPrediction,
+        observed: stage.narration,
+        why: stage.decision ?? null,
+        correct:
+          authored === undefined ? null : stage.committedPrediction === authored,
+        correctOption: authored ?? null,
+        explanation: prediction?.explanation ?? null
+      };
+    })(),
+    chosenAction:
+      appliedAction === undefined
+        ? null
+        : {
+            label: appliedAction.label,
+            observation: appliedAction.observation
+          },
     symptom: stopped ? (consequence?.symptom ?? null) : null,
     // Present only when the support level allowed it through. Its absence is a
     // withholding, and the presentation simply has nothing to show.
@@ -976,7 +1516,10 @@ export function buildPacketJourneyView(
       pendingCommitment,
       parameters.traffic.startActionLabel,
       atRemediatedStage,
-      via
+      via,
+      parameters.traffic.label,
+      arrival,
+      nextStageAsks
     ),
     textTrace,
     finished: confirmed || (model.currentStageId !== null && !stopped &&
@@ -1023,13 +1566,31 @@ function buildTextTrace(
   parameters: LearnerPacketJourneyParameters,
   state: PacketJourneyViewState,
   stages: readonly PacketJourneyStageView[],
-  appliedAction: { readonly label: string; readonly observation: string } | undefined
+  appliedAction: { readonly label: string; readonly observation: string } | undefined,
+  /**
+   * Whether the first unrevealed stage asks the learner to predict.
+   *
+   * Passed rather than re-derived: one derivation of "the next stage asks for
+   * a prediction" means the trace and the status line cannot disagree about
+   * it, which is the whole point of sharing the sentence below.
+   */
+  nextStageAsks: boolean
 ): string[] {
   const trace: string[] = [];
   const pending = resolvePendingCommitment(parameters, state);
 
   if (stages.length === 0) {
-    trace.push(`Nothing has been sent yet. ${parameters.traffic.startActionLabel} to begin.`);
+    // The SAME sentence the status line shows, from the same function. This
+    // used to be its own string — "Nothing has been sent yet. Send the print
+    // request to begin." — and Founder video UAT read it directly beneath a
+    // status line asking for a prediction instead.
+    trace.push(
+      describeOpeningStatus(
+        nextStageAsks,
+        parameters.traffic.label,
+        parameters.traffic.startActionLabel
+      )
+    );
     // A commitment made before anything was sent belongs in the account from
     // the moment it is made, not from the moment its stage appears. Leaving it
     // out is what made a committed prediction look like it had been discarded.
@@ -1290,9 +1851,56 @@ export function describeAdvanceLabel(
   state: PacketJourneyViewState,
   parameters: LearnerPacketJourneyParameters
 ): string {
-  return state.progress.revealedStageCount === 0
-    ? parameters.traffic.startActionLabel
-    : "Show what happens next";
+  /*
+    Founder UAT: "the Founder reasonably interprets 'Show me' as a visual
+    demonstration. If an action primarily advances text rather than visually
+    showing network behavior, use clearer wording."
+
+    This control does show network behaviour — it reveals the next authored
+    stage, which moves the traffic onto a different connection and changes the
+    picture. What the old wording did not say was WHERE to look, so a learner
+    could press it expecting a demonstration and read a paragraph instead.
+    Naming the network is the whole fix.
+  */
+  /*
+    Founder UAT, blocking: the control said "Send to 192.168.2.20" and the beat
+    that followed said the message had not left PC-A. It had not — the first
+    authored stage is a DECISION, and nothing traverses a link there. A control
+    that names an action the journey does not take teaches a learner not to
+    trust the buttons.
+
+    So the label is read from the stage the press will reveal. A stage that
+    names `viaLinkId` moves something across a connection, and only then may
+    the control say so; a stage that names none is reasoning, and the control
+    says that instead. Both come from authored data.
+  */
+  const next = parameters.stages[state.progress.revealedStageCount];
+
+  if (next === undefined) return "Show the next step on the network";
+
+  const moves = next.viaLinkId !== undefined;
+
+  if (state.progress.revealedStageCount === 0) {
+    // The authored start label is an ACTION label. It is honest only when the
+    // first stage actually moves something.
+    return moves
+      ? parameters.traffic.startActionLabel
+      : `See what ${nodeLabelFor(parameters, next.atNodeId)} does first`;
+  }
+
+  return moves
+    ? `Send it to ${nodeLabelFor(parameters, next.atNodeId)}`
+    : `See what ${nodeLabelFor(parameters, next.atNodeId)} does next`;
+}
+
+/** A device's authored label, or its id when the author named no device. */
+function nodeLabelFor(
+  parameters: LearnerPacketJourneyParameters,
+  nodeId: string
+): string {
+  return (
+    parameters.nodes.find((node) => node.nodeId === nodeId)?.label ?? nodeId
+  );
 }
 
 /** The two halves of the prediction comparison, named in words. */
@@ -1329,13 +1937,27 @@ export function describeInspectionPrompt(): string {
   );
 }
 
-/** Names the workspace control, in both directions. */
-export function describeWorkspaceOpenLabel(): string {
-  return "Open the network workspace";
+/**
+ * Names the workspace control, in both directions.
+ *
+ * ## Why these are not "open" and "close"
+ *
+ * Founder video UAT read "Open the network workspace" while the network
+ * workspace was already on screen, and it was right to notice. Nothing is
+ * hidden behind this control: the topology, the orientation, the event and the
+ * inspector are all mounted and visible inline, and pressing it re-lays out
+ * that same tree as a full-viewport overlay. "Open" promises to reveal
+ * something that is already revealed.
+ *
+ * Expand and collapse describe what actually happens — the same workspace, at
+ * two sizes. A control must describe the action that will occur.
+ */
+export function describeWorkspaceExpandLabel(): string {
+  return "Expand network workspace";
 }
 
-export function describeWorkspaceCloseLabel(): string {
-  return "Close the network workspace";
+export function describeWorkspaceCollapseLabel(): string {
+  return "Collapse network workspace";
 }
 
 /**
@@ -1367,7 +1989,31 @@ export function describeEventHeadline(
    * traffic is at Switch-1" told a beginner nothing about what had arrived; the
    * course already names the thing, so the headline names it too.
    */
-  trafficLabel: string
+  trafficLabel: string,
+  /**
+   * Whether the traffic CROSSED a connection to be here.
+   *
+   * Founder UAT: "The file PC-A is sending reached PC-A" and "What PC-A is
+   * sending to PC-C reached PC-A" were both rejected, correctly. At the stage
+   * where traffic ORIGINATES nothing has travelled anywhere, so "reached" is
+   * not a simplification — it is false, and it teaches a beginner that a
+   * sender is also a recipient of its own traffic.
+   *
+   * The distinction is STARTED AT versus ARRIVED AT, and the model already
+   * carries it: a stage names `viaLinkId` only when a connection was crossed
+   * to get there. This reads that fact rather than guessing from position.
+   */
+  traversed: boolean,
+  /**
+   * Who is sending, and to whom, in the authored device names.
+   *
+   * Founder UAT: at an origin the learner must immediately know WHO wants to
+   * send WHAT to WHOM, without reconstructing it. "The message starts at PC-A"
+   * was true but told them a third of that, so the sentence is built from the
+   * authored traffic instead: its source, its subject and its destination.
+   */
+  sourceLabel: string | undefined,
+  destinationLabel: string | undefined
 ): string {
   if (nodeLabel === undefined) {
     return hasPendingCommitment
@@ -1384,6 +2030,24 @@ export function describeEventHeadline(
   if (atRemediatedStage) {
     return `${subject} can continue from ${nodeLabel}.`;
   }
+
+  // Nothing was crossed to get here, so nothing "reached" anything.
+  if (!traversed) {
+    // The journey's own origin: name the whole intention in one sentence.
+    if (
+      sourceLabel !== undefined &&
+      destinationLabel !== undefined &&
+      nodeLabel === sourceLabel
+    ) {
+      return `${sourceLabel} wants to send ${trafficLabel} to ${destinationLabel}. It has not left ${sourceLabel} yet.`;
+    }
+
+    // A later stage that also crossed nothing — a reply being composed, for
+    // instance. Saying it is "at" the device is accurate; claiming the
+    // journey's source and destination here would describe the wrong trip.
+    return `${subject} is at ${nodeLabel}.`;
+  }
+
   return `${subject} reached ${nodeLabel}.`;
 }
 
@@ -1399,6 +2063,49 @@ function capitaliseFirst(value: string): string {
   return value.length === 0 ? value : value[0]!.toUpperCase() + value.slice(1);
 }
 
+/**
+ * What the learner is told before anything has been revealed.
+ *
+ * ## Why this is a function and not two strings
+ *
+ * Founder video UAT found the same moment described two different ways on one
+ * screen. The status line said "Before anything moves, predict which device
+ * receives the print request first." — correct — while the "Full text account"
+ * disclosure directly beneath it still said "Nothing has been sent yet. Send
+ * the print request to begin.", which told the learner to do the one thing
+ * they were not being asked to do yet.
+ *
+ * Neither surface was wrong about its own state. They were two independent
+ * sentences about one state, which is how they came to disagree. There is one
+ * sentence now, and both surfaces read it, so drifting apart is not something
+ * a future edit can do by accident.
+ *
+ * ## Why the wording branches
+ *
+ * A journey whose first stage asks a prediction opens on that prediction, and
+ * sending is not the next action. A journey whose first stage asks nothing
+ * opens on the send, and there the authored start label IS the next action.
+ * Both are read from authored data; neither is written for a mission.
+ */
+export function describeOpeningStatus(
+  /** Whether the first unrevealed stage asks the learner to predict. */
+  predicts: boolean,
+  /** The authored name for what is moving. */
+  trafficLabel: string,
+  /** The authored label on the control that starts the journey. */
+  startActionLabel: string
+): string {
+  return predicts
+    ? `Before anything moves, predict which device receives ${trafficLabel} first.`
+    : `Ready to start. ${startActionLabel} when you are ready.`;
+}
+
+/** Where the traffic came from, and the port it came in on. Authored facts. */
+export interface PacketJourneyArrival {
+  readonly fromNodeLabel: string;
+  readonly atInterfaceLabel: string;
+}
+
 export function describeAnnouncement(
   model: ObservationModel,
   stages: readonly PacketJourneyStageView[],
@@ -1406,7 +2113,13 @@ export function describeAnnouncement(
   pendingCommitment: PacketJourneyCommitmentView | null,
   startActionLabel: string,
   atRemediatedStage: boolean,
-  via: string | null
+  via: string | null,
+  /** The authored name for what is moving, for the movement sentences. */
+  trafficLabel: string = "",
+  /** Resolved arrival, when this stage was reached across a connection. */
+  arrival: PacketJourneyArrival | null = null,
+  /** Whether the first unrevealed stage asks the learner to predict. */
+  predicts: boolean = false
 ): string {
   if (model.availability === "unavailable") {
     return "The state of this environment is unavailable.";
@@ -1424,21 +2137,37 @@ export function describeAnnouncement(
   }
 
   if (stages.length === 0) {
-    return `Ready to start. ${startActionLabel} when you are ready.`;
+    return describeOpeningStatus(predicts, trafficLabel, startActionLabel);
   }
 
   const consequence = model.consequence;
 
   if (consequence?.state === "confirmed") {
-    return `Fixed. ${consequence.narration}`;
+    /*
+      DELIVERY, in the live region's own register.
+
+      This used to return the authored confirmation verbatim. That paragraph is
+      the card's — it is the mission's closing teaching — and the region
+      announced it a second time directly above it. The region says the same
+      three things it says everywhere else: where, what moved, and what
+      changed.
+
+      The authored confirmation is unchanged and still shown on the card.
+    */
+    const delivered = stages[stages.length - 1];
+
+    return delivered === undefined
+      ? consequence.narration
+      : `At ${delivered.nodeLabel}. ${capitaliseFirst(trafficLabel)} was delivered.`;
   }
 
   if (consequence?.state === "stopped") {
-    const symptom = consequence.symptom ?? "";
     // The connection is named here too, and especially here: where the traffic
     // came from is part of understanding where it stopped.
     const across = via === null ? "" : `, across ${via}`;
-    return `Stopped at ${stages[stages.length - 1]?.nodeLabel}${across}. ${consequence.narration} ${symptom}`.trim();
+    const stage = stages[stages.length - 1];
+
+    return `Stopped at ${stage?.nodeLabel}${across}. ${describeChange(stage)}`.trim();
   }
 
   // The repair's own observation belongs to the moment it was applied. Once the
@@ -1454,9 +2183,86 @@ export function describeAnnouncement(
   // that lights up is decorative and hidden from assistive technology, so if
   // this sentence did not say which connection was used, that fact would exist
   // only in the picture.
-  const across = via === null ? "" : `, across ${via}`;
+  /*
+    Founder video UAT read "At Switch-1, across PC-A Network interface to
+    Switch-1 Port 1..." and found it hard to parse. The link is still named —
+    the drawn wire is aria-hidden, so this is the only text that carries it —
+    but it is a sentence of its own rather than a clause wedged between the
+    location and the action.
+  */
+  const location = `At ${latest?.nodeLabel}.`;
 
-  return `At ${latest?.nodeLabel}${across}. ${latest?.narration}`;
+  /*
+    ARRIVAL, as one sentence about movement.
+
+    Founder video UAT read "At Switch-1. Carrying the print request. Arrived
+    across PC-A Network interface to Switch-1 Port 1." and could not parse it:
+    three clauses, two of which name the same event, and a link description
+    written for a reference row rather than for a sentence.
+
+    The live region owns LOCATION, CONCISE MOVEMENT and CHANGED STATE. The
+    stage card owns the teaching. So the arrival is stated once, in travel
+    order, from authored facts the journey already carries — where it came
+    from, and the port it came in on.
+  */
+  if (arrival !== null) {
+    return `${location} ${capitaliseFirst(trafficLabel)} arrived from ${arrival.fromNodeLabel} on ${lowercaseFirst(arrival.atInterfaceLabel)}.`;
+  }
+
+  const action = describeChange(latest);
+  const crossing = via === null ? "" : ` Arrived across ${via}.`;
+
+  return `${location} ${action}${crossing}`.trim();
+}
+
+/**
+ * An authored label used mid-sentence.
+ *
+ * The mirror of `capitaliseFirst`, and it exists for the same reason: authors
+ * write "Port 1" because that is what the card and the reference row show, and
+ * "arrived from PC-A on Port 1" reads as a proper noun in the middle of a
+ * sentence. The authored words stay authored; only the case of the first
+ * letter moves.
+ */
+function lowercaseFirst(value: string): string {
+  return value.length === 0 ? value : value[0]!.toLowerCase() + value.slice(1);
+}
+
+/**
+ * What just changed, in one clause — never the teaching about it.
+ *
+ * ## Why this exists
+ *
+ * The live region used to end with the stage's full `narration`, and the
+ * observation beat shows that same paragraph. Because the pane renders the
+ * announcement directly above the beat card, a learner on the observation beat
+ * read the whole /24 explanation, then read it again immediately underneath —
+ * the same explanation, twice, on one screen. Founder UAT reported exactly that
+ * on Mission 8's PC-A screen.
+ *
+ * ## The ownership rule
+ *
+ * The BEAT CARD owns the detailed teaching for the current moment. The live
+ * region owns the fact that the moment CHANGED, and where. Those are different
+ * jobs, and only the second one needs a region that speaks on its own.
+ *
+ * The authored `action` is exactly the right size for it: the author's own
+ * phrase for what this device is doing, which is what the beat's heading is
+ * built from too. So the announcement stays complementary — it adds the link
+ * crossed, which appears in no other text — without restating the paragraph
+ * the card is about to show.
+ *
+ * A learner using assistive technology loses nothing. Focus moves to the beat
+ * heading, and the narration is the very next thing in the document after it.
+ */
+function describeChange(stage: PacketJourneyStageView | undefined): string {
+  if (stage === undefined) return "";
+
+  // A journey authored before `action` existed still announces something, and
+  // the outcome is the only thing available that says what just happened.
+  return stage.action === undefined
+    ? `${stage.outcomeLabel}.`
+    : `${capitaliseFirst(stage.action)}.`;
 }
 
 /**
@@ -1502,4 +2308,448 @@ export function describeWithheldInteraction(): string {
  */
 export function describeUnsupportedInteraction(): string {
   return "This interactive element could not be displayed.";
+}
+
+
+/* ------------------------------------------------------------------ *
+ * ONE BEAT AT A TIME (DEC-065)
+ *
+ * Founder UX ruling: the five stacked regions were an improvement on the
+ * original stream and still put the question, the answer, the observation, the
+ * reason and the next control on screen together. The learner was reading a
+ * dashboard of lesson state instead of following a lesson.
+ *
+ * So the workspace splits. The topology stays on the left, persistent, because
+ * it is the thing the learner is reasoning about and remounting it would cost
+ * them their mental map. The right side shows exactly ONE instructional beat.
+ *
+ * ## Why this is a pure function over the view
+ *
+ * The same reason everything else here is: it can be asserted without a
+ * browser, and it cannot drift from the journey. A beat is DERIVED from the
+ * state the journey already has — nothing is stored twice, and there is no
+ * second progression engine to disagree with `canAdvance`.
+ *
+ * The component holds one number: how many times the learner has pressed
+ * Continue at this journey state. `currentEvent.token` already moves on every
+ * observable change, so it is what resets that number.
+ *
+ * ## Room for a terminal
+ *
+ * `kind` is an open vocabulary of instructional moments, not a question type.
+ * A future WP-K terminal is another kind — `situation`, `task`, `terminal`,
+ * `output` — and slots in beside these without the shell changing shape. That
+ * is deliberate; nothing here is hard-coded to multiple choice.
+ * ------------------------------------------------------------------ */
+
+export const JOURNEY_BEAT_KINDS = [
+  "start",
+  "question",
+  "pending",
+  "feedback",
+  "observe",
+  "explain",
+  "symptom",
+  "action",
+  "done"
+] as const;
+
+export type JourneyBeatKind = (typeof JOURNEY_BEAT_KINDS)[number];
+
+export interface JourneyBeat {
+  readonly kind: JourneyBeatKind;
+  /**
+   * The device this beat is about, when it is about one.
+   *
+   * Founder ruling, Mission 8 refinement: when the instructional focus moves to
+   * a device, the learner should be oriented immediately rather than having to
+   * infer the location from body prose. The pane renders this above the
+   * heading, in the existing hierarchy — it is not a new visual language, it
+   * is the device name given the prominence it was already earning.
+   */
+  readonly device: string | null;
+  /**
+   * Which network stage this beat is, out of how many the journey authors.
+   *
+   * Null on every beat that is not a network stage. Founder video UAT found
+   * "Step 1 of 3" restarting whenever a presentation sub-beat appeared, so the
+   * number described the pane rather than the journey. Feedback, questions,
+   * explanations and confirmations are not stages and carry none.
+   */
+  readonly journeyStep: { readonly current: number; readonly total: number } | null;
+  /** The heading the pane shows, and the element focus moves to. */
+  readonly heading: string;
+  /** The beat's own words. Short by construction — one idea per beat. */
+  readonly body: readonly string[];
+  /**
+   * Optional depth, behind a disclosure. Never required to follow the lesson:
+   * a learner who ignores every one of these still has the whole thread.
+   */
+  readonly more: string | null;
+  /**
+   * Whether this beat owns the journey's control — Start, Submit, Show, a
+   * repair choice. `false` means the only way on is Continue.
+   */
+  readonly actionable: boolean;
+}
+
+/**
+ * Every beat available at the journey's CURRENT state, in the order a learner
+ * meets them.
+ *
+ * The list is recomputed whenever the journey changes, so it never describes a
+ * state the journey has left.
+ */
+export function resolveJourneyBeats(
+  view: PacketJourneyView
+): readonly JourneyBeat[] {
+  const beats: JourneyBeat[] = [];
+
+  /*
+    THE START CEREMONY IS GONE.
+
+    Founder video UAT: the workspace opened on a card whose button moved no
+    traffic — it only revealed the prediction the learner had already been told
+    to make. `INITIAL_PACKET_JOURNEY_VIEW_STATE` now begins engaged, so the
+    first thing a learner meets is the first real decision.
+  */
+  if (view.confirmation !== null) {
+    beats.push({
+      kind: "done",
+      device: null,
+      journeyStep: null,
+      heading: "Where that leaves you",
+      body: [view.confirmation],
+      more: null,
+      actionable: false
+    });
+    return beats;
+  }
+
+  /*
+    What just happened, once.
+
+    Founder UAT found the same fact in four places — the headline, the
+    narration, the device facts and the fault symptom — so the beat now carries
+    the authored NARRATION and nothing that restates it. The headline is the
+    glance version and is already the announcement; repeating it here is how
+    "the packet stopped at PC-A" came to be said three times.
+
+    The heading answers WHERE AM I and WHAT IS THIS DEVICE DOING, from the
+    authored action. "At PC-A" said only the first half.
+  */
+  const latest = view.stages[view.stages.length - 1];
+
+  /*
+    NOTHING HAS BEEN SENT YET is not a beat.
+
+    Founder ruling, Mission 8 refinement: pressing Start used to produce a card
+    that said nothing had happened, with a Continue button under it, before the
+    learner could do anything at all. Two clicks, no cognition.
+
+    So this beat exists only once there is something to observe. When the
+    journey has begun and no stage is revealed, the beats below carry the whole
+    screen — the prediction the first stage asks for, or the control that
+    reveals it. Starting now lands the learner in the first real decision.
+  */
+  if (latest !== undefined) {
+    beats.push({
+      kind: "observe",
+      device: latest.nodeLabel,
+      journeyStep: {
+        current: view.stages.length,
+        total: view.totalStages
+      },
+      heading:
+        latest.action === undefined
+          ? latest.nodeLabel
+          : `${latest.nodeLabel} — ${latest.action}`,
+      body: [latest.narration],
+      more: null,
+      actionable: false
+    });
+  }
+
+  /*
+    A resolved answer, before anything new is asked.
+
+    The heading is the verdict when the mission authored one — "Correct
+    prediction" or "Not quite", calm and unmistakable, so the learner gets the
+    cognitive confirmation without having to compare their answer against the
+    narration themselves. Nothing is counted, nothing accumulates, no praise is
+    offered, and the verdict is carried in WORDS — so nothing about it depends
+    on seeing a colour.
+
+    Where no correct option was authored the prediction was exploratory, the
+    observation is the answer, and the heading stays neutral.
+  */
+  if (view.resolvedPrediction !== null) {
+    const resolved = view.resolvedPrediction;
+
+    beats.splice(0, 0, {
+      kind: "feedback",
+      device: null,
+      journeyStep: null,
+      heading:
+        resolved.correct === null
+          ? "Your prediction"
+          : resolved.correct
+            ? "Correct prediction"
+            : "Not quite",
+      /*
+        ONE OWNER FOR EACH PIECE OF TEACHING.
+
+        This beat used to repeat two paragraphs it does not own. "What actually
+        happened" was the stage's narration, which the OBSERVE beat shows on the
+        very next screen; `more` was the stage's decision, which the EXPLAIN
+        beat shows on the screen after that. Because the pane presents one beat
+        at a time, a learner answering Mission 8's first prediction read the
+        same long paragraph on two consecutive screens and the same reason on
+        two more.
+
+        So this beat now resolves the ANSWER and nothing else: what the learner
+        chose, and — when they were wrong — what the expected answer was, which
+        is the concise statement of the correct reasoning. What actually
+        happened, and why, are the next two screens, and both are new when the
+        learner reaches them.
+      */
+      body: [
+        `You predicted: ${resolved.option}`,
+        ...(resolved.correct === false && resolved.correctOption !== null
+          ? [`The expected answer: ${resolved.correctOption}`]
+          : []),
+        /*
+          The authored reason, where the mission graded the prediction. A
+          verdict on its own tells a learner they were wrong and leaves them no
+          better off, so the beat that resolves the answer also says why.
+
+          It is a field of its own, authored beside the question rather than
+          taken from the stage. The stage's narration says what the network
+          did; this says why the answer was what it was, and neither has to
+          carry the other's job.
+        */
+        ...(resolved.explanation !== null ? [resolved.explanation] : [])
+      ],
+      more: null,
+      actionable: false
+    });
+  }
+
+  /*
+    The check the learner just ANSWERED, which is not always the one being
+    asked. A stage may author a sequence, and while the learner works through
+    it those are two different checks — so this reads `resolvedCheck` rather
+    than looking for an answer on the open question.
+
+    Founder UAT: answering the first two of Mission 8's three reasoning steps
+    produced no feedback at all. The pane went straight to the next prompt, so
+    each transition read as the same two screens and then another question.
+
+    The explanation stays here, unlike the prediction's. A check's explanation
+    is authored FOR the check and appears nowhere else, so carrying it is not
+    repetition — it is the only place the reasoning is stated.
+  */
+  if (view.resolvedCheck !== null) {
+    const answer = view.resolvedCheck;
+
+    beats.splice(0, 0, {
+      kind: "feedback",
+      device: null,
+      journeyStep: null,
+      heading: answer.correct ? "Correct" : "Not correct",
+      body: [
+        `Your answer: ${answer.option}`,
+        ...(answer.correct
+          ? []
+          : [`Correct answer: ${answer.correctOption}`]),
+        answer.explanation
+      ],
+      more: null,
+      actionable: false
+    });
+  }
+
+  // The authored reason, its own beat rather than a paragraph under the event.
+  const reason = view.stages[view.stages.length - 1]?.decision;
+  if (reason !== undefined) {
+    beats.push({
+      kind: "explain",
+      device: null,
+      journeyStep: null,
+      heading: "Why",
+      body: [reason],
+      more: null,
+      actionable: false
+    });
+  }
+
+  if (view.symptom !== null) {
+    /*
+      The symptom is dropped when the stage narration already says it.
+      Founder UAT: "nothing leaves PC-A" appeared in the narration, again in
+      the fault symptom, and again in the headline. Saying it once and moving
+      to WHY is the repair.
+    */
+    const alreadySaid =
+      latest !== undefined &&
+      view.symptom.trim().toLowerCase() === latest.narration.trim().toLowerCase();
+
+    /*
+      WHERE A STAGE ASKS THE LEARNER TO REASON, THE QUESTIONS OWN THE REASONING.
+
+      `view.explanation` is the authored diagnosis. On a stage that authors no
+      checks it is exactly what optional depth is for, and it stays.
+
+      On a stage that DOES author checks it is withheld entirely, in both
+      directions. Before they are answered it would pre-empt the question the
+      interface is about to ask. After they are answered it is the same
+      explanation the learner has just read in the feedback — Founder UAT found
+      Mission 8's third check explaining the unreachable gateway, then the
+      symptom beat two screens later explaining the unreachable gateway again,
+      in different words and to no additional effect.
+
+      This withholds nothing the learner cannot reach. A check's explanation is
+      shown however they answer, and the concept step after the journey states
+      the diagnosis in full.
+    */
+    const stageAsksTheLearner =
+      view.knowledgeCheck !== null || view.resolvedCheck !== null;
+
+    beats.push({
+      kind: "symptom",
+      device: null,
+      journeyStep: null,
+      heading: "What this means",
+      body: alreadySaid ? [] : [view.symptom],
+      more: stageAsksTheLearner ? null : view.explanation,
+      actionable: false
+    });
+  }
+
+  /*
+    ONE OWNER FOR ACTIONABLE QUESTION TEXT.
+
+    Founder UAT read a Mission 6 prompt, then read the same sentence again
+    immediately below it, then answered. Both were real: the beat printed
+    `prompt` in its body, and the fieldset printed it again as the `<legend>`
+    the options are grouped under.
+
+    The legend wins, and the body is empty. It is the accessible group label
+    for the radios — removing it would leave the choices unnamed for a screen
+    reader — and it is what sits immediately before the options, which is the
+    Founder's rule: the question is read ONCE, right before the answers.
+
+    So a question beat carries a heading, a control, and no prose. Anything
+    that genuinely adds context belongs in the beat BEFORE this one, where it
+    can say something the question does not.
+  */
+  if (view.knowledgeCheck !== null && view.knowledgeCheck.answer === null) {
+    beats.push({
+      kind: "question",
+      device: null,
+      journeyStep: null,
+      heading: "Check your understanding",
+      body: [],
+      more: null,
+      actionable: true
+    });
+  }
+
+  if (view.pendingPrediction !== null) {
+    beats.push({
+      kind: "question",
+      device: null,
+      journeyStep: null,
+      heading: "What do you think happens next?",
+      body: [],
+      more: null,
+      actionable: true
+    });
+  }
+
+  /*
+    THE REPAIR COMES LAST, AFTER THE REASONING.
+
+    Founder ruling, Mission 8 refinement: a learner must interpret the evidence
+    before the interface offers them the fix. The repair beat used to sit ahead
+    of the questions, so the choices were on screen before the learner had been
+    asked what the stopping point ruled out or what to inspect next — which
+    turns troubleshooting into recognising the right-looking option.
+
+    Ordering is all that changed. Which actions are OFFERED is still the
+    observation model's decision, and it still requires the learner to have
+    reached the authored stop.
+  */
+  if (view.actions.some((action) => action.available)) {
+    beats.push({
+      kind: "action",
+      device: null,
+      journeyStep: null,
+      heading: "What will you change?",
+      body: [],
+      more: null,
+      actionable: true
+    });
+  }
+
+  /*
+    THE "PREDICTION RECORDED" BEAT IS GONE.
+
+    Founder video UAT: submitting a prediction produced a screen saying the
+    answer had been recorded and that nothing had been sent yet, with another
+    button under it. Acknowledging a submission is not an instructional beat —
+    the learner knows they submitted, because they submitted.
+
+    Submitting now resolves the answer and the journey continues from there.
+  */
+  /*
+    NOTHING REVEALED, AND NOTHING ASKED: the orientation carries the screen.
+
+    A journey whose first stage asks a prediction opens on that prediction, and
+    this never fires — Mission 1 is that case. A journey whose first stage asks
+    nothing would otherwise open on an empty pane, so the orientation the
+    workspace already authors becomes the beat, and it carries the control that
+    MOVES the network rather than a control that reveals a question.
+
+    That is not the Start ceremony returning. The ceremony's defect was a button
+    that changed nothing; this beat carries real context and its control is the
+    authored send.
+  */
+  if (beats.length === 0 && view.canAdvance) {
+    beats.push({
+      kind: "start",
+      device: null,
+      journeyStep: null,
+      heading: view.orientation.title,
+      body: [view.orientation.summary],
+      more: null,
+      actionable: true
+    });
+  }
+
+  /*
+    THE EMPTY "NEXT" BEAT IS GONE.
+
+    Founder video UAT: an almost-empty card appeared between Switch-1 and the
+    Printer whose only content was a button telling the learner to press a
+    button. The Mechanical Interaction Law forbids it.
+
+    The pane owns the progression control, so the last beat of a state carries
+    it. No card exists merely to hold it.
+  */
+  return beats;
+}
+
+/**
+ * Which beat the learner is on.
+ *
+ * Clamped rather than trusted: the beat list is recomputed on every change, so
+ * an index kept from a previous state must never address past the end.
+ */
+export function activeJourneyBeat(
+  beats: readonly JourneyBeat[],
+  index: number
+): JourneyBeat | null {
+  if (beats.length === 0) return null;
+  return beats[Math.min(Math.max(index, 0), beats.length - 1)] ?? null;
 }

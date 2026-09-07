@@ -229,20 +229,104 @@ if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 
   fail "this slice changed a migration; Mission 5 authors curriculum only"
 fi
 
-for contract in packages/shared-types/src/instruction-interaction.ts \
-                packages/shared-types/src/mission-steps.ts \
-                packages/shared-types/src/observation-model.ts \
-                packages/shared-types/src/roas-curriculum.ts; do
-  if ! git diff --quiet HEAD -- "$contract" 2>/dev/null; then
-    fail "this slice changed a contract or another course; Mission 5 uses the existing one: $contract"
-  fi
-done
+# ## Why the interaction contract is no longer in this list
+#
+# It used to assert `git diff --quiet HEAD` over
+# `instruction-interaction.ts`, on the reasoning that a CURRICULUM slice has no
+# business editing the contract. That was right for a curriculum slice and
+# wrong as a permanent rule: DEC-064 adds the knowledge-check type to that file
+# under Founder approval, and a guard that fails on authorised work is a guard
+# that gets deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# that Mission 5 USES the contract rather than bending it — and specifically
+# that a prediction never acquires an answer key, which `verify-wph.sh` asserts
+# directly on the prediction type. The remaining contracts stay pinned below.
+# Rebased in the Mission 8 refinement. `verify-wph.sh` used to forbid
+# `correctOption` on the prediction contract outright, and every mission gate
+# delegated to that one string. A Founder ruling then made the field available,
+# optionally, so that a learner never has to infer from "what actually
+# happened" whether their own model was right.
+#
+# Delegation alone was always the weaker check: it asserted something about a
+# TYPE, in another file, and said nothing about this mission. So each gate now
+# asserts what its own mission actually relies on. Mission 5 authors
+# exploratory predictions — the learner cannot yet reason the answer out, the
+# observation IS the answer, and marking the guess would punish them for doing
+# what was asked. None of its predictions may carry a correct option.
+grep -Fq 'const PREDICTION_KEYS = ["prompt", "options"] as const;' packages/shared-types/src/instruction-interaction.ts \
+  || fail "correctOption became REQUIRED on a prediction; Mission 5 relies on a prediction staying ungradeable"
 
-# Mission 5 authors no interaction, so the presentation had no reason to change.
-for source in apps/web/src/learning/topology-layout.ts \
-              apps/web/src/learning/packet-journey-presentation.ts; do
-  if ! git diff --quiet HEAD -- "$source" 2>/dev/null; then
-    fail "this slice changed the journey presentation; Mission 5 authors no journey: $source"
+# The per-mission half of this — that Mission 5 authors no GRADED prediction —
+# is asserted in `networking-foundations.test.ts`, which parses the document.
+# A grep here cannot tell a prediction's correct option from a knowledge
+# check's, and a knowledge check is supposed to have one.
+
+# `observation-model.ts` is excluded for the same reason
+# `instruction-interaction.ts` is (DEC-064 note above): the Founder UAT repair
+# adds an authored `action` to a stage so the pane can head with what a device
+# is DOING rather than only where the learner is. What must not change is that
+# the model reports authored observations rather than computing them, and
+# `verify-wpj-m1.sh` section 7 asserts that over every presentation source.
+grep -Fq 'networking truth entered the presentation layer' scripts/verify-wpj-m1.sh \
+  || fail "the renderer-computes-nothing guard is gone"
+
+# `mission-steps.ts` left this pin for the same reason `instruction-interaction.ts`
+# did above. It was `git diff --quiet HEAD`, on the reasoning that a curriculum
+# slice has no business editing the step contract — right for a curriculum
+# slice, wrong as a permanent rule. WP-NF-NT1 adds `near_transfer` to the
+# vocabulary under a DEC-054 amendment, and a guard that fails on authorised
+# work is a guard that gets deleted rather than fixed.
+#
+# The invariant underneath was that Mission 5 USES the vocabulary rather than
+# inventing one for itself. So: the vocabulary stays closed, and Mission 5
+# authors only types inside it.
+grep -Fq 'The set is closed.' packages/shared-types/src/mission-steps.ts \
+  || fail "the step vocabulary is no longer declared closed; Mission 5 relies on authoring within a fixed set"
+
+grep -Fq 'the vocabulary is closed at ${MISSION_STEP_TYPES.join(", ")}' packages/shared-types/src/mission-steps.ts \
+  || fail "an unapproved step type no longer fails validation; the closed vocabulary would be advisory"
+
+# Read from Mission 5's own block, so a type introduced anywhere else in the
+# course cannot satisfy this and a type introduced HERE cannot hide.
+while IFS= read -r authored; do
+  case "$authored" in
+    concept|diagram|command|prediction|interaction|practice|near_transfer|reference) ;;
+    *) fail "Mission 5 authors the step type \"$authored\", which is not in the closed vocabulary" ;;
+  esac
+done < <(grep -o '"type": "[a-z_]*"' "$M5_BLOCK" | sed 's/.*: "//; s/"//')
+
+# The other course stays pinned. Nothing in Networking Foundations has any
+# reason to edit Router-on-a-Stick, and no ruling has changed that.
+if ! git diff --quiet HEAD -- packages/shared-types/src/roas-curriculum.ts 2>/dev/null; then
+  fail "this slice changed another course: packages/shared-types/src/roas-curriculum.ts"
+fi
+
+# ## Why this no longer forbids the presentation from changing at all
+#
+# It used to assert `git diff --quiet HEAD` over the journey presentation, on
+# the reasoning that a CURRICULUM slice has no business editing the renderer.
+# That was right for a curriculum slice and wrong as a permanent rule: the
+# Founder UAT repair wave is a PRESENTATION slice, authorised to change exactly
+# these files, and a guard that fails on authorised work is a guard that gets
+# deleted rather than fixed.
+#
+# The invariant underneath it was never "these bytes do not change". It was
+# "no networking truth lives in the renderer" — Mission 5 may DESCRIBE what a
+# network does and nothing in `apps/web` may COMPUTE it. That is asserted over
+# every presentation source, test files excluded, in `verify-wpj-m1.sh`
+# section 7, and it survives a presentation change because it reads what the
+# code DOES rather than whether it moved.
+#
+# So this asserts the guard still exists and still covers these files, which is
+# the part Mission 5's gate can meaningfully own.
+grep -Fq 'networking truth entered the presentation layer' scripts/verify-wpj-m1.sh \
+  || fail "the renderer-computes-nothing guard is gone; Mission 5's journey depends on the presentation staying presentation"
+
+for computed in routingTable computeRoute nextHop calculateSubnet forwardingTable; do
+  if grep -qF -e "$computed" apps/web/src/learning/topology-layout.ts \
+       apps/web/src/learning/packet-journey-presentation.ts; then
+    fail "networking truth entered the journey presentation: $computed"
   fi
 done
 

@@ -16,6 +16,11 @@ import {
 } from "./instruction-interaction";
 import type { ObservationSourceKind } from "./observation-model";
 import type {
+  NearTransferOption,
+  NearTransferQuestionType,
+  NearTransferTopology
+} from "./near-transfer";
+import type {
   CurriculumAssetReference,
   CurriculumAssetType
 } from "./curriculum-assets";
@@ -180,6 +185,45 @@ export interface LearnerReferenceStep {
   readonly note?: string;
 }
 
+/**
+ * A near-transfer check, as a learner receives it.
+ *
+ * ## The answer is not in the payload
+ *
+ * `correctOptionIds` and `explanation` are ANSWER-BEARING. They are projected
+ * as a separate `answers` map rather than inline on each question, so a future
+ * projection that withholds them removes one field instead of rewriting the
+ * question list — the same shape `actions` and `confirmation` already use.
+ *
+ * Today every support level receives them, because a near-transfer check is
+ * instruction rather than assessment and the learner is told the answer the
+ * moment they commit. What keeps the answer hidden BEFORE commitment is the
+ * presentation, which is where commitment is known; the projection cannot know
+ * it, and must not pretend to.
+ */
+export interface LearnerNearTransferStep {
+  readonly type: "near_transfer";
+  readonly title?: string;
+  readonly framing?: string;
+  readonly topology?: NearTransferTopology;
+  readonly questions: readonly LearnerNearTransferQuestion[];
+  readonly answers: Readonly<Record<string, NearTransferAnswer>>;
+}
+
+/** One question, with no answer attached to it. */
+export interface LearnerNearTransferQuestion {
+  readonly questionStableId: string;
+  readonly type: NearTransferQuestionType;
+  readonly prompt: string;
+  readonly options: readonly NearTransferOption[];
+}
+
+/** The authored truth for one question, keyed by `questionStableId`. */
+export interface NearTransferAnswer {
+  readonly correctOptionIds: readonly string[];
+  readonly explanation: string;
+}
+
 export type LearnerMissionStepContent =
   | LearnerConceptStep
   | LearnerDiagramStep
@@ -187,6 +231,7 @@ export type LearnerMissionStepContent =
   | LearnerPredictionStep
   | LearnerInteractionStep
   | LearnerPracticeStep
+  | LearnerNearTransferStep
   | LearnerReferenceStep;
 
 /**
@@ -359,7 +404,37 @@ function projectPacketJourneyParameters(
     ...(stage.deviceFacts !== undefined
       ? { deviceFacts: stage.deviceFacts }
       : {}),
-    ...(stage.prediction !== undefined ? { prediction: stage.prediction } : {})
+    /*
+      The prediction is carried at every level; its CORRECT OPTION is not.
+
+      A prediction still gates the reveal at a protected level, so the prompt
+      and the choices must survive. But an authored `correctOption` is the same
+      kind of content as a knowledge check's — with no per-answer round trip it
+      ships to the browser, and at CHALLENGE ME or PROVE IT that is the answer
+      sitting in the payload of the question.
+    */
+    ...(stage.prediction !== undefined
+      ? {
+          prediction: withhold
+            ? // The prompt and the choices survive, because a prediction still
+              // gates the reveal. The correct option and the reason for it do
+              // not: with no per-answer round trip, both would ship the answer
+              // inside the question.
+              { prompt: stage.prediction.prompt, options: stage.prediction.options }
+            : stage.prediction
+        }
+      : {}),
+    // What the device is DOING at this stage. Carried unconditionally, for the
+    // same reason as `viaLinkId`: it says what is happening, never why, and the
+    // instructor pane's heading is built from it. Withholding it would leave a
+    // protected level with a heading that names a device and no action.
+    ...(stage.action !== undefined ? { action: stage.action } : {}),
+    // Answer-BEARING, so dropped exactly where `decision` is. A knowledge check
+    // ships its own correct option, and with no per-answer round trip that
+    // option IS the protected content.
+    ...(stage.knowledgeChecks !== undefined && !withhold
+      ? { knowledgeChecks: stage.knowledgeChecks }
+      : {})
   }));
 
   return {
@@ -496,6 +571,31 @@ export function projectMissionStepContent(
         type: "practice",
         assessmentStableId: content.assessmentStableId,
         ...(content.framing !== undefined ? { framing: content.framing } : {})
+      };
+
+    case "near_transfer":
+      return {
+        type: "near_transfer",
+        ...(content.title !== undefined ? { title: content.title } : {}),
+        ...(content.framing !== undefined ? { framing: content.framing } : {}),
+        ...(content.topology !== undefined ? { topology: content.topology } : {}),
+        // The question, without its answer.
+        questions: content.questions.map((question) => ({
+          questionStableId: question.questionStableId,
+          type: question.type,
+          prompt: question.prompt,
+          options: question.options
+        })),
+        // The answer, keyed separately, so withholding it later is one field.
+        answers: Object.fromEntries(
+          content.questions.map((question) => [
+            question.questionStableId,
+            {
+              correctOptionIds: question.correctOptionIds,
+              explanation: question.explanation
+            }
+          ])
+        )
       };
 
     case "reference":

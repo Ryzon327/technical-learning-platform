@@ -12,10 +12,12 @@ import {
   describeCommandOutputLabel,
   describeInstructionUnavailable,
   describePracticeCheckpoint,
+  describeRequiredInstructionOutstanding,
   describePracticeCheckpointLabel,
   isBundledFallbackEligible,
   resolveAsset,
   resolveReferenceHref,
+  resolveRequiredInstruction,
   selectInstructionSource,
   type InstructionSource,
   type MissionInstructionRequest
@@ -671,10 +673,31 @@ describe("the seven approved step types", () => {
       presentation: { state: "withheld", reason: "protected_demonstration" }
     },
     practice: { type: "practice", assessmentStableId: "assess.vlan-basics" },
+    near_transfer: {
+      type: "near_transfer",
+      title: "Try it on a different network",
+      questions: [
+        {
+          questionStableId: "nt.q1",
+          type: "single_choice",
+          prompt: "Which device carries the traffic?",
+          options: [
+            { optionId: "a", text: "Switch-9" },
+            { optionId: "b", text: "Router-9" }
+          ]
+        }
+      ],
+      answers: {
+        "nt.q1": {
+          correctOptionIds: ["a"],
+          explanation: "Both hosts connect to the switch."
+        }
+      }
+    },
     reference: { type: "reference", label: "RFC 1918" }
   };
 
-  it("covers exactly the shared vocabulary, with no eighth type", () => {
+  it("covers exactly the shared vocabulary, with no ninth type", () => {
     expect(Object.keys(samples).sort()).toEqual([...MISSION_STEP_TYPES].sort());
   });
 
@@ -827,5 +850,140 @@ describe("protected content stays unreachable", () => {
     const wording = `${describePracticeCheckpointLabel()} ${describePracticeCheckpoint()}`;
     expect(wording).not.toContain("assess.");
     expect(wording).not.toContain("assessmentStableId");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-NF-NT1B — required inline instruction
+ *
+ * The generic half. Nothing here mentions near-transfer, a question or a
+ * mission: `resolveRequiredInstruction` is told, per step, whether the caller
+ * has an opinion about it, and answers one word.
+ * ------------------------------------------------------------------ */
+
+const PLAIN_STEP: LearnerMissionStep = {
+  stableId: "teaching",
+  position: 0,
+  content: { type: "concept", paragraphs: ["Taught."] }
+};
+
+const ACTIVITY_STEP: LearnerMissionStep = {
+  stableId: "activity",
+  position: 1,
+  content: { type: "concept", paragraphs: ["Stands in for a required step."] }
+};
+
+const CLOSING_STEP: LearnerMissionStep = {
+  stableId: "handoff",
+  position: 2,
+  content: { type: "concept", paragraphs: ["What comes next."] }
+};
+
+/** An opinion about exactly one step, by id. Stands in for a step type. */
+function opinionOn(
+  stableId: string,
+  satisfied: boolean
+): (step: LearnerMissionStep) => boolean | null {
+  return (step) => (step.stableId === stableId ? satisfied : null);
+}
+
+describe("required inline instruction", () => {
+  it("is 'none' when the mission requires nothing", () => {
+    // The case that must keep behaving exactly as it did before this existed:
+    // every mission in the course that authors no required activity.
+    expect(
+      resolveRequiredInstruction([PLAIN_STEP, CLOSING_STEP], () => null)
+    ).toBe("none");
+  });
+
+  it("is 'none' for a mission with no steps at all", () => {
+    expect(resolveRequiredInstruction([], () => null)).toBe("none");
+  });
+
+  it("is 'outstanding' while a required activity is undone", () => {
+    expect(
+      resolveRequiredInstruction(
+        [PLAIN_STEP, ACTIVITY_STEP, CLOSING_STEP],
+        opinionOn("activity", false)
+      )
+    ).toBe("outstanding");
+  });
+
+  it("is 'satisfied' once it is done", () => {
+    expect(
+      resolveRequiredInstruction(
+        [PLAIN_STEP, ACTIVITY_STEP, CLOSING_STEP],
+        opinionOn("activity", true)
+      )
+    ).toBe("satisfied");
+  });
+
+  it("distinguishes 'none' from 'satisfied'", () => {
+    // Both permit completion and they are different facts. Collapsing them
+    // would make "this mission has no requirement" indistinguishable from
+    // "the requirement is met", and the regression that matters most — a
+    // mission without one still completes — would assert nothing.
+    expect(resolveRequiredInstruction([PLAIN_STEP], () => null)).not.toBe(
+      resolveRequiredInstruction([ACTIVITY_STEP], () => true)
+    );
+  });
+
+  it("is outstanding if ANY required activity is undone", () => {
+    const two = [
+      { ...ACTIVITY_STEP, stableId: "first" },
+      { ...ACTIVITY_STEP, stableId: "second" }
+    ];
+
+    expect(
+      resolveRequiredInstruction(two, (step) => step.stableId === "first")
+    ).toBe("outstanding");
+  });
+
+  it("emits no count, no fraction and no score", () => {
+    // It is one of three words. There is nothing here to render as progress,
+    // because there is nothing being measured.
+    const two = [
+      { ...ACTIVITY_STEP, stableId: "first" },
+      { ...ACTIVITY_STEP, stableId: "second" }
+    ];
+
+    expect(
+      resolveRequiredInstruction(two, (step) => step.stableId === "first")
+    ).toBe("outstanding");
+    expect(
+      typeof resolveRequiredInstruction(two, () => true)
+    ).toBe("string");
+  });
+
+  it("leaves practice out of it entirely", () => {
+    // ROAS practice carries a standing promise: optional, not recorded, and it
+    // does not complete the mission. Gating completion on it would break that
+    // promise in the one direction that matters. The caller has no opinion
+    // about a practice step, so it is not required instruction.
+    const practice: LearnerMissionStep = {
+      stableId: "practice",
+      position: 0,
+      content: { type: "practice", assessmentStableId: "roas.some-check" }
+    };
+
+    expect(
+      resolveRequiredInstruction([practice, CLOSING_STEP], (step) =>
+        step.content.type === "near_transfer" ? false : null
+      )
+    ).toBe("none");
+  });
+
+  it("tells the learner to finish, never to pass", () => {
+    // Correctness is not the gate and this sentence must never imply it is.
+    // It says "finish" rather than "answer" because answering is no longer
+    // the whole of it: the feedback has to be read past too.
+    const copy = describeRequiredInstructionOutstanding();
+
+    expect(copy).toBe(
+      "Finish all required activities before marking this mission complete."
+    );
+    for (const forbidden of ["pass", "correct", "right", "score"]) {
+      expect(copy.toLowerCase()).not.toContain(forbidden);
+    }
   });
 });
