@@ -68,10 +68,113 @@ export const AUTHORIZED_SPEC = "^30.0.1";
  * and it is not meant to - a future dependency is a future policy decision.
  */
 export const AUTHORIZED_LOCKFILE_SHA256 =
-  "86fe289ecf9214ff3d3a9b2cb0150cfbb6181c1b4e595725cff6e847474fe45e";
+  "5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f";
 
 /** The workspace record in the lockfile that mirrors the manifest. */
 const AUTHORIZED_LOCK_WORKSPACE = "apps/web";
+
+/* ------------------------------------------------------------------ *
+ * THE SECURITY AUTHORIZATION — separate, narrower, and one-time.
+ *
+ * ## What it is for
+ *
+ * GHSA-2883-xcg3-v3hh rates `js-yaml` 4.0.0–4.3.1 HIGH. The repository reaches
+ * it transitively and dev-only:
+ *
+ *   @tlp/web → eslint ^9.17.0 → @eslint/eslintrc → js-yaml ^4.3.0
+ *
+ * 4.3.2 is the fix and it already satisfies `^4.3.0`, so the remedy is a
+ * LOCKFILE-ONLY re-resolution. No manifest declares js-yaml, no range moves,
+ * and nothing reaches production.
+ *
+ * ## Why it cannot ride on the jsdom authorization
+ *
+ * It must not, and it cannot. The jsdom authorization is SPENT — jsdom is in
+ * the base since Mission 2 merged — so `checkLockfile` refuses every lockfile
+ * delta from here on. That refusal is correct and stays: it is what stops an
+ * unreviewed dependency riding in behind an approved one. A security patch is
+ * a second Founder decision, so it gets a second authorization, written down
+ * separately, rather than a hole in the first.
+ *
+ * ## Why it is a TRANSITION and not a permission
+ *
+ * Both ends are pinned by SHA-256 over the whole file:
+ *
+ *   from  the lockfile as approved when Mission 2 merged
+ *   to    the lockfile with exactly the js-yaml 4.3.1 → 4.3.2 record changed
+ *
+ * Pinning the FROM end is what makes it one-time. The moment this patch merges,
+ * the base lockfile is the `to` file, the `from` digest no longer matches, and
+ * this authorization stops applying to anything — it cannot be reused for a
+ * later change, and there is no state to reset. Pinning the TO end is what
+ * makes it exact: 4.3.3, any 5.x, a removal, a promotion to a direct
+ * dependency, an extra package, a removed package, or any unrelated record
+ * moving all produce a different digest and are refused.
+ *
+ * A whole-file digest is used rather than an enumerated delta for the reason
+ * recorded above `AUTHORIZED_LOCKFILE_SHA256`: it pins every field of every
+ * record, including ones nobody thought to enumerate.
+ *
+ * ## What it deliberately does NOT authorize
+ *
+ * Any manifest change. The manifest checks are untouched and, with the jsdom
+ * authorization spent, already refuse every edit to every protected manifest.
+ * This authorization adds nothing there and could not, because it never looks
+ * at a manifest.
+ * ------------------------------------------------------------------ */
+
+/** Human-readable identity of the one authorized security transition. */
+export const SECURITY_ADVISORY = "GHSA-2883-xcg3-v3hh";
+export const SECURITY_PACKAGE = "js-yaml";
+export const SECURITY_LOCK_RECORD = "node_modules/js-yaml";
+export const SECURITY_VERSION_FROM = "4.3.1";
+export const SECURITY_VERSION_TO = "4.3.2";
+
+/** The lockfile this transition starts FROM. Pinning it makes it one-time. */
+export const SECURITY_BASE_LOCKFILE_SHA256 =
+  "86fe289ecf9214ff3d3a9b2cb0150cfbb6181c1b4e595725cff6e847474fe45e";
+
+/** The lockfile this transition ends AT, and no other. */
+export const SECURITY_LOCKFILE_SHA256 =
+  "5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f";
+
+/**
+ * The verdict of the security authorization, or `null` when it does not apply.
+ *
+ * `null` means "this is not that transition" — the caller then falls through to
+ * the ordinary policy, which refuses whatever it is. It is never a pass.
+ *
+ * Returns `[]` only when the base is exactly the approved pre-patch lockfile
+ * AND the current tree is exactly the approved post-patch lockfile. Anything
+ * else that starts from the right base returns a problem, so a change that
+ * claims this transition and is not it fails loudly rather than falling
+ * through to a message about jsdom.
+ */
+export function securityLockfileVerdict(baseLockText, currentLockText, sha256) {
+  if (sha256(baseLockText) !== SECURITY_BASE_LOCKFILE_SHA256) return null;
+
+  const digest = sha256(currentLockText);
+  if (digest === SECURITY_LOCKFILE_SHA256) return [];
+
+  return [
+    "package-lock.json changed from the base this security authorization" +
+      " covers, but not into the approved result (sha256 " +
+      digest.slice(0, 12) +
+      "… where " +
+      SECURITY_LOCKFILE_SHA256.slice(0, 12) +
+      "… is authorized). The only authorized change is " +
+      SECURITY_PACKAGE +
+      " " +
+      SECURITY_VERSION_FROM +
+      " to " +
+      SECURITY_VERSION_TO +
+      " in " +
+      SECURITY_LOCK_RECORD +
+      " for " +
+      SECURITY_ADVISORY +
+      ", with every other record byte-identical"
+  ];
+}
 
 /** Deep structural equality, order-independent for object keys. */
 function deepEqual(left, right) {
@@ -207,6 +310,16 @@ export function checkLockfile(
   sha256
 ) {
   if (baseLockText === currentLockText) return [];
+
+  // The one-time SECURITY transition, judged on its own pinned endpoints.
+  //
+  // Checked before the spent refusal because the jsdom authorization IS spent
+  // and would otherwise refuse the security patch it knows nothing about. It
+  // cannot widen anything: it returns `null` unless the base is exactly the
+  // approved pre-patch lockfile, and once this patch merges no base will ever
+  // hash to that again.
+  const security = securityLockfileVerdict(baseLockText, currentLockText, sha256);
+  if (security !== null) return security;
 
   if (authorizationIsSpent(baseManifest)) {
     return [
