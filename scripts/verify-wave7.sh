@@ -883,7 +883,22 @@ fi
 if grep -nE 'react-router|@remix-run|wouter' apps/web/package.json; then
   echo "FAIL: Batch 6 must not introduce a routing library"; exit 1
 fi
-if grep -nE '"(jsdom|@testing-library/react|jest-axe)"' apps/web/package.json; then
+# `jsdom` was removed from this list, and only `jsdom`.
+#
+# The rule this guard enforces is a SCOPE rule: Wave 7 Batch 6 was an Evidence
+# portfolio slice and had no business standing up a DOM testing stack. It was
+# never a claim that the repository may never have one.
+#
+# The Founder has since authorized `jsdom` as a dev-only dependency for the
+# Mission 2 work package, to close a mechanical gap mutation testing exposed —
+# a single deleted focus call disabled both instructional focus handoffs while
+# every test in the repository stayed green. `@testing-library/react` and
+# `jest-axe` remain unauthorized and are still refused here.
+#
+# Batch 6's own scope is unchanged and still asserted: nothing below permits
+# this slice to grow, and the two packages that would constitute a testing
+# FRAMEWORK choice still require their own Founder decision.
+if grep -nE '"(@testing-library/react|jest-axe)"' apps/web/package.json; then
   echo "FAIL: Batch 6 must not introduce a DOM testing stack"; exit 1
 fi
 

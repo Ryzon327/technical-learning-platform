@@ -101,7 +101,7 @@ Two lines of output from PC-A, under `ip address show eth0`.
 **Before reading the caption's last sentence, try to do what it asks:** find the
 line you have not seen before, and say which connection is holding it.
 
-- **Could you find it?** The familiar line is the factory identity from
+- **Could you find it?** The familiar line is the MAC address from
   Mission 2. The new one begins `inet`.
 - **Is it obvious that this is displayed output and not a terminal?** The caption
   says nothing here offers to run anything. Does the surface support that — or
@@ -136,13 +136,20 @@ teach. Say so.
 
 The term **IPv4 address** arrives here, *after* you have already looked at one.
 
-- **Does the comparison hold up?** MAC address: built in, unchanging, identifies
-  the hardware. IPv4 address: assigned, changeable, says where the machine has
-  been placed.
-- **Is the plain-language version accurate?** "One identity is which hardware
-  this is, and the other is where this machine belongs." That is deliberately
-  informal. **If it is memorable but wrong, say so** — a catchy phrase that
-  creates a false model is worse than no phrase.
+- **Does the comparison hold up?** The comparison Mission 3 draws is between the
+  two addresses' JOBS, not between their permanence. A MAC address is associated
+  with a network interface and is what local Ethernet delivery uses. An IPv4
+  address is assigned to that same interface and is what says which IP network
+  the machine has been placed on.
+- **Is the technical framing accurate?** Many physical interfaces receive a MAC
+  address from their manufacturer, but a MAC address is **not** a universally
+  immutable hardware serial number — software interfaces, virtual interfaces and
+  locally administered configurations may use a changed or non-manufacturer MAC
+  address. This runbook previously described the MAC address as "built in,
+  unchanging, identifies the hardware", which contradicts what Mission 2 itself
+  authors. **If the mission's own words drift back toward permanent hardware
+  identity, say so** — a memorable phrase that creates a false model is worse
+  than no phrase.
 - Does anything here feel like a definition dumped on you, rather than a name
   put to something you already saw?
 
@@ -226,13 +233,13 @@ So you do not spend review time on them:
 - Missions 4 to 8 remain unauthored.
 - The output is shown before the term IPv4 is named.
 - Two readings exist, on different connections with different addresses.
-- The first reading reuses PC-A's exact factory identity from Mission 2.
+- The first reading reuses PC-A's exact MAC address from Mission 2.
 - No later mission's vocabulary appears — no prefix, subnet, mask, ARP,
   broadcast, gateway, routing, packet, ping, DNS or DHCP.
 - The `/24` is still shown, and still unnamed. Both halves are asserted, so
   neither a later edit that trims it nor one that explains it can pass quietly.
 - PC-A is `192.168.1.10` and PC-B is `192.168.1.11`, each beside the exact
-  factory identity Mission 2 showed for the same machine.
+  MAC address Mission 2 showed for the same machine.
 - No certification word appears anywhere a learner can see.
 - Mission 3 authors no interaction, no assessment and no lab surface, so it can
   produce no competency evidence.

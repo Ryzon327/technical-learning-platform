@@ -267,9 +267,15 @@ echo "PASS:  7. the boundary is pure, and authentication and RLS are untouched"
 # ------------------------------------------------------------
 # 8. No dependency, no migration, no scope expansion
 # ------------------------------------------------------------
-CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_LOCK" = "0" ] \
-  || fail "the lockfile changed; no dependency change is authorized"
+# Dependencies are judged by the shared policy, not by a merge-base line count.
+#
+# This compared against `origin/main...HEAD`, which reports differently before
+# and after `git commit` on the same tree - it passes on a branch with no
+# commits and fails once that identical content is committed. The shared policy
+# compares parsed JSON against HEAD instead, so it behaves the same locally and
+# in CI, and refuses unauthorized shapes rather than all change.
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "API-CORS"
 
 for cors_package in '"cors"' '"@fastify/cors"' '"koa-cors"' '"@koa/cors"'; do
   if grep -qF -e "$cors_package" services/api/package.json package.json; then

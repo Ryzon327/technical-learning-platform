@@ -17,11 +17,19 @@ import {
   isBundledFallbackEligible,
   resolveAsset,
   resolveReferenceHref,
+  expectsStructuredInstruction,
+  resolveReportedRequiredInstruction,
   resolveRequiredInstruction,
   selectInstructionSource,
   type InstructionSource,
-  type MissionInstructionRequest
+  type MissionInstructionRequest,
+  type ReportedRequiredInstruction
 } from "./mission-instruction-presentation";
+import {
+  describeMissionProgress,
+  resolveCourseAvailability,
+  resolveMissionControlState
+} from "./roas-course-presentation";
 import { parseMissionBrief } from "./roas-course-content";
 
 /**
@@ -985,5 +993,284 @@ describe("required inline instruction", () => {
     for (const forbidden of ["pass", "correct", "right", "score"]) {
       expect(copy.toLowerCase()).not.toContain(forbidden);
     }
+  });
+});
+
+describe("completion authority is the CURRENT lesson's, or nobody's", () => {
+  /*
+    Driven through the REAL production composition, and that is the point.
+
+    An earlier version of this block passed the literal strings "structured"
+    and "bundled" straight into the resolver. Every assertion passed, and one
+    of them — `"bundled"` yields `"none"` — was quietly documenting the defect
+    as intended behaviour, because during a fetch `selectInstructionSource`
+    returns exactly `"bundled"`. A test that hand-writes the input its
+    production caller never produces proves nothing about the caller.
+
+    So everything below starts from a `MissionInstructionRequest` — the state
+    `LearningView` actually holds — and ends at `canComplete`, the boolean that
+    actually enables the button. Correctness is no part of any of it.
+  */
+
+  const REQUIRED_MISSION = "nf-m2-inside-one-network";
+
+  const summary = {
+    stableId: REQUIRED_MISSION,
+    title: "Inside one network",
+    ordinal: 2,
+    estimatedMinutes: 20,
+    isDemonstration: false,
+    version: 1
+  };
+
+  const structuredResponse = (): LearnerMissionInstructionResponse => ({
+    mission: summary,
+    instruction: {
+      state: "available",
+      steps: [ACTIVITY_STEP],
+      assets: []
+    }
+  });
+
+  const legacyResponse = (): LearnerMissionInstructionResponse => ({
+    mission: summary,
+    instruction: {
+      state: "legacy_brief",
+      description: "An older mission with no authored steps."
+    }
+  });
+
+  const courseAvailability = resolveCourseAvailability({
+    publishedMissionStableIds: [REQUIRED_MISSION]
+  });
+
+  /** The whole production chain, from held state to the enabled/disabled bit. */
+  const canComplete = (input: {
+    request: MissionInstructionRequest;
+    reported: ReportedRequiredInstruction | null;
+    generation: number;
+  }): boolean =>
+    resolveMissionControlState({
+      availability: courseAvailability,
+      publishedMissionStableIds: [REQUIRED_MISSION],
+      mission: summary,
+      missionProgress: describeMissionProgress(
+        courseAvailability,
+        null,
+        REQUIRED_MISSION
+      ),
+      requiredInstruction: resolveReportedRequiredInstruction(
+        input.reported,
+        { missionStableId: REQUIRED_MISSION, generation: input.generation },
+        expectsStructuredInstruction(input.request, REQUIRED_MISSION)
+      )
+    }).canComplete;
+
+  it("A: refuses completion while the structured lesson is still loading", () => {
+    /*
+      The window that was open for a whole network round trip.
+
+      The bundled brief is DISPLAYED here, and that is correct — it is authored
+      truth already in memory, and a spinner would be worse. What must not
+      happen is the display standing in as completion authority.
+    */
+    const loading: MissionInstructionRequest = {
+      status: "loading",
+      missionStableId: REQUIRED_MISSION
+    };
+
+    // The display still falls back, exactly as before.
+    expect(selectInstructionSource(loading, REQUIRED_MISSION).kind).toBe(
+      "bundled"
+    );
+
+    // Completion does not.
+    expect(
+      canComplete({ request: loading, reported: null, generation: 1 })
+    ).toBe(false);
+
+    // Same before the request has even been issued.
+    expect(
+      canComplete({
+        request: { status: "idle" },
+        reported: null,
+        generation: 0
+      })
+    ).toBe(false);
+  });
+
+  it("B: keeps completion closed once the lesson reports it is outstanding", () => {
+    const loaded: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: REQUIRED_MISSION,
+      response: structuredResponse()
+    };
+
+    expect(selectInstructionSource(loaded, REQUIRED_MISSION).kind).toBe(
+      "structured"
+    );
+
+    expect(
+      canComplete({
+        request: loaded,
+        reported: {
+          missionStableId: REQUIRED_MISSION,
+          generation: 1,
+          state: "outstanding"
+        },
+        generation: 1
+      })
+    ).toBe(false);
+  });
+
+  it("C: allows completion once the CURRENT lesson reports it is satisfied", () => {
+    const loaded: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: REQUIRED_MISSION,
+      response: structuredResponse()
+    };
+
+    expect(
+      canComplete({
+        request: loaded,
+        reported: {
+          missionStableId: REQUIRED_MISSION,
+          generation: 1,
+          state: "satisfied"
+        },
+        generation: 1
+      })
+    ).toBe(true);
+  });
+
+  it("D: refuses a previous visit's word on returning to the same mission", () => {
+    /*
+      The second window, and the one the mission tag alone could never close.
+
+      A learner settles Mission 2, opens another mission, and comes back. The
+      held report still names Mission 2 and still says "satisfied" — and it is
+      about a visit that has ended. The lesson now on screen has empty state
+      and has not begun.
+
+      The generation is what separates them. It is minted by the view, which
+      owns when a lesson is mounted and torn down; a number the lesson minted
+      for itself could not answer this question, because the lesson's silence
+      is the hazard.
+    */
+    const loaded: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: REQUIRED_MISSION,
+      response: structuredResponse()
+    };
+
+    const settledOnTheFirstVisit: ReportedRequiredInstruction = {
+      missionStableId: REQUIRED_MISSION,
+      generation: 1,
+      state: "satisfied"
+    };
+
+    // Same mission, same word, later visit.
+    expect(
+      canComplete({
+        request: loaded,
+        reported: settledOnTheFirstVisit,
+        generation: 2
+      })
+    ).toBe(false);
+
+    // And it is genuinely the generation doing the work: on the visit that
+    // produced it, the very same report still allows completion.
+    expect(
+      canComplete({
+        request: loaded,
+        reported: settledOnTheFirstVisit,
+        generation: 1
+      })
+    ).toBe(true);
+  });
+
+  it("E: refuses another mission's report", () => {
+    const loaded: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: REQUIRED_MISSION,
+      response: structuredResponse()
+    };
+
+    expect(
+      canComplete({
+        request: loaded,
+        reported: {
+          missionStableId: "nf-m1-what-a-network-is",
+          generation: 1,
+          state: "satisfied"
+        },
+        generation: 1
+      })
+    ).toBe(false);
+
+    // Including the permissive word that started all of this: a mission with
+    // nothing required must not authorise completing one that has something.
+    expect(
+      canComplete({
+        request: loaded,
+        reported: {
+          missionStableId: "nf-m1-what-a-network-is",
+          generation: 1,
+          state: "none"
+        },
+        generation: 1
+      })
+    ).toBe(false);
+  });
+
+  it("F: leaves a genuinely step-less mission completing exactly as before", () => {
+    /*
+      The additive guarantee, and the reason this fails closed on the REQUEST
+      rather than on the displayed source kind.
+
+      Every mission authored before WP-F renders a brief and no steps. Those
+      resolve — to a legacy brief, or to an error the bundled fallback covers —
+      and a resolved answer that renders no steps can author no required
+      activity. Blocking them would have blocked most of the product.
+    */
+    const legacy: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: REQUIRED_MISSION,
+      response: legacyResponse()
+    };
+
+    expect(expectsStructuredInstruction(legacy, REQUIRED_MISSION)).toBe(false);
+    expect(
+      canComplete({ request: legacy, reported: null, generation: 1 })
+    ).toBe(true);
+
+    const failed: MissionInstructionRequest = {
+      status: "error",
+      missionStableId: REQUIRED_MISSION,
+      errorCode: "DEPENDENCY_UNAVAILABLE"
+    };
+
+    expect(expectsStructuredInstruction(failed, REQUIRED_MISSION)).toBe(false);
+    expect(
+      canComplete({ request: failed, reported: null, generation: 1 })
+    ).toBe(true);
+  });
+
+  it("treats a request about a different mission as no answer at all", () => {
+    // The frame between selecting a mission and the fetch effect running: the
+    // held request still carries the PREVIOUS mission's tag. That is not weak
+    // evidence about this mission, it is none.
+    const otherMission: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: "nf-m1-what-a-network-is",
+      response: structuredResponse()
+    };
+
+    expect(expectsStructuredInstruction(otherMission, REQUIRED_MISSION)).toBe(
+      true
+    );
+    expect(
+      canComplete({ request: otherMission, reported: null, generation: 1 })
+    ).toBe(false);
   });
 });

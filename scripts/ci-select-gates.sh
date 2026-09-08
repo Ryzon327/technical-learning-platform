@@ -58,6 +58,42 @@ set -euo pipefail
 #
 # Globs are matched with bash pattern matching against each changed path.
 # Order here is the order gates run: cheapest and most specific first.
+#
+# ## No comments inside the RULES block
+#
+# The loop below reads every non-empty line as `glob|gate`, so a `#` line would
+# be read as a glob with an EMPTY gate, and the missing-gate check at the bottom
+# would abort selection for the whole pull request. Explanations belong here.
+#
+# ## Two entries added by the Mission 2 Founder UAT repair
+#
+# `verify-wpj-m1.sh` asserts what the journey presentation DOES — its sections
+# 6f and 6g read `packet-journey-presentation.ts` directly — but nothing mapped
+# that file to it. A presentation repair could therefore break Mission 1's
+# device inspection or Mission 2's simultaneous delivery and never run the gate
+# that owns those two missions. Both presentation modules now select it.
+#
+# ## The dependency policy owns the lockfile and its own definition
+#
+# `package-lock.json` and `scripts/lib/authorized-dependency*` previously
+# selected NOTHING. That is the failure this table's header names, in its worst
+# form: nine gates get their dependency rule from a file that no gate was woken
+# for, so an edit weakening the rule would have merged unchecked.
+#
+# They now select `verify-dependency-policy.sh`, which proves the policy against
+# sixteen hostile shapes, and `verify-wpj-m2.sh`, which is the work package the
+# one authorized dependency belongs to. `npm audit` is unaffected — it runs
+# unconditionally in the CI baseline, not through this table.
+#
+# Deliberately keyed on the LITERAL `package-lock.json` and not a `package*`
+# glob: a glob would also match `package.json`, and the autonomy gate's selector
+# regression asserts that path's exact output.
+#
+# `verify-wpj-m2.sh` is new and owns Mission 2 alone. It is mapped from the
+# curriculum, the parsed suite, the ledger and the declaration like every other
+# per-mission gate, and additionally from the four presentation and contract
+# modules its assertions read — a gate that checks a file it is not woken for
+# is a gate that passes forever.
 RULES=$(
   cat <<'RULES'
 services/api/src/cors*|scripts/verify-api-cors.sh
@@ -141,7 +177,87 @@ apps/web/src/learning/DeviceNode.tsx|scripts/verify-wpj-m1.sh
 apps/web/src/learning/TopologyView.tsx|scripts/verify-wpj-m1.sh
 apps/web/src/learning/topology-layout*|scripts/verify-wpj-m1.sh
 apps/web/src/styles.css|scripts/verify-wpj-m1.sh
+apps/web/src/learning/packet-journey-presentation*|scripts/verify-wpj-m1.sh
+apps/web/src/learning/near-transfer-presentation*|scripts/verify-wpj-m1.sh
+scripts/lib/wpj-missions.txt|scripts/verify-wpj-m1.sh
+scripts/lib/wpj-mission-authority.sh|scripts/verify-wpj-m1.sh
 scripts/verify-wpj-m1.sh|scripts/verify-wpj-m1.sh
+content/curriculum/*|scripts/verify-wpj-m2.sh
+services/api/src/networking-foundations-module1*|scripts/verify-wpj-m2.sh
+docs/Engineering-OS/WP_J_MISSION_2_UAT_RUNBOOK.md|scripts/verify-wpj-m2.sh
+scripts/lib/wpj-concept-ledger.txt|scripts/verify-wpj-m2.sh
+scripts/lib/wpj-missions.txt|scripts/verify-wpj-m2.sh
+scripts/lib/wpj-mission-authority.sh|scripts/verify-wpj-m2.sh
+packages/shared-types/src/instruction-interaction*|scripts/verify-wpj-m2.sh
+packages/shared-types/src/observation-model*|scripts/verify-wpj-m2.sh
+packages/shared-types/src/mission-steps*|scripts/verify-wpj-m2.sh
+apps/web/src/learning/packet-journey-presentation*|scripts/verify-wpj-m2.sh
+apps/web/src/learning/topology-layout*|scripts/verify-wpj-m2.sh
+apps/web/src/learning/near-transfer-presentation*|scripts/verify-wpj-m2.sh
+apps/web/src/learning/MissionInstruction.tsx|scripts/verify-wpj-m2.sh
+# The m2 gate RUNS this suite and asserts the file exists, so a change to it
+# that the gate would catch has to wake the gate. It did not: the rule above
+# matches `networking-foundations-module1*` only, and the course-wide suite
+# selected verify-wpj.sh alone. A gate that checks a file it is not woken for
+# is a gate that passes forever.
+services/api/src/networking-foundations.test.ts|scripts/verify-wpj-m2.sh
+# The projection that carries BOTH contracts this mission introduced —
+# `requiredForProgression` and per-stage `alsoAtNodeIds` — reached no WP-J
+# gate at all.
+packages/shared-types/src/mission-instruction*|scripts/verify-wpj-m2.sh
+# Mission 2 authors a second near-transfer topology, and the gate runs the
+# near-transfer suite.
+packages/shared-types/src/near-transfer*|scripts/verify-wpj-m2.sh
+# The view that holds the required-instruction state Mission 2's activity
+# reports. The fail-open window this repair closed lived here, not in the
+# lesson.
+apps/web/src/learning/LearningView.tsx|scripts/verify-wpj-m2.sh
+apps/web/src/learning/mission-instruction-presentation*|scripts/verify-wpj-m2.sh
+# The DOM focus behaviour suite, and the config that gives it an environment.
+# Both are Mission 2's: the suite exists because a mutation on this mission's
+# repair went unnoticed, and a change to either could silence it.
+apps/web/src/learning/mission-instruction-focus*|scripts/verify-wpj-m2.sh
+apps/web/vite.config.ts|scripts/verify-wpj-m2.sh
+apps/web/package.json|scripts/verify-wpj-m2.sh
+package-lock.json|scripts/verify-dependency-policy.sh
+package-lock.json|scripts/verify-wpj-m2.sh
+scripts/lib/authorized-dependency.sh|scripts/verify-dependency-policy.sh
+scripts/lib/authorized-dependency.sh|scripts/verify-wpj-m2.sh
+scripts/lib/authorized-dependency-policy.mjs|scripts/verify-dependency-policy.sh
+scripts/lib/authorized-dependency-policy.mjs|scripts/verify-wpj-m2.sh
+scripts/verify-dependency-policy.sh|scripts/verify-dependency-policy.sh
+packages/shared-types/package.json|scripts/verify-dependency-policy.sh
+services/api/package.json|scripts/verify-dependency-policy.sh
+package.json|scripts/verify-dependency-policy.sh
+apps/web/package.json|scripts/verify-dependency-policy.sh
+# The development-only UAT harness mounts the same lesson component the learner
+# view does, and the Mission 2 repair changed what it must pass down. It is
+# already mapped to verify-wpi.sh, which owns the harness itself; this maps it
+# additionally to the gate that owns what it now renders.
+apps/web/src/uat/*|scripts/verify-wpj-m2.sh
+# The Mission 4 continuity suite this gate now runs. A change that reintroduced
+# the substitute vocabulary would otherwise break a suite the Mission 2 gate
+# executes without ever waking the Mission 2 gate.
+services/api/src/networking-foundations-mission4*|scripts/verify-wpj-m2.sh
+# The journey's own renderer and the surface that mounts it. Mission 2's
+# Finish control, its reply orientation and its quick-reference rows are drawn
+# here, and a change to any of them can break a rule this gate asserts.
+apps/web/src/learning/PacketJourney.tsx|scripts/verify-wpj-m2.sh
+apps/web/src/learning/InteractionSurface.tsx|scripts/verify-wpj-m2.sh
+# The near-transfer step's own component. Mission 2 authors the second
+# near-transfer check in the course, and its Finish control now hands focus on.
+apps/web/src/learning/NearTransferStep.tsx|scripts/verify-wpj-m2.sh
+# The stylesheet carries the participation treatment and the reveal focus ring
+# this mission's repairs added.
+apps/web/src/styles.css|scripts/verify-wpj-m2.sh
+# The parser that accepts Mission 2's authored stage traffic, simultaneous
+# participants and progression gate. A key removed from its whitelist would
+# reject the mission at publication.
+packages/shared-types/src/curriculum-document*|scripts/verify-wpj-m2.sh
+# The two contracts this mission's repairs amended.
+docs/Feature-Registry/Curriculum-Engine/CURR-010_MISSION_INSTRUCTIONAL_STEPS.md|scripts/verify-wpj-m2.sh
+docs/Feature-Registry/Curriculum-Engine/CURR-011_INSTRUCTIONAL_INTERACTION_CONTRACT.md|scripts/verify-wpj-m2.sh
+scripts/verify-wpj-m2.sh|scripts/verify-wpj-m2.sh
 packages/shared-types/src/near-transfer*|scripts/verify-nt1.sh
 apps/web/src/learning/near-transfer-presentation*|scripts/verify-nt1.sh
 apps/web/src/learning/NearTransferStep.tsx|scripts/verify-nt1.sh
@@ -278,6 +394,42 @@ packages/shared-types/src/curriculum.ts|scripts/verify-curriculum-completion.sh
 services/api/src/auth-context*|scripts/verify-authentication-completion.sh
 services/api/src/authorization*|scripts/verify-authentication-completion.sh
 apps/web/src/auth/*|scripts/verify-authentication-completion.sh
+# MISSION-STEP-VOCAB-1 owns BOTH sides of a contract that is defined twice.
+#
+# This is the rule the header's own warning is about, in its sharpest form. The
+# mission step vocabulary lives in a SQL CHECK and in MISSION_STEP_TYPES, and no
+# existing gate was woken for both: `supabase/migrations/*` selects four
+# database gates that never read the shared types, and
+# `packages/shared-types/src/mission-steps*` selects four product gates that
+# never read the migrations. So `near_transfer` was added to one side, omitted
+# from the other, and every gate stayed green until a Founder publication failed
+# mid-course.
+#
+# `curriculum-admin.ts` is mapped because it is the writer that joins the two:
+# it validates against the TypeScript vocabulary and then writes the value into
+# the constrained column.
+supabase/migrations/*|scripts/verify-mission-step-vocabulary.sh
+packages/shared-types/src/mission-steps*|scripts/verify-mission-step-vocabulary.sh
+services/api/src/mission-step-vocabulary*|scripts/verify-mission-step-vocabulary.sh
+services/api/src/curriculum-admin*|scripts/verify-mission-step-vocabulary.sh
+scripts/verify-mission-step-vocabulary.sh|scripts/verify-mission-step-vocabulary.sh
+# CI-MIGRATION-GATE-1 — the five gates that assert migration integrity read a
+# shared helper and a frozen baseline, and were woken for neither.
+#
+# That is this table's own warning in its worst form: the helper decides
+# whether five gates pass, and an edit to it would have merged unchecked.
+# `scripts/migration-baseline.sha256` previously woke only the service-role
+# gate, while four other gates verified against it.
+scripts/lib/migration-floor.sh|scripts/verify-wpj-m1.sh
+scripts/lib/migration-floor.sh|scripts/verify-wpj.sh
+scripts/lib/migration-floor.sh|scripts/verify-wpi.sh
+scripts/lib/migration-floor.sh|scripts/verify-wpj15.sh
+scripts/lib/migration-floor.sh|scripts/verify-wph.sh
+scripts/migration-baseline.sha256|scripts/verify-wpj-m1.sh
+scripts/migration-baseline.sha256|scripts/verify-wpj.sh
+scripts/migration-baseline.sha256|scripts/verify-wpi.sh
+scripts/migration-baseline.sha256|scripts/verify-wpj15.sh
+scripts/migration-baseline.sha256|scripts/verify-wph.sh
 .claude/settings.json|scripts/verify-autonomy.sh
 CLAUDE.md|scripts/verify-autonomy.sh
 docs/Engineering-OS/Engineering-OS.md|scripts/verify-autonomy.sh

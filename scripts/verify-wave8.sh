@@ -682,7 +682,12 @@ UI_PRESENTATION_CODE="$(grep -vE '^\s*(//|\*|/\*)' "$UI_PRESENTATION" || true)"
 if grep -nE 'react-router|@remix-run|wouter|tanstack' apps/web/package.json; then
   fail "the eligibility UI must not introduce a routing library"
 fi
-if grep -nE '"(jsdom|@testing-library/react|jest-axe|happy-dom)"' apps/web/package.json; then
+# `jsdom` removed from this list, and only `jsdom`. The rule is a SCOPE rule —
+# the CERT-002 eligibility UI had no business standing up a DOM testing stack —
+# and it was never a claim that the repository may never have one. The Founder
+# has since authorized jsdom, dev-only, for the Mission 2 work package. The
+# three genuine framework choices are still refused here.
+if grep -nE '"(@testing-library/react|jest-axe|happy-dom)"' apps/web/package.json; then
   fail "the eligibility UI must not introduce a DOM testing stack"
 fi
 

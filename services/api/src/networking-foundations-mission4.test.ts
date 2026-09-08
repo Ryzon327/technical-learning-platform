@@ -24,7 +24,7 @@ import {
  * shape has to keep one causal question live at a time:
  *
  *   why did PC-A behave differently  →  what does the 24 tell it
- *   →  is the destination local  →  if local, where does the factory identity
+ *   →  is the destination local  →  if local, where does the destination MAC
  *   come from  →  ARP  →  why did everybody hear it  →  broadcast
  *   →  what happens when it is not local  →  why Router-1  →  Mission 5
  *
@@ -294,6 +294,58 @@ describe("Mission 4 uses only the step types this slice approved", () => {
     }
   });
 
+  it("states the local forwarding decision without overclaiming it", () => {
+    /*
+      Architect ruling B, and what it is actually about.
+
+      The accessible text equivalent is the PRIMARY representation, not a
+      caption — a learner reading it receives the whole walkthrough — so a
+      claim made loosely here is made to that learner and to nobody else.
+
+      It said Switch-1 "never looks at an address like 192.168.1.11". That is
+      broader than the behaviour being taught: what is true, and what the
+      mission needs, is that the destination IPv4 address is not what selects
+      the outgoing port, because local Ethernet forwarding uses destination MAC
+      addresses. The overbroad form invites a learner to conclude that no
+      switch ever inspects IP information at all, which is a different claim,
+      is not always true, and is not this mission's to make.
+
+      Asserted as the three parts of the MODEL rather than as one string, so a
+      later rewording that keeps the technical content still passes and one
+      that drops a part does not.
+    */
+    const step = mission(M4).steps.find(
+      (candidate) =>
+        candidate.content.type === "interaction" &&
+        candidate.content.interactionStableId === LOCAL_JOURNEY
+    );
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 4 authors no local journey");
+    }
+
+    const text = step.content.textEquivalent;
+
+    // The IPv4 address is not what chooses the port.
+    expect(text).toContain(
+      "does not use an IPv4 address like 192.168.1.11 to choose an outgoing port"
+    );
+
+    // What local Ethernet forwarding does use.
+    expect(text).toContain(
+      "forwards local Ethernet traffic using destination MAC addresses"
+    );
+
+    // What PC-A has, what it still needs, and why that blocks it.
+    expect(text).toContain("knows PC-B's IPv4 address");
+    expect(text).toContain("does not yet know PC-B's MAC address");
+    expect(text).toContain("build the local Ethernet frame");
+
+    // And the overclaim is gone, in the one journey that made it.
+    expect(
+      `local text equivalent overclaims: ${text.includes("never looks at an address")}`
+    ).toBe("local text equivalent overclaims: false");
+  });
+
   it("runs the local journey before the remote one", () => {
     const ids = mission(M4)
       .steps.filter((step) => step.content.type === "interaction")
@@ -388,7 +440,7 @@ describe("the local journey establishes the decision, then reuses Mission 2", ()
     });
   });
 
-  it("carries the addresses and factory identities Missions 2 and 3 established", () => {
+  it("carries the addresses and MAC addresses Missions 2 and 3 established", () => {
     const j = journey(LOCAL_JOURNEY);
     const attributes = j.nodes.flatMap((node) =>
       node.interfaces.flatMap((iface) => iface.attributes.map((a) => a.value))
@@ -443,6 +495,87 @@ describe("the local journey establishes the decision, then reuses Mission 2", ()
     expect(text).toMatch(/nothing has gone wrong|stayed silent|said nothing/i);
   });
 
+  it("uses the term Mission 2 earned, everywhere in Mission 4", () => {
+    /*
+      CURR-009 §12, which names this exact substitution: "technical terms are
+      earned, then used … *MAC address* does not become 'factory identity'".
+
+      Mission 2 teaches MAC address. Mission 4 then retreated to two invented
+      substitutes — "factory identity" and "hardware identity" — which is a
+      second vocabulary the learner has to maintain, and it makes the later
+      missions read as though a different author wrote them.
+
+      Asserted over EVERY learner-facing string in the mission, not over a
+      chosen field, because the substitution appeared in attribute labels, in
+      stage prose, in step paragraphs and in both text equivalents.
+    */
+    const everything = JSON.stringify(mission(M4));
+
+    for (const retreat of [
+      "factory identity",
+      "factory identities",
+      "hardware identity",
+      "hardware identities"
+    ]) {
+      expect(
+        `Mission 4 says "${retreat}": ${everything.toLowerCase().includes(retreat)}`
+      ).toBe(`Mission 4 says "${retreat}": false`);
+    }
+
+    expect(everything).toContain("MAC address");
+  });
+
+  it("connects a local IPv4 address to the MAC address delivery needs", () => {
+    /*
+      What ARP is FOR, in this mission, stated as the relationship rather than
+      as a phrase. The step that teaches it has to name both ends — the local
+      IPv4 address the learner already has, and the MAC address local Ethernet
+      delivery still needs — or ARP becomes a ritual the learner performs
+      without knowing what it produced.
+    */
+    const arpStep = mission(M4).steps.find(
+      (step) => step.stableId === "m4-s4-asking-the-network"
+    );
+    if (arpStep === undefined) throw new Error("the ARP step is not authored");
+    if (arpStep.content.type !== "concept") {
+      throw new Error("the ARP step is not a concept step");
+    }
+
+    const prose = arpStep.content.paragraphs.join("\n");
+
+    expect(prose).toContain("ARP");
+    expect(prose).toContain("MAC address");
+    expect(prose).toMatch(/IPv4 address/);
+    expect(prose).toMatch(/local/i);
+  });
+
+  it("restores no universal claim that a MAC address never changes", () => {
+    /*
+      Mission 2 deliberately says the opposite — that a MAC address "is not an
+      immutable hardware serial number", and that software and virtual
+      interfaces can use locally administered or changed ones.
+
+      The words this repair replaced ("factory identity", "hardware identity")
+      carried that false claim in the noun itself. Nothing may reintroduce it
+      in prose now that the noun is gone.
+    */
+    const everything = JSON.stringify(mission(M4)).toLowerCase();
+
+    for (const claim of [
+      "never changes",
+      "cannot be changed",
+      "burned in",
+      "burned-in",
+      "immutable",
+      "permanent identity",
+      "factory-assigned"
+    ]) {
+      expect(
+        `Mission 4 claims "${claim}": ${everything.includes(claim)}`
+      ).toBe(`Mission 4 claims "${claim}": false`);
+    }
+  });
+
   it("reaches PC-B, so the local case completes", () => {
     const j = journey(LOCAL_JOURNEY);
     expect(j.stages.some((stage) => stage.atNodeId === "pc-b")).toBe(true);
@@ -456,8 +589,27 @@ describe("the local journey establishes the decision, then reuses Mission 2", ()
       front of them. What the citation stood for — that this journey ends in
       the ordinary local delivery the learner already knows — is checked as the
       description itself.
+
+      ## Two rebases, and what each one protects
+
+      The second assertion used to read `toContain("factory identity")`. That
+      pinned the VOCABULARY of the moment it was written, not the rule: what it
+      was standing for is that this journey names the second thing PC-A had to
+      obtain before it could deliver. CURR-009 §12 — "technical terms are
+      earned, then used", which names this exact substitution — makes "factory
+      identity" the wrong word now that Mission 2 has taught MAC address, so
+      the assertion follows the term rather than pinning the substitute.
+
+      The mission-citation ban is UNNARROWED, and covers the closing summary
+      again. B.2 briefly scoped it to the walkthrough alone, because the
+      authored summary ended "…you learned in Mission 2"; the Architect has
+      since ruled that sentence out and replaced it with "…you already
+      learned". The exemption existed for one sentence, that sentence is gone,
+      and the Founder's rule applies to the whole journey exactly as it did
+      before.
     */
     const j = journey(LOCAL_JOURNEY);
+
     const text = [
       ...j.stages.flatMap((stage) => [stage.narration, stage.decision ?? ""]),
       ...j.nodes.map((node) => node.about ?? ""),
@@ -466,8 +618,24 @@ describe("the local journey establishes the decision, then reuses Mission 2", ()
     ].join("\n");
 
     expect(text).toContain("ordinary local delivery");
-    expect(text).toContain("factory identity");
+
+    // The earned term, and never a substitute for it.
+    expect(text).toContain("MAC address");
+    for (const retreat of ["factory identity", "hardware identity"]) {
+      expect(`local journey says "${retreat}": ${text.includes(retreat)}`).toBe(
+        `local journey says "${retreat}": false`
+      );
+    }
+
+    // Nothing anywhere in this journey sends the learner to a numbered
+    // mission — not mid-walkthrough, and not in the closing summary either.
     expect(text.match(/Mission \d+/g) ?? []).toEqual([]);
+
+    // The recap the citation used to stand in for, in the words the Architect
+    // authored to replace it.
+    expect(j.confirmation.summary).toContain(
+      "After that, the frame followed the ordinary local-delivery behavior you already learned."
+    );
   });
 });
 

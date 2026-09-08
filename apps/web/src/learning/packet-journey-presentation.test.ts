@@ -22,6 +22,7 @@ import {
   commitPrediction,
   describeAdvanceLabel,
   describeEventHeadline,
+  describeFinishActivityLabel,
   describeRolePurpose,
   describeSourceNotice,
   describeStartInstruction,
@@ -37,6 +38,7 @@ import {
   resolveJourneyBeats,
   type JourneyBeat,
   resolveCurrentTask,
+  resolveEffectiveTraffic,
   resolveNodeJourneyStatus,
   resolveSequencing,
   startJourney,
@@ -874,6 +876,35 @@ describe("every action produces a current-event change", () => {
     const after = buildPacketJourneyView(
       predictFirstJourney,
       commitPrediction(BEGUN, "s1", "To its default gateway")
+    ).currentEvent.token;
+
+    expect(after).not.toBe(before);
+  });
+
+  it("moves the token when a knowledge check is answered and nothing else changes", () => {
+    /*
+      The counterpart of the test above, and it was missing.
+
+      `PacketJourney` shows ONE beat at a time and resets its cursor when this
+      token moves. Answering a check is an observable change -- it splices a
+      feedback beat in at the FRONT of the list, shifting every later beat one
+      place -- so a token that ignored answers left the cursor pointing at
+      whatever now sat one position earlier. Founder UAT met that as Mission
+      2's source-learning check answering itself with the flooding
+      explanation.
+    */
+    const before = buildPacketJourneyView(
+      checkedJourney,
+      walkToCheck()
+    ).currentEvent.token;
+
+    const after = buildPacketJourneyView(
+      checkedJourney,
+      answerKnowledgeCheck(
+        walkToCheck(),
+        "s2-why",
+        "There is no subinterface for VLAN 20"
+      )
     ).currentEvent.token;
 
     expect(after).not.toBe(before);
@@ -2188,6 +2219,76 @@ describe("journey status separates what was observed from what was never used", 
     expect(nodeOf(view, "pc-a").journeyStatus.kind).toBe("passed-through");
   });
 
+  it("names a simultaneous participant as participating, never as arrived", () => {
+    /*
+      Founder UAT ruling. A device an author named in `alsoAtNodeIds` is part
+      of the moment on screen, and that is the whole claim. Every stronger
+      word is wrong about it: the traffic was not delivered there, did not
+      stop there, is not there now, and did not pass through on its way
+      somewhere else. "Participating in this step" is the only sentence that
+      is true of a copy that arrived and was not accepted, of a device that
+      merely echoed, and of every other reason an author might have.
+    */
+    const status = resolveNodeJourneyStatus({
+      nodeId: "printer",
+      revealedNodeIds: ["pc-a", "sw-1"],
+      alsoInvolvedNodeIds: ["printer"],
+      alsoParticipatingNodeIds: ["printer"],
+      confirmed: false,
+      stopped: false,
+      trafficLabel: "one delivery"
+    });
+
+    expect(status.kind).toBe("participating");
+    expect(status.label).toBe("Participating in this step.");
+
+    for (const forbidden of [
+      "delivered",
+      "destination",
+      "arrived",
+      "reached",
+      "confirmed",
+      "stopped",
+      "accepted"
+    ]) {
+      expect(
+        `says "${forbidden}": ${status.label.toLowerCase().includes(forbidden)}`
+      ).toBe(`says "${forbidden}": false`);
+    }
+  });
+
+  it("does not let a simultaneous participant outrank where the traffic is", () => {
+    // The anchor list decides delivered/stopped/here-now, and an author who
+    // names a device in BOTH lists must not have the weaker word win.
+    const status = resolveNodeJourneyStatus({
+      nodeId: "sw-1",
+      revealedNodeIds: ["pc-a", "sw-1"],
+      alsoInvolvedNodeIds: ["sw-1"],
+      alsoParticipatingNodeIds: ["sw-1"],
+      confirmed: false,
+      stopped: false,
+      trafficLabel: "one delivery"
+    });
+
+    expect(status.kind).toBe("here-now");
+  });
+
+  it("stops calling a device a participant once the moment has moved on", () => {
+    // Participation is a statement about the step being observed. Three
+    // stages later it would be false, so the historical wording takes over.
+    const status = resolveNodeJourneyStatus({
+      nodeId: "printer",
+      revealedNodeIds: ["pc-a", "sw-1", "pc-b"],
+      alsoInvolvedNodeIds: ["printer"],
+      alsoParticipatingNodeIds: [],
+      confirmed: false,
+      stopped: false,
+      trafficLabel: "one delivery"
+    });
+
+    expect(status.kind).toBe("passed-through");
+  });
+
   it("only once the journey is complete calls an unused device off the path", () => {
     // Authored completion is what makes this sayable: no further stage will
     // ever be revealed, so a device that never appeared is a device this
@@ -2551,7 +2652,7 @@ describe("SHOW ME points the learner at the network", () => {
 
 
 /* ------------------------------------------------------------------ *
- * GUIDE THE LEARNER (DEC-063)
+ * GUIDE THE LEARNER (DEC-063, as amended by DEC-067 §8 on grading)
  *
  * Founder UAT, fourth round. Each block below pins one of the reported
  * defects rather than the wording that currently fixes it, so a rewrite that
@@ -2615,7 +2716,7 @@ describe("an originating stage never says traffic reached its own source", () =>
   });
 });
 
-describe("a prediction is resolved against what happened, and never graded", () => {
+describe("an ungraded prediction is resolved against what happened", () => {
   it("exposes the prediction, the observation and the reason together", () => {
     const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
 
@@ -2626,9 +2727,15 @@ describe("a prediction is resolved against what happened, and never graded", () 
   });
 
   it("never declares a prediction correct or incorrect", () => {
-    // `PacketJourneyPrediction` carries no correct option and CURR-011 forbids
-    // adding one: an answer key in curriculum content is an assessment answer.
-    // So the comparison IS the feedback, and no verdict may appear.
+    // Scoped to THIS fixture, which authors no `correctOption`. Where a
+    // mission authors none the comparison IS the feedback and no verdict may
+    // appear, which is what the assertions below pin.
+    //
+    // Not an architecture claim. `PacketJourneyPrediction.correctOption` is
+    // optional, and DEC-067 §8 supersedes DEC-063's "never graded": where the
+    // course has already taught enough for the answer to be worked out, an
+    // author may supply one, and this file exercises exactly that in
+    // "a graded prediction gives the verdict and the reason".
     const view = buildPacketJourneyView(journey, walkToFailure(), "commit_first");
 
     const shown = [
@@ -2741,8 +2848,14 @@ describe("a control says what the learner will actually get", () => {
  * KNOWLEDGE CHECK (DEC-064)
  *
  * A prediction and a knowledge check are different instruments and must stay
- * that way. These assert the difference in both directions: a prediction is
- * never graded, and a knowledge check always resolves.
+ * that way. The difference is WHEN the learner is asked, not whether an answer
+ * key may exist: a prediction is committed BEFORE the evidence and carries a
+ * key only where the course has already taught the answer, while a knowledge
+ * check is asked AFTER the teaching and so always resolves.
+ *
+ * These assert that difference in both directions. The fixtures below author
+ * an ungraded prediction, which is the ordinary case; the graded case is
+ * exercised separately, and neither produces a score or any evidence.
  * ------------------------------------------------------------------ */
 
 /** The same journey, with a knowledge check on its second stage. */
@@ -2783,7 +2896,9 @@ describe("a knowledge check is a different instrument from a prediction", () => 
 
   it("a prediction needs no correct answer to be valid", () => {
     // The prediction on the base fixture carries prompt and options only, and
-    // the view still resolves it. Correctness is not part of the contract.
+    // the view still resolves it. An answer key is OPTIONAL in the contract —
+    // this asserts that its absence is valid, not that it may never be
+    // present.
     const stage = journey.stages[1];
     expect(stage?.prediction).toBeDefined();
     expect(Object.keys(stage?.prediction ?? {}).sort()).toEqual([
@@ -4978,5 +5093,801 @@ describe("the workspace control", () => {
     expect(describeWorkspaceExpandLabel()).not.toBe(
       describeWorkspaceCollapseLabel()
     );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * MISSION 2 FOUNDER UAT — finishing the activity, and simultaneity in words
+ * ------------------------------------------------------------------ */
+
+describe("the control that finishes an activity", () => {
+  it("names finishing the activity, not finishing the journey", () => {
+    /*
+      The journey reaching its authored end is the interaction's own state. It
+      is not the learner saying they have READ the end — and the steps that
+      follow a required activity wait on the second, not the first.
+
+      Founder video UAT recorded that difference next door, on the
+      near-transfer check, where releasing the next step on the last commit put
+      new instruction underneath feedback nobody had read yet. The same gap
+      exists here, so the same explicit act closes it.
+    */
+    expect(describeFinishActivityLabel()).toBe("Finish activity");
+  });
+});
+
+describe("a stage where several connections were busy at once", () => {
+  /**
+   * Mission 2 Founder UAT — the announcement's departures clause.
+   *
+   * The drawn wires are `aria-hidden`, so before this a stage where a switch
+   * sent copies out of two connections announced EXACTLY what a single-link
+   * stage announced. A learner using a screen reader was told one delivery had
+   * arrived somewhere, and the whole point of the stage — that it happened in
+   * several places at the same moment — existed only in the picture.
+   *
+   * Generic here, as everything in this file is: the fixture is a switch with
+   * three connections and no mission attached to it.
+   */
+  const flooding: LearnerPacketJourneyParameters = {
+    interactionType: "packet_journey",
+    nodes: [
+      {
+        nodeId: "pc-a",
+        label: "PC-A",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-a-eth0", label: "eth0", attributes: [] }
+        ]
+      },
+      {
+        nodeId: "sw-1",
+        label: "Switch-1",
+        role: "switch",
+        interfaces: [
+          { interfaceId: "sw-1-p1", label: "Port 1", attributes: [] },
+          { interfaceId: "sw-1-p2", label: "Port 2", attributes: [] },
+          { interfaceId: "sw-1-p3", label: "Port 3", attributes: [] }
+        ]
+      },
+      {
+        nodeId: "pc-b",
+        label: "PC-B",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-b-eth0", label: "eth0", attributes: [] }
+        ]
+      },
+      {
+        nodeId: "printer",
+        label: "Printer",
+        role: "printer",
+        interfaces: [
+          { interfaceId: "printer-eth0", label: "eth0", attributes: [] }
+        ]
+      }
+    ],
+    links: [
+      {
+        linkId: "link-a",
+        label: "PC-A to Switch-1 port 1",
+        endpoints: ["pc-a-eth0", "sw-1-p1"]
+      },
+      {
+        linkId: "link-b",
+        label: "PC-B to Switch-1 port 2",
+        endpoints: ["pc-b-eth0", "sw-1-p2"]
+      },
+      {
+        linkId: "link-p",
+        label: "Printer to Switch-1 port 3",
+        endpoints: ["printer-eth0", "sw-1-p3"]
+      }
+    ],
+    traffic: {
+      label: "one delivery",
+      sourceNodeId: "pc-a",
+      destinationNodeId: "pc-b",
+      startActionLabel: "Send the delivery"
+    },
+    stages: [
+      {
+        stageId: "s1",
+        atNodeId: "pc-a",
+        action: "sending the delivery",
+        narration: "PC-A sends.",
+        outcome: "proceeds"
+      },
+      {
+        stageId: "s2",
+        atNodeId: "sw-1",
+        action: "sending a copy out of every other connection",
+        narration: "It arrives, and copies leave on both other connections.",
+        outcome: "proceeds",
+        viaLinkId: "link-a",
+        alsoOnLinkIds: ["link-b", "link-p"]
+      }
+    ],
+    actions: [],
+    confirmation: {
+      narration: "Delivered.",
+      summary: "One delivery, several connections."
+    }
+  };
+
+  /** The same journey with the simultaneity removed, and nothing else changed. */
+  const singleLink: LearnerPacketJourneyParameters = {
+    ...flooding,
+    stages: [
+      flooding.stages[0]!,
+      { ...flooding.stages[1]!, alsoOnLinkIds: undefined }
+    ]
+  };
+
+  const at = (
+    parameters: LearnerPacketJourneyParameters,
+    count: number
+  ): string => {
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    for (let step = 0; step < count; step += 1) {
+      state = advance(state, parameters);
+    }
+    return buildPacketJourneyView(parameters, state).announcement;
+  };
+
+  it("names every connection the author said was busy, by its authored label", () => {
+    const announcement = at(flooding, 2);
+
+    // The links' OWN authored labels, in authored order — not a description
+    // assembled here from node and interface names. If an author renames a
+    // connection, this sentence renames with it and no other rule changes.
+    expect(announcement).toContain("At the same time:");
+    expect(announcement).toContain("PC-B to Switch-1 port 2");
+    expect(announcement).toContain("Printer to Switch-1 port 3");
+  });
+
+  it("leaves a single-connection stage's sentence byte-identical", () => {
+    /*
+      The compatibility guarantee, and the reason the clause is APPENDED rather
+      than woven in. Seven missions author no simultaneous links, and none of
+      them may have their live region reworded by a repair they did not ask
+      for.
+    */
+    const simultaneous = at(flooding, 2);
+    const single = at(singleLink, 2);
+
+    expect(single).not.toContain("At the same time");
+    expect(simultaneous.startsWith(single)).toBe(true);
+    expect(simultaneous.slice(single.length)).toBe(
+      " At the same time: PC-B to Switch-1 port 2; Printer to Switch-1 port 3."
+    );
+  });
+
+  it("says who was busy and never why", () => {
+    /*
+      The clause names authored connections and nothing else. The reason a
+      switch used them is the stage's `decision`, which is withheld at
+      protected support levels — a sentence here that explained it would leak
+      exactly what the projection dropped.
+    */
+    const announcement = at(flooding, 2);
+
+    for (const leaked of [
+      "because",
+      "has no record",
+      "does not know",
+      "learned",
+      "flood"
+    ]) {
+      expect(`announces "${leaked}": ${announcement.toLowerCase().includes(leaked)}`).toBe(
+        `announces "${leaked}": false`
+      );
+    }
+  });
+
+  it("says nothing extra at a stage that named no further connection", () => {
+    // The first stage of the flooding fixture names none, so it must announce
+    // exactly what it announced before the clause existed.
+    expect(at(flooding, 1)).not.toContain("At the same time");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * MISSION 2 FOUNDER UAT — what is moving RIGHT NOW
+ * ------------------------------------------------------------------ */
+
+describe("a stage may say something else is moving, and the words follow it", () => {
+  /*
+    Founder UAT round 2, and the defect this whole block exists for.
+
+    Mission 2's reply travels from PC-B back to PC-A. Every surface that
+    describes the current moment used to reach into the journey's own traffic
+    block instead, so the marker moved one way while the quick reference read
+    From PC-A / To PC-B, the orientation line said PC-A is sending, and the
+    live region announced that the outbound delivery had arrived.
+
+    The stage override is an AUTHORED fact. Nothing below infers direction from
+    the marker, from a link, from a role, or from which stage came before.
+  */
+
+  const twoWay: LearnerPacketJourneyParameters = {
+    interactionType: "packet_journey",
+    nodes: [
+      {
+        nodeId: "pc-a",
+        label: "PC-A",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-a-eth0", label: "eth0", attributes: [] }
+        ]
+      },
+      {
+        nodeId: "sw-1",
+        label: "Switch-1",
+        role: "switch",
+        interfaces: [
+          { interfaceId: "sw-1-p1", label: "Port 1", attributes: [] },
+          { interfaceId: "sw-1-p2", label: "Port 2", attributes: [] }
+        ]
+      },
+      {
+        nodeId: "pc-b",
+        label: "PC-B",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-b-eth0", label: "eth0", attributes: [] }
+        ]
+      }
+    ],
+    links: [
+      {
+        linkId: "link-a",
+        label: "PC-A to Switch-1 port 1",
+        endpoints: ["pc-a-eth0", "sw-1-p1"]
+      },
+      {
+        linkId: "link-b",
+        label: "PC-B to Switch-1 port 2",
+        endpoints: ["pc-b-eth0", "sw-1-p2"]
+      }
+    ],
+    traffic: {
+      label: "one local delivery",
+      sourceNodeId: "pc-a",
+      destinationNodeId: "pc-b",
+      startActionLabel: "Send the delivery"
+    },
+    stages: [
+      {
+        stageId: "s1",
+        atNodeId: "pc-a",
+        action: "sending the delivery",
+        narration: "PC-A sends.",
+        outcome: "proceeds"
+      },
+      {
+        stageId: "s2",
+        atNodeId: "pc-b",
+        action: "receiving the delivery",
+        narration: "It arrives at PC-B.",
+        outcome: "proceeds",
+        viaLinkId: "link-b"
+      },
+      {
+        stageId: "s3",
+        atNodeId: "pc-a",
+        action: "receiving PC-B's reply",
+        narration: "PC-B's answer comes back.",
+        outcome: "proceeds",
+        viaLinkId: "link-a",
+        traffic: {
+          label: "PC-B's reply",
+          sourceNodeId: "pc-b",
+          destinationNodeId: "pc-a"
+        }
+      },
+      {
+        stageId: "s4",
+        atNodeId: "pc-b",
+        action: "receiving the second delivery",
+        narration: "PC-A sends again, and it arrives.",
+        outcome: "proceeds",
+        viaLinkId: "link-b"
+      }
+    ],
+    actions: [],
+    confirmation: {
+      narration: "Both directions completed.",
+      summary: "One delivery and one reply."
+    }
+  };
+
+  const viewAt = (
+    parameters: LearnerPacketJourneyParameters,
+    revealed: number
+  ) => {
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    for (let step = 0; step < revealed; step += 1) {
+      state = advance(state, parameters, "demonstrate");
+    }
+    return buildPacketJourneyView(parameters, state);
+  };
+
+  const rowValue = (
+    view: ReturnType<typeof buildPacketJourneyView>,
+    label: string
+  ): string | undefined =>
+    view.quickReference.find((row) => row.label === label)?.value;
+
+  it("resolves the journey's own traffic when a stage authors none", () => {
+    // The compatibility guarantee, at the resolver itself. Seven of the
+    // course's eight journeys author no override anywhere, and none of them
+    // may change by one character.
+    expect(
+      resolveEffectiveTraffic(twoWay.traffic, twoWay.stages[1])
+    ).toEqual({
+      label: "one local delivery",
+      sourceNodeId: "pc-a",
+      destinationNodeId: "pc-b"
+    });
+
+    // Including when there is no stage at all, before anything is revealed.
+    expect(resolveEffectiveTraffic(twoWay.traffic, undefined)).toEqual({
+      label: "one local delivery",
+      sourceNodeId: "pc-a",
+      destinationNodeId: "pc-b"
+    });
+  });
+
+  it("drops the start label, which no stage can answer for", () => {
+    // `startActionLabel` belongs to the control that BEGINS the journey. A
+    // stage override cannot carry one — `STAGE_TRAFFIC_KEYS` refuses the key —
+    // so the resolved value must not offer one either, or a surface would read
+    // a start label from a moment that has no start.
+    expect(
+      "startActionLabel" in resolveEffectiveTraffic(twoWay.traffic, undefined)
+    ).toBe(false);
+  });
+
+  it("reads the stage's own traffic when it authors one", () => {
+    expect(
+      resolveEffectiveTraffic(twoWay.traffic, twoWay.stages[2])
+    ).toEqual({
+      label: "PC-B's reply",
+      sourceNodeId: "pc-b",
+      destinationNodeId: "pc-a"
+    });
+  });
+
+  it("names the reply in the quick reference, in all three rows at once", () => {
+    // The Founder's own reading: rows 4 and 5 already tracked the reply
+    // because they were per-stage, and rows 1 to 3 did not. The panel
+    // contradicted itself.
+    const reply = viewAt(twoWay, 3);
+
+    expect(rowValue(reply, "From")).toContain("PC-B");
+    expect(rowValue(reply, "To")).toContain("PC-A");
+    expect(rowValue(reply, "Carrying")).toBe("PC-B's reply");
+    expect(rowValue(reply, "Now at")).toBe("PC-A");
+  });
+
+  it("names the reply in the orientation, the summary and the live region", () => {
+    const reply = viewAt(twoWay, 3);
+
+    expect(reply.orientation.title).toContain("PC-B's reply");
+    expect(reply.orientation.summary).toContain("PC-B is sending");
+    expect(reply.trafficSummary).toBe(
+      "Following PC-B's reply from PC-B to PC-A."
+    );
+    expect(reply.announcement).toContain("PC-B's reply");
+    expect(reply.currentEvent.headline).toContain("PC-B's reply");
+  });
+
+  it("names the reply in the device status a learner opens", () => {
+    // The inspector says what happened to ONE device. Told "one local
+    // delivery is here now" while the reply is what arrived, it describes a
+    // different journey than the one on screen.
+    const reply = viewAt(twoWay, 3);
+    const pcA = reply.nodes.find((node) => node.nodeId === "pc-a");
+
+    expect(pcA?.journeyStatus.label).toBe("PC-B's reply is here now.");
+  });
+
+  it("goes back to the journey's traffic on a stage that authors none", () => {
+    // Not sticky. An override describes ONE moment, and a later stage that
+    // says nothing is the original delivery again.
+    const outbound = viewAt(twoWay, 2);
+
+    expect(rowValue(outbound, "Carrying")).toBe("one local delivery");
+    expect(rowValue(outbound, "From")).toContain("PC-A");
+    expect(rowValue(outbound, "To")).toContain("PC-B");
+    expect(outbound.orientation.summary).toContain("PC-A is sending");
+    expect(outbound.trafficSummary).toBe(
+      "Following one local delivery from PC-A to PC-B."
+    );
+
+    // And AFTER the reply, which is the direction that would break if an
+    // override were allowed to stick.
+    const second = viewAt(twoWay, 4);
+
+    expect(rowValue(second, "Carrying")).toBe("one local delivery");
+    expect(rowValue(second, "From")).toContain("PC-A");
+    expect(rowValue(second, "To")).toContain("PC-B");
+  });
+
+  it("makes the authored source this leg's origin on the topology", () => {
+    /*
+      Architect ruling, and deliberately narrow.
+
+      The existing origin rule reads "a leg begins where the traffic crossed
+      nothing to arrive". Mission 2's reply crosses a real link to reach
+      Switch-1, so that rule keeps captioning PC-A "Started here" while PC-B's
+      answer is what is travelling — the right answer to the question the rule
+      asks, and the wrong answer to the one the learner is asking.
+    */
+    const reply = viewAt(twoWay, 3);
+    const byId = new Map(
+      reply.topology.state === "available"
+        ? reply.topology.devices.map((device) => [device.nodeId, device])
+        : []
+    );
+
+    expect(byId.get("pc-b")?.state).toBe("origin");
+    expect(byId.get("pc-b")?.stateLabel).toBe("Started here");
+  });
+
+  it("leaves the origin alone on a stage that authors no traffic", () => {
+    // The legacy rule, untouched. This is what keeps Mission 6's return leg
+    // turning at PC-C without any mission authoring an override.
+    const outbound = viewAt(twoWay, 2);
+    const byId = new Map(
+      outbound.topology.state === "available"
+        ? outbound.topology.devices.map((device) => [device.nodeId, device])
+        : []
+    );
+
+    expect(byId.get("pc-a")?.state).toBe("origin");
+  });
+});
+
+describe("Mission 2's authored reply, through the real course", () => {
+  /*
+    The runtime probe. The block above proves the rule on a fixture; this
+    proves the rule fires on the curriculum the learner actually receives,
+    parsed by the real parser.
+
+    Without this, a repair could be correct in the abstract and still miss
+    Mission 2 — which is exactly what happened: the contract carried
+    `stage.traffic` from the document all the way to the browser, every
+    contract test passed, and no surface read it.
+  */
+  const missionTwoJourney = (): LearnerPacketJourneyParameters => {
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const mission = parsed.document.missions.find(
+      (candidate) => candidate.stableId === "nf-m2-inside-one-network"
+    );
+    if (mission === undefined) throw new Error("Mission 2 is not authored");
+
+    const step = mission.steps.find(
+      (candidate) =>
+        candidate.content.type === "interaction" &&
+        candidate.content.parameters.interactionType === "packet_journey"
+    );
+    if (step === undefined || step.content.type !== "interaction") {
+      throw new Error("Mission 2 authors no packet journey");
+    }
+
+    return step.content.parameters as LearnerPacketJourneyParameters;
+  };
+
+  const viewAtStage = (stageId: string) => {
+    const parameters = missionTwoJourney();
+    const index = parameters.stages.findIndex(
+      (stage) => stage.stageId === stageId
+    );
+    if (index === -1) throw new Error(`Mission 2 has no stage ${stageId}`);
+
+    let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+    for (let step = 0; step <= index; step += 1) {
+      state = advance(state, parameters, "demonstrate");
+    }
+
+    return buildPacketJourneyView(parameters, state);
+  };
+
+  const rowValue = (
+    view: ReturnType<typeof buildPacketJourneyView>,
+    label: string
+  ): string | undefined =>
+    view.quickReference.find((row) => row.label === label)?.value;
+
+  for (const stageId of ["d4-pc-b-replies", "d5-reply-reaches-pc-a"]) {
+    it(`${stageId} describes PC-B's reply, from PC-B to PC-A`, () => {
+      const view = viewAtStage(stageId);
+
+      expect(rowValue(view, "Carrying")).toBe("PC-B's reply");
+      expect(rowValue(view, "From")).toContain("PC-B");
+      expect(rowValue(view, "To")).toContain("PC-A");
+      expect(view.orientation.title).toContain("PC-B's reply");
+      expect(view.orientation.summary).toContain("PC-B is sending");
+      expect(view.trafficSummary).toBe(
+        "Following PC-B's reply from PC-B to PC-A."
+      );
+      expect(view.announcement).toContain("PC-B's reply");
+    });
+
+    it(`${stageId} starts its leg at PC-B on the topology`, () => {
+      const view = viewAtStage(stageId);
+      const pcB =
+        view.topology.state === "available"
+          ? view.topology.devices.find((device) => device.nodeId === "pc-b")
+          : undefined;
+
+      expect(pcB?.state).toBe("origin");
+      expect(pcB?.stateLabel).toBe("Started here");
+    });
+  }
+
+  it("still describes the outbound delivery on the stages that author none", () => {
+    // d1 to d3 and d6 to d8 carry no override, so the mission's own traffic is
+    // what is moving there. A repair that made the reply sticky would rename
+    // the second pass — the half of the comparison the mission is built on.
+    for (const stageId of ["d3-copies-arrive", "d8-pc-b-receives"]) {
+      const view = viewAtStage(stageId);
+
+      expect(`${stageId} carrying: ${rowValue(view, "Carrying")}`).toBe(
+        `${stageId} carrying: one local-network delivery`
+      );
+      expect(rowValue(view, "From")).toContain("PC-A");
+      expect(rowValue(view, "To")).toContain("PC-B");
+    }
+  });
+
+  /* ------------------------------------------------------------------ *
+     THE SECOND DELIVERY IS A SECOND DELIVERY, NOT A CONTINUATION.
+
+     Founder UAT, journey step 6 of 8. The cards are asserted in
+     `topology-layout.test.ts`; these own the half a learner reads in WORDS —
+     what the journey says is moving, and what the device inspector says about
+     each machine.
+
+     Both matter, and they must agree with the cards. A card reading "Not
+     involved so far" beside a status line reading "Passed through here." is
+     the same defect in a new place, and the two surfaces accumulate their
+     history separately.
+   * ------------------------------------------------------------------ */
+  describe("the second delivery", () => {
+    const statusAt = (stageId: string) => {
+      const view = viewAtStage(stageId);
+      return new Map(
+        view.nodes.map((node) => [node.nodeId, node.journeyStatus.label])
+      );
+    };
+
+    const factsAt = (stageId: string, nodeId: string) =>
+      viewAtStage(stageId)
+        .nodes.find((node) => node.nodeId === nodeId)
+        ?.shownFacts?.facts.map((fact) => `${fact.label}=${fact.value}`) ?? [];
+
+    it("carries the mission's own delivery again, not PC-B's reply", () => {
+      // d6 authors no traffic override, so what is moving reverts to the
+      // journey's own delivery. The reply must not bleed across the boundary.
+      const view = viewAtStage("d6-pc-a-sends-again");
+
+      expect(rowValue(view, "Carrying")).toBe("one local-network delivery");
+      expect(rowValue(view, "From")).toContain("PC-A");
+      expect(rowValue(view, "To")).toContain("PC-B");
+      expect(view.trafficSummary).toBe(
+        "Following one local-network delivery from PC-A to PC-B."
+      );
+      expect(view.trafficSummary).not.toContain("reply");
+    });
+
+    it("says the delivery is at PC-A and nowhere else", () => {
+      const status = statusAt("d6-pc-a-sends-again");
+
+      expect(status.get("pc-a")).toBe("One local-network delivery is here now.");
+
+      // The inspector agrees with the cards, which read "Not involved so far".
+      for (const nodeId of ["sw-1", "pc-b", "printer"]) {
+        expect(`${nodeId}: ${status.get(nodeId)}`).toBe(
+          `${nodeId}: Not involved so far.`
+        );
+      }
+    });
+
+    it("does not describe PC-B or the Printer as participants at d6", () => {
+      const view = viewAtStage("d6-pc-a-sends-again");
+      const status = statusAt("d6-pc-a-sends-again");
+
+      // Participation is a statement about the moment on screen, and neither
+      // machine is part of this one.
+      for (const nodeId of ["pc-b", "printer"]) {
+        expect(status.get(nodeId)).not.toBe("Participating in this step.");
+        expect(status.get(nodeId)).not.toBe("Passed through here.");
+        expect(
+          `${nodeId} current: ${view.nodes.find((n) => n.nodeId === nodeId)?.current}`
+        ).toBe(`${nodeId} current: false`);
+      }
+    });
+
+    it("keeps what Switch-1 learned across the whole second delivery", () => {
+      // The comparison the mission is built on. These are authored
+      // `deviceFacts`, read from the stage on screen, and the delivery
+      // scoping must not touch them.
+      for (const stageId of [
+        "d6-pc-a-sends-again",
+        "d7-switch-sends-once",
+        "d8-pc-b-receives"
+      ]) {
+        expect(`${stageId}: ${factsAt(stageId, "sw-1").join(", ")}`).toBe(
+          `${stageId}: PC-A=Port 1, PC-B=Port 2`
+        );
+      }
+    });
+
+    it("leaves the Printer off the path it took, once the journey ends", () => {
+      // d8 previously read "Passed through here." on the Printer, directly
+      // contradicting the narration beside it.
+      expect(statusAt("d8-pc-b-receives").get("printer")).toBe(
+        "Not part of the path one local-network delivery took."
+      );
+      expect(statusAt("d8-pc-b-receives").get("pc-b")).toBe("Delivered here.");
+    });
+
+    it("leaves the reply's own stages describing the reply", () => {
+      // d4 and d5 are frozen. The delivery boundary is at d6, so both stages
+      // still accumulate the first delivery's history exactly as before.
+      for (const stageId of ["d4-pc-b-replies", "d5-reply-reaches-pc-a"]) {
+        const status = statusAt(stageId);
+        expect(`${stageId} printer: ${status.get("printer")}`).toBe(
+          `${stageId} printer: Passed through here.`
+        );
+      }
+
+      expect(statusAt("d4-pc-b-replies").get("sw-1")).toBe(
+        "PC-B's reply is here now."
+      );
+      expect(statusAt("d5-reply-reaches-pc-a").get("pc-a")).toBe(
+        "PC-B's reply is here now."
+      );
+    });
+  });
+
+  /* ------------------------------------------------------------------ *
+     THE SOURCE-LEARNING CHECK'S FEEDBACK BELONGS TO THE SOURCE-LEARNING CHECK.
+
+     Founder UAT, rendered: answering "Why can Switch-1 record PC-A on port 1
+     after this arrival?" CORRECTLY displayed the flooding explanation --
+     "Switch-1 uses every other port so the delivery can reach whichever port
+     leads to PC-B" -- which is stage d2's `decision`, and answers a different
+     question.
+
+     Neither the authored data nor the beat list was wrong. The defect was the
+     pane's CURSOR: `PacketJourney` shows one beat at a time and resets its
+     index when `currentEvent.token` moves. Answering splices a feedback beat
+     in at the FRONT, shifting every later beat one place, but the token
+     counted reveals, the current stage, the applied action and committed
+     predictions -- not answered checks. The index therefore stayed put and
+     rendered whatever had shifted into it: the "Why" beat, one place earlier.
+
+     The token test above owns the mechanism for every mission. These own the
+     mission the Founder actually walked, through the real parser.
+   * ------------------------------------------------------------------ */
+  describe("the source-learning check's feedback", () => {
+    const CHECK_ID = "m2-d2-source-learning";
+    const STAGE_ID = "d2-switch-sends-copies";
+
+    /** The journey, and the state with d2 revealed and nothing answered. */
+    const atSourceLearning = () => {
+      const parameters = missionTwoJourney();
+      const index = parameters.stages.findIndex(
+        (stage) => stage.stageId === STAGE_ID
+      );
+      if (index === -1) throw new Error(`Mission 2 has no stage ${STAGE_ID}`);
+
+      const stage = parameters.stages[index];
+      const check = stage?.knowledgeChecks?.find(
+        (candidate) => candidate.checkId === CHECK_ID
+      );
+      if (stage === undefined || check === undefined) {
+        throw new Error(`Mission 2 no longer authors ${CHECK_ID} on ${STAGE_ID}`);
+      }
+
+      let state = startJourney(INITIAL_PACKET_JOURNEY_VIEW_STATE);
+      for (let step = 0; step <= index; step += 1) {
+        state = advance(state, parameters, "demonstrate");
+      }
+
+      return { parameters, stage, check, state };
+    };
+
+    /** Answered with the AUTHORED correct option, never a literal. */
+    const answeredCorrectly = () => {
+      const context = atSourceLearning();
+      return {
+        ...context,
+        state: answerKnowledgeCheck(
+          context.state,
+          CHECK_ID,
+          context.check.correctOption ?? ""
+        )
+      };
+    };
+
+    it("is authored on the check itself, not borrowed from the stage", () => {
+      const { stage, check } = atSourceLearning();
+
+      expect(check.prompt).toBe(
+        "Why can Switch-1 record PC-A on port 1 after this arrival?"
+      );
+      expect(check.correctOption).toBe(
+        "Because the delivery arrived on port 1 with PC-A as its source"
+      );
+      // The check's own reasoning: a switch learns from what it receives.
+      expect(check.explanation).toContain("learns from the source");
+      expect(check.explanation).toContain("arrived on port 1");
+      // The stage's decision explains FLOODING. Two questions, two answers.
+      expect(stage.decision).toContain("whichever port leads to PC-B");
+      expect(check.explanation).not.toBe(stage.decision);
+    });
+
+    it("renders the check's explanation as the feedback, and nothing else", () => {
+      const { parameters, check, state } = answeredCorrectly();
+
+      const feedback = resolveJourneyBeats(
+        buildPacketJourneyView(parameters, state, "demonstrate")
+      ).find((beat) => beat.kind === "feedback");
+
+      expect(feedback?.heading).toBe("Correct");
+      expect(feedback?.body.join(" ")).toContain(check.explanation);
+    });
+
+    it("cannot render the flooding explanation as this check's feedback", () => {
+      const { parameters, stage, state } = answeredCorrectly();
+
+      for (const beat of resolveJourneyBeats(
+        buildPacketJourneyView(parameters, state, "demonstrate")
+      ).filter((candidate) => candidate.kind === "feedback")) {
+        expect(beat.body.join(" ")).not.toContain(stage.decision ?? "");
+        expect(beat.body.join(" ")).not.toContain("whichever port leads to PC-B");
+      }
+    });
+
+    it("moves the change token, so the pane returns to the feedback beat", () => {
+      // The repair itself. Without this the cursor never resets, and the beat
+      // the learner lands on is whichever one shifted into their index.
+      const before = atSourceLearning();
+      const after = answeredCorrectly();
+
+      const tokenOf = (context: typeof before) =>
+        buildPacketJourneyView(context.parameters, context.state, "demonstrate")
+          .currentEvent.token;
+
+      expect(tokenOf(after)).not.toBe(tokenOf(before));
+
+      // Beat 0 is where the reset lands, and it is the check's resolution.
+      const beats = resolveJourneyBeats(
+        buildPacketJourneyView(after.parameters, after.state, "demonstrate")
+      );
+      expect(activeJourneyBeat(beats, 0)?.kind).toBe("feedback");
+      expect(activeJourneyBeat(beats, 0)?.heading).toBe("Correct");
+    });
+
+    it("still offers Send it to PC-B as the successor", () => {
+      const before = atSourceLearning();
+      const after = answeredCorrectly();
+
+      // The successor is read from the stage the press will reveal, so
+      // answering must not disturb it in either direction.
+      expect(describeAdvanceLabel(before.state, before.parameters)).toBe(
+        "Send it to PC-B"
+      );
+      expect(describeAdvanceLabel(after.state, after.parameters)).toBe(
+        "Send it to PC-B"
+      );
+    });
   });
 });

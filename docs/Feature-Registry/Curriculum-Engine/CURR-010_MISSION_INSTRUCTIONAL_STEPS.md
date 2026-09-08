@@ -82,7 +82,8 @@ including missing accessibility alternatives — before a learner ever sees them
 
 - Independent step publication state.
 - Independent step versioning or supersession.
-- Per-step learner progress.
+- Per-step **persisted** learner progress. Session-local instructional state
+  that a reload discards is not progress and is in scope — see section 8.4.
 - Step-level competency mapping.
 - Step-level evidence of any kind.
 - Cross-mission or cross-course step reuse.
@@ -204,6 +205,41 @@ A renderer may never infer such a fact. What lies beyond the edge of a drawing
 is authored, exactly as group membership is, for the reason given in
 `ObservationGroup`: every available inference would be a networking claim
 invented by a picture.
+
+## 8.4 An interaction may be required for progression
+
+An `interaction` step may declare `requiredForProgression`. Absent or `false`
+preserves today's behaviour exactly: the interaction is optional inline
+instruction and nothing waits for it.
+
+When `true`:
+
+- the interaction is **required inline instruction**;
+- later instructional steps stay withheld until it is **settled**;
+- mission-completion eligibility stays outstanding until it is settled;
+- **correctness is never a settlement requirement**, and no correctness
+  condition participates in it at all;
+- it produces no score, no attempt history, no evidence and no competency
+  state;
+- settlement is **session-local instructional state**. It is not persisted, and
+  a reload may restart an unfinished activity;
+- it creates no step-level persisted learner progress.
+
+`requiredForProgression: true` is refused at publication on an interaction whose
+support level withholds the interaction **entirely** — today, PROVE IT on a
+teaching-mode interaction. The learner would never be shown the activity, could
+never reach its authored end, and could never finish it, so the mission would be
+uncompletable by anyone. This follows DEC-059, which already holds that PROVE IT
+withholds instructional assistance and **not** the environment required to
+demonstrate competency. Every support level that still renders the activity —
+including CHALLENGE ME, which strips the answer-bearing fields — accepts the
+gate unchanged.
+
+This introduces no new step type. It is one optional field on the step type that
+already exists, and it works the same way the required `near_transfer` check
+does — the learner reaches the end of the authored activity and explicitly
+finishes it. A mission may carry both; the lesson waits for whichever required
+activity comes first in authored order, and then for the next.
 
 ---
 
@@ -452,3 +488,5 @@ Approved by DEC-054.
 | 1.1 | 2026-09-06 | WP-NF-NT1. The step vocabulary is closed at eight: `near_transfer` added for embedded near-transfer checks, which carry their own authored questions, answers and explanations and produce no score, attempt, evidence or competency state. Section 8.2 records, once, the boundary between prediction, knowledge check, near-transfer, practice and mastery assessment. Approved by the DEC-054 amendment. |
 | 1.2 | 2026-09-06 | WP-NF-NT1B. Section 8.3 records that a topology fact a learner must reason from belongs in the diagram and may not have visible prose as its only source, after the first authored near-transfer check failed it. A required inline activity — currently only `near_transfer` — also gates the mission completion action until every question has been ATTEMPTED; correctness remains irrelevant to eligibility, and no score, attempt, evidence or competency state is produced. |
 | 1.3 | 2026-09-06 | Mission 1 closeout. **Amends the completion clause in 1.2.** A required inline activity gates the mission completion action until it is **FINISHED** — every question attempted *and* its authored feedback read past — not merely until every question has been attempted. Rendered UAT showed a learner able to mark a mission complete while the final verdict and explanation were still on screen: reading the feedback is part of the instruction. **Correctness remains irrelevant to eligibility**, exactly as before, and no score, percentage, attempt, evidence or competency state is produced. |
+| 1.4 | 2026-09-07 | Mission 2 repair. Section 8.4 records that an `interaction` step may declare `requiredForProgression`: absent or false is unchanged, and when true the interaction is required inline instruction, so later steps and mission completion wait for the learner to reach the end of the authored activity and explicitly finish it. Correctness never participates. Settlement is session-local, produces no score, attempt history, evidence or competency state, and creates no step-level persisted progress. No new step type is introduced. |
+| 1.5 | 2026-09-07 | Mission 2 reconciliation. Consistency repair only, adding no capability. Section 6's excluded-scope bullet is narrowed from "per-step learner progress" to per-step **persisted** learner progress, so it no longer reads as forbidding the session-local settlement state section 8.4 introduces. Section 8.4 itself, section 9 and the Feature Summary are unchanged, and steps remain content rather than curriculum nodes. Section 8.4 also records the publication rule that refuses `requiredForProgression: true` on an interaction withheld entirely at its support level, which would otherwise publish an uncompletable mission; the rule follows DEC-059 and introduces no new doctrine. |

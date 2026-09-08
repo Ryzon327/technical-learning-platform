@@ -9,9 +9,11 @@ import type {
  * CERT-002 — student-facing wording for an eligibility result.
  *
  * Every string a student reads is produced here, as pure functions, so it can be
- * unit tested without a rendered DOM. The repository has no jsdom or
- * DOM-testing stack by design, and the Wave 7 verifier fails the build if one is
- * added — so presentation logic that matters must live outside the component.
+ * unit tested without a rendered DOM. This surface has no DOM test of its own,
+ * and the Wave 7 and Wave 8 verifiers still refuse a DOM-testing FRAMEWORK
+ * here — jsdom is present for one narrow focus suite elsewhere, authorized for
+ * that purpose — so presentation logic that matters must live outside the
+ * component.
  *
  * ## Truth boundary
  *

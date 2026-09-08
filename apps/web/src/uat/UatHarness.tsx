@@ -320,6 +320,15 @@ export function UatHarness() {
             steps={instruction.steps}
             assets={instruction.assets}
             missionStableId={selected}
+            /*
+              The harness renders one lesson at a time and offers no completion
+              control, so it has no completion authority to protect and nothing
+              reads a report from it. `resetKey` is nonetheless the honest value
+              here: it is what the harness already increments to start a lesson
+              over, so it names the rendering exactly as the learner view's
+              generation does.
+            */
+            instructionGeneration={resetKey}
           />
         )}
       </section>

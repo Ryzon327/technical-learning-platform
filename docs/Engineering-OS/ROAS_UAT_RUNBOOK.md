@@ -72,28 +72,39 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 **Verify afterwards**, and note one result that looks wrong but is not.
 
-The repository now carries **42** source migrations, of which **38** are applied
+The repository now carries **44** source migrations, of which **38** are applied
 to the development/UAT project. The column you compare against depends on how
 far you have pushed — these are expectations for a target state, not a claim
 about what is deployed.
 
-| Check | After the 39 this runbook needs | After all 42 source migrations |
+| Check | After the 39 this runbook needs | After all 44 source migrations |
 |---|---|---|
-| `supabase migration list` | **39** applied | **42** applied |
-| `select count(*) from public.platform_schema_version;` | **38** | **41** |
+| `supabase migration list` | **39** applied | **44** applied |
+| `select count(*) from public.platform_schema_version;` | **38** | **43** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** | **62** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** | **66** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** | **0** |
 
-> **The three later migrations are not required for this runbook.**
+> **The five later migrations are not required for this runbook.**
 > `20260830000100` (WP-B) adds a nullable `mission_competencies.relationship`
 > column; `20260831000100` (WP-C) adds the `mission_steps` table;
 > `20260901000100` (WP-D) adds `stable_id` and `alt_text` to
-> `curriculum_assets`. None is needed to publish the curriculum or to run
-> learner UAT: with no authored steps, published missions render from
+> `curriculum_assets`; `20260902000100` (WP-G) adds the authoring grants;
+> `20260907000100` (MISSION-STEP-VOCAB-1) widens the `mission_steps.step_type`
+> vocabulary to include `near_transfer`. None is needed to publish the curriculum
+> or to run learner UAT: with no authored steps, published missions render from
 > `missions.description`, which is the transition fallback CURR-010 section
 > 13.4 permits, and no curriculum asset has ever been authored. Applying them
 > remains a separate Founder action.
+>
+> **Authoring mission STEPS is a different matter, and needs the last three.**
+> `20260831000100` creates the table, `20260902000100` grants the authoring
+> verbs, and `20260907000100` makes the vocabulary accept `near_transfer`. The
+> first publication attempt of Networking Foundations had the first two and not
+> the third: it wrote the path, the course, four modules, eight missions and
+> Mission 1 steps 0 to 5, then stopped at `m1-s7-try-a-different-network` with
+> "Unable to author mission step". Publishing a course that authors steps
+> requires all three.
 
 > **One fewer schema-version row than migrations is correct.** Every migration
 > registers one component row except

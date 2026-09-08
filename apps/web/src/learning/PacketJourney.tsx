@@ -8,6 +8,7 @@ import {
   applyAction,
   buildPacketJourneyView,
   commitPrediction,
+  describeFinishActivityLabel,
   describeObservationLabel,
   describePredictionLabel,
   describeUnobservedCommitment,
@@ -89,11 +90,24 @@ import { connectionsForDevice, describeConnectionFrom } from "./topology-layout"
  * pinned workspace, which is a stronger form of the earlier correction rather
  * than a reversal of it: the learner never has to scroll to reach it at all.
  *
- * ## Why nothing scrolls the learner
+ * ## Where the learner is moved, and where they are not
  *
- * An earlier revision nudged the topology into view on every event. There is no
- * programmatic scrolling here at all, and the gate asserts there is none — with
- * the task pinned beside the picture, there is nothing left to scroll to.
+ * An earlier revision nudged the TOPOLOGY into view on every event, which
+ * dragged the learner back up to the picture every time they pressed the
+ * progression control. That is still forbidden, and `verify-wpi.sh` still
+ * asserts it.
+ *
+ * What replaced it is not "no scrolling at all". Founder UAT, second round,
+ * found the mirror image of the same defect with no scrolling: with no
+ * programmatic focus, the browser kept focus on a control that had just been
+ * re-rendered and the learner was left above the result, hunting for what had
+ * changed. So `moveToBeat` moves FOCUS to the result heading and brings it into
+ * view with `block: "nearest"` — the minimum movement, to the thing the learner
+ * just caused, never to the picture.
+ *
+ * That scroll respects `prefers-reduced-motion`: the movement still happens,
+ * because it is where the answer is, but it is instant rather than animated.
+ * Reduced motion is a request about ANIMATION, not about being left behind.
  *
  * ## One instance, one state, two scales
  *
@@ -122,24 +136,58 @@ import { connectionsForDevice, describeConnectionFrom } from "./topology-layout"
  *
  * ## Motion
  *
- * Motion is CSS only, and the stylesheet disables it under
- * `prefers-reduced-motion`. No branch in this file depends on motion, so a
- * reduced-motion learner receives the identical markup, the identical
- * information and the identical controls.
+ * Decorative motion is CSS only, and the stylesheet disables it under
+ * `prefers-reduced-motion`. The one piece of motion this file starts itself is
+ * the scroll described above, and it honours the same preference. No branch
+ * depends on motion, so a reduced-motion learner receives the identical markup,
+ * the identical information and the identical controls.
  */
 
 /** Focusable descendants, for the workspace's tab cycle. */
 const FOCUSABLE =
   'button, summary, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
+/**
+ * Whether this learner has asked for reduced motion.
+ *
+ * Guarded because `matchMedia` is not universally present — an older browser,
+ * and any test environment rendering this component without a full DOM. An
+ * unanswerable question is answered "no": the scroll behaves exactly as it did
+ * before, rather than silently changing for everyone whose browser cannot be
+ * asked.
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined") return false;
+  if (typeof window.matchMedia !== "function") return false;
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 export function PacketJourney({
   parameters,
   instanceId,
-  supportLevel
+  supportLevel,
+  settled,
+  onSettle
 }: {
   parameters: LearnerPacketJourneyParameters;
   /** Namespaces radio-group names so two interactions cannot collide. */
   instanceId: string;
+  /**
+   * Whether the learner has already said they finished this activity.
+   *
+   * Held by whatever is WAITING on the activity, never here: settlement
+   * outlives this component's own state, so a learner who starts the journey
+   * over does not un-finish it. Optional — absent means nothing is waiting.
+   */
+  settled?: boolean;
+  /**
+   * Called once, when the learner says they have finished.
+   *
+   * It reports an act, not a result. No score, no verdict, no evidence and no
+   * correctness crosses this callback, because none of those exist here.
+   */
+  onSettle?: () => void;
   /**
    * The level the SERVER authorised this interaction at.
    *
@@ -205,10 +253,32 @@ export function PacketJourney({
       const heading = resultRef.current;
       if (heading === null) return;
 
+      // The FOCUS move is unconditional: it is how a learner — sighted or
+      // otherwise — is told where the result of their action is, and a
+      // reduced-motion learner needs that exactly as much as anyone else. Only
+      // the ANIMATION is dropped, which is the whole of what was requested.
+      const motion = prefersReducedMotion() ? "auto" : "smooth";
+
       heading.focus();
-      heading.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      heading.scrollIntoView({ block: "nearest", behavior: motion });
     });
   }, []);
+
+  /*
+    Settlement is held by whatever is WAITING on this activity, and reaches
+    here as two props.
+
+    It is deliberately not a fourth `useState`. Settlement has to outlive this
+    component's own state — a learner who presses Start over has restarted the
+    journey, not un-read the end of it — and it has to be visible to the steps
+    that follow, which this component cannot see. Holding it here would make
+    both of those impossible.
+
+    No handler means nothing is waiting on this activity, so no settlement
+    control is offered — the same rule the rest of this file follows: a control
+    is rendered when it can be used and absent when it cannot.
+  */
+  const isSettled = settled ?? false;
 
   const sequencing = resolveSequencing(supportLevel);
   const view = buildPacketJourneyView(parameters, state, sequencing);
@@ -358,10 +428,27 @@ export function PacketJourney({
            * ------------------------------------------------------------ */}
           <div className="packet-journey-workspace">
           {/*
-            Orientation. Two short lines: what this is, and what to do. The
-            summary is built from the AUTHORED start label, so the course's own
-            words say what the interaction is about, and it deliberately does
-            not name the destination the learner is about to predict.
+            Orientation. Two short lines: what this is, and what is happening
+            in it. What the learner is supposed to DO belongs to `currentTask`
+            and the start control, not here — the summary is a statement, not
+            an instruction.
+
+            Both lines are built from the EFFECTIVE TRAFFIC: the current
+            stage's authored `traffic` override when it carries one, and the
+            journey's own traffic block otherwise. This comment previously said
+            the summary came from the authored START LABEL. That was true once
+            and is not now — Mission 2's reply travels from PC-B, and an
+            orientation fixed on the journey's opening words would go on
+            announcing that PC-A is sending while the learner watches the
+            answer come back.
+
+            The start label is still authored and still used, by
+            `view.startAction.label` on the start control below, which
+            describes the act of BEGINNING the journey and correctly stays on
+            the journey's own block.
+
+            It still deliberately does not name the destination the learner is
+            about to predict; that is `trafficSummary`'s.
           */}
           <div className="packet-journey-orientation">
             <h5 className="packet-journey-orientation-title">
@@ -740,6 +827,16 @@ export function PacketJourney({
                     {checkChoice !== null && (
                       <button
                         type="button"
+                        /*
+                          The same treatment the prediction submit carries, and
+                          for the identical reason: this button had no class at
+                          all, and its parent fieldset is a grid, so it
+                          stretched to the full column as a browser default in
+                          an otherwise styled surface. The two submits are the
+                          same kind of control on the same kind of beat, so
+                          they share one name rather than growing a second.
+                        */
+                        className="packet-journey-prediction-submit"
                         onClick={() => {
                           setState(
                             answerKnowledgeCheck(
@@ -845,6 +942,34 @@ export function PacketJourney({
                       {view.advanceLabel}
                     </button>
                   )}
+
+                {/* ------------------------------------------------------ *
+                    FINISHING THE ACTIVITY.
+
+                    Offered only at the journey's complete AUTHORED state —
+                    `view.finished`, the same fact the confirmation reads, so
+                    no stage count is written down here and no mission is
+                    named. Once pressed it is gone, because settlement latches
+                    where it is held; starting over does not un-finish it.
+
+                    It is not a progression control and deliberately does not
+                    carry that class: `verify-wpi.sh` counts progression
+                    controls and that count is a real invariant. Its own class
+                    shares the same treatment in the stylesheet, exactly as the
+                    prediction submit does, and for the reason recorded there.
+
+                    Nothing is scored, counted, recorded or sent. It is the
+                    learner saying they have read the end of the activity.
+                 * ------------------------------------------------------ */}
+                {view.finished && !isSettled && onSettle !== undefined && (
+                  <button
+                    type="button"
+                    className="packet-journey-settle"
+                    onClick={onSettle}
+                  >
+                    {describeFinishActivityLabel()}
+                  </button>
+                )}
               </div>
             </section>
 
@@ -964,10 +1089,18 @@ export function PacketJourney({
                   <p className="packet-journey-stage-node">{stage.nodeLabel}</p>
 
                   {/*
-                    Prediction beside observation. The learner compares the two
-                    and draws the conclusion; nothing here grades them, and
-                    nothing can — the authored content carries no answer key,
-                    and the observation IS the reveal.
+                    Prediction beside observation, in the HISTORY list.
+
+                    This list shows what was predicted and what happened, and
+                    nothing more: no verdict appears here even where the
+                    mission authored one. That is a property of this element,
+                    not of the contract — an earlier version of this comment
+                    said the authored content carries no answer key and that
+                    nothing could ever grade, which DEC-067 §8 superseded. A
+                    prediction whose answer the course has already taught MAY
+                    carry `correctOption`, and the beat pane resolves it there.
+
+                    Either way nothing is scored and no evidence is produced.
                   */}
                   {stage.committedPrediction !== undefined && (
                     <div className="packet-journey-compare">

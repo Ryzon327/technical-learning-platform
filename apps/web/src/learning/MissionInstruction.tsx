@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NearTransferStep } from "./NearTransferStep";
 import type {
   LearnerCurriculumAsset,
@@ -22,8 +22,12 @@ import {
   INITIAL_NEAR_TRANSFER_STATE,
   describeWithheldStepsNotice,
   hasUnattemptedInstruction,
+  nextInstructionStepId,
+  revealedByNearTransfer,
+  requiredInteraction,
   requiredNearTransfer,
   visibleInstructionSteps,
+  type MissionInteractionSettlement,
   type MissionNearTransferState,
   type NearTransferState
 } from "./near-transfer-presentation";
@@ -45,12 +49,17 @@ import {
  * this package, which is both the repository convention and what keeps this
  * file testable by reading it.
  *
- * There is exactly one `useState`, added by the WP-I correction, and it holds
- * whether the browser failed to load a figure. That is a fact about the
- * browser, not about curriculum: it is set by the `img` element's own error
- * event, it cannot be reached from outside the step it belongs to, and it
- * changes only whether an honest "figure unavailable" state is shown in place
- * of a broken image. No content decision depends on it.
+ * There are three `useState` hooks, and not one of them holds curriculum or
+ * decides content. The first, from the WP-I correction, holds whether the
+ * browser failed to load a figure — a fact about the browser, set by the `img`
+ * element's own error event, changing only whether an honest "figure
+ * unavailable" state is shown in place of a broken image. The second and third
+ * hold how far the learner has got through this mission's required inline
+ * activities: which near-transfer questions they have answered, and which
+ * required interactions they have finished. Both are facts about this browsing
+ * session, both are read by the steps that WAIT on those activities, and
+ * neither is persisted or sent anywhere — reload the page and the activities
+ * start again, which is correct for something that produces no evidence.
  *
  * It also performs no validation. WP-E already decided what is structurally
  * valid, which fields are withheld, and whether every referenced asset
@@ -292,10 +301,17 @@ function PredictionStep({
  */
 function InteractionStep({
   content,
-  instanceId
+  instanceId,
+  settlement
 }: {
   content: Extract<LearnerMissionStepContent, { type: "interaction" }>;
   instanceId: string;
+  /**
+   * Present only where the author marked this activity required, in which case
+   * the steps after it are waiting on it. `null` everywhere else, and the
+   * interaction then offers no settlement control at all.
+   */
+  settlement: { readonly settled: boolean; readonly onSettle: () => void } | null;
 }) {
   return (
     <>
@@ -303,7 +319,24 @@ function InteractionStep({
         <p className="instruction-command-caption">{content.caption}</p>
       )}
 
-      <InteractionSurface content={content} instanceId={instanceId} />
+      {/*
+        The lesson's wait, handed to the activity that satisfies it.
+
+        `InteractionSurface` forwards the pair and interprets neither: it maps
+        an already-validated interaction TYPE to a component (CURR-011 s7), and
+        that is still all it does.
+
+        `settlement` is null for every activity nothing is waiting on, which is
+        every interaction authored before `requiredForProgression` existed. The
+        two props are then absent and the interaction renders exactly as today.
+      */}
+      <InteractionSurface
+        content={content}
+        instanceId={instanceId}
+        {...(settlement === null
+          ? {}
+          : { settled: settlement.settled, onSettle: settlement.onSettle })}
+      />
 
       {/*
         The authored text equivalent, behind a disclosure and BELOW the
@@ -421,7 +454,9 @@ function renderStepContent(
     readonly onChange: (
       next: (current: NearTransferState) => NearTransferState
     ) => void;
-  }
+  },
+  /** Null unless this step is a required interaction the lesson waits on. */
+  settlement: { readonly settled: boolean; readonly onSettle: () => void } | null
 ) {
   const content = step.content;
 
@@ -440,7 +475,13 @@ function renderStepContent(
     case "prediction":
       return <PredictionStep content={content} />;
     case "interaction":
-      return <InteractionStep content={content} instanceId={headingId} />;
+      return (
+        <InteractionStep
+          content={content}
+          instanceId={headingId}
+          settlement={settlement}
+        />
+      );
     case "practice":
       return <PracticeStep content={content} headingId={headingId} />;
     case "near_transfer":
@@ -478,12 +519,21 @@ export function MissionInstruction({
   steps,
   assets,
   missionStableId,
+  instructionGeneration,
   onRequiredInstructionChange
 }: {
   steps: readonly LearnerMissionStep[];
   assets: readonly LearnerCurriculumAsset[];
   /** Namespaces heading ids so two open missions could never collide. */
   missionStableId: string;
+  /**
+   * Which rendering of this mission's lesson this is.
+   *
+   * Minted by the view and echoed back untouched. A lesson cannot vouch for
+   * its own freshness — the whole point of the number is that the party which
+   * owns mounting and tearing down decides which report still counts.
+   */
+  instructionGeneration: number;
   /**
    * Reports whether required inline instruction is still outstanding, so the
    * surrounding mission surface can decide what to offer.
@@ -492,12 +542,16 @@ export function MissionInstruction({
    * whether the learner has done them; the completion control does not, and
    * must not — it is told a state, never a step type, a question or a mission.
    */
-  onRequiredInstructionChange?: (state: RequiredInstructionState) => void;
+  onRequiredInstructionChange?: (
+    missionStableId: string,
+    generation: number,
+    state: RequiredInstructionState
+  ) => void;
 }) {
   const index = buildAssetIndex(assets);
 
   /*
-   * WP-NF-NT1 added the second `useState` in this file. Like the first, it
+   * WP-NF-NT1 added this, the second `useState` in this file. Like the first, it
    * holds no curriculum and decides no content: it records which near-transfer
    * questions the learner has answered, which is a fact about this browsing
    * session and is never sent anywhere. It lives here rather than inside
@@ -511,7 +565,62 @@ export function MissionInstruction({
     {}
   );
 
-  const visible = visibleInstructionSteps(steps, nearTransfer);
+  /*
+   * The third `useState`, and it holds one boolean per required interaction:
+   * has the learner said they finished it.
+   *
+   * It lives here for the same reason the near-transfer state does — the steps
+   * that FOLLOW a required activity wait on it, and a component cannot wait on
+   * state its sibling owns privately. It holds no curriculum, decides no
+   * content and records nothing: reload the page and the activity starts again,
+   * which is correct for something that produces no evidence.
+   *
+   * ## Why it only ever goes true
+   *
+   * Settlement is the learner saying they read the end of the activity. That
+   * remains true afterwards, so the interaction's own Start over — which resets
+   * the journey, not the reading — cannot un-finish it and re-hide steps the
+   * learner has already moved past. The setter below writes `true` and nothing
+   * else, which is where the latch lives.
+   */
+  const [settled, setSettled] = useState<MissionInteractionSettlement>({});
+
+  /*
+    THE HANDOFF AFTER A REQUIRED ACTIVITY IS FINISHED.
+
+    Pressing Finish unmounts the button that was pressed — its own render
+    condition goes false — and until this existed nothing caught the focus it
+    was holding, so it fell to `document.body`. A keyboard learner was
+    returned to the top of the document, and a screen-reader learner was told
+    nothing at all about the steps the press had just revealed. Worse inside
+    the expanded workspace, where losing focus also drops out of the pane's
+    Tab cycle.
+
+    So the reveal announces itself. `MissionInstruction` owns the reveal —
+    `PacketJourney` only reports that the learner finished reading — which is
+    why the handoff lives here and not next to the button.
+
+    The target is the FIRST NEWLY REVEALED step, not the activity's own
+    heading: the learner pressed Finish to move on, and moving them to what
+    appeared is the answer to what they asked for.
+  */
+  const stepRefs = useRef(new Map<string, HTMLElement>());
+  const [revealTarget, setRevealTarget] = useState<string | null>(null);
+
+  const visible = visibleInstructionSteps(steps, nearTransfer, settled);
+
+  useEffect(() => {
+    if (revealTarget === null) return;
+
+    // Absent when the settled step was the last authored one, or when the
+    // next step is itself withheld behind a further required activity. Both
+    // are ordinary, and neither is a reason to move focus somewhere else.
+    stepRefs.current.get(revealTarget)?.focus();
+    setRevealTarget(null);
+    // `visible` is a dependency because the element only exists once the
+    // reveal has been committed; this effect runs on that commit, never on
+    // the one that scheduled it.
+  }, [revealTarget, visible]);
 
   /*
     The notice below is about questions the learner has NOT ANSWERED — not
@@ -523,7 +632,7 @@ export function MissionInstruction({
     a verdict, an explanation and a Finish button, and underneath them a
     sentence telling them to answer the questions they had just answered.
   */
-  const withheld = hasUnattemptedInstruction(steps, nearTransfer);
+  const withheld = hasUnattemptedInstruction(steps, nearTransfer, settled);
 
   /*
     What the lesson reports upward.
@@ -545,14 +654,38 @@ export function MissionInstruction({
     Correctness is not a gate anywhere in this. `isSettled` counts feedback
     dismissed, never answers right, so a learner who was wrong every time
     finishes exactly as one who was right every time does.
+
+    ## Two kinds of required activity, one answer
+
+    A required interaction is the same kind of obligation, so it is asked about
+    the same way. `resolveRequiredInstruction` reports OUTSTANDING while ANY
+    required activity is unsettled, of either kind — one unfinished walkthrough
+    is enough, exactly as one unfinished question set is. `null` from both
+    predicates means the step is not a required activity at all, which is every
+    step in every mission authored before either field existed.
   */
-  const requiredInstruction = resolveRequiredInstruction(steps, (step) =>
-    requiredNearTransfer(step, nearTransfer)
-  );
+  const requiredInstruction = resolveRequiredInstruction(steps, (step) => {
+    const nearTransferState = requiredNearTransfer(step, nearTransfer);
+    if (nearTransferState !== null) return nearTransferState;
+
+    return requiredInteraction(step, settled);
+  });
 
   useEffect(() => {
-    onRequiredInstructionChange?.(requiredInstruction);
-  }, [onRequiredInstructionChange, requiredInstruction]);
+    // Reported WITH the mission it describes. The holder of this value
+    // outlives this component, so an untagged word would be indistinguishable
+    // from the previous lesson's — see `resolveReportedRequiredInstruction`.
+    onRequiredInstructionChange?.(
+      missionStableId,
+      instructionGeneration,
+      requiredInstruction
+    );
+  }, [
+    instructionGeneration,
+    missionStableId,
+    onRequiredInstructionChange,
+    requiredInstruction
+  ]);
 
   return (
     <div className="mission-instruction">
@@ -567,18 +700,90 @@ export function MissionInstruction({
           <section
             key={step.stableId}
             className="instruction-step"
+            /*
+              Focusable only programmatically. -1 keeps every one of these out
+              of the Tab order, so the reveal handoff above can reach a step
+              without adding a stop to the sequence a learner tabs through.
+
+              The section, rather than its heading, because a step is not
+              required to have one — a command, a diagram or an untitled
+              concept has no heading to move to, and this is the target that
+              exists for every step type.
+            */
+            tabIndex={-1}
+            ref={(element) => {
+              if (element === null) stepRefs.current.delete(step.stableId);
+              else stepRefs.current.set(step.stableId, element);
+            }}
             {...(titled ? { "aria-labelledby": headingId } : {})}
           >
-            {renderStepContent(step, index, headingId, {
-              state: nearTransfer[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE,
-              onChange: (next) =>
-                setNearTransfer((current) => ({
-                  ...current,
-                  [step.stableId]: next(
-                    current[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE
-                  )
-                }))
-            })}
+            {renderStepContent(
+              step,
+              index,
+              headingId,
+              {
+                state:
+                  nearTransfer[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE,
+                onChange: (next) => {
+                  const before =
+                    nearTransfer[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE;
+                  const after = next(before);
+
+                  setNearTransfer((current) => ({
+                    ...current,
+                    [step.stableId]: after
+                  }));
+
+                  /*
+                    The near-transfer's half of the reveal handoff.
+
+                    Its Finish control has no `onSettle` — it settles by
+                    acknowledging the last question's feedback, through this
+                    same `onChange` — so the interaction's handoff below could
+                    never fire for it. Mission 2 has both controls, and until
+                    this existed only one of them carried the learner to what
+                    their press revealed; the other dropped focus to the
+                    document body.
+
+                    A TRANSITION, not a state: asking "is it settled" would be
+                    true of every later change too, and would keep pulling
+                    focus back to the same section.
+                  */
+                  if (revealedByNearTransfer(step, before, after)) {
+                    setRevealTarget(nextInstructionStepId(steps, step.stableId));
+                  }
+                }
+              },
+              /*
+                A settlement binding only where something is waiting.
+
+                `requiredInteraction` returns null for a step that is not a
+                required interaction, and the activity then offers no Finish
+                control — which is the correct behaviour for a demonstration
+                placed beside prose, and for every mission authored before the
+                field existed.
+
+                The setter writes `true` and nothing else. That is the latch:
+                the interaction's own Start over resets the journey, never the
+                fact that the learner finished reading it.
+              */
+              requiredInteraction(step, settled) === null
+                ? null
+                : {
+                    settled: settled[step.stableId] === true,
+                    onSettle: () => {
+                      setSettled((current) => ({
+                        ...current,
+                        [step.stableId]: true
+                      }));
+                      // Authored order decides what comes next, exactly as it
+                      // decides what was withheld.
+                      setRevealTarget(
+                        nextInstructionStepId(steps, step.stableId)
+                      );
+                    }
+                  }
+            )}
           </section>
         );
       })}

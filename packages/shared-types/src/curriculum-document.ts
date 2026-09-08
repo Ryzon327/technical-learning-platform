@@ -363,7 +363,11 @@ const STEP_CONTENT_KEYS: Readonly<Record<string, readonly string[]>> = {
     "supportLevel",
     "parameters",
     "textEquivalent",
-    "caption"
+    "caption",
+    // Whether the lesson waits here until the learner has worked the activity.
+    // See `MissionStepInteractionContent.requiredForProgression`; absent means
+    // today's behaviour, so no existing document changes meaning.
+    "requiredForProgression"
   ],
   practice: ["type", "assessmentStableId", "framing"],
   // WP-NF-NT1. Listed shallowly so the keys are not rejected as unknown;

@@ -224,10 +224,49 @@ expect_selection "duplicate matches de-duplicate" \
   services/api/src/lab-admin.ts services/api/src/lab-provider.ts \
   packages/shared-types/src/lab.ts scripts/verify-wave6.sh
 
+# A path owned by SEVERAL gates, asserted in full and in rule-table order.
+#
+# The UAT harness is the case worth pinning: it is mapped from four different
+# work packages, and the Mission 2 repair added the fourth. A mapping dropped
+# from the table would leave a gate that asserts something about this file
+# without ever being woken for it — the failure mode the selector exists to
+# prevent, and one that no test other than this one would notice.
+expect_selection "uat harness selects every gate that owns it" \
+  "scripts/verify-wpi.sh
+scripts/verify-wpj-m1.sh
+scripts/verify-wpj-m2.sh
+scripts/verify-wpj15.sh" \
+  apps/web/src/uat/UatHarness.tsx
+
+# The dependency policy and its definition, which owned nothing until B.2.4.
+#
+# Nine gates take their dependency rule from `authorized-dependency.sh`. While
+# it selected no gate, an edit weakening that one file would have merged
+# unchecked — the DEV-FLOW-1 failure, in its worst form, because the weakened
+# rule would then have been trusted by every gate that sources it.
+expect_selection "the dependency policy owns its own definition" \
+  "scripts/verify-dependency-policy.sh
+scripts/verify-wpj-m2.sh" \
+  package-lock.json scripts/lib/authorized-dependency.sh \
+  scripts/lib/authorized-dependency-policy.mjs
+
+# The root manifest wakes BOTH the dependency policy that protects it and the
+# autonomy gate that owns the `npm run gate` plumbing declared inside it. In
+# rule-table order, which is the order they run.
+expect_selection "the root manifest wakes the dependency policy and autonomy" \
+  "scripts/verify-dependency-policy.sh
+scripts/verify-autonomy.sh" \
+  package.json
+
 # This work package's own paths must select this gate, or the verification
 # machinery would be merged unchecked — the DEV-FLOW-1 failure.
+# Autonomy comes FIRST here and second in the case above, and both are correct:
+# de-duplication keeps first-match order across the whole path list, so the gate
+# reached by `.claude/settings.json` precedes the one reached later by
+# `package.json`. Pinning both orderings is what makes that property observable.
 expect_selection "autonomy machinery selects itself" \
-  "scripts/verify-autonomy.sh" \
+  "scripts/verify-autonomy.sh
+scripts/verify-dependency-policy.sh" \
   .claude/settings.json CLAUDE.md docs/Engineering-OS/Engineering-OS.md \
   package.json scripts/run-gate.sh scripts/ci-select-gates.sh
 

@@ -218,12 +218,8 @@ echo "PASS:  6. the ledger gives Mission 5 one concept and defers the rest"
 # ------------------------------------------------------------
 # 7. This slice changed no contract, dependency or migration
 # ------------------------------------------------------------
-for manifest in package.json package-lock.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  if ! git diff --quiet HEAD -- "$manifest" 2>/dev/null; then
-    fail "this slice changed a dependency manifest: $manifest"
-  fi
-done
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "the Mission 5 slice"
 
 if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 2>/dev/null; then
   fail "this slice changed a migration; Mission 5 authors curriculum only"

@@ -395,12 +395,8 @@ echo "PASS:  7. the ledger gives Mission 8 exactly its three authorized concepts
 # Mission 8 is authored content. It is the first mission to USE the fault and
 # remediation machinery WP-H built, and using it is not changing it — so the
 # contract files are asserted unchanged rather than merely present.
-for manifest in package.json package-lock.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  if ! git diff --quiet HEAD -- "$manifest" 2>/dev/null; then
-    fail "this slice changed a dependency manifest: $manifest"
-  fi
-done
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "the Mission 8 slice"
 
 if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 2>/dev/null; then
   fail "this slice changed a migration; Mission 8 authors curriculum only"

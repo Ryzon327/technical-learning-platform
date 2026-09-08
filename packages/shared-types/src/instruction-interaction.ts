@@ -249,14 +249,28 @@ export interface PacketJourneyTraffic {
 /**
  * A prediction checkpoint on a stage.
  *
- * **There is no answer key here, and there must never be one.** The learner
- * commits to an option and then observes the authored outcome; the observation
- * IS the reveal. That is DEC-058's `PREDICT → OBSERVE` and it needs no
- * correctness verdict, which is why WP-H needs no server-side commitment
- * protocol (Architect decision 11).
+ * The learner commits to an option and then observes the authored outcome.
+ * That is DEC-058's `PREDICT → OBSERVE`, and it needs no server-side
+ * commitment protocol (Architect decision 11) because nothing is submitted.
  *
- * Adding a correct-option field later would be adding an assessment answer to
- * curriculum content, and teaching mode produces no evidence.
+ * ## Whether it carries an answer key
+ *
+ * OPTIONALLY, and the option is the whole rule. This block used to say there
+ * must never be one; DEC-063 said the same, and the Founder ruling recorded at
+ * DEC-067 §8 supersedes both: where a learner response has an objectively
+ * correct answer, the learner commits first and is then told plainly whether
+ * they were right and why. Where they cannot yet know, it stays ungraded and
+ * resolves by comparison.
+ *
+ * Mission 2 authors one of each, three stages apart, which is the clearest
+ * statement of the distinction in the course: d2 asks what a switch does with
+ * a destination it has no record of, before the learner has ever been shown
+ * one, and carries no answer; d7 asks the same shape of question after the
+ * reveal, and carries one.
+ *
+ * It is still not an assessment. Nothing is scored, nothing is recorded, and
+ * no evidence or competency is produced — see `correctOption` below, which
+ * says so at the field it governs.
  */
 export interface PacketJourneyPrediction {
   readonly prompt: string;
@@ -306,18 +320,21 @@ export interface PacketJourneyPrediction {
  *
  * They are different instruments and DEC-063 keeps them apart.
  *
- * A PREDICTION asks "what do you think will happen?" before the learner can
- * know. It is exploratory, it gates the reveal, and it carries no correct
- * option — the observation IS the answer, and grading a guess made before the
- * evidence would punish the learner for doing exactly what they were asked.
+ * A PREDICTION asks "what do you think will happen?" and gates the reveal. It
+ * carries no correct option WHERE THE LEARNER CANNOT YET KNOW — the
+ * observation is the answer there, and grading a guess made before the
+ * evidence would punish them for doing exactly what they were asked. Where the
+ * course has already taught enough to work the answer out, it may carry one.
  *
  * A KNOWLEDGE CHECK asks "based on what you have already been shown, which
  * answer is correct?" It comes AFTER the teaching, it does not gate anything,
  * and it has an authored right answer — so the learner can find out whether
  * they actually understood, which "recorded" never told them.
  *
- * Bolting `correctOption` onto the prediction type would have collapsed that
- * distinction and made every prediction gradable by omission.
+ * `correctOption` is optional on BOTH, and that is what keeps the distinction
+ * alive rather than collapsing it: a prediction carries one only where an
+ * author says the learner can already work the answer out, and a knowledge
+ * check — asked after the reveal — always can.
  *
  * ## Correctness is authored and deterministic
  *
@@ -345,6 +362,24 @@ export interface PacketJourneyKnowledgeCheck {
   readonly correctOption: string;
   /** Why that answer is the right one. Shown whichever way the learner answers. */
   readonly explanation: string;
+}
+
+/**
+ * What is moving at ONE stage, when the author says it is not the journey's
+ * opening traffic.
+ *
+ * See `ObservationStageTraffic`, which this projects to unchanged. The three
+ * fields are the three the journey's own `traffic` block already uses for the
+ * same job — what is moving, and between which two declared devices — minus
+ * `startActionLabel`, which belongs to the control that begins the journey and
+ * has no meaning part-way through one.
+ *
+ * Both device ids must name devices declared in the same parameters.
+ */
+export interface PacketJourneyStageTraffic {
+  readonly label: string;
+  readonly sourceNodeId: string;
+  readonly destinationNodeId: string;
 }
 
 /**
@@ -396,6 +431,20 @@ export interface PacketJourneyStage {
    * fails authoring rather than leaving a presentation with nothing to draw.
    */
   readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * Further devices involved at the same moment as this stage.
+   *
+   * See `ObservationStage.alsoAtNodeIds`, which this projects to unchanged, for
+   * why this is authored rather than read off `alsoOnLinkIds`. Every id must
+   * name a device declared in the same parameters, no id may repeat, and none
+   * may repeat `atNodeId` — that device is already named once.
+   */
+  readonly alsoAtNodeIds?: readonly string[];
+  /**
+   * What is moving at this stage, when it is not the journey's opening
+   * traffic. See `PacketJourneyStageTraffic`, which this projects to unchanged.
+   */
+  readonly traffic?: PacketJourneyStageTraffic;
   /**
    * Authored facts named devices display at this stage.
    *
@@ -668,9 +717,22 @@ const STAGE_KEYS = [
   "outcome",
   "viaLinkId",
   "alsoOnLinkIds",
+  "alsoAtNodeIds",
+  "traffic",
   "deviceFacts",
   "prediction",
   "knowledgeChecks"
+] as const;
+/**
+ * A stage's traffic override. Deliberately NOT `TRAFFIC_KEYS`: the journey's
+ * own traffic block carries `startActionLabel`, which belongs to the control
+ * that begins the journey and would be meaningless — and silently accepted —
+ * part-way through one.
+ */
+const STAGE_TRAFFIC_KEYS = [
+  "label",
+  "sourceNodeId",
+  "destinationNodeId"
 ] as const;
 const DEVICE_FACTS_KEYS = ["nodeId", "label", "facts"] as const;
 const DEVICE_FACT_KEYS = ["label", "value"] as const;
@@ -1006,6 +1068,75 @@ export function validatePacketJourneyParameters(
           const named = entry.alsoOnLinkIds.filter(nonEmpty);
           if (new Set(named).size !== named.length) {
             at(`${stageLabel}.alsoOnLinkIds names the same link more than once`);
+          }
+        }
+      }
+
+      // Devices involved at the same moment. Cross-referenced exactly like
+      // every other identifier here, and checked SEPARATELY from
+      // `alsoOnLinkIds` because the two are different authored facts: neither
+      // may be derived from the other, so neither may be validated against it.
+      if (entry.alsoAtNodeIds !== undefined) {
+        if (!Array.isArray(entry.alsoAtNodeIds)) {
+          at(`${stageLabel}.alsoAtNodeIds must be a list of device identifiers`);
+        } else {
+          entry.alsoAtNodeIds.forEach((nodeId, alsoIndex) => {
+            const alsoLabel = `${stageLabel}.alsoAtNodeIds[${alsoIndex}]`;
+
+            if (!nonEmpty(nodeId) || !knownNodes.has(nodeId)) {
+              at(
+                `${alsoLabel} names a device that is not declared: ${String(nodeId)}`
+              );
+              return;
+            }
+
+            // The stage is anchored at exactly one device, and `atNodeId` is
+            // where it says so. Repeating it here would ask a presentation to
+            // treat one device as two participants, and would blur the
+            // distinction the two fields exist to keep: where this stage IS,
+            // and who else was involved.
+            if (nodeId === entry.atNodeId) {
+              at(
+                `${alsoLabel} repeats atNodeId (${nodeId}); a stage names the device it is at once`
+              );
+            }
+          });
+
+          const namedNodes = entry.alsoAtNodeIds.filter(nonEmpty);
+          if (new Set(namedNodes).size !== namedNodes.length) {
+            at(
+              `${stageLabel}.alsoAtNodeIds names the same device more than once`
+            );
+          }
+        }
+      }
+
+      // What is moving at this stage, when the author says it is not the
+      // journey's opening traffic. Both endpoints are cross-references like
+      // the journey's own traffic block, and are checked the same way.
+      if (entry.traffic !== undefined) {
+        const stageTrafficLabel = `${stageLabel}.traffic`;
+        if (
+          checkKeys(
+            entry.traffic,
+            STAGE_TRAFFIC_KEYS,
+            STAGE_TRAFFIC_KEYS,
+            stageTrafficLabel,
+            at
+          )
+        ) {
+          checkText(entry.traffic, "label", stageTrafficLabel, at);
+
+          for (const endpoint of [
+            "sourceNodeId",
+            "destinationNodeId"
+          ] as const) {
+            const named = entry.traffic[endpoint];
+            if (!nonEmpty(named) || !knownNodes.has(named)) {
+              at(
+                `${stageTrafficLabel}.${endpoint} names a device that is not declared: ${String(named)}`
+              );
+            }
           }
         }
       }
@@ -1530,6 +1661,14 @@ export function buildPacketJourneyObservationModel(
       ...(stage.alsoOnLinkIds !== undefined
         ? { alsoOnLinkIds: stage.alsoOnLinkIds }
         : {}),
+      // Who else was involved, and what was moving, are authored facts about
+      // the stage in exactly the same sense. Copied for exactly the same
+      // reason, and never cross-read: nothing here turns a busy link into an
+      // involved device, or a device into a claim about what it was carrying.
+      ...(stage.alsoAtNodeIds !== undefined
+        ? { alsoAtNodeIds: stage.alsoAtNodeIds }
+        : {}),
+      ...(stage.traffic !== undefined ? { traffic: stage.traffic } : {}),
       ...(stage.deviceFacts !== undefined
         ? { deviceFacts: stage.deviceFacts }
         : {}),
@@ -1663,6 +1802,19 @@ export interface LearnerPacketJourneyStage {
    * it was there. The reason lives in `decision`, which is withheld.
    */
   readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * Further devices involved at the same moment. Carried at EVERY support
+   * level, for the same reason as `atNodeId` and `alsoOnLinkIds`: it says WHO
+   * was involved, never why. The reason lives in `decision`, which is withheld.
+   */
+  readonly alsoAtNodeIds?: readonly string[];
+  /**
+   * What is moving at this stage, when it is not the journey's opening
+   * traffic. Carried at EVERY support level: naming what is on the wire is the
+   * same kind of fact as naming where it is, and withholding it would leave a
+   * protected level describing the wrong exchange rather than describing less.
+   */
+  readonly traffic?: PacketJourneyStageTraffic;
   /**
    * What devices were showing at this stage. Carried at EVERY support level:
    * this is a reading the learner takes off the screen, the same kind of fact

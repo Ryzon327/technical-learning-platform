@@ -93,7 +93,7 @@ reads.
   shows what it concluded. Does the decision feel like something the machine
   did, or like something the course asserted?
 - **Stage 3:** the mission points out PC-A still cannot deliver, because Mission
-  2's switch works on hardware identity. **Did you feel that gap yourself before
+  2's switch forwards using MAC addresses. **Did you feel that gap yourself before
   it was explained?** That moment is the hinge of the whole mission.
 - **Stage 4:** the question goes to every machine at once. Watch the Printer and
   Router-1 receive it.
@@ -195,7 +195,7 @@ So you do not spend review time on it:
   shows them.
 - The local and remote conclusions are **authored facts** — nothing computes
   whether two addresses share a network, in the curriculum or the renderer.
-- PC-A and PC-B keep the addresses and factory identities from Missions 2 and 3;
+- PC-A and PC-B keep the addresses and MAC addresses from Missions 2 and 3;
   PC-A is byte-identical between the two journeys.
 - No Mission 5+ vocabulary appears: no gateway, routing, route, packet, ping,
   Layer 2/3 — and no binary, mask or CIDR arithmetic.

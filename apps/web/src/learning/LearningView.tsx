@@ -9,9 +9,12 @@ import { useAuth } from "../auth/AuthProvider";
 import { ApiRequestError } from "../lib/api-client";
 import { MissionInstruction } from "./MissionInstruction";
 import {
+  expectsStructuredInstruction,
+  resolveReportedRequiredInstruction,
   selectInstructionSource,
   type InstructionSource,
   type MissionInstructionRequest,
+  type ReportedRequiredInstruction,
   type RequiredInstructionState
 } from "./mission-instruction-presentation";
 import { PracticeCheckPanel } from "./PracticeCheckPanel";
@@ -115,11 +118,18 @@ function renderBriefBlock(block: BriefBlock, index: number) {
 function MissionInstructionBody({
   source,
   mission,
+  instructionGeneration,
   onRequiredInstructionChange
 }: {
   source: InstructionSource;
   mission: LearnerMission;
-  onRequiredInstructionChange: (state: RequiredInstructionState) => void;
+  /** Which rendering of this mission's lesson this is. Echoed back, not minted. */
+  instructionGeneration: number;
+  onRequiredInstructionChange: (
+    missionStableId: string,
+    generation: number,
+    state: RequiredInstructionState
+  ) => void;
 }) {
   if (source.kind === "structured") {
     return (
@@ -135,6 +145,7 @@ function MissionInstructionBody({
         steps={source.steps}
         assets={source.assets}
         missionStableId={mission.stableId}
+        instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
       />
     );
@@ -160,6 +171,7 @@ function MissionDetail({
   feedback,
   practice,
   instructionSource,
+  instructionGeneration,
   onRecord,
   onRequiredInstructionChange
 }: {
@@ -174,8 +186,14 @@ function MissionDetail({
   practice: readonly LearnerPracticeCheck[];
   /** Already reduced to one source. See selectInstructionSource. */
   instructionSource: InstructionSource;
+  /** Which rendering of this mission's lesson this is. Echoed back, not minted. */
+  instructionGeneration: number;
   onRecord: (action: "start" | "complete") => void;
-  onRequiredInstructionChange: (state: RequiredInstructionState) => void;
+  onRequiredInstructionChange: (
+    missionStableId: string,
+    generation: number,
+    state: RequiredInstructionState
+  ) => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = `${buildMissionRegionId(mission.stableId)}-title`;
@@ -202,6 +220,7 @@ function MissionDetail({
       <MissionInstructionBody
         source={instructionSource}
         mission={mission}
+        instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
       />
 
@@ -340,8 +359,39 @@ export function LearningView() {
     SERVER already records as completed stays completed regardless — that
     branch of `resolveMissionControlState` is not narrowed by this at all.
   */
+  //
+  // Held WITH the mission it describes, and null until a lesson has spoken.
+  // A bare word here was fail-OPEN across a selection change: the previous
+  // mission's `"none"` authorised completion of the next mission for the whole
+  // instruction fetch. `resolveReportedRequiredInstruction` records why the
+  // unknown case closes instead.
   const [requiredInstruction, setRequiredInstruction] =
-    useState<RequiredInstructionState>("none");
+    useState<ReportedRequiredInstruction | null>(null);
+
+  /*
+    WHICH RENDERING of a mission's lesson the view is currently showing.
+
+    Incremented by the fetch effect below, which runs exactly once per
+    selection transition — so leaving a mission and returning gives the next
+    lesson a generation the previous visit's report cannot match.
+
+    It lives here, and not in `MissionInstruction`, because the view owns the
+    lesson's lifetime and the lesson does not. A number the lesson minted for
+    itself would only become knowable to this component at the moment the
+    lesson speaks, which is precisely the moment being guarded.
+  */
+  const [instructionGeneration, setInstructionGeneration] = useState(0);
+
+  const reportRequiredInstruction = useCallback(
+    (
+      missionStableId: string,
+      generation: number,
+      state: RequiredInstructionState
+    ) => {
+      setRequiredInstruction({ missionStableId, generation, state });
+    },
+    []
+  );
 
   // WP-F. The open mission's instructional content.
   //
@@ -494,6 +544,9 @@ export function LearningView() {
     const controller = new AbortController();
 
     setInstructionRequest({ status: "loading", missionStableId });
+    // A new rendering of a mission's lesson begins here. Anything the previous
+    // one reported stops counting from this moment.
+    setInstructionGeneration((generation) => generation + 1);
 
     void (async () => {
       try {
@@ -727,19 +780,35 @@ export function LearningView() {
               progress,
               selectedMission.stableId
             ),
-            requiredInstruction
+            requiredInstruction: resolveReportedRequiredInstruction(
+              requiredInstruction,
+              {
+                missionStableId: selectedMission.stableId,
+                generation: instructionGeneration
+              },
+              // The REQUEST, not the display. `selectInstructionSource` is
+              // still what decides what to render, and it still resolves a
+              // pending fetch to the bundled brief — but a brief standing in
+              // for a lesson that has not arrived must not also authorise
+              // completing the mission.
+              expectsStructuredInstruction(
+                instructionRequest,
+                selectedMission.stableId
+              )
+            )
           })}
           saving={saving}
           feedback={resolveProgressFeedback(
             feedback,
             selectedMission.stableId
           )}
-          onRequiredInstructionChange={setRequiredInstruction}
+          onRequiredInstructionChange={reportRequiredInstruction}
           practice={selectMissionPractice(course, selectedMission.stableId)}
           instructionSource={selectInstructionSource(
             instructionRequest,
             selectedMission.stableId
           )}
+          instructionGeneration={instructionGeneration}
           onRecord={(action) => void handleRecord(selectedMission, action)}
         />
       ) : (

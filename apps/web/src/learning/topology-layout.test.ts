@@ -10,6 +10,7 @@ import {
 import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
 import {
   CANVAS_PADDING,
+  currentDeliveryStartIndex,
   GROUP_LABEL_HEIGHT,
   MARKER_CLEARANCE,
   FACE_INTERFACE_FONT_PX,
@@ -569,6 +570,55 @@ describe("journey state comes from fields, never from adjacency", () => {
     expect(byId.get("sw-1")?.state).toBe("current");
     expect(byId.get("r-1")?.state).toBe("idle");
     expect(byId.get("pc-b")?.state).toBe("idle");
+  });
+
+  it("names a device the current stage also involves as participating", () => {
+    /*
+      Founder UAT ruling, and the card half of it: the topology card and the
+      inspector's status line describe the same device at the same moment, so
+      they must not disagree about what happened to it.
+
+      "Passed through" is a claim about transit. Mission 2's printer receives
+      a simultaneous copy and passes nothing on, so the card said something
+      the journey never authored.
+    */
+    const participating: ObservationModel = {
+      ...model,
+      stages: model.stages.map((stage) =>
+        stage.stageId === "s2"
+          ? { ...stage, alsoAtNodeIds: ["pc-b"] }
+          : stage
+      )
+    };
+
+    const byId = new Map(
+      layoutOf(participating).devices.map((device) => [device.nodeId, device])
+    );
+
+    expect(byId.get("pc-b")?.state).toBe("participating");
+    expect(byId.get("pc-b")?.stateLabel).toBe("Participating in this step");
+
+    // The anchor keeps the stronger word, and the leg origin keeps its own.
+    expect(byId.get("sw-1")?.state).toBe("current");
+    expect(byId.get("pc-a")?.state).toBe("origin");
+  });
+
+  it("stops calling a device a participant once the moment has moved on", () => {
+    // Participation describes the step being observed. At a later stage the
+    // device is part of what was seen, and the historical wording returns.
+    const earlier: ObservationModel = {
+      ...model,
+      stages: model.stages.map((stage) =>
+        stage.stageId === "s1" ? { ...stage, alsoAtNodeIds: ["pc-b"] } : stage
+      )
+    };
+
+    const byId = new Map(
+      layoutOf(earlier).devices.map((device) => [device.nodeId, device])
+    );
+
+    expect(byId.get("pc-b")?.state).toBe("visited");
+    expect(byId.get("pc-b")?.stateLabel).toBe("Passed through");
   });
 
   it("states every device state in words as well as in a class", () => {
@@ -3229,5 +3279,494 @@ describe("a network past the edge of the drawing", () => {
 
     expect(layout.externalNetworks).toEqual([]);
     expect(layout.description).not.toContain("Another network");
+  });
+});
+
+
+describe("an authored stage traffic override moves the leg origin, and only then", () => {
+  /*
+    Architect ruling, and deliberately the narrow version of it.
+
+    The existing rule reads "a leg begins where the traffic crossed nothing to
+    arrive", which is a fact about the authored stages and nothing else. It is
+    what makes Mission 6's round trip turn at PC-C, with no mission authoring a
+    traffic override anywhere.
+
+    Mission 2's reply crosses a real link to reach Switch-1, so that rule keeps
+    captioning PC-A "Started here" while PC-B's answer is what is travelling —
+    the right answer to the question the rule asks, and the wrong answer to the
+    one the learner is asking. So an AUTHORED override wins, for the stage that
+    authors it, and nothing else changes.
+  */
+
+  const layoutOfJourney = (name: string, revealed: number) => {
+    const journey = authoredJourneys().find(
+      (candidate) => candidate.name === name
+    );
+    if (journey === undefined) throw new Error(`no authored journey ${name}`);
+
+    const layout = authoredLayout(journey.parameters, revealed);
+    if (layout.state !== "available") {
+      throw new Error(`expected a drawable layout, got: ${layout.reason}`);
+    }
+
+    return {
+      layout,
+      stageId: journey.parameters.stages[revealed - 1]?.stageId ?? "",
+      byId: new Map(layout.devices.map((device) => [device.nodeId, device]))
+    };
+  };
+
+  it("starts Mission 2's reply legs at PC-B", () => {
+    // d4 and d5, the two stages that author `traffic`.
+    for (const revealed of [4, 5]) {
+      const { byId, stageId } = layoutOfJourney(
+        "nf-pj2-local-delivery",
+        revealed
+      );
+
+      expect(`${stageId} origin is pc-b: ${byId.get("pc-b")?.state === "origin"}`).toBe(
+        `${stageId} origin is pc-b: true`
+      );
+      expect(byId.get("pc-b")?.stateLabel).toBe("Started here");
+    }
+  });
+
+  it("starts Mission 2's other legs at PC-A, exactly as before", () => {
+    // d1 to d3 and d6 to d8 author no override, so the legacy rule decides.
+    for (const revealed of [1, 2, 3, 6, 7, 8]) {
+      const { byId, stageId } = layoutOfJourney(
+        "nf-pj2-local-delivery",
+        revealed
+      );
+
+      expect(`${stageId} origin is pc-a: ${byId.get("pc-a")?.state === "origin"}`).toBe(
+        `${stageId} origin is pc-a: true`
+      );
+    }
+  });
+
+  it("leaves Mission 6's return leg turning at PC-C", () => {
+    /*
+      The regression this repair could most easily have caused.
+
+      Mission 6's round trip expresses its turn entirely through
+      `t5-pc-c-answers` crossing no link. Replacing the origin rule with the
+      journey's own traffic source — rather than adding an override on top of
+      it — would have re-asserted PC-A as the origin for three consecutive
+      stages of the trip BACK to PC-A, which is the "traffic does not arrive at
+      its own source" defect Founder UAT already found once.
+
+      Mission 6 authors no stage traffic anywhere, so nothing about it may have
+      moved.
+    */
+    const journey = authoredJourneys().find(
+      (candidate) => candidate.name === "nf-pj6-end-to-end"
+    );
+    if (journey === undefined) throw new Error("Mission 6's journey is gone");
+
+    expect(
+      journey.parameters.stages.filter((stage) => stage.traffic !== undefined)
+    ).toEqual([]);
+
+    // Out: PC-A is the origin for the whole outbound leg.
+    for (const revealed of [1, 2, 3, 4]) {
+      const { byId } = layoutOfJourney("nf-pj6-end-to-end", revealed);
+      expect(`stage ${revealed} origin: ${byId.get("pc-a")?.state}`).toBe(
+        `stage ${revealed} origin: origin`
+      );
+    }
+
+    // And back: from t5 the origin is PC-C, and stays PC-C.
+    for (const revealed of [5, 6, 7]) {
+      const { byId } = layoutOfJourney("nf-pj6-end-to-end", revealed);
+      expect(`stage ${revealed} origin: ${byId.get("pc-c")?.state}`).toBe(
+        `stage ${revealed} origin: origin`
+      );
+    }
+  });
+
+  it("leaves every journey that authors no stage traffic alone", () => {
+    // The compatibility sweep. Seven of the eight authored journeys carry no
+    // override at all, and none of them may change by one caption.
+    const overriding = authoredJourneys().filter((journey) =>
+      journey.parameters.stages.some((stage) => stage.traffic !== undefined)
+    );
+
+    expect(overriding.map((journey) => journey.name)).toEqual([
+      "nf-pj2-local-delivery"
+    ]);
+  });
+});
+
+
+describe("a second delivery starts the picture again, and only a second delivery", () => {
+  /*
+    Founder UAT, Mission 2, journey step 6 of 8 — "PC-A, sending another
+    local-network delivery to PC-B":
+
+      Switch-1 shows "Passed through"
+      PC-B     shows "Passed through"
+      Printer  shows "Passed through"
+
+    None of them had received the second delivery. The Printer never receives
+    it at all, and that absence is the mission's whole conclusion.
+
+    The origin was already leg-aware and had correctly moved to PC-A, so the
+    picture said "Started here" on one card while the other three described the
+    delivery before it. History was accumulated over every revealed stage and
+    never scoped to the delivery on screen.
+  */
+
+  const journeyNamed = (name: string) => {
+    const journey = authoredJourneys().find(
+      (candidate) => candidate.name === name
+    );
+    if (journey === undefined) throw new Error(`no authored journey ${name}`);
+    return journey.parameters;
+  };
+
+  const pictureAt = (name: string, revealed: number) => {
+    const parameters = journeyNamed(name);
+    const layout = authoredLayout(parameters, revealed);
+    if (layout.state !== "available") {
+      throw new Error(`expected a drawable layout, got: ${layout.reason}`);
+    }
+
+    return {
+      stageId: parameters.stages[revealed - 1]?.stageId ?? "",
+      device: new Map(layout.devices.map((d) => [d.nodeId, d])),
+      link: new Map(layout.links.map((l) => [l.linkId, l]))
+    };
+  };
+
+  const pictureMarkers = (name: string, revealed: number) => {
+    const layout = authoredLayout(journeyNamed(name), revealed);
+    if (layout.state !== "available") {
+      throw new Error(`expected a drawable layout, got: ${layout.reason}`);
+    }
+    return layout.packets;
+  };
+
+  const M2 = "nf-pj2-local-delivery";
+
+  it("draws no device as still carrying the first delivery at d6", () => {
+    const { stageId, device } = pictureAt(M2, 6);
+    expect(stageId).toBe("d6-pc-a-sends-again");
+
+    // The second delivery restarts here, and says so.
+    expect(device.get("pc-a")?.state).toBe("origin");
+    expect(device.get("pc-a")?.stateLabel).toBe("Started here");
+
+    // Nothing else has been reached by THIS delivery yet.
+    for (const nodeId of ["sw-1", "pc-b", "printer"]) {
+      expect(`${nodeId}: ${device.get(nodeId)?.state}`).toBe(`${nodeId}: idle`);
+      expect(device.get(nodeId)?.stateLabel).toBe("Not involved so far");
+    }
+  });
+
+  it("puts the new delivery on PC-A's wire at d6, and on no other", () => {
+    /*
+      SUPERSEDED, DELIBERATELY, AND NOT WEAKENED.
+
+      This test first asserted that NO wire was current or traversed at d6. It
+      was written against the picture as it then stood — nothing stale, and
+      nothing moving either — and the Founder's rendered retest found the
+      second half of that a defect: the delivery never visibly left PC-A.
+
+      The Architect then ruled that the incoming leg may be shown here. So the
+      "no wire is current" half is gone, and both halves it was really
+      protecting are kept and stated directly: no stale history survives, and
+      no outgoing port is disclosed before the learner predicts it.
+    */
+    const { link } = pictureAt(M2, 6);
+
+    // The new delivery is on PC-A's connection, and that wire reads as active.
+    expect(link.get("link-pc-a")?.current).toBe(true);
+
+    // Nothing has been crossed yet. The delivery is in flight, not history.
+    for (const linkId of ["link-pc-a", "link-pc-b", "link-printer"]) {
+      expect(`${linkId} traversed: ${link.get(linkId)?.traversed}`).toBe(
+        `${linkId} traversed: false`
+      );
+    }
+
+    // Neither outgoing port is lit. Which one Switch-1 uses is d7's question.
+    for (const linkId of ["link-pc-b", "link-printer"]) {
+      expect(`${linkId} current: ${link.get(linkId)?.current}`).toBe(
+        `${linkId} current: false`
+      );
+    }
+  });
+
+  it("makes PC-A to Switch-1 the active movement at d7", () => {
+    // The authored movement. d6 crosses no link — the delivery leaves PC-A at
+    // d7, which is where `viaLinkId` is authored and where the wire lights up.
+    const { stageId, device, link } = pictureAt(M2, 7);
+    expect(stageId).toBe("d7-switch-sends-once");
+
+    expect(link.get("link-pc-a")?.current).toBe(true);
+    expect(device.get("sw-1")?.state).toBe("current");
+    expect(device.get("pc-a")?.state).toBe("origin");
+
+    // And still nothing claims PC-B or the Printer.
+    expect(device.get("pc-b")?.state).toBe("idle");
+    expect(device.get("printer")?.state).toBe("idle");
+    expect(link.get("link-printer")?.traversed).toBe(false);
+  });
+
+  it("never lights the Printer up on the second delivery", () => {
+    // The mission's conclusion, drawn: "The Printer does not receive a copy
+    // this time." Previously the Printer read "Passed through" on all three
+    // stages of the delivery it took no part in.
+    for (const revealed of [6, 7, 8]) {
+      const { stageId, device, link } = pictureAt(M2, revealed);
+
+      expect(`${stageId} printer: ${device.get("printer")?.state}`).toBe(
+        `${stageId} printer: idle`
+      );
+      expect(`${stageId} printer wire: ${link.get("link-printer")?.traversed}`).toBe(
+        `${stageId} printer wire: false`
+      );
+    }
+  });
+
+  it("leaves the first delivery and the reply exactly as they were", () => {
+    // d1 to d5 are frozen. Pinned as whole rows so a future widening of the
+    // rule cannot move one card quietly.
+    const rowAt = (revealed: number) => {
+      const { stageId, device } = pictureAt(M2, revealed);
+      return `${stageId} :: ${["pc-a", "sw-1", "pc-b", "printer"]
+        .map((nodeId) => `${nodeId}=${device.get(nodeId)?.state}`)
+        .join(",")}`;
+    };
+
+    expect([1, 2, 3, 4, 5].map(rowAt)).toEqual([
+      "d1-pc-a-sends :: pc-a=origin,sw-1=idle,pc-b=idle,printer=idle",
+      "d2-switch-sends-copies :: pc-a=origin,sw-1=current,pc-b=idle,printer=idle",
+      "d3-copies-arrive :: pc-a=origin,sw-1=visited,pc-b=current,printer=participating",
+      "d4-pc-b-replies :: pc-a=visited,sw-1=current,pc-b=origin,printer=visited",
+      "d5-reply-reaches-pc-a :: pc-a=current,sw-1=visited,pc-b=origin,printer=visited"
+    ]);
+  });
+
+  it("fires on exactly one stage in the whole authored course", () => {
+    /*
+      The blast-radius guard, and the reason the rule needs both conditions.
+
+      A rule that reset on "crossed no link" alone would fire on Mission 6's
+      turn at PC-C and on Mission 4's and Mission 8's opening reasoning
+      stages, blanking devices those missions are still describing. This walks
+      every authored journey at every revealed depth and names every stage
+      where the picture restarts.
+    */
+    const restarts: string[] = [];
+
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const start = currentDeliveryStartIndex(
+          parameters.stages.slice(0, revealed)
+        );
+        if (start === 0) continue;
+        restarts.push(`${name} @${parameters.stages[revealed - 1]?.stageId} -> ${start}`);
+      }
+    }
+
+    expect(restarts).toEqual([
+      "nf-pj2-local-delivery @d6-pc-a-sends-again -> 5",
+      "nf-pj2-local-delivery @d7-switch-sends-once -> 5",
+      "nf-pj2-local-delivery @d8-pc-b-receives -> 5"
+    ]);
+  });
+
+  it("sends the new delivery down PC-A's wire, in the direction d2 uses", () => {
+    /*
+      Founder rendered retest: the stale cards were gone and the picture then
+      sat completely still — PC-A marked, nothing moving, every wire dark,
+      through the step, its "Why" beat and the prediction after it.
+
+      d6 authors no `viaLinkId` because nothing ARRIVES there, so the marker
+      fell to the parked branch, which carries `path: null` and therefore
+      cannot travel. The picture was byte-identical to d1, the state before
+      anything has been sent.
+    */
+    const { device, link } = pictureAt(M2, 6);
+    const marker = pictureMarkers(M2, 6);
+
+    expect(marker).toHaveLength(1);
+    expect(marker[0]?.nodeId).toBe("pc-a");
+    expect(marker[0]?.state).toBe("moving");
+    expect(marker[0]?.linkId).toBe("link-pc-a");
+
+    // A marker with no path cannot travel. This one has the link's OWN `d`.
+    expect(marker[0]?.path).toBe(link.get("link-pc-a")?.path);
+    expect(marker[0]?.path).not.toBeNull();
+
+    // Away from PC-A, towards Switch-1 — the same direction d2 travels this
+    // wire on the first delivery, and the opposite of d5's arriving reply.
+    expect(marker[0]?.travelsToEnd).toBe(true);
+    expect(pictureMarkers(M2, 2)[0]?.travelsToEnd).toBe(true);
+    expect(pictureMarkers(M2, 5)[0]?.travelsToEnd).toBe(false);
+
+    // PC-A is still the origin, and nothing else has been reached.
+    expect(device.get("pc-a")?.state).toBe("origin");
+    expect(device.get("sw-1")?.state).toBe("idle");
+  });
+
+  it("gives no other authored stage a departure it did not author", () => {
+    /*
+      The blast-radius guard for the motion half.
+
+      A parked marker becoming a travelling one is the exact thing
+      `resolvePacket` refuses by default: "animating it would show traffic
+      crossing a link the curriculum never said carried any." This walks every
+      authored journey at every depth and names every stage whose marker
+      travels a link the stage itself did not author.
+    */
+    const unauthored: string[] = [];
+
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const stage = parameters.stages[revealed - 1];
+        const authored = new Set<string>([
+          ...(stage?.viaLinkId === undefined ? [] : [stage.viaLinkId]),
+          ...(stage?.alsoOnLinkIds ?? [])
+        ]);
+
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+
+        for (const marker of layout.packets) {
+          if (marker.path === null) continue;
+          if (marker.linkId !== null && authored.has(marker.linkId)) continue;
+          unauthored.push(`${name} @${stage?.stageId} travels ${marker.linkId}`);
+        }
+      }
+    }
+
+    // Exactly one, and it is the Architect-authorized incoming leg.
+    expect(unauthored).toEqual([
+      "nf-pj2-local-delivery @d6-pc-a-sends-again travels link-pc-a"
+    ]);
+  });
+
+  it("keeps every other stage's marker exactly where it was", () => {
+    // The stages that legitimately park: nothing sent yet, the reasoning
+    // stages Missions 4 and 8 open on, Mission 6's turn at PC-C, and the
+    // authored stop. None of them may acquire motion.
+    const parked: string[] = [];
+
+    for (const { name, parameters } of authoredJourneys()) {
+      for (let revealed = 1; revealed <= parameters.stages.length; revealed += 1) {
+        const layout = authoredLayout(parameters, revealed);
+        if (layout.state !== "available") continue;
+        if (layout.packets.some((marker) => marker.path !== null)) continue;
+        parked.push(`${name} @${parameters.stages[revealed - 1]?.stageId}`);
+      }
+    }
+
+    expect(parked).toEqual([
+      "nf-pj1-topology-orientation @t1-pc-a",
+      "nf-pj2-local-delivery @d1-pc-a-sends",
+      "nf-pj4-local-destination @a1-before-anything-moves",
+      "nf-pj4-local-destination @a2-same-group",
+      "nf-pj4-local-destination @a3-something-missing",
+      "nf-pj4-remote-destination @b1-the-same-decision",
+      "nf-pj4-remote-destination @b2-not-my-group",
+      "nf-pj6-end-to-end @t1-pc-a-hands-it-over",
+      "nf-pj6-end-to-end @t5-pc-c-answers",
+      "nf-pj8-the-stop-and-the-repair @f1-pc-a-decides",
+      "nf-pj8-the-stop-and-the-repair @f2-the-hand-off-that-cannot-happen"
+    ]);
+  });
+
+  it("still asks d7's prediction, and answers none of it in the picture", () => {
+    const parameters = journeyNamed(M2);
+    const d7 = parameters.stages[6];
+
+    // Unchanged, and still the switch's OUTGOING choice.
+    expect(d7?.stageId).toBe("d7-switch-sends-once");
+    expect(d7?.prediction?.prompt).toBe(
+      "Switch-1 now has PC-B recorded on port 2. What will it do with this delivery?"
+    );
+    expect(d7?.prediction?.correctOption).toBe("Send it through port 2 only");
+
+    // The picture the learner answers it against is d6's, and it discloses
+    // neither of the ports the question is about.
+    const { link, device } = pictureAt(M2, 6);
+    expect(link.get("link-pc-b")?.current).toBe(false);
+    expect(link.get("link-printer")?.current).toBe(false);
+    expect(device.get("pc-b")?.state).toBe("idle");
+    expect(device.get("printer")?.state).toBe("idle");
+  });
+
+  it("still delivers over the known port at d8, and only that one", () => {
+    const { link, device } = pictureAt(M2, 8);
+
+    expect(link.get("link-pc-b")?.current).toBe(true);
+    expect(link.get("link-printer")?.current).toBe(false);
+    expect(link.get("link-printer")?.traversed).toBe(false);
+    expect(device.get("pc-b")?.state).toBe("confirmed");
+    expect(device.get("printer")?.state).toBe("idle");
+  });
+
+  it("states the new delivery's location and path without any motion", () => {
+    /*
+      Reduced motion drops the travelling and keeps the arriving. Under
+      `prefers-reduced-motion` the stylesheet parks the marker at 55% along its
+      own `offset-path` and removes the animation, so everything below is what a
+      learner who never sees movement still receives.
+
+      No JavaScript branch reads a motion preference, so the model is identical
+      either way — which is what makes that parity structural rather than a
+      second code path to keep in step.
+    */
+    const { link, device } = pictureAt(M2, 6);
+    const marker = pictureMarkers(M2, 6)[0];
+
+    // The wire the delivery is on is marked as active by the LINK, not by the
+    // marker's movement, so a static picture still says which connection.
+    expect(link.get("link-pc-a")?.current).toBe(true);
+
+    // And the static marker sits on that same wire, because its path is the
+    // link's own `d` string rather than separately computed coordinates.
+    expect(marker?.linkId).toBe("link-pc-a");
+    expect(marker?.path).toBe(link.get("link-pc-a")?.path);
+
+    // Where the delivery started is a word on a card, not a movement.
+    expect(device.get("pc-a")?.stateLabel).toBe("Started here");
+    expect(marker?.stateLabel).toBe("In flight");
+
+    // The layout exposes no motion input, so there is no second rendering to
+    // keep in step with this one.
+    for (const field of ["animated", "animation", "reducedMotion", "duration"]) {
+      expect(Object.keys(marker ?? {})).not.toContain(field);
+    }
+  });
+
+  it("requires BOTH authored conditions, never either alone", () => {
+    const delivery = { label: "a delivery", sourceNodeId: "a", destinationNodeId: "b" };
+    const reply = { label: "a reply", sourceNodeId: "b", destinationNodeId: "a" };
+
+    // Crossed no link, and what is moving changed: a new delivery. (M2 d6.)
+    expect(
+      currentDeliveryStartIndex([{ traffic: reply }, {}])
+    ).toBe(1);
+
+    // Crossed no link, same cargo: a leg turning, not a new delivery. (M6 t5.)
+    expect(
+      currentDeliveryStartIndex([{ traffic: delivery }, { traffic: delivery }])
+    ).toBe(0);
+    expect(currentDeliveryStartIndex([{}, {}, {}])).toBe(0);
+
+    // Cargo changed, but it crossed a link to get here: already under way.
+    // (M2 d4 — PC-B's reply, anchored at Switch-1.)
+    expect(
+      currentDeliveryStartIndex([{}, { viaLinkId: "l1", traffic: reply }])
+    ).toBe(0);
+
+    // Nothing observed yet, and a single stage, both start at the beginning.
+    expect(currentDeliveryStartIndex([])).toBe(0);
+    expect(currentDeliveryStartIndex([{ traffic: reply }])).toBe(0);
   });
 });

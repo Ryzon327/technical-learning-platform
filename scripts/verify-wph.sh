@@ -682,15 +682,48 @@ echo "PASS: 11d. an authored stop halts the reveal until the model says otherwis
 grep -Fq 'prefers-reduced-motion' "$STYLES" \
   || fail "there is no reduced-motion support"
 
-# Parity is structural: no JavaScript branch may depend on motion, so a
-# reduced-motion learner cannot be handed different content or fewer controls.
-for forbidden in prefersReducedMotion matchMedia reducedMotion; do
-  if grep -qF -e "$forbidden" "$FRONTEND_LOGIC"; then
-    fail "a code path branches on motion preference: $forbidden"
-  fi
-done
+# Parity is structural: no reduced-motion learner may be handed different
+# content or fewer controls.
+#
+# This forbade `matchMedia` outright until the Mission 2 repair, on the
+# reasoning that reduced motion should be CSS-only. That was right about the
+# INVARIANT and wrong as a blanket ban, and the Architect ruling that found it
+# says why: `scrollIntoView({ behavior: "smooth" })` is motion CSS cannot
+# reach, so honouring the preference there requires reading it in JavaScript.
+# The learner still receives the same beats, the same text and the same
+# controls — only the scroll animates or does not.
+#
+# So the rule is aimed at what it always protected: a motion branch may decide
+# SCROLL BEHAVIOUR and nothing else.
+if grep -qF 'matchMedia' "$FRONTEND_LOGIC"; then
+  MOTION_LINES="$SCAN_DIR/motion-lines.txt"
+  grep -n 'matchMedia\|prefersReducedMotion\|reducedMotion' "$FRONTEND_LOGIC" > "$MOTION_LINES"
 
-echo "PASS: 12. reduced motion is CSS-only, so information and actions are identical"
+  # It may only ever be asking about motion.
+  grep -Fq 'prefers-reduced-motion' "$MOTION_LINES" \
+    || fail "matchMedia is used for something other than the motion preference"
+
+  # Every line that CONSUMES the answer must be choosing a scroll behaviour.
+  # A motion branch that gated a beat, a control, an announcement or a piece of
+  # content would not match, and would fail here.
+  CONSUMERS="$SCAN_DIR/motion-consumers.txt"
+  grep -n 'prefersReducedMotion()' "$FRONTEND_LOGIC" > "$CONSUMERS" || true
+
+  while IFS= read -r line; do
+    case "$line" in
+      *'function prefersReducedMotion'*) ;;
+      *'behavior'*|*'"auto"'*|*"'auto'"*) ;;
+      *) fail "a motion branch decides something other than scroll behaviour: $line" ;;
+    esac
+  done < "$CONSUMERS"
+
+  # The focus move is unconditional. If it ever moves inside the branch, a
+  # reduced-motion learner stops being taken to the new beat at all.
+  grep -Fq 'heading.focus();' "$FRONTEND_LOGIC" \
+    || fail "the beat focus move is gone or conditional; reduced motion must change how the view scrolls, never whether focus moves"
+fi
+
+echo "PASS: 12. reduced motion changes scrolling only; information and actions are identical"
 
 # ------------------------------------------------------------
 # 13. Failure is closed at every layer
@@ -726,18 +759,23 @@ echo "PASS: 14. the renderer mapping is static and exhaustive"
 # ------------------------------------------------------------
 # The mission_steps payload is already jsonb constrained to an object, so the
 # typed parameters persist with no schema change (Architect decision 1).
-NEW_MIGRATIONS="$(find supabase/migrations -name '2026090[3-9]*' -o -name '20261*' 2>/dev/null | wc -l | tr -d ' ')"
-[ "$NEW_MIGRATIONS" = "0" ] \
-  || fail "WP-H added $NEW_MIGRATIONS migration(s); none is expected"
+# Migration integrity, stated so a later authorized migration cannot break it.
+#
+# This was a CLOSED DATE WINDOW — `find … -name '2026090[3-9]*' -o -name
+# '20261*'` had to be empty — which is the same brittleness as an exact count
+# and expires on a calendar rather than on a fact. It failed the moment
+# `20260907000100_mission_step_near_transfer.sql` landed as an approved
+# forward-only repair, reporting "WP-H added 1 migration(s)" about a package
+# that added none.
+#
+# WP-H also checked no checksum baseline at all, so an EDIT to an applied
+# migration passed here silently. Adopting the shared helper closes that gap as
+# well: this section is strictly stronger than the window it replaces.
+source scripts/lib/migration-floor.sh
+migration_floor_check "WP-H"
 
-for manifest in package.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  if git diff --quiet HEAD -- "$manifest" 2>/dev/null; then
-    :
-  else
-    fail "WP-H changed a dependency manifest: $manifest"
-  fi
-done
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "WP-H"
 
 echo "PASS: 15. no migration and no dependency change"
 

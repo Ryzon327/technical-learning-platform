@@ -12,7 +12,7 @@ import type {
  * ## Why this is a separate, pure module
  *
  * The same reason `packet-journey-presentation.ts` is: this repository has no
- * rendered-DOM test harness — no jsdom, no happy-dom, no testing-library — and
+ * browser test harness — no Playwright, no testing-library — and
  * this slice may not add one, because a dependency change is a Founder gate. So
  * every rule that decides what the drawing contains AND where every part of it
  * sits lives here, as total functions over plain values, and the components are
@@ -472,6 +472,7 @@ export function fitTopologyScale(
 export type TopologyDeviceState =
   | "idle"
   | "visited"
+  | "participating"
   | "origin"
   | "current"
   | "stopped"
@@ -845,6 +846,20 @@ export function describeDeviceState(state: TopologyDeviceState): string {
   if (state === "current") return "Arrived here";
   if (state === "stopped") return "Stopped here";
   if (state === "confirmed") return "Delivered here";
+  /*
+    A device an author named as part of the moment on screen, and which is not
+    where the traffic is anchored.
+
+    Founder UAT ruling. "Passed through" is a claim about transit, and a
+    device that received a simultaneous copy did not necessarily pass anything
+    on — the printer in Mission 2 received one and did nothing with it. This
+    card and the inspector's status line describe the same node at the same
+    moment, so they say the same thing.
+
+    It reverts to "Passed through" once the moment has moved on, because
+    participation is a statement about the step being observed.
+  */
+  if (state === "participating") return "Participating in this step";
   if (state === "visited") return "Passed through";
   /*
     Founder UAT found the previous idle wording ambiguous, and it was: phrased
@@ -1094,6 +1109,99 @@ export function distanceToBox(point: TopologyPoint, box: TopologyBox): number {
  * packet marker before anything has been sent. Pass `null` when it is unknown,
  * and the marker simply is not placed.
  */
+/**
+ * One authored stage, as much of it as the delivery rule reads.
+ *
+ * Structural rather than a named type: the observation model's stage and the
+ * learner's projected stage both satisfy it, and the rule must give both the
+ * same answer or the picture and the inspector would disagree.
+ */
+export interface DeliveryScopedStage {
+  readonly viaLinkId?: string;
+  readonly traffic?: {
+    readonly label: string;
+    readonly sourceNodeId: string;
+    readonly destinationNodeId: string;
+  };
+}
+
+/** What is moving at one stage, as a comparable value. */
+function movingKey(stage: DeliveryScopedStage): string {
+  return stage.traffic === undefined
+    ? "journey"
+    : [
+        stage.traffic.label,
+        stage.traffic.sourceNodeId,
+        stage.traffic.destinationNodeId
+      ].join("|");
+}
+
+/**
+ * Where the delivery currently on screen began, as an index into the revealed
+ * stages. `0` means the journey has sent one thing, which is every authored
+ * journey in the course except Mission 2's.
+ *
+ * Founder UAT, Mission 2 step 6 of 8: PC-A sends a SECOND local delivery, and
+ * the picture showed Switch-1, PC-B and the Printer all captioned "Passed
+ * through" before the new delivery had reached any of them. The Printer never
+ * receives this one at all — that absence is the whole point of the mission —
+ * and it was drawn as though it already had.
+ *
+ * The origin was already leg-aware; the history was not. `legOriginNodeId`
+ * correctly moved to PC-A at d6, so the picture said "Started here" on one card
+ * and described the previous delivery on the other three.
+ *
+ * A delivery begins where BOTH authored conditions hold at once:
+ *
+ *   the traffic crossed no link to arrive   `viaLinkId` is absent
+ *   what is moving is not what was moving   the authored `traffic` differs
+ *                                           from the previous stage's
+ *
+ * Either condition alone is something else, and both alternatives were checked
+ * against every authored journey in the course:
+ *
+ *   link-crossing alone   Mission 6's reply turns at PC-C without anything new
+ *                         being sent — t5 crosses no link, and what it answers
+ *                         with is the same journey traffic that arrived.
+ *                         Resetting there would blank PC-A, Switch-1 and
+ *                         Router-1 for the whole return leg of a mission built
+ *                         on the round trip being ONE story. Mission 4 and
+ *                         Mission 8 likewise open on two or three consecutive
+ *                         reasoning stages at PC-A, none of which crosses a
+ *                         link.
+ *
+ *   cargo change alone    Mission 2's own reply at d4 changes what is moving to
+ *                         "PC-B's reply", but it does so at Switch-1, across a
+ *                         real link — the delivery it belongs to was already
+ *                         under way, and d4/d5 must not move.
+ *
+ * Both together mean something new started somewhere nothing arrived, which is
+ * what a second delivery is. Across the whole authored course this fires on
+ * exactly one stage: Mission 2's `d6-pc-a-sends-again`.
+ *
+ * Every input is an authored field. Nothing walks the topology, nothing infers
+ * a source, and a journey whose stages never change what is moving behaves
+ * exactly as it did before.
+ */
+export function currentDeliveryStartIndex(
+  revealed: readonly DeliveryScopedStage[]
+): number {
+  let start = 0;
+
+  for (let index = 1; index < revealed.length; index += 1) {
+    const stage = revealed[index];
+    const previous = revealed[index - 1];
+    if (stage === undefined || previous === undefined) continue;
+
+    if (stage.viaLinkId !== undefined) continue;
+    if (movingKey(stage) === movingKey(previous)) continue;
+
+    start = index;
+  }
+
+  return start;
+}
+
 export function buildTopologyLayout(
   model: ObservationModel,
   originNodeId: string | null
@@ -1172,7 +1280,45 @@ export function buildTopologyLayout(
       ? undefined
       : model.stages.find((stage) => stage.stageId === model.currentStageId);
 
-  const visitedNodeIds = new Set(revealed.map((stage) => stage.atNodeId));
+  /*
+    Every device the CURRENT DELIVERY named as involved.
+
+    `atNodeId` is where a stage is anchored; `alsoAtNodeIds` is who else the
+    author said was involved at that same moment. Both are authored facts about
+    the stage, and reading only the first was a Founder UAT defect on Mission 2:
+    a device the author had explicitly named as a participant was drawn `idle`
+    and captioned "Not involved so far", because the picture keyed on the anchor
+    alone.
+
+    `alsoOnLinkIds` is deliberately NOT read here. A busy link is not a claim
+    about the device at its far end, and turning one into the other would mean
+    walking the topology to decide who participated — the forwarding inference
+    DEC-058 forbids. Involvement is authored or it is not shown.
+
+    The scope is the current delivery rather than the whole journey, for the
+    reason `currentDeliveryStartIndex` records.
+  */
+  const deliveryStartIndex = currentDeliveryStartIndex(revealed);
+
+  /*
+    The stages belonging to the delivery on screen. Identical to `revealed` for
+    every journey that sends one thing, which is all of them but Mission 2.
+  */
+  const currentDelivery = revealed.slice(deliveryStartIndex);
+
+  const visitedNodeIds = new Set(
+    currentDelivery.flatMap((stage) => [
+      stage.atNodeId,
+      ...(stage.alsoAtNodeIds ?? [])
+    ])
+  );
+
+  // Who the CURRENT stage names, kept apart from the accumulated set above.
+  // Participation is a statement about the moment on screen: three stages
+  // later it would be false, and the card says "Passed through" again.
+  const participatingNodeIds = new Set(
+    revealed[revealed.length - 1]?.alsoAtNodeIds ?? []
+  );
 
   /*
     Where the CURRENT LEG started (Founder video UAT).
@@ -1194,9 +1340,29 @@ export function buildTopologyLayout(
     back at PC-A across a real link — where PC-A is an arrival like any other.
     Nothing here knows that PC-A is a source in any particular course.
   */
-  const legOriginNodeId = [...revealed]
-    .reverse()
-    .find((stage) => stage.viaLinkId === undefined)?.atNodeId;
+  /*
+    An AUTHORED override takes precedence, and only for the stage that
+    authors it.
+
+    Mission 2's reply crosses a real link to reach Switch-1, so the rule below
+    — which reads "a leg begins where the traffic crossed nothing to arrive" —
+    correctly keeps PC-A captioned as the origin while PC-B's answer is what is
+    actually travelling. That is the right answer to the question the rule
+    asks, and the wrong answer to the question the learner is asking.
+
+    So when a stage says what is moving is something else, that authored
+    traffic's own source is this leg's origin. It is read, never inferred: no
+    stage that authors no override changes by one character, which is why
+    Mission 6's round trip still turns at PC-C on the strength of
+    `t5-pc-c-answers` crossing no link, exactly as before.
+  */
+  const authoredLegOrigin =
+    revealed[revealed.length - 1]?.traffic?.sourceNodeId;
+
+  const legOriginNodeId =
+    authoredLegOrigin ??
+    [...revealed].reverse().find((stage) => stage.viaLinkId === undefined)
+      ?.atNodeId;
 
   const knownLinkIds = new Set(model.links.map((link) => link.linkId));
 
@@ -1204,7 +1370,7 @@ export function buildTopologyLayout(
   // which devices happen to be adjacent.
   const traversedLinkIds = new Set<string>();
 
-  for (const stage of revealed) {
+  for (const [index, stage] of revealed.entries()) {
     // `viaLinkId` is the link this arrival came in on; `alsoOnLinkIds` are
     // links the SOURCE said were busy at the same moment. Both are authored
     // ids and both are treated identically here — this loop collects what it
@@ -1216,11 +1382,20 @@ export function buildTopologyLayout(
 
     for (const linkId of named) {
       // Fail loudly rather than highlighting nothing and looking correct.
+      //
+      // EVERY revealed stage is validated, including the ones before the
+      // current delivery. Narrowing this to the delivery would let a bad id
+      // in an earlier stage through, and the drawing would stop refusing
+      // exactly where it stopped looking.
       if (!knownLinkIds.has(linkId)) {
         return { state: "unavailable", reason: describeTopologyUnavailable() };
       }
 
-      traversedLinkIds.add(linkId);
+      // The wires carry the same history the cards do, and are scoped the same
+      // way. At Mission 2's second delivery all three links read as already
+      // crossed, so the picture showed a used network where a new delivery was
+      // just starting.
+      if (index >= deliveryStartIndex) traversedLinkIds.add(linkId);
     }
   }
 
@@ -1246,6 +1421,89 @@ export function buildTopologyLayout(
           ...(currentStage.alsoOnLinkIds ?? [])
         ]
   );
+
+  /*
+    THE WIRE A NEW DELIVERY LEAVES ON.
+
+    Founder rendered retest, Mission 2 step 6 of 8. The previous repair cleared
+    the stale history, and the picture then sat completely still: PC-A marked,
+    nothing moving, all three wires dark, through the step, its "Why" beat and
+    the prediction that follows. The Founder's original report — that traffic is
+    not visibly being passed on this screen — still held.
+
+    The cause is structural. `d6-pc-a-sends-again` authors no `viaLinkId`,
+    because nothing ARRIVES there: the delivery leaves PC-A at d6 and reaches
+    Switch-1 at d7, which is where the crossing is authored. With no link named,
+    the marker falls to the parked branch of `resolvePacket`, which deliberately
+    carries `path: null` — and a marker with no path cannot travel. d6 therefore
+    rendered byte-identically to d1, the state before anything has been sent.
+
+    The Architect has ruled that the incoming leg MAY be shown at this step: it
+    is the delivery arriving at the switch, not the switch's forwarding
+    decision, so it cannot spoil d7's prediction about which port goes out.
+
+    This resolves that wire WITHOUT reading an unrevealed stage. The rule the
+    parked branch protects is exact and stays intact —
+
+        "animating it would show traffic crossing a link the curriculum never
+         said carried any"
+
+    — so the departure link must be one the curriculum HAS said carries this
+    journey's traffic, and must already have been observed:
+
+      begins a new delivery   `deliveryStartIndex` names this stage, which
+                              across the whole authored course is Mission 2's
+                              d6 and nothing else
+      the stage proceeds      nothing departs a stage the author halted
+      it names no link        an authored link always wins; this only fills a
+                              silence
+      exactly one candidate   a link touching this device that an EARLIER
+                              REVEALED stage already named. Two candidates, or
+                              none, and the marker stays parked — the picture
+                              never guesses which wire a delivery took.
+
+    At d6 that resolves to `link-pc-a`, which d2 and d5 have both already shown
+    carrying traffic. `alsoOnLinkIds` is not consulted for the flood's outgoing
+    wires here, and no port choice is disclosed: link-pc-b and link-printer stay
+    dark until d7 and d8 author them.
+  */
+  const departureLinkId = ((): string | null => {
+    if (currentStage === undefined) return null;
+    if (currentStage.outcome === "stops") return null;
+    if (currentLinkIds.size > 0) return null;
+    if (deliveryStartIndex !== revealed.length - 1) return null;
+    if (deliveryStartIndex === 0) return null;
+
+    const alreadyCarried = new Set<string>();
+    for (const stage of revealed.slice(0, revealed.length - 1)) {
+      if (stage.viaLinkId !== undefined) alreadyCarried.add(stage.viaLinkId);
+      for (const linkId of stage.alsoOnLinkIds ?? []) alreadyCarried.add(linkId);
+    }
+
+    const touching = model.links.filter((link) =>
+      link.endpoints.some(
+        (endpoint) => owners.get(endpoint)?.nodeId === currentStage.atNodeId
+      )
+    );
+
+    const candidates = touching.filter((link) =>
+      alreadyCarried.has(link.linkId)
+    );
+
+    return candidates.length === 1 ? (candidates[0]?.linkId ?? null) : null;
+  })();
+
+  /*
+    The wires drawn as carrying traffic at this moment: every link the stage
+    authored, plus at most the one departure resolved above. Identical to
+    `currentLinkIds` everywhere in the course except Mission 2's second
+    delivery, and `currentLinkIds` remains the purely authored set it always
+    was.
+  */
+  const activeLinkIds =
+    departureLinkId === null
+      ? currentLinkIds
+      : new Set<string>([...currentLinkIds, departureLinkId]);
 
   /* --- rows --------------------------------------------------------- */
 
@@ -1724,7 +1982,8 @@ export function buildTopologyLayout(
       currentStage?.outcome === "stops",
       consequence?.state === "confirmed",
       currentStage?.viaLinkId !== undefined,
-      legOriginNodeId
+      legOriginNodeId,
+      participatingNodeIds
     );
 
     return {
@@ -1999,7 +2258,7 @@ export function buildTopologyLayout(
       points,
       path: pointsToPath(points),
       traversed: traversedLinkIds.has(link.linkId),
-      current: currentLinkIds.has(link.linkId)
+      current: activeLinkIds.has(link.linkId)
     };
   });
 
@@ -2070,7 +2329,7 @@ export function buildTopologyLayout(
   */
   const markerNodeId = currentStage?.atNodeId ?? originNodeId;
   const markerLinkIds =
-    currentStage === undefined ? [] : [...currentLinkIds];
+    currentStage === undefined ? [] : [...activeLinkIds];
 
   const waiting = currentStage === undefined;
   const stopped = currentStage?.outcome === "stops";
@@ -2319,7 +2578,9 @@ function resolveDeviceState(
   /** Whether the current stage was reached by crossing an authored link. */
   arrivedByLink: boolean,
   /** Where the current leg started, from the authored stages. */
-  legOriginNodeId: string | undefined
+  legOriginNodeId: string | undefined,
+  /** Who the CURRENT stage names as also part of it, and nobody else. */
+  participatingNodeIds: ReadonlySet<string> = new Set()
 ): TopologyDeviceState {
   if (nodeId === currentNodeId) {
     if (confirmed) return "confirmed";
@@ -2332,6 +2593,11 @@ function resolveDeviceState(
   // left is not a device it passed through, and the picture has to keep saying
   // where the journey began after the traffic has moved on.
   if (nodeId === legOriginNodeId) return "origin";
+
+  // Checked after the anchor and the leg origin, never before: a device that
+  // is where the traffic IS must keep the stronger word, even when an author
+  // also names it among the participants.
+  if (participatingNodeIds.has(nodeId)) return "participating";
 
   return visitedNodeIds.has(nodeId) ? "visited" : "idle";
 }

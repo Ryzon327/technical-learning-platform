@@ -75,6 +75,23 @@ export function NearTransferStep({
     [content.topology]
   );
 
+  /*
+    WHETHER THE DIAGRAM ALREADY SAYS WHAT THE SENTENCE SAYS.
+
+    Read from the LAYOUT, which is presentation state derived from authored
+    data — never from a mission id, and never from a hand-maintained list.
+
+    `portLabels` is non-empty exactly when an author named the ports on this
+    topology's connections, which is the case where the picture visibly carries
+    the mapping and the sentence below it repeats it. Mission 2 names three;
+    Mission 1 names none and reads unchanged.
+
+    Any future activity gets the right answer for free: name your ports and the
+    sentence steps out of the way, name none and it stays where it was.
+  */
+  const diagramNamesItsPorts =
+    layout !== null && layout.state === "available" && layout.portLabels.length > 0;
+
   const phase = activePhase(content, state);
   const progress = describeProgress(content, state);
 
@@ -102,11 +119,31 @@ export function NearTransferStep({
 
           {/*
             The same relationships in words. Authored, required by validation,
-            and visible rather than hidden: what connects to what is
-            information every learner needs, not an assistive-technology
-            fallback.
+            and rendered for a learner who cannot see the drawing.
+
+            VISIBLE BY DEFAULT, and hidden from sight only where the diagram
+            already names its ports.
+
+            The first version of this repair hid it for EVERY near-transfer
+            activity, through the shared class alone. That was a regression the
+            Architect refused: Mission 1 was already Founder-approved with this
+            sentence visible, its diagram names no port, and nothing about
+            Mission 2's redundancy applies to it.
+
+            The condition is a fact about the PICTURE, not about which mission
+            is on screen. `diagramNamesItsPorts` above reads `layout.portLabels`
+            — presentation state derived from authored data — so no mission id
+            appears here and no list has to be maintained.
+
+            The element itself never moves: it stays in the document and in the
+            reading order either way, so nothing is taken from assistive
+            technology in either case, and no branch reads a user preference.
           */}
-          <p className="near-transfer-scenario-text">
+          <p
+            className={`near-transfer-scenario-text${
+              diagramNamesItsPorts ? " is-visually-redundant" : ""
+            }`}
+          >
             {content.topology.textEquivalent}
           </p>
         </div>

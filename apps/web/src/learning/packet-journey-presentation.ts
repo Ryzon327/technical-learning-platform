@@ -5,7 +5,11 @@ import {
   type ObservationModel,
   type PacketJourneyProgress
 } from "@tlp/shared-types";
-import { buildTopologyLayout, type TopologyLayout } from "./topology-layout";
+import {
+  buildTopologyLayout,
+  currentDeliveryStartIndex,
+  type TopologyLayout
+} from "./topology-layout";
 
 /**
  * WP-H — the Packet Journey's behaviour, as total functions over plain values.
@@ -13,7 +17,7 @@ import { buildTopologyLayout, type TopologyLayout } from "./topology-layout";
  * ## Why this module exists
  *
  * The same reason `mission-instruction-presentation.ts` exists: this repository
- * has no rendered-DOM test harness — no jsdom, no happy-dom, no
+ * has one narrow DOM test (the focus handoff) and no browser harness — no
  * testing-library — and WP-H may not add one, because a dependency change is a
  * Founder gate and fails `verify-roas3.sh`.
  *
@@ -134,10 +138,25 @@ export interface PacketJourneyViewState {
   /**
    * Which option the learner chose for each stage's knowledge check.
    *
-   * Separate from `committedPredictions` because the two mean different things
-   * (DEC-063): a prediction is a guess made before the evidence and is never
-   * graded; a knowledge check is an answer given after the teaching and is.
-   * Merging them would make every prediction gradable by accident.
+   * Separate from `committedPredictions` because the two mean different things,
+   * and the difference is WHEN the learner is asked rather than whether an
+   * answer key exists.
+   *
+   * A PREDICTION is committed before the evidence. Where the learner cannot yet
+   * know, it stays exploratory and the observation is the answer — Mission 2's
+   * d2 asks what a switch does with a destination it has no record of, before
+   * they have ever been shown one, and carries no key. Where the course has
+   * already taught enough for the answer to be objectively determinable, the
+   * author MAY supply `correctOption` and `explanation`, and d7 does exactly
+   * that three stages later. DEC-063 originally said a prediction is never
+   * graded; the Founder ruling at DEC-067 §8 supersedes that.
+   *
+   * A KNOWLEDGE CHECK is asked after the teaching, so it always can.
+   *
+   * Either way the commitment happens BEFORE correctness is revealed, and
+   * either way nothing is scored, no attempt is recorded, and no evidence or
+   * competency state is produced. Keeping the two records apart is about
+   * preserving that ordering, not about which one may carry a key.
    *
    * Recorded once, like a commitment — the point is to find out what the
    * learner actually believed, not to let them reach the right option by
@@ -175,13 +194,6 @@ export function startJourney(
   return { ...state, started: true };
 }
 
-/**
- * Commit a prediction for one stage.
- *
- * Idempotent per stage: a learner cannot revise a commitment once made, which
- * is what makes "predict, then observe" mean anything. Committing is the only
- * thing that unlocks the next reveal when a stage asks for a prediction.
- */
 /**
  * Record the learner's answer to a stage's knowledge check.
  *
@@ -626,13 +638,26 @@ export function isNotStarted(kind: PacketJourneyTaskKind): boolean {
 /**
  * The orientation shown when the learner arrives at the interaction.
  *
- * Three questions, answered before any scrolling: what am I looking at, what am
- * I supposed to do, and where do I do it. The third is answered by structure —
- * the task sits inside the same workspace as the picture — so this object
- * carries only the first two, in two short lines.
+ * Two short lines saying what the learner is looking at and what is happening
+ * in it. What they are supposed to DO is `currentTask`'s and `startAction`'s
+ * job, not this one — an earlier version of this block claimed orientation
+ * answered that too, and the summary has not been phrased as an instruction
+ * since Founder UAT rejected "X starts at Y" as awkward.
  *
- * `summary` is built from the AUTHORED start label, which is the course's own
- * words for the action this interaction is about.
+ * ## What both lines are built from
+ *
+ * The EFFECTIVE TRAFFIC — the stage's own authored `traffic` override when it
+ * carries one, and the journey's traffic block otherwise. `title` takes its
+ * label; `summary` takes its label and the label of its source device.
+ *
+ * This block previously said `summary` was built from the authored START
+ * LABEL. That was true once and is not now: Mission 2's reply travels from
+ * PC-B, and orientation that stayed on the journey's opening words would go on
+ * announcing that PC-A is sending while the learner watches the answer come
+ * back. The start label is still authored and still used — by
+ * `describeStartInstruction` and `startLabel`, which describe the control that
+ * BEGINS the journey and correctly stay on the journey's own block, because a
+ * stage override carries no `startActionLabel`.
  *
  * ## What it deliberately does not say
  *
@@ -729,7 +754,7 @@ export interface PacketJourneyLinkView {
 export interface PacketJourneyView {
   /** Says what the learner is looking at. DEC-058 requires this on screen. */
   readonly sourceNotice: string;
-  /** Two short lines answering "what is this" and "what do I do". */
+  /** Two short lines saying what this is and what is happening in it. */
   readonly orientation: PacketJourneyOrientationView;
   /** What the learner should do RIGHT NOW, named rather than implied. */
   readonly currentTask: PacketJourneyTaskView;
@@ -807,10 +832,17 @@ export interface PacketJourneyView {
    * the comparison existed, but only inside the history disclosure the Founder
    * had already reported not noticing. This carries it to the live pane.
    *
-   * It is deliberately NOT graded. `PacketJourneyPrediction` carries no correct
-   * option and CURR-011 forbids adding one, because an answer key in
-   * curriculum content is an assessment answer. The learner compares what they
-   * expected against what happened; nothing declares them right or wrong.
+   * Whether it is GRADED is the author's decision, per stage.
+   *
+   * `PacketJourneyPrediction.correctOption` is optional. Where an author left
+   * it out — because the learner cannot yet know — this compares what they
+   * expected against what happened and declares nobody right or wrong, which
+   * is most of the course. Where an author supplied it, because the course has
+   * already taught enough to work the answer out, the pane says so plainly.
+   *
+   * Either way nothing is scored, nothing is recorded, and no evidence or
+   * competency is produced. See `correct` below, which is `null` in the
+   * ungraded case rather than `false`.
    */
   readonly resolvedPrediction: {
     readonly option: string;
@@ -933,6 +965,26 @@ export function buildPacketJourneyView(
     (stage) => stage.availability === "available"
   );
 
+  /*
+    WHAT IS MOVING AT THE MOMENT THE LEARNER IS LOOKING AT.
+
+    Resolved once, here, and handed to every surface that describes this
+    moment. Before this existed each of those surfaces reached into
+    `parameters.traffic` on its own, so Mission 2's reply travelled from PC-B
+    while the quick reference, the orientation line, the announcement and the
+    inspector all went on naming the outbound delivery from PC-A.
+
+    Read from the LAST REVEALED stage, which is where the traffic is. The
+    surfaces that describe the control that STARTS the journey deliberately do
+    not use this — see `startLabel` and `describeStartInstruction` below, which
+    stay on the journey's own block because a stage override carries no
+    `startActionLabel` and could not answer them.
+  */
+  const effectiveTraffic = resolveEffectiveTraffic(
+    parameters.traffic,
+    revealed[revealed.length - 1]
+  );
+
   const stages: PacketJourneyStageView[] = revealed.map((stage) => ({
     stageId: stage.stageId,
     nodeId: stage.atNodeId,
@@ -961,11 +1013,43 @@ export function buildPacketJourneyView(
   const stopped = consequence?.state === "stopped";
   const confirmed = consequence?.state === "confirmed";
 
+  /*
+    THE DELIVERY ON SCREEN, NOT THE WHOLE JOURNEY.
+
+    The card and the inspector describe the same device at the same moment and
+    must say the same thing — that is a standing Founder ruling, and it is why
+    `describeDeviceState` and `resolveNodeJourneyStatus` were brought into
+    agreement over "Participating in this step".
+
+    They each accumulate their own history, so scoping only the drawing would
+    have re-opened exactly that disagreement in a new place: at Mission 2's
+    second delivery PC-B's card would read "Not involved so far" while its
+    status line still read "Passed through here."
+
+    One rule, imported rather than restated. `currentDeliveryStartIndex` owns
+    it, and its own comment records why both authored conditions are required.
+  */
+  const currentDelivery = revealed.slice(currentDeliveryStartIndex(revealed));
+
   // Only the stages the learner has actually observed. `model.stages` also
   // carries the unrevealed ones, each with its `atNodeId` — reading those
   // here would let device inspection answer a question the walkthrough has
   // not reached, including one the learner is about to be asked to predict.
-  const revealedNodeIds = revealed.map((stage) => stage.atNodeId);
+  const revealedNodeIds = currentDelivery.map((stage) => stage.atNodeId);
+
+  // The devices an author named as involved at a moment anchored elsewhere.
+  // Read from the SAME stages, and kept apart from the anchors above for the
+  // reason `resolveNodeJourneyStatus` records: the anchor list is ordered and
+  // its last element is where the traffic is.
+  const alsoInvolvedNodeIds = currentDelivery.flatMap(
+    (stage) => stage.alsoAtNodeIds ?? []
+  );
+
+  // Who the CURRENT stage names, kept apart from the accumulated set above.
+  // Participation is a statement about the moment on screen: three stages
+  // later it would be false, and the status says "Passed through here." again.
+  const alsoParticipatingNodeIds =
+    revealed[revealed.length - 1]?.alsoAtNodeIds ?? [];
 
   /*
     What devices are showing at the moment the learner is looking at.
@@ -1012,9 +1096,11 @@ export function buildPacketJourneyView(
     journeyStatus: resolveNodeJourneyStatus({
       nodeId: node.nodeId,
       revealedNodeIds,
+      alsoInvolvedNodeIds,
+      alsoParticipatingNodeIds,
       confirmed,
       stopped,
-      trafficLabel: parameters.traffic.label
+      trafficLabel: effectiveTraffic.label
     }),
     interfaces: node.interfaces.map((iface) => ({
       interfaceId: iface.interfaceId,
@@ -1192,20 +1278,37 @@ export function buildPacketJourneyView(
       atRemediatedStage,
       latestStage?.nodeLabel,
       pendingCommitment !== null,
-      parameters.traffic.label,
+      effectiveTraffic.label,
       via !== null,
-      nodeLabels.get(parameters.traffic.sourceNodeId),
-      nodeLabels.get(parameters.traffic.destinationNodeId)
+      nodeLabels.get(effectiveTraffic.sourceNodeId),
+      nodeLabels.get(effectiveTraffic.destinationNodeId)
     ),
     via,
-    // Every observable change moves this on: a reveal, a commitment, a
-    // remediation. Nothing branches on it; it exists so a presentation can
-    // replay a transient emphasis when the picture changes.
+    /*
+      Every observable change moves this on: a reveal, a commitment, an
+      ANSWER, a remediation. Nothing branches on it; it exists so a
+      presentation can replay a transient emphasis when the picture changes —
+      and so `PacketJourney` knows to put the learner back on the first beat
+      of the new state.
+
+      Answered checks were missing, and that was a rendered defect rather than
+      a cosmetic one. Founder UAT answered Mission 2's source-learning check
+      correctly and was shown the FLOODING explanation: answering splices a
+      feedback beat in at the front of the beat list, every later beat shifts
+      one place, and the pane's cursor only resets when this token moves. It
+      did not, so the cursor stayed put and rendered whatever had shifted into
+      the position the learner was already on — the "Why" beat carrying the
+      stage's decision, which answers a different question entirely.
+
+      A commitment was already counted here. An answer is the same kind of
+      event and is counted the same way.
+    */
     token: [
       state.progress.revealedStageCount,
       model.currentStageId ?? "none",
       state.progress.appliedActionId ?? "none",
-      Object.keys(state.committedPredictions).length
+      Object.keys(state.committedPredictions).length,
+      Object.keys(state.answeredChecks).length
     ].join(":")
   };
 
@@ -1228,11 +1331,11 @@ export function buildPacketJourneyView(
   return {
     sourceNotice: describeSourceNotice(model.sourceKind),
     orientation: {
-      title: describeOrientationTitle(parameters.traffic.label),
+      title: describeOrientationTitle(effectiveTraffic.label),
       summary: describeOrientationSummary(
-        parameters.traffic.label,
-        nodeLabels.get(parameters.traffic.sourceNodeId) ??
-          parameters.traffic.sourceNodeId
+        effectiveTraffic.label,
+        nodeLabels.get(effectiveTraffic.sourceNodeId) ??
+          effectiveTraffic.sourceNodeId
       )
     },
     currentTask: {
@@ -1246,7 +1349,7 @@ export function buildPacketJourneyView(
           label: describeStartLabel(),
           instruction: describeStartInstruction(parameters.traffic.label)
         },
-    trafficSummary: describeTrafficSummary(parameters, nodeLabels),
+    trafficSummary: describeTrafficSummary(effectiveTraffic, nodeLabels),
     startLabel: parameters.traffic.startActionLabel,
     nodes,
     links,
@@ -1333,8 +1436,12 @@ export function buildPacketJourneyView(
         return address === null ? named(nodeId) : `${named(nodeId)} — ${address}`;
       };
 
-      rows.push({ label: "From", value: withAddress(parameters.traffic.sourceNodeId) });
-      rows.push({ label: "To", value: withAddress(parameters.traffic.destinationNodeId) });
+      // The two ends of what is moving RIGHT NOW. Founder UAT round 2 read
+      // From PC-A / To PC-B while PC-B's reply was on the wire; these rows
+      // sit directly above "Now at", which was already per-stage, so the
+      // panel disagreed with itself.
+      rows.push({ label: "From", value: withAddress(effectiveTraffic.sourceNodeId) });
+      rows.push({ label: "To", value: withAddress(effectiveTraffic.destinationNodeId) });
 
       /*
         "Carrying", not "Sending", and the noun is the mission's own.
@@ -1346,7 +1453,7 @@ export function buildPacketJourneyView(
         stops describing the journey as an act in progress when what the
         learner wants to know is what is being carried.
       */
-      rows.push({ label: "Carrying", value: parameters.traffic.label });
+      rows.push({ label: "Carrying", value: effectiveTraffic.label });
 
       const at = stages[stages.length - 1];
       if (at !== undefined) {
@@ -1517,7 +1624,7 @@ export function buildPacketJourneyView(
       parameters.traffic.startActionLabel,
       atRemediatedStage,
       via,
-      parameters.traffic.label,
+      effectiveTraffic.label,
       arrival,
       nextStageAsks
     ),
@@ -1756,6 +1863,7 @@ export type JourneyStatusKind =
   | "not-started"
   | "here-now"
   | "passed-through"
+  | "participating"
   | "delivered"
   | "stopped"
   | "not-yet"
@@ -1769,6 +1877,8 @@ export interface JourneyStatusView {
 export function resolveNodeJourneyStatus({
   nodeId,
   revealedNodeIds,
+  alsoInvolvedNodeIds = [],
+  alsoParticipatingNodeIds = [],
   confirmed,
   stopped,
   trafficLabel
@@ -1776,6 +1886,18 @@ export function resolveNodeJourneyStatus({
   nodeId: string;
   /** `atNodeId` of every REVEALED stage, in order. Never the unrevealed ones. */
   readonly revealedNodeIds: readonly string[];
+  /**
+   * Devices a revealed stage named in `alsoAtNodeIds` — authored participants
+   * at a moment anchored somewhere else.
+   *
+   * Deliberately a SECOND list rather than more entries in the first. The
+   * anchor list is ordered and its last element decides delivered, stopped and
+   * here-now; a participant is not where the traffic is, and merging the two
+   * would let a device the author merely named be described as holding it.
+   */
+  readonly alsoInvolvedNodeIds?: readonly string[];
+  /** Those participating in the CURRENT stage, from its `alsoAtNodeIds`. */
+  readonly alsoParticipatingNodeIds?: readonly string[];
   /** The authored journey ran to its authored end. */
   confirmed: boolean;
   /** The authored journey halted at an authored fault. */
@@ -1789,7 +1911,8 @@ export function resolveNodeJourneyStatus({
     };
   }
 
-  const observed = revealedNodeIds.includes(nodeId);
+  const observed =
+    revealedNodeIds.includes(nodeId) || alsoInvolvedNodeIds.includes(nodeId);
   const atLast = revealedNodeIds[revealedNodeIds.length - 1] === nodeId;
 
   if (observed && atLast && confirmed) {
@@ -1801,6 +1924,24 @@ export function resolveNodeJourneyStatus({
   if (observed && atLast) {
     return { kind: "here-now", label: `${capitaliseFirst(trafficLabel)} is here now.` };
   }
+  /*
+    A device the author named as participating in THIS observed moment, and
+    which is not where the traffic is anchored.
+
+    It gets its own word. It cannot be "delivered", "stopped" or "here now" —
+    those belong to `atNodeId`, and the branches above key on `atLast`, which
+    reads the anchor list only. It must not be "passed through" either: that
+    is a claim about transit, and while the moment is still on screen the
+    honest statement is simply that this device is part of it.
+
+    "Reached here" was the first wording and the Founder rejected it, because
+    reached reads as arrival at a destination — which is the one thing a
+    simultaneous participant is not.
+  */
+  if (alsoParticipatingNodeIds.includes(nodeId)) {
+    return { kind: "participating", label: "Participating in this step." };
+  }
+
   if (observed) {
     return { kind: "passed-through", label: "Passed through here." };
   }
@@ -1823,18 +1964,69 @@ export function describeStageOutcome(outcome: string): string {
   return outcome === "stops" ? "Stopped here" : "Continued";
 }
 
+/**
+ * What is moving RIGHT NOW, and between which two devices.
+ *
+ * ## Why a journey-wide answer was not enough
+ *
+ * Founder UAT round 2 watched Mission 2's reply travel from PC-B back to PC-A
+ * while every sentence around it went on naming the outbound delivery: the
+ * quick reference still read From PC-A / To PC-B / Carrying one local-network
+ * delivery, and the live region announced that the delivery had arrived. The
+ * marker moved one way and the words described the other.
+ *
+ * A journey has ONE opening traffic block, and that is correct — it is what
+ * the whole activity is for. But a stage may say that what is on the wire at
+ * this moment is something else, and when an author says so, the surfaces that
+ * describe THIS MOMENT have to say it too.
+ *
+ * ## What this refuses to do
+ *
+ * It reads two things: the stage's authored `traffic`, and the journey's own.
+ * It does not infer direction from which way the marker points, does not parse
+ * narration, and does not consult links, roles, device facts, topology or any
+ * earlier stage. If an author did not say the traffic changed, it did not
+ * change — which is why seven of the course's eight journeys get a value
+ * byte-identical to the one they got before this existed.
+ *
+ * `startActionLabel` is deliberately absent from the result. It belongs to the
+ * control that BEGINS the journey and would be meaningless part-way through
+ * one, which is why `STAGE_TRAFFIC_KEYS` omits it from the authored shape too.
+ */
+export interface EffectiveTraffic {
+  readonly label: string;
+  readonly sourceNodeId: string;
+  readonly destinationNodeId: string;
+}
+
+export function resolveEffectiveTraffic(
+  journeyTraffic: {
+    readonly label: string;
+    readonly sourceNodeId: string;
+    readonly destinationNodeId: string;
+  },
+  stage: { readonly traffic?: EffectiveTraffic } | undefined
+): EffectiveTraffic {
+  const override = stage?.traffic;
+
+  if (override !== undefined) return override;
+
+  return {
+    label: journeyTraffic.label,
+    sourceNodeId: journeyTraffic.sourceNodeId,
+    destinationNodeId: journeyTraffic.destinationNodeId
+  };
+}
+
 export function describeTrafficSummary(
-  parameters: LearnerPacketJourneyParameters,
+  traffic: EffectiveTraffic,
   nodeLabels: ReadonlyMap<string, string>
 ): string {
-  const from =
-    nodeLabels.get(parameters.traffic.sourceNodeId) ??
-    parameters.traffic.sourceNodeId;
+  const from = nodeLabels.get(traffic.sourceNodeId) ?? traffic.sourceNodeId;
   const to =
-    nodeLabels.get(parameters.traffic.destinationNodeId) ??
-    parameters.traffic.destinationNodeId;
+    nodeLabels.get(traffic.destinationNodeId) ?? traffic.destinationNodeId;
 
-  return `Following ${parameters.traffic.label} from ${from} to ${to}.`;
+  return `Following ${traffic.label} from ${from} to ${to}.`;
 }
 
 /**
@@ -1958,6 +2150,27 @@ export function describeWorkspaceExpandLabel(): string {
 
 export function describeWorkspaceCollapseLabel(): string {
   return "Collapse network workspace";
+}
+
+/**
+ * Names the control that says the learner has finished a required activity.
+ *
+ * ## Why this is not the journey's own end
+ *
+ * The journey reaching its authored end is the interaction's state. Whether
+ * the learner has READ that end is a different fact, and it is the one the
+ * steps after a required activity wait on.
+ *
+ * Founder video UAT recorded exactly that difference next door, on the
+ * near-transfer check: releasing the next step on the last commit put new
+ * instruction underneath feedback nobody had read yet. The same gap exists
+ * here, so the same explicit act closes it.
+ *
+ * "Activity" and not "journey", because what is being finished is the piece of
+ * instruction, not the traffic's trip.
+ */
+export function describeFinishActivityLabel(): string {
+  return "Finish activity";
 }
 
 /**
@@ -2142,6 +2355,49 @@ export function describeAnnouncement(
 
   const consequence = model.consequence;
 
+  /*
+    THE OTHER CONNECTIONS THAT WERE BUSY AT THIS MOMENT.
+
+    Mission 2's switch sends a copy out of every other connection at once. The
+    drawn wires show that, and the drawn wires are aria-hidden — so without
+    this clause a screen-reader learner is told about one connection while the
+    picture shows three, which is the whole of what that stage teaches.
+
+    Read from the stage's authored `alsoOnLinkIds` and from nothing else. The
+    engine never works out which connections a switch would use: that is the
+    forwarding calculation DEC-058 keeps out of the renderer.
+
+    The links are named by their OWN AUTHORED LABELS, in authored order.
+    Composing a far end from `nodeLabel` + `interfaceLabel` was the first
+    attempt and the Founder ruled it out: it reads as a list of destinations,
+    and it is a description this module assembled rather than one an author
+    wrote. Naming the connection says which wires were busy and nothing else —
+    never why, which is the stage's `decision` and is withheld at protected
+    support levels.
+  */
+  const announcedStage =
+    model.currentStageId === null
+      ? undefined
+      : model.stages.find((stage) => stage.stageId === model.currentStageId);
+
+  const departures = (announcedStage?.alsoOnLinkIds ?? []).flatMap((linkId) => {
+    const link = model.links.find((candidate) => candidate.linkId === linkId);
+    return link === undefined ? [] : [link.label];
+  });
+
+  /*
+    APPENDED, never woven in.
+
+    Seven missions author no simultaneous links, and none of them may have its
+    live region reworded by a repair it did not ask for. An empty list returns
+    the sentence untouched, so nothing that authors none changes by one
+    character.
+  */
+  const withDepartures = (sentence: string): string =>
+    departures.length === 0
+      ? sentence
+      : `${sentence} At the same time: ${departures.join("; ")}.`;
+
   if (consequence?.state === "confirmed") {
     /*
       DELIVERY, in the live region's own register.
@@ -2156,9 +2412,11 @@ export function describeAnnouncement(
     */
     const delivered = stages[stages.length - 1];
 
-    return delivered === undefined
-      ? consequence.narration
-      : `At ${delivered.nodeLabel}. ${capitaliseFirst(trafficLabel)} was delivered.`;
+    return withDepartures(
+      delivered === undefined
+        ? consequence.narration
+        : `At ${delivered.nodeLabel}. ${capitaliseFirst(trafficLabel)} was delivered.`
+    );
   }
 
   if (consequence?.state === "stopped") {
@@ -2167,14 +2425,16 @@ export function describeAnnouncement(
     const across = via === null ? "" : `, across ${via}`;
     const stage = stages[stages.length - 1];
 
-    return `Stopped at ${stage?.nodeLabel}${across}. ${describeChange(stage)}`.trim();
+    return withDepartures(
+      `Stopped at ${stage?.nodeLabel}${across}. ${describeChange(stage)}`.trim()
+    );
   }
 
   // The repair's own observation belongs to the moment it was applied. Once the
   // learner moves on, announcing it again would report the fix as though it had
   // just happened while the traffic was somewhere else entirely.
   if (appliedAction !== undefined && atRemediatedStage) {
-    return appliedAction.observation;
+    return withDepartures(appliedAction.observation);
   }
 
   const latest = stages[stages.length - 1];
@@ -2206,13 +2466,15 @@ export function describeAnnouncement(
     from, and the port it came in on.
   */
   if (arrival !== null) {
-    return `${location} ${capitaliseFirst(trafficLabel)} arrived from ${arrival.fromNodeLabel} on ${lowercaseFirst(arrival.atInterfaceLabel)}.`;
+    return withDepartures(
+      `${location} ${capitaliseFirst(trafficLabel)} arrived from ${arrival.fromNodeLabel} on ${lowercaseFirst(arrival.atInterfaceLabel)}.`
+    );
   }
 
   const action = describeChange(latest);
   const crossing = via === null ? "" : ` Arrived across ${via}.`;
 
-  return `${location} ${action}${crossing}`.trim();
+  return withDepartures(`${location} ${action}${crossing}`.trim());
 }
 
 /**

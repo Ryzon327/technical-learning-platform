@@ -6,10 +6,15 @@ import {
   projectMissionStepContent,
   type LearnerMissionInstruction
 } from "./mission-instruction";
-import { MISSION_STEP_TYPES, type MissionStep } from "./mission-steps";
+import {
+  MISSION_STEP_TYPES,
+  validateMissionStepContent,
+  type MissionStep
+} from "./mission-steps";
 import type { CurriculumAssetReference } from "./curriculum-assets";
 import {
   INTERACTION_SUPPORT_LEVELS,
+  withholdsEntireInteraction,
   type InteractionParameters,
   type InteractionSupportLevel
 } from "./instruction-interaction";
@@ -313,6 +318,135 @@ describe("interaction support levels are enforced in the projection", () => {
     // action or narration can be read out of the response.
     expect(JSON.stringify(content)).not.toContain("subinterface");
     expect(JSON.stringify(content)).not.toContain("packet loss");
+  });
+
+  /*
+    The four levels at which an author may require an interaction.
+
+    `withholdsEntireInteraction` is true for PROVE IT on teaching-mode content,
+    and `validateMissionStepContent` refuses `requiredForProgression: true`
+    there: the learner would never be shown the activity, so they could never
+    reach its end, and the mission would be uncompletable by anyone.
+
+    That rejection is proved where it lives, in `mission-steps.test.ts` —
+    "refuses a progression gate on an activity the learner would never see",
+    and its companion which walks these same four levels and expects no errors.
+    It is deliberately NOT restated here: this file projects content that is
+    already valid, and a second definition of validity is the drift the
+    projection's own docstring refuses.
+  */
+  const REQUIRABLE_SUPPORT_LEVELS = [
+    "show_me",
+    "help_me",
+    "ask_me",
+    "challenge_me"
+  ] as const satisfies readonly InteractionSupportLevel[];
+
+  it("requires the gate only where publication would accept it", () => {
+    /*
+      The guard that keeps the list above honest.
+
+      `REQUIRABLE_SUPPORT_LEVELS` is written out by hand so the loop reads
+      plainly, and a hand-written list is exactly the thing that drifts. This
+      derives the same set from the RULE — the levels at which the interaction
+      is not withheld entirely — and fails if the two ever disagree.
+
+      It is not a second definition of validity: it asserts that this file's
+      fixtures sit inside the one definition that already exists, which is the
+      precondition `projectMissionStepContent` documents and does not check.
+    */
+    const publishable = INTERACTION_SUPPORT_LEVELS.filter(
+      (level) => !withholdsEntireInteraction(level, "authored_teaching")
+    );
+
+    expect([...REQUIRABLE_SUPPORT_LEVELS]).toEqual([...publishable]);
+
+    // And each of them really does publish, gate and all.
+    for (const supportLevel of REQUIRABLE_SUPPORT_LEVELS) {
+      expect(
+        validateMissionStepContent(
+          {
+            type: "interaction",
+            interactionStableId: "packet-journey",
+            interactionType: "packet_journey",
+            sourceKind: "authored_teaching",
+            supportLevel,
+            parameters: packetJourneyFixture,
+            textEquivalent:
+              "Follow the request hop by hop and see where it stops.",
+            requiredForProgression: true
+          },
+          `fixture at ${supportLevel}`
+        )
+      ).toEqual([]);
+    }
+  });
+
+  it("carries the progression gate at every level that can require one", () => {
+    /*
+      Mission 2 Founder UAT. `requiredForProgression` is a SEQUENCING fact
+      about the lesson — the steps after this activity wait for it — and it is
+      not instructional content: it reveals no narration, no decision, no
+      fault and no answer. So a protected level must not strip it: at CHALLENGE
+      ME the answer-bearing halves are gone and the activity still renders, and
+      a client that never learned the lesson waits here would show the closing
+      steps to exactly the learner who was given the least help.
+
+      ## Why this loop is not INTERACTION_SUPPORT_LEVELS
+
+      It was, and that was wrong. The fifth level is PROVE IT, and
+      `requiredForProgression: true` there is content publication REFUSES —
+      so the loop was pinning the projection's behaviour on a step that can
+      never exist, in a file whose contract is that its input is already valid.
+      A fixture that could not be published proves nothing about what a learner
+      receives, and it quietly made the rejection look optional.
+    */
+    const requiredAt = (supportLevel: InteractionSupportLevel): MissionStep =>
+      step({
+        type: "interaction",
+        interactionStableId: "packet-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel,
+        parameters: packetJourneyFixture,
+        textEquivalent: "Follow the request hop by hop and see where it stops.",
+        requiredForProgression: true
+      });
+
+    for (const level of REQUIRABLE_SUPPORT_LEVELS) {
+      const required = projectMissionStep(requiredAt(level));
+
+      const content = required.content as Extract<
+        typeof required.content,
+        { type: "interaction" }
+      >;
+
+      expect(`${level}: ${content.requiredForProgression}`).toBe(
+        `${level}: true`
+      );
+    }
+  });
+
+  it("gives a step that authored no gate none, at every level", () => {
+    /*
+      The additive half, and it keeps the FULL five-level loop — including
+      PROVE IT — because an interaction that authors no gate is valid
+      everywhere. This is the half that protects every mission written before
+      the field existed.
+
+      ABSENT, not `undefined`: a property carrying `undefined` still appears in
+      some serialisations and would satisfy a naive assertion.
+    */
+    for (const level of INTERACTION_SUPPORT_LEVELS) {
+      const plain = projectMissionStep(interactionAt(level)).content as Extract<
+        ReturnType<typeof projectMissionStep>["content"],
+        { type: "interaction" }
+      >;
+
+      expect(`${level}: ${"requiredForProgression" in plain}`).toBe(
+        `${level}: false`
+      );
+    }
   });
 
   it("keeps the accessible text equivalent at PROVE IT", () => {
@@ -895,6 +1029,12 @@ describe("observations survive withholding; only the reason is dropped", () => {
           ? {
               ...stage,
               alsoOnLinkIds: [],
+              // A REAL second participant, never a repeat of `atNodeId`.
+              // Authoring `[stage.atNodeId]` is rejected by
+              // `validateInteractionContent` — a stage names the device it is
+              // at once — so a fixture written that way would be pinning the
+              // projection's behaviour on content that can never be published.
+              alsoAtNodeIds: ["pc-a"],
               deviceFacts: [
                 {
                   nodeId: stage.atNodeId,
@@ -936,7 +1076,126 @@ describe("observations survive withholding; only the reason is dropped", () => {
     ]);
     expect(stage?.alsoOnLinkIds).toEqual([]);
 
+    /*
+      `alsoAtNodeIds` is the same kind of fact as `alsoOnLinkIds` and travels
+      the same way. It names devices an author said were part of this moment —
+      WHO, never why. Dropping it at a protected level would remove something
+      the learner can see on the topology while leaving the topology itself,
+      which would make the picture and the model disagree.
+    */
+    expect(stage?.alsoAtNodeIds).toEqual(["pc-a"]);
+
     // The reason does not. ABSENT, not undefined.
     expect("decision" in (stage ?? {})).toBe(false);
+  });
+
+  it("carries a stage's traffic override to a protected level, unchanged", () => {
+    /*
+      WHAT IS MOVING is an authored observation, exactly like `alsoOnLinkIds`
+      and `alsoAtNodeIds`. Mission 2's reply stages say the thing travelling is
+      PC-B's answer rather than the original delivery — a learner can see that
+      on screen, and it carries no correctness and no reason.
+
+      Withholding it at a protected level would leave the marker in motion
+      while every sentence around it named the wrong traffic, which is the
+      Founder-UAT defect the field was added to fix. So it survives at every
+      level, and it survives BYTE-FOR-BYTE: the projection may not normalise,
+      reorder or reword what an author wrote.
+    */
+    const replying: MissionStep = step({
+      type: "interaction",
+      interactionStableId: "packet-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "challenge_me",
+      textEquivalent: "Follow the delivery.",
+      parameters: {
+        ...packetJourneyFixture,
+        stages: packetJourneyFixture.stages.map((stage, index) =>
+          index === 1
+            ? {
+                ...stage,
+                traffic: {
+                  label: "Router-1's reply",
+                  sourceNodeId: "r-1",
+                  destinationNodeId: "pc-a"
+                }
+              }
+            : stage
+        )
+      }
+    });
+
+    const projected = projectMissionStep(replying);
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+    if (parameters.interactionType !== "packet_journey") {
+      throw new Error("expected a packet journey");
+    }
+
+    expect(parameters.stages[1]?.traffic).toEqual({
+      label: "Router-1's reply",
+      sourceNodeId: "r-1",
+      destinationNodeId: "pc-a"
+    });
+
+    // The journey's own traffic is untouched by a stage saying something else
+    // is moving right now. Both facts are needed: one is what the journey is
+    // for, the other is what is on the wire at this moment.
+    expect(parameters.traffic.label).toBe("an ICMP echo request");
+    expect(parameters.traffic.sourceNodeId).toBe("pc-a");
+  });
+
+  it("leaves a stage that authors none of this with none of it", () => {
+    /*
+      The additive guarantee, asserted as ABSENCE rather than as `undefined`.
+
+      Seven missions author no stage traffic, no simultaneous links and no
+      simultaneous participants. A projection that emitted these keys with
+      empty or null values would change what every one of those missions sends
+      to the browser, and a renderer written against "the key is there" would
+      then read a fabricated fact.
+    */
+    const projected = projectMissionStep(
+      step({
+        type: "interaction",
+        interactionStableId: "packet-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel: "show_me",
+        textEquivalent: "Follow the delivery.",
+        parameters: packetJourneyFixture
+      })
+    );
+
+    const content = projected.content as Extract<
+      typeof projected.content,
+      { type: "interaction" }
+    >;
+
+    if (content.presentation.state !== "available") {
+      throw new Error("expected an available interaction");
+    }
+
+    const parameters = content.presentation.parameters;
+    if (parameters.interactionType !== "packet_journey") {
+      throw new Error("expected a packet journey");
+    }
+
+    for (const stage of parameters.stages) {
+      for (const optional of ["traffic", "alsoAtNodeIds", "alsoOnLinkIds"]) {
+        expect(`${stage.stageId}.${optional} present: ${optional in stage}`).toBe(
+          `${stage.stageId}.${optional} present: false`
+        );
+      }
+    }
   });
 });

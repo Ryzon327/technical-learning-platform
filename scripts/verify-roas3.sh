@@ -427,7 +427,18 @@ index = view.find("<MissionDetail")
 if index < 0:
     problems.append("the mission detail panel is gone")
 else:
-    element = view[index:index + 1200]
+    # The WHOLE element, not a fixed byte window.
+    #
+    # This read `view[index:index + 1200]`, which silently depended on how many
+    # characters the props above `feedback` happened to occupy. Adding one prop
+    # — or one comment inside an existing prop's expression — pushed `feedback`
+    # past the cut-off and the gate reported it missing while it was there.
+    #
+    # A guard that fails on the SIZE of an element rather than on its content
+    # is a guard that will eventually be silenced by whoever hits it, so it
+    # reads to the element's own closing `/>` instead.
+    close = view.find("/>", index)
+    element = view[index:] if close < 0 else view[index:close]
     match = re.search(r"feedback=\{(.*?)\}\s*\n", element, re.S)
     if not match:
         problems.append("the mission detail panel receives no feedback prop")
@@ -534,18 +545,23 @@ MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
 [ "$MIGRATION_COUNT" -ge 37 ] \
   || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
 
-# A dependency change necessarily changes the lockfile, so the lockfile is the
-# thing to pin. The manifest itself is not: a later package may legitimately add
-# an npm *script* to package.json without adding a dependency, and ROAS-4 did
-# exactly that for the Founder publication command.
-CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_LOCK" = "0" ] \
-  || fail "the lockfile changed; no dependency change is authorized in this package"
-
-# And the web workspace's own dependency block must be untouched.
-CHANGED_WEB_DEPS="$(git diff origin/main...HEAD -- apps/web/package.json 2>/dev/null | grep -cE '^\+.*"(dependencies|devDependencies)"|^\+\s+"[^"]+": "\^?[0-9~]' || true)"
-[ "$CHANGED_WEB_DEPS" = "0" ] \
-  || fail "the web workspace gained $CHANGED_WEB_DEPS dependency line(s); none is authorized"
+# Dependencies are judged by the shared policy, not by counting diff lines.
+#
+# This counted lines in `git diff origin/main...HEAD`, and both halves were
+# unsound. The lockfile half compared against the merge base, so it passed on a
+# branch with no commits and would have failed the moment the same tree was
+# committed — a check that reports differently before and after `git commit` is
+# a check nobody can act on. The manifest half matched `^\+\s+"name": "^ver"`,
+# which `npm install` trips by alphabetically re-sorting untouched packages: on
+# the current tree it counts four, three of which are pure formatting.
+#
+# `authorized_dependency_check` compares parsed JSON against the MERGE BASE
+# with the target branch, so re-sorting is invisible and the answer does not
+# change when the branch is committed. It refuses every unauthorized shape
+# rather than every change, proved case by case and end to end in
+# `scripts/verify-dependency-policy.sh`.
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "ROAS-3"
 
 # The workspace still navigates without a router, which is why no routing
 # dependency was needed.

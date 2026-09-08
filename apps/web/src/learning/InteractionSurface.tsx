@@ -36,10 +36,24 @@ import {
  */
 export function InteractionSurface({
   content,
-  instanceId
+  instanceId,
+  settled,
+  onSettle
 }: {
   content: LearnerInteractionStep;
   instanceId: string;
+  /**
+   * Whether the learner has said they finished this activity, and how to tell
+   * whoever is waiting that they have.
+   *
+   * Forwarded, never interpreted. This file chooses a component and does
+   * nothing else; it does not read `requiredForProgression`, does not decide
+   * what settles an activity, and does not know why anything is waiting. Both
+   * are absent for every interaction nothing waits on, in which case the
+   * interaction offers no settlement control at all.
+   */
+  settled?: boolean;
+  onSettle?: () => void;
 }) {
   if (content.presentation.state === "withheld") {
     return (
@@ -60,6 +74,10 @@ export function InteractionSurface({
           // much the learner is asked to do before seeing the next authored
           // observation. Nothing downstream can reveal what is not here.
           supportLevel={content.supportLevel}
+          // Forwarded unchanged. Absent stays absent, so an interaction
+          // nothing is waiting on renders exactly as it does today.
+          settled={settled}
+          onSettle={onSettle}
         />
       );
     default:

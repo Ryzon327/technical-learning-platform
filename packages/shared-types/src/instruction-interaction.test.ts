@@ -1280,6 +1280,323 @@ describe("a stage may say several links were busy at the same moment", () => {
   });
 });
 
+describe("a stage may say which further devices were involved", () => {
+  /**
+   * Mission 2 Founder UAT — authored simultaneous ARRIVAL.
+   *
+   * `alsoOnLinkIds` says which connections were busy. It does not say which
+   * devices those connections reached, and nothing here may work that out.
+   *
+   * That is not pedantry, it is the same rule as everywhere else in this file:
+   * deriving "the far end of every busy link received something" would be a
+   * consumer deciding what a switch delivered where. It is true of Mission 2's
+   * flood and false of any stage where a connection is busy carrying something
+   * away rather than toward. So the devices are AUTHORED, separately, and
+   * validated separately — neither field is checked against the other.
+   *
+   * The defect this closes, in the learner's terms: without it the picture
+   * lights a connection toward a Printer that shows no sign of having received
+   * anything, which reads as a drawing error rather than as the point of the
+   * stage.
+   */
+  const threeNodes = params({
+    // The base fixture's fault names a stage these tests replace, and a fault
+    // is not what is under test here.
+    fault: undefined,
+    actions: [],
+    nodes: [
+      ...journeyNodes,
+      {
+        nodeId: "pc-b",
+        label: "PC-B",
+        role: "host",
+        interfaces: [
+          { interfaceId: "pc-b-eth0", label: "eth0", attributes: [] }
+        ]
+      }
+    ],
+    stages: [
+      {
+        stageId: "s1",
+        atNodeId: "pc-a",
+        narration: "PC-A sends.",
+        outcome: "proceeds"
+      },
+      {
+        stageId: "s2",
+        atNodeId: "r-1",
+        narration: "It arrives, and a copy reaches PC-B at the same moment.",
+        outcome: "proceeds",
+        viaLinkId: "link-a",
+        alsoAtNodeIds: ["pc-b"]
+      }
+    ]
+  });
+
+  const withAlsoAt = (alsoAtNodeIds: unknown) =>
+    validateInteractionContent(
+      content({
+        parameters: {
+          ...(threeNodes as Record<string, unknown>),
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "PC-A sends.",
+              outcome: "proceeds"
+            },
+            {
+              stageId: "s2",
+              atNodeId: "r-1",
+              narration: "It arrives.",
+              outcome: "proceeds",
+              viaLinkId: "link-a",
+              alsoAtNodeIds
+            }
+          ]
+        }
+      }),
+      "step"
+    );
+
+  it("accepts a journey that names none", () => {
+    // The additive test. Every journey authored before this field existed must
+    // still validate exactly as it did.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts authored further devices", () => {
+    expect(
+      validateInteractionContent(content({ parameters: threeNodes }), "step")
+    ).toEqual([]);
+  });
+
+  it("refuses a device that is not declared", () => {
+    // Fail closed at authoring. A dangling id would leave the drawing with a
+    // device to mark that does not exist, and the tempting repair — working
+    // out which device was meant — is the inference this forbids.
+    expect(withAlsoAt(["nope"]).join(" ")).toContain(
+      "names a device that is not declared"
+    );
+  });
+
+  it("refuses the device the stage is already at", () => {
+    // `atNodeId` is where the stage IS. Repeating it here would ask a
+    // presentation to treat one device as two participants, and blur the
+    // distinction the two fields exist to keep.
+    expect(withAlsoAt(["r-1"]).join(" ")).toContain("repeats atNodeId");
+  });
+
+  it("refuses the same device twice", () => {
+    expect(withAlsoAt(["pc-b", "pc-b"]).join(" ")).toContain(
+      "names the same device more than once"
+    );
+  });
+
+  it("refuses anything that is not a list", () => {
+    expect(withAlsoAt("pc-b").join(" ")).toContain(
+      "must be a list of device identifiers"
+    );
+  });
+
+  it("projects the authored devices through unchanged", () => {
+    const model = buildPacketJourneyObservationModel(
+      threeNodes as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 2, appliedActionId: null }
+    );
+
+    expect(model.stages[1]?.alsoAtNodeIds).toEqual(["pc-b"]);
+    expect(model.stages[0]?.alsoAtNodeIds).toBeUndefined();
+  });
+
+  it("never derives one field from the other", () => {
+    /*
+      The invariant that makes both fields necessary. A stage naming a busy
+      connection says nothing about which device received anything, and a stage
+      naming an involved device says nothing about which connection carried it.
+
+      If a future refactor makes one imply the other, this fails — which is the
+      point. Mission 2 authors both on the same stage because both are true
+      there; a mission where a connection is busy carrying something AWAY would
+      author the first and not the second.
+    */
+    const linkOnly = buildPacketJourneyObservationModel(
+      params({
+        fault: undefined,
+        actions: [],
+        stages: [
+          {
+            stageId: "s1",
+            atNodeId: "pc-a",
+            narration: "PC-A sends, and its own connection is busy.",
+            outcome: "proceeds"
+          },
+          {
+            stageId: "s2",
+            atNodeId: "r-1",
+            narration: "It arrives.",
+            outcome: "proceeds",
+            viaLinkId: "link-a"
+          }
+        ]
+      }) as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 2, appliedActionId: null }
+    );
+
+    // A journey with a link named on a stage and no device named alongside it
+    // reports exactly that: a busy connection, and no claim about who received
+    // anything.
+    expect(linkOnly.stages[0]?.alsoAtNodeIds).toBeUndefined();
+    expect(linkOnly.stages[1]?.alsoAtNodeIds).toBeUndefined();
+  });
+});
+
+describe("a stage may say what is moving, when it is not what started", () => {
+  /**
+   * Mission 2 Founder UAT — an authored per-stage traffic override.
+   *
+   * A journey names what is moving once, at the top. Mission 2 needs more than
+   * that: PC-A sends a delivery, PC-B answers, and the answer travels the other
+   * way. Without a per-stage name the live region and the marker went on
+   * calling the reply "one local-network delivery" while it was travelling from
+   * PC-B to PC-A.
+   *
+   * Which direction traffic is going is a NETWORKING fact. Working it out from
+   * which way the marker points, or from the order of the stages, would be a
+   * consumer inventing one — so it is authored, and it carries the same three
+   * fields the journey's own traffic block uses for the same job.
+   */
+  const withReply = params({
+    fault: undefined,
+    actions: [],
+    stages: [
+      {
+        stageId: "s1",
+        atNodeId: "pc-a",
+        narration: "PC-A sends.",
+        outcome: "proceeds"
+      },
+      {
+        stageId: "s2",
+        atNodeId: "r-1",
+        narration: "Router-1 answers, and the answer travels back.",
+        outcome: "proceeds",
+        viaLinkId: "link-a",
+        traffic: {
+          label: "Router-1's reply",
+          sourceNodeId: "r-1",
+          destinationNodeId: "pc-a"
+        }
+      }
+    ]
+  });
+
+  const withTraffic = (traffic: unknown) =>
+    validateInteractionContent(
+      content({
+        parameters: {
+          ...(withReply as Record<string, unknown>),
+          stages: [
+            {
+              stageId: "s1",
+              atNodeId: "pc-a",
+              narration: "PC-A sends.",
+              outcome: "proceeds"
+            },
+            {
+              stageId: "s2",
+              atNodeId: "r-1",
+              narration: "It arrives.",
+              outcome: "proceeds",
+              viaLinkId: "link-a",
+              traffic
+            }
+          ]
+        }
+      }),
+      "step"
+    );
+
+  it("accepts a journey where every stage carries the opening traffic", () => {
+    // Additive. Every journey authored before this field existed still
+    // validates exactly as it did, and still means what it meant.
+    expect(validateInteractionContent(content(), "step")).toEqual([]);
+  });
+
+  it("accepts an authored override", () => {
+    expect(
+      validateInteractionContent(content({ parameters: withReply }), "step")
+    ).toEqual([]);
+  });
+
+  it("refuses a source device that is not declared", () => {
+    expect(
+      withTraffic({
+        label: "a reply",
+        sourceNodeId: "nope",
+        destinationNodeId: "pc-a"
+      }).join(" ")
+    ).toContain("sourceNodeId names a device that is not declared");
+  });
+
+  it("refuses a destination device that is not declared", () => {
+    expect(
+      withTraffic({
+        label: "a reply",
+        sourceNodeId: "r-1",
+        destinationNodeId: "nope"
+      }).join(" ")
+    ).toContain("destinationNodeId names a device that is not declared");
+  });
+
+  it("refuses an override with no words for what is moving", () => {
+    // The whole reason the field exists is the SENTENCE. An override with an
+    // empty label would replace "one local-network delivery" with nothing.
+    expect(
+      withTraffic({
+        label: "",
+        sourceNodeId: "r-1",
+        destinationNodeId: "pc-a"
+      }).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("refuses a start label part-way through a journey", () => {
+    /*
+      Deliberately NOT the journey's own traffic shape. `startActionLabel`
+      belongs to the control that BEGINS the journey; on a stage in the middle
+      of one there is no control for it to name, so an author writing it would
+      be authoring a button nobody will ever see. Silently accepting it is the
+      failure this refuses.
+    */
+    expect(
+      withTraffic({
+        label: "a reply",
+        sourceNodeId: "r-1",
+        destinationNodeId: "pc-a",
+        startActionLabel: "Send the reply"
+      }).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("projects the authored override through unchanged", () => {
+    const model = buildPacketJourneyObservationModel(
+      withReply as unknown as LearnerPacketJourneyParameters,
+      { revealedStageCount: 2, appliedActionId: null }
+    );
+
+    expect(model.stages[1]?.traffic).toEqual({
+      label: "Router-1's reply",
+      sourceNodeId: "r-1",
+      destinationNodeId: "pc-a"
+    });
+    // And a stage that authors none carries none, rather than inheriting the
+    // journey's — inheritance here would be the model answering a question the
+    // author declined to ask.
+    expect(model.stages[0]?.traffic).toBeUndefined();
+  });
+});
+
 describe("a stage may say what a device is showing", () => {
   /**
    * WP-J3 Mission 2 — authored learned state.

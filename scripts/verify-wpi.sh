@@ -1358,18 +1358,39 @@ echo "PASS: 11. the fixture exercises every step type and a complete journey"
 # ------------------------------------------------------------
 # 12. No migration, no dependency, no manifest change
 # ------------------------------------------------------------
-shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
-  || fail "a migration this package was written against was modified"
-
-MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "43" ] \
-  || fail "the repository carries $MIGRATION_COUNT migrations; WP-I adds none to 43"
+# Migration integrity, stated so a later authorized migration cannot break it.
+#
+# This asserted an exact count of 43. `20260907000100_mission_step_near_transfer.sql`
+# then landed as an approved forward-only repair, and this gate failed with
+# "WP-I adds none to 43" — blaming a package that had not been touched.
+#
+# The shared helper asserts the two things a count could not: every APPLIED
+# migration is byte-identical, and none was removed. The floor is derived from
+# the frozen baseline, so it cannot go stale the way the literal did.
+# `verify-db-rls.sh` owns "every migration change is an addition"; a second copy
+# of that here is the drift `scripts/lib/` exists to prevent.
+source scripts/lib/migration-floor.sh
+migration_floor_check "WP-I"
 
 # Browser automation is deferred to a separate Architect decision. None of
 # these may appear in any manifest.
+#
+# `jsdom` was removed from the list, and only `jsdom`.
+#
+# What this rule defends is the DEFERRAL of browser automation — Playwright,
+# Cypress, Puppeteer, a component-testing framework, a visual-regression stack.
+# jsdom is none of those: it is an in-process DOM shim, and the Founder has
+# authorized it as a dev-only dependency for the Mission 2 work package, to
+# close a gap mutation testing exposed. A single deleted focus call disabled
+# both instructional focus handoffs while every test in this repository stayed
+# green, because nothing could observe `document.activeElement`.
+#
+# Everything else in the list is still refused, in every manifest, and
+# `verify-wpj-m2.sh` additionally proves the jsdom entry is dev-only, is the
+# only addition, and is never imported by application source.
 for manifest in package.json apps/web/package.json \
                 packages/shared-types/package.json services/api/package.json; do
-  for forbidden in playwright cypress puppeteer jsdom happy-dom \
+  for forbidden in playwright cypress puppeteer happy-dom \
                    '@testing-library' storybook axe-core; do
     if grep -qF -e "$forbidden" "$manifest"; then
       fail "$manifest gained a deferred browser-test dependency: $forbidden"
