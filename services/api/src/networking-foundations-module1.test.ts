@@ -177,8 +177,37 @@ function learnerFacingText(stableId: string): string {
     for (const stage of journey.stages) {
       parts.push(stage.narration);
       if (stage.decision !== undefined) parts.push(stage.decision);
+      // The author's phrase for what the device is doing. It heads the beat
+      // card and is spoken by the live region, so it is prose on the screen
+      // like any other and every vocabulary rule below applies to it.
+      if (stage.action !== undefined) parts.push(stage.action);
+      // What is moving, when a stage says something different is moving from
+      // the journey as a whole. Mission 2's return leg names PC-B's reply.
+      if (stage.traffic !== undefined) parts.push(stage.traffic.label);
       if (stage.prediction !== undefined) {
         parts.push(stage.prediction.prompt, ...stage.prediction.options);
+        // The graded half. A prediction that carries an answer key shows the
+        // learner the key and the reason, so both are read prose — and without
+        // collecting them, the answer to a graded prediction would be the one
+        // place in a mission a deferred term could arrive unchecked.
+        if (stage.prediction.correctOption !== undefined) {
+          parts.push(stage.prediction.correctOption);
+        }
+        if (stage.prediction.explanation !== undefined) {
+          parts.push(stage.prediction.explanation);
+        }
+      }
+      // Knowledge checks were never collected here, and Mission 2's Founder
+      // UAT repair is what makes that matter: it moves a question out of a
+      // prediction and into a check, so the same words would have left the
+      // vocabulary rules' reach by being reworded rather than by changing.
+      for (const check of stage.knowledgeChecks ?? []) {
+        parts.push(
+          check.prompt,
+          ...check.options,
+          check.correctOption,
+          check.explanation
+        );
       }
     }
 
@@ -835,43 +864,96 @@ describe("PJ2 teaches local delivery as two passes", () => {
     }
   });
 
-  it("asks three predictions, each on the stage that answers it", () => {
-    // A prediction is read from the NEXT unrevealed stage, so a prediction
-    // authored on stage X is asked before X and answered by X. Every one of
-    // them must therefore sit on the stage that resolves it, or the learner
-    // is asked about something they have already been shown.
+  it("asks two predictions, each on the stage that answers it", () => {
+    /*
+      A prediction is read from the NEXT unrevealed stage, so a prediction
+      authored on stage X is asked before X and answered by X. Every one of
+      them must therefore sit on the stage that resolves it, or the learner is
+      asked about something they have already been shown.
+
+      ## Why this used to expect three
+
+      `d3-copies-arrive` carried a third: "what does Switch-1 know at this
+      point?" It sat on the stage that answers it, so it satisfied the rule
+      above — and Founder UAT round 2 found it was still the wrong instrument.
+      A prediction asks what the learner thinks will happen BEFORE they can
+      know, and at d3 the learner had not been shown a switch record anything
+      at all, so the question was a guess dressed as reasoning.
+
+      The same question is now a knowledge check on d2, asked AFTER the arrival
+      that supplies the answer. That is asserted below. This test is not
+      weakened by the change: it still requires every remaining prediction to
+      sit on the stage that resolves it, and the set is still exact.
+    */
     const journeyValue = journey();
     const predicting = journeyValue.stages.filter(
       (stage) => stage.prediction !== undefined
     );
 
     expect(predicting.map((stage) => stage.stageId)).toEqual([
-      // What does a switch do with a destination it has not learned?
+      // What does a switch do with a destination it has no record of?
       "d2-switch-sends-copies",
-      // What has it learned from that first delivery?
-      "d3-copies-arrive",
-      // And what does it do once it knows?
+      // And what does it do once it has one?
       "d7-switch-sends-once"
     ]);
   });
 
-  it("asks what the switch knows only before the answer is on screen", () => {
-    // The whole value of the learned-state prediction is that the learner
-    // has to reason rather than read. It is answered by `d3`, so no stage
-    // before `d3` may already show the switch's record or state it in prose.
+  it("asks what the switch does before showing what it recorded", () => {
+    /*
+      The whole value of the flooding prediction is that the learner has to
+      reason rather than read. It is answered by `d2`, so nothing at or before
+      `d2` may already state where PC-B is — which is the fact that would make
+      "sends it out of port 2 only" the obvious answer.
+
+      ## Why this no longer requires the earlier stages to show nothing
+
+      It used to assert `deviceFacts` was EMPTY on every stage before `d3`.
+      That was the right rule while the learned-state question was a prediction
+      on `d3`: any earlier record would have answered it.
+
+      Founder UAT round 2 asked for the opposite of nothing. A learner watching
+      a switch "learn" needs to see the record BEFORE and AFTER, or there is no
+      change to notice — so `d1` now states, in the switch's own panel, that it
+      has no location recorded for PC-B. An emptiness rule would fail on the
+      repair it asked for, so the rule is restated as what it always meant:
+      no stage up to and including the one the prediction resolves may place
+      PC-B on a port.
+    */
     const journeyValue = journey();
-    const askedAt = journeyValue.stages.findIndex(
-      (stage) => stage.stageId === "d3-copies-arrive"
+    const resolvedAt = journeyValue.stages.findIndex(
+      (stage) => stage.stageId === "d2-switch-sends-copies"
     );
 
-    expect(askedAt).toBeGreaterThan(0);
+    expect(resolvedAt).toBeGreaterThan(0);
 
-    for (const stage of journeyValue.stages.slice(0, askedAt)) {
-      expect(stage.deviceFacts ?? []).toEqual([]);
+    for (const stage of journeyValue.stages.slice(0, resolvedAt + 1)) {
+      for (const shown of stage.deviceFacts ?? []) {
+        for (const fact of shown.facts) {
+          // "PC-B | No location recorded yet" is the setup and is allowed.
+          // "PC-B | Port 2" would be the answer, on screen before the question.
+          expect(
+            `${stage.stageId} ${fact.label} ${fact.value}`
+          ).not.toMatch(/PC-B\s+Port\s*\d/i);
+        }
+      }
+
       expect(`${stage.narration} ${stage.decision ?? ""}`).not.toMatch(
-        /PC-A is on port 1/i
+        /PC-B is on port 2/i
       );
     }
+
+    // And the record does arrive, later, or there is no change to notice.
+    const afterReply = journeyValue.stages.find(
+      (stage) => stage.stageId === "d4-pc-b-replies"
+    );
+
+    expect(
+      (afterReply?.deviceFacts ?? []).some((shown) =>
+        shown.facts.some(
+          (fact) => fact.label === "PC-B" && /port\s*2/i.test(fact.value)
+        )
+      )
+    ).toBe(true);
   });
 
   it("involves the unintended recipient in the first delivery and not the second", () => {
@@ -965,6 +1047,259 @@ describe("PJ2 teaches local delivery as two passes", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Mission 2 — the second Founder UAT round
+ * ------------------------------------------------------------------ */
+
+describe("Mission 2 is repaired as the Founder UAT round authorised", () => {
+  /**
+   * The second Founder UAT round found Mission 2 the hardest mission in Module
+   * 1 to follow. Six things about it changed, and each of them changes what the
+   * learner is asked to do rather than only how it looks. Each is pinned here,
+   * read through the real parser, so that a later repair cannot quietly undo
+   * one of them while every other rule in this file still reports success.
+   *
+   * `verify-wpj-m2.sh` asserts the file-level half. This is the parsed half,
+   * and it is the stronger of the two: a `grep` for `"alsoAtNodeIds"` cannot
+   * tell which stage carries it, and for most of these that is the whole
+   * question.
+   */
+  const journey = () => journeyOf(M2);
+
+  const stage = (stageId: string) => {
+    const found = journey().stages.find((s) => s.stageId === stageId);
+    if (found === undefined) throw new Error(`Mission 2 has no stage ${stageId}`);
+    return found;
+  };
+
+  it("requires the walkthrough before the steps that explain it", () => {
+    /*
+      The defect: every step after the activity explains what the activity
+      shows, and all of them were on screen from the moment the mission opened.
+      A learner could read the answer and never watch a delivery.
+
+      Authored, not inferred. A renderer deciding for itself which steps are
+      worth requiring would be writing pedagogy, and it would be wrong the first
+      time a mission wanted an optional activity.
+    */
+    expect(interactionOf(M2).requiredForProgression).toBe(true);
+  });
+
+  it("requires exactly one step, so the learner is never blocked twice", () => {
+    const required = mission(M2).steps.filter(
+      (step) =>
+        step.content.type === "interaction" &&
+        step.content.requiredForProgression === true
+    );
+
+    expect(required.map((step) => step.stableId)).toEqual(["m2-s2-local-delivery"]);
+  });
+
+  it("names one delivery, and names the reply separately while it travels", () => {
+    /*
+      Founder UAT: the marker went on being described as the outbound delivery
+      while what was actually moving was PC-B's answer.
+
+      Which direction traffic is going is a networking fact, so it is authored
+      per stage. A presentation that worked it out from which way the marker
+      points would be inferring one.
+    */
+    expect(journey().traffic.label).toBe("one local-network delivery");
+    expect(journey().traffic.startActionLabel).toBe("Send the delivery to PC-B");
+
+    for (const stageId of ["d4-pc-b-replies", "d5-reply-reaches-pc-a"]) {
+      expect(stage(stageId).traffic).toEqual({
+        label: "PC-B's reply",
+        sourceNodeId: "pc-b",
+        destinationNodeId: "pc-a"
+      });
+    }
+  });
+
+  it("leaves every other stage carrying the journey's own traffic", () => {
+    // The reply is the exception, and it has to stay one. A stage that
+    // redefined what is moving without reason would leave the learner unable
+    // to trust the label at all.
+    const overriding = journey()
+      .stages.filter((s) => s.traffic !== undefined)
+      .map((s) => s.stageId);
+
+    expect(overriding).toEqual(["d4-pc-b-replies", "d5-reply-reaches-pc-a"]);
+  });
+
+  it("asks the flooding prediction without an answer key", () => {
+    /*
+      DEC-063, and the clearest case of it in the course. At d2 the learner has
+      never been shown what a switch does with a destination it has no record
+      of. The observation IS the answer, and marking the guess would tell them
+      they were wrong for doing exactly what the step asked.
+    */
+    const prediction = stage("d2-switch-sends-copies").prediction;
+
+    expect(prediction).toBeDefined();
+    expect(prediction?.correctOption).toBeUndefined();
+    expect(prediction?.explanation).toBeUndefined();
+  });
+
+  it("checks the learning question after the arrival that answers it", () => {
+    /*
+      The question that used to be a prediction on d3. As a knowledge check on
+      d2 it is offered once the stage is revealed, so it asks about the arrival
+      the learner has just watched rather than about one they have not.
+
+      A knowledge check MAY carry a right answer — that is the difference
+      between the two instruments — and this one must, or the learner finds out
+      nothing about whether they understood.
+    */
+    const checks = stage("d2-switch-sends-copies").knowledgeChecks ?? [];
+
+    expect(checks.map((check) => check.checkId)).toEqual([
+      "m2-d2-source-learning"
+    ]);
+
+    const check = checks[0];
+    expect(check?.correctOption).toBe(
+      "Because the delivery arrived on port 1 with PC-A as its source"
+    );
+    expect(check?.options).toContain(check?.correctOption);
+    expect((check?.explanation ?? "").length).toBeGreaterThan(40);
+  });
+
+  it("authors that check on the flooding stage and nowhere else", () => {
+    // One check, at one stopping point. A second elsewhere would ask the
+    // learner to answer twice in a journey that is meant to be watched.
+    const carrying = journey()
+      .stages.filter((s) => (s.knowledgeChecks ?? []).length > 0)
+      .map((s) => s.stageId);
+
+    expect(carrying).toEqual(["d2-switch-sends-copies"]);
+  });
+
+  it("asks nothing at the stage where the copies land", () => {
+    // d3's prediction is gone. What replaced it is the d2 knowledge check
+    // above; if this ever fails alongside that one, the question came back
+    // rather than moved.
+    expect(stage("d3-copies-arrive").prediction).toBeUndefined();
+    expect(stage("d3-copies-arrive").knowledgeChecks ?? []).toEqual([]);
+  });
+
+  it("shows the Printer's copy on the connection AND on the device", () => {
+    /*
+      One moment, two places. `alsoOnLinkIds` lights the wire; `alsoAtNodeIds`
+      marks the device it ends at. With only the first, a learner watches a
+      connection light up toward a Printer that shows no sign of having
+      received anything, which reads as a drawing error rather than as the
+      point of the stage.
+
+      Both are authored. Working out which devices a copy "would" reach is the
+      switching calculation the whole contract exists to keep out of code.
+    */
+    const arrival = stage("d3-copies-arrive");
+
+    expect(arrival.atNodeId).toBe("pc-b");
+    expect(arrival.viaLinkId).toBe("link-pc-b");
+    expect(arrival.alsoOnLinkIds).toEqual(["link-printer"]);
+    expect(arrival.alsoAtNodeIds).toEqual(["printer"]);
+  });
+
+  it("marks a further device only where a further copy actually arrived", () => {
+    // The second pass is the comparison: one copy, one connection, nothing
+    // anywhere else. A stage after the switch has learned may name neither.
+    const secondPass = ["d6-pc-a-sends-again", "d7-switch-sends-once", "d8-pc-b-receives"];
+
+    for (const stageId of secondPass) {
+      expect(`${stageId} also-at: ${JSON.stringify(stage(stageId).alsoAtNodeIds)}`).toBe(
+        `${stageId} also-at: undefined`
+      );
+      expect(`${stageId} also-on: ${JSON.stringify(stage(stageId).alsoOnLinkIds)}`).toBe(
+        `${stageId} also-on: undefined`
+      );
+    }
+  });
+
+  it("grades the second prediction, and says why", () => {
+    /*
+      The inversion of the d2 rule, and the reason both are authored rather
+      than derived from the step type. By d7 the learner HAS watched Switch-1
+      record where PC-B is, so they can reason the answer out — and leaving them
+      to infer from the animation whether they were right is what Founder UAT
+      reported. A verdict with no reason would be the same defect one step on.
+    */
+    const prediction = stage("d7-switch-sends-once").prediction;
+
+    expect(prediction?.correctOption).toBe("Send it through port 2 only");
+    expect(prediction?.options).toContain("Send it through port 2 only");
+    expect((prediction?.explanation ?? "").length).toBeGreaterThan(40);
+  });
+
+  it("closes with a near-transfer check and then a handoff", () => {
+    /*
+      The shape Mission 1 ends with. The handoff answers the activity's own
+      question, so it must come after it — and `visibleInstructionSteps` is
+      what actually holds it back, which is proven in
+      `near-transfer-presentation.test.ts`. What is asserted here is the
+      authoring the presentation depends on: the check exists, it is second to
+      last, and the handoff is last.
+    */
+    const steps = mission(M2).steps;
+    const tail = steps.slice(-2);
+
+    expect(tail.map((step) => step.stableId)).toEqual([
+      "m2-s8-try-a-different-switch",
+      "m2-s9-what-comes-next"
+    ]);
+    expect(tail[0]?.content.type).toBe("near_transfer");
+    expect(tail[1]?.content.type).toBe("concept");
+  });
+
+  it("asks four near-transfer questions, each with an authored answer", () => {
+    const check = mission(M2).steps.find(
+      (step) => step.stableId === "m2-s8-try-a-different-switch"
+    )?.content;
+
+    if (check?.type !== "near_transfer") {
+      throw new Error("Mission 2's near-transfer check is not a near_transfer step");
+    }
+
+    expect(check.questions.map((question) => question.questionStableId)).toEqual([
+      "m2-nt-q1-unknown-destination",
+      "m2-nt-q2-source-learning",
+      "m2-nt-q3-camera-copy",
+      "m2-nt-q4-known-destination"
+    ]);
+
+    for (const question of check.questions) {
+      // Deterministic and authored. Nothing infers a right answer, nothing
+      // scores it, and answering it produces no evidence of any kind.
+      expect(question.correctOptionIds.length).toBeGreaterThan(0);
+      for (const correct of question.correctOptionIds) {
+        expect(question.options.map((option) => option.optionId)).toContain(correct);
+      }
+      expect(question.explanation.length).toBeGreaterThan(20);
+    }
+  });
+
+  it("sets the near-transfer check on a network the learner has not seen", () => {
+    // Near transfer is the same idea on different surface features. Reusing
+    // Mission 2's own devices would be recall, which the journey already did.
+    const check = mission(M2).steps.find(
+      (step) => step.stableId === "m2-s8-try-a-different-switch"
+    )?.content;
+
+    if (check?.type !== "near_transfer") {
+      throw new Error("Mission 2's near-transfer check is not a near_transfer step");
+    }
+
+    const labels = (check.topology?.nodes ?? []).map((node) => node.label);
+    const journeyLabels = journey().nodes.map((node) => node.label);
+
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(journeyLabels).not.toContain(label);
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Technical accuracy
  * ------------------------------------------------------------------ */
 
@@ -1005,17 +1340,51 @@ describe("the simplification stays technically true", () => {
     // The reply is what supplies the destination.
     expect(switchRecordAt("d4-pc-b-replies")).toEqual(["PC-A", "PC-B"]);
 
-    // And the prose agrees with the state, so the two cannot drift.
+    /*
+      And the prose agrees with the state, so the two cannot drift.
+
+      ## Why this no longer matches one sentence
+
+      It required the literal "PC-B is on port 2". The Mission 2 Founder UAT
+      repair rewords the same claim as "This arrival shows Switch-1 that
+      traffic sourced by PC-B is arriving through port 2, so Switch-1 records
+      PC-B on port 2." — which states the mechanism more explicitly than the
+      sentence it replaced, and which the old pattern could not see.
+
+      The rule is unchanged and is not weakened: the decision must attribute
+      the record to the SOURCE of traffic that arrived, name the device, and
+      name the port. A decision saying the switch learned it from the
+      destination, or from configuration, still fails.
+    */
     const replyDecision =
       stages.find((stage) => stage.stageId === "d4-pc-b-replies")?.decision ??
       "";
-    expect(replyDecision).toMatch(/PC-B is on port 2/);
+
+    expect(replyDecision).toMatch(/PC-B/);
+    expect(replyDecision).toMatch(/port 2/i);
+    expect(replyDecision).toMatch(/\bsource[d]?\b|\barriv/i);
+    expect(replyDecision).not.toMatch(/configur|destination/i);
   });
 
   it("never shows the switch knowing a device before that device has sent anything", () => {
-    // The single easiest error in this mission: a switch cannot learn where a
-    // machine is until that machine transmits. PC-B's first transmission is
-    // its reply, so no stage before it may carry PC-B in the record.
+    /*
+      The single easiest error in this mission: a switch cannot learn where a
+      machine is until that machine transmits. PC-B's first transmission is its
+      reply, so no stage before it may say where PC-B is.
+
+      ## Why the record may now NAME PC-B before then
+
+      It could not, and the rule was "PC-B does not appear in the record at
+      all". Founder UAT round 2 asked for the opposite of nothing: a learner
+      watching a switch learn needs to see the record BEFORE and AFTER, or
+      there is no change to notice — so the first stage now states, in the
+      switch's own panel, "PC-B — No location recorded yet".
+
+      That is the ABSENCE of knowledge, stated. Banning the label would forbid
+      the sentence doing the work, which is the same polarity mistake the
+      failure-vocabulary rule below already records. So the rule is restated as
+      what it always meant: no stage before the reply may give PC-B a LOCATION.
+    */
     const stages = journeyOf(M2).stages;
     const replyAt = stages.findIndex(
       (stage) => stage.stageId === "d4-pc-b-replies"
@@ -1027,7 +1396,22 @@ describe("the simplification stays technically true", () => {
       const record =
         stage.deviceFacts?.find((shown) => shown.nodeId === "sw-1")?.facts ??
         [];
-      expect(record.map((fact) => fact.label)).not.toContain("PC-B");
+
+      for (const fact of record) {
+        if (fact.label !== "PC-B") continue;
+
+        // A port number, an interface name, or anything else that answers
+        // "where". Only a statement that there is no answer yet is allowed.
+        expect(
+          `${stage.stageId} PC-B: ${fact.value}`,
+          `${stage.stageId} places PC-B before PC-B has sent anything`
+        ).not.toMatch(/port\s*\d|eth\d|interface/i);
+
+        expect(
+          fact.value,
+          `${stage.stageId} names PC-B without saying its location is unknown`
+        ).toMatch(/\bno\b|\bnot\b|\byet\b|unknown/i);
+      }
     }
   });
 
@@ -1076,11 +1460,17 @@ describe("the simplification stays technically true", () => {
     // Printer" and names a step "Looks wrong, works as designed", and both
     // are the reassurance rather than the claim. A rule that banned the word
     // regardless of polarity would forbid the sentence doing the work.
+    //
+    // "broken" left this list for exactly the reason already written above it.
+    // The Mission 2 Founder UAT repair states the reassurance as "Nothing is
+    // broken." — the same negation, in a different word — and a ban that fired
+    // on it would be forbidding the sentence that does the work, which is the
+    // mistake this comment was written to prevent rather than to permit twice.
+    // The positive assertion below is what keeps the reassurance required.
     for (const failure of [
       "error",
       "fault",
       "failed",
-      "broken",
       "dropped",
       "lost",
       "rejected",
@@ -1094,8 +1484,14 @@ describe("the simplification stays technically true", () => {
     }
 
     // And the reassurance is actually present, so this is not satisfied by
-    // simply saying nothing about the Printer at all.
-    expect(prose).toMatch(/nothing has gone wrong/i);
+    // simply saying nothing about the Printer at all. Matched as the CLAIM
+    // rather than as one phrasing of it: the repair says "Nothing is broken."
+    // where the previous wording said "nothing has gone wrong", and both are
+    // the same sentence doing the same job.
+    expect(
+      prose,
+      "the journey never tells the learner the unintended copy is normal"
+    ).toMatch(/nothing has gone wrong|nothing is broken|nothing has broken/i);
   });
 });
 
@@ -1385,6 +1781,34 @@ describe("the server projection protects what it should", () => {
       expect(`${stableId} decisions sent: ${sentDecisions}`).toBe(
         `${stableId} decisions sent: ${authoredDecisions}`
       );
+
+      /*
+        The two graded artefacts, counted the same way and for the same
+        reason: a fixture that authors none makes an absence assertion pass
+        without proving anything. Mission 2 authors both — a graded prediction
+        with a `correctOption`, and a knowledge check — so counting sent
+        against authored is a real comparison here and stays one if Mission 1
+        ever gains either.
+      */
+      const authoredCorrect = authored.stages.filter(
+        (stage) => stage.prediction?.correctOption !== undefined
+      ).length;
+      const sentCorrect = parameters.stages.filter(
+        (stage) => stage.prediction?.correctOption !== undefined
+      ).length;
+      expect(`${stableId} correct options sent: ${sentCorrect}`).toBe(
+        `${stableId} correct options sent: ${authoredCorrect}`
+      );
+
+      const authoredChecks = authored.stages.filter(
+        (stage) => stage.knowledgeChecks !== undefined
+      ).length;
+      const sentChecks = parameters.stages.filter(
+        (stage) => stage.knowledgeChecks !== undefined
+      ).length;
+      expect(`${stableId} knowledge checks sent: ${sentChecks}`).toBe(
+        `${stableId} knowledge checks sent: ${authoredChecks}`
+      );
     });
 
     it(`${stableId} withholds every explanation at CHALLENGE ME`, () => {
@@ -1399,7 +1823,35 @@ describe("the server projection protects what it should", () => {
       expect(parameters.confirmation).toBeUndefined();
       for (const stage of parameters.stages) {
         expect(stage.decision).toBeUndefined();
+        expect(stage.knowledgeChecks).toBeUndefined();
+        expect(stage.prediction?.correctOption).toBeUndefined();
+        expect(stage.prediction?.explanation).toBeUndefined();
       }
+
+      /*
+        Proved to be a real deletion, not an absence the fixture never had.
+
+        Asserting `not.toContain("correctOption")` against content that never
+        authored one is a test that cannot fail, and two of these already read
+        that way elsewhere. This mission authors both artefacts, so the count
+        below is what makes the assertions above mean something.
+      */
+      const authored = journeyOf(stableId);
+      const graded =
+        authored.stages.filter(
+          (stage) => stage.prediction?.correctOption !== undefined
+        ).length +
+        authored.stages.filter(
+          (stage) => stage.knowledgeChecks !== undefined
+        ).length;
+      expect(`${stableId} authors graded content: ${graded > 0}`).toBe(
+        `${stableId} authors graded content: true`
+      );
+
+      // And nothing reintroduces either by another route.
+      const serialised = JSON.stringify(parameters);
+      expect(serialised).not.toContain("correctOption");
+      expect(serialised).not.toContain("knowledgeChecks");
 
       // And what remains still lets the learner do the work.
       expect(parameters.nodes.length).toBeGreaterThan(0);

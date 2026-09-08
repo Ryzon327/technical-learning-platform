@@ -95,10 +95,55 @@ export interface NearTransferTopologyNode {
   readonly about?: string;
 }
 
+/**
+ * The port a link occupies on one of the devices it joins.
+ *
+ * Keyed by `nodeId` rather than by position in `endpoints`, deliberately. A
+ * positional pair would be silently wrong the moment an author reordered the
+ * two endpoints, and the reader could not tell: `["Port 1", null]` says
+ * nothing about which device it belongs to.
+ */
+export interface NearTransferTopologyPortLabel {
+  /** Which end. Must be one of the link's own two endpoints. */
+  readonly nodeId: string;
+  /** The authored port name, drawn beside the connection, e.g. "Port 1". */
+  readonly label: string;
+}
+
 export interface NearTransferTopologyLink {
   readonly linkId: string;
   readonly label: string;
   readonly endpoints: readonly [string, string];
+  /**
+   * Port names to draw beside this connection (WP-NF-NT2C).
+   *
+   * Optional, and absent means what it always meant: the wire is drawn with no
+   * port named at either end.
+   *
+   * ## Why this exists
+   *
+   * Founder UAT, Mission 2's "Try it on a different switch". Its questions ask
+   * the learner which ports carry copies, which entry the switch can learn, and
+   * which single port a known destination uses — and the diagram named no port
+   * anywhere. The mapping existed only in the framing prose and in each link's
+   * `label` sentence, so a learner had to memorise an invisible port-to-device
+   * mapping to answer questions about switching behaviour. That is not what the
+   * questions are testing.
+   *
+   * The main Packet Journey already solves this: a node authors `interfaces`,
+   * an interface carries a `label` and a `prominent` flag, and
+   * `buildTopologyLayout` draws the flagged ones beside their wires. The
+   * near-transfer topology is a smaller shape with no interfaces at all, so it
+   * had no way to say the same thing — the contract, not the renderer, was the
+   * gap.
+   *
+   * This is the smallest way to close it: one authored name, per end, per link.
+   * Nothing is parsed out of `label`, because recognising "port 1" inside an
+   * authored sentence would be exactly the string-matching this repository
+   * refuses everywhere else — it would break on the first author who wrote
+   * "Gi0/1", and it would make prose load-bearing for a drawing.
+   */
+  readonly portLabels?: readonly NearTransferTopologyPortLabel[];
 }
 
 /**
@@ -179,7 +224,8 @@ const EXTERNAL_NETWORK_KEYS = [
   "attachedToNodeId"
 ] as const;
 const NODE_KEYS = ["nodeId", "label", "role", "about"] as const;
-const LINK_KEYS = ["linkId", "label", "endpoints"] as const;
+const LINK_KEYS = ["linkId", "label", "endpoints", "portLabels"] as const;
+const PORT_LABEL_KEYS = ["nodeId", "label"] as const;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return (
@@ -333,6 +379,10 @@ export function validateNearTransferContent(
             return;
           }
 
+          // Hoisted so the closure below reads the narrowed value: TypeScript
+          // drops the narrowing of an index-signature property inside one.
+          const endpoints: readonly unknown[] = link.endpoints;
+
           // A link to a device that is not on the diagram draws nothing and
           // means nothing.
           for (const endpoint of link.endpoints) {
@@ -340,6 +390,51 @@ export function validateNearTransferContent(
               at(
                 `${linkLabel}.endpoints names a device that is not in this topology: ${String(endpoint)}`
               );
+            }
+          }
+
+          /* --- port names beside this connection --------------------- */
+
+          if (link.portLabels !== undefined) {
+            if (!Array.isArray(link.portLabels)) {
+              at(`${linkLabel}.portLabels must be a list`);
+            } else {
+              const named = new Set<string>();
+
+              link.portLabels.forEach((port, portIndex) => {
+                const portLabel = `${linkLabel}.portLabels[${portIndex}]`;
+                if (
+                  !checkKeys(
+                    port,
+                    PORT_LABEL_KEYS,
+                    ["nodeId", "label"],
+                    portLabel,
+                    at
+                  )
+                ) {
+                  return;
+                }
+
+                if (!nonEmpty(port.label)) at(`${portLabel}.label is empty`);
+
+                // A port name on a device this link does not reach would be
+                // drawn against a wire that does not touch it.
+                if (
+                  typeof port.nodeId !== "string" ||
+                  !endpoints.includes(port.nodeId)
+                ) {
+                  at(
+                    `${portLabel}.nodeId is not an endpoint of this link: ${String(port.nodeId)}`
+                  );
+                  return;
+                }
+
+                // Two names for one end is two answers to one question.
+                if (named.has(port.nodeId)) {
+                  at(`${portLabel} names ${port.nodeId} a second time`);
+                }
+                named.add(port.nodeId);
+              });
             }
           }
         });

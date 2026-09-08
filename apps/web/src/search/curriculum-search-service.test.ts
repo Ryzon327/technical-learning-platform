@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * calls, how the query and limit are encoded, that the caller's session is
  * attached, and how the response is interpreted.
  *
- * SCOPE OF THIS FILE, stated honestly: the rendered view cannot be exercised
- * here. `apps/web` has no DOM harness, and `scripts/verify-wave7.sh` fails the
- * build if `jsdom`, `@testing-library/react` or `jest-axe` is added to this
- * workspace. Rendering assertions therefore live in the Wave 9 verifier as
+ * SCOPE OF THIS FILE, stated honestly: the rendered view is not exercised
+ * here. `scripts/verify-wave7.sh` still fails the build if
+ * `@testing-library/react` or `jest-axe` is added to this workspace; `jsdom`
+ * is present, authorized for one narrow focus suite in the learning package,
+ * and this search surface has no DOM test. Rendering assertions therefore live in the Wave 9 verifier as
  * source assertions, and every string and decision the view renders is unit
  * tested in `packages/shared-types/src/curriculum-search.test.ts`. Nothing here
  * pretends to prove markup.

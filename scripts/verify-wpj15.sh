@@ -348,18 +348,22 @@ for forbidden in publishCurriculum importCurriculum reconcile \
   fi
 done
 
-shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
-  || fail "a migration this slice was written against was modified"
+# Migration integrity, stated so a later authorized migration cannot break it.
+#
+# This asserted an exact count of 43. `20260907000100_mission_step_near_transfer.sql`
+# then landed as an approved forward-only repair, and this gate failed with
+# "J1.5 adds none to 43" — blaming a package that had not been touched.
+#
+# The shared helper asserts the two things a count could not: every APPLIED
+# migration is byte-identical, and none was removed. The floor is derived from
+# the frozen baseline, so it cannot go stale the way the literal did.
+# `verify-db-rls.sh` owns "every migration change is an addition"; a second copy
+# of that here is the drift `scripts/lib/` exists to prevent.
+source scripts/lib/migration-floor.sh
+migration_floor_check "J1.5"
 
-MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "43" ] \
-  || fail "the repository carries $MIGRATION_COUNT migrations; J1.5 adds none to 43"
-
-for manifest in package.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  git diff --quiet HEAD -- "$manifest" 2>/dev/null \
-    || fail "J1.5 changed a dependency manifest: $manifest"
-done
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "J1.5"
 
 echo "PASS: 12. no migration, publication, deployment or dependency change"
 

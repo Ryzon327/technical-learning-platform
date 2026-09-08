@@ -291,9 +291,9 @@ Run these against the development project after `db push`. All are read-only.
 ### 6.1 Structure
 
 > **These are POST-APPLICATION expectations, not the current remote state.**
-> They describe the schema once **all 43** source migrations have been applied.
+> They describe the schema once **all 44** source migrations have been applied.
 > The development/UAT project currently has **38** applied — see the table at
-> the top of this document. Five migrations are authored and undeployed, so
+> the top of this document. Six migrations are authored and undeployed, so
 > running these queries against the project today will return the smaller
 > pre-application counts, and that is correct rather than a failure.
 >
@@ -301,10 +301,10 @@ Run these against the development project after `db push`. All are read-only.
 > (`npm run gate -- db-tooling`), so they cannot silently go stale. They say
 > nothing about what has been deployed.
 
-| Check | Expected after all 43 are applied |
+| Check | Expected after all 44 are applied |
 |---|---|
-| `supabase migration list` | **43** migrations applied |
-| `select count(*) from public.platform_schema_version;` | **41** — see the note below |
+| `supabase migration list` | **44** migrations applied |
+| `select count(*) from public.platform_schema_version;` | **43** — see the note below |
 | `select count(*) from information_schema.tables where table_schema='public';` | **62** tables |
 | `select count(*) from pg_policies where schemaname='public';` | **66** policies |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
@@ -326,6 +326,7 @@ Run these against the development project after `db push`. All are read-only.
 > | `20260831000100` (WP-C) | `mission_steps`: +1 table, +1 policy, +1 RLS statement, one schema-version row. | ⛔ no |
 > | `20260901000100` (WP-D) | two columns and two constraints on `curriculum_assets`, one service_role grant, one schema-version row. No table, policy or RLS change. | ⛔ no |
 > | `20260902000100` (WP-G) | five service_role grants, one schema-version row. No table, column, policy, RLS or DELETE grant. | ⛔ no |
+> | `20260907000100` (MISSION-STEP-VOCAB-1) | one CHECK constraint replaced on `mission_steps.step_type`, one column comment, one schema-version row. No table, column, policy, RLS, grant or data change. | ⛔ no |
 >
 > Against the project as it stands today (38 applied), the same queries return
 > **38** migrations, **37** schema-version rows, **61** tables and **65**

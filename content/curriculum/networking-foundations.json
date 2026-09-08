@@ -571,7 +571,7 @@
       "stableId": "nf-m2-inside-one-network",
       "moduleStableId": "nf-mod1-one-network",
       "title": "Mission 2 — Inside one network: how a switch delivers",
-      "description": "Before this mission you should be able to: read a small network and name its devices and connections (Mission 1).\n\nTwo machines are connected to the same device in the middle. Someone at one of them sends a file to a colleague at the other. Watch what happens the first time, and then watch what happens the second time. They are not the same, and the difference is the whole of this mission.\n\nThe first time, the device in the middle does not know where the destination is, so it sends a copy of the file out of every other connection at once and lets the right machine answer. That is wasteful, and it does not stay that way. The device pays attention to which connection each delivery arrives on, records what it observes, and the next one goes to exactly one place.\n\nOnce you have seen that happen, you get the words for it. Each machine carries a built-in identity set at the factory, written in a notation you will recognize but do not need to calculate with. The unit of traffic that carries one of these identities to another has a name. The record the middle device builds up has a name. Sending a copy to everyone because you do not yet know better has a name too.\n\nYou will also meet the first thing that looks like a failure and is not. Traffic reaching every machine instead of one looks wrong the first time you see it. It is correct, it is temporary, and telling the difference between \"broken\" and \"working as designed\" is a habit worth forming early.\n\nBy the end you will be able to explain how one machine reaches another inside a single network, why the second attempt behaves differently from the first, and what happens when the destination is not known.",
+      "description": "Before this mission you should be able to: read a small network and name its devices and connections (Mission 1).\n\nPC-A and PC-B share one local network through Switch-1. PC-A sends a local-network delivery toward PC-B. You will follow the first delivery, a reply, and a later delivery between the same two hosts and compare what changes.\n\nDo not try to name the mechanism yet. First watch what Switch-1 can see, what the network does, and what information becomes available as traffic arrives.\n\nBy the end you will be able to explain how a switch uses learned local information to deliver traffic, read the interface identity used for that local delivery, and distinguish expected switching behavior from a fault.",
       "position": 1,
       "estimatedMinutes": 55,
       "competencies": [
@@ -592,14 +592,12 @@
           "position": 0,
           "content": {
             "type": "concept",
-            "title": "One file, two machines",
+            "title": "One local delivery, two machines",
             "paragraphs": [
-              "PC-A and PC-B sit on the same small network, each plugged into Switch-1. Someone at PC-A sends a file to a colleague at PC-B.",
-              "Your job: work out how Switch-1 gets that file to the right computer — and why it does not do it the same way twice.",
-              "No other device stands between them.",
-              "PC-A addresses the file to PC-B's interface. PC-A can do that because it already holds an identity for that interface — a value naming which connection point on the network the file is for.",
-              "How PC-A came to hold that identity needs an idea you do not have yet — Mission 4 answers it. For now take it as given, and watch what the network does with the file.",
-              "You will watch that same file sent twice, to the same machine, on two occasions — and the two do not go the same way. That difference is the whole mission."
+              "PC-A and PC-B are on the same local network, each connected to Switch-1. Someone at PC-A sends data to a colleague at PC-B.",
+              "Your job: follow one local-network delivery from PC-A toward PC-B, then compare it with a later delivery between the same two hosts.",
+              "PC-A already has the local interface identity it needs for PC-B. How PC-A learned that identity comes later; for this mission, take that starting fact as given.",
+              "Watch Switch-1 and compare the state you can observe before each delivery. Name the mechanism only after you have seen it."
             ]
           }
         },
@@ -612,8 +610,8 @@
             "interactionType": "packet_journey",
             "sourceKind": "authored_teaching",
             "supportLevel": "show_me",
-            "caption": "An instructional walkthrough of two deliveries on one network. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
-            "textEquivalent": "A small network of four devices: three hosts — PC-A, PC-B and a Printer — each with one interface, and Switch-1 in the middle holding three ports. PC-A is on port 1, PC-B on port 2, the Printer on port 3. Each host interface carries a hardware identity, which you can read in the inspector. Someone at PC-A is sending a file to a colleague at PC-B, and the walkthrough follows that file being sent twice. The first time, PC-A puts the file onto its connection addressed to PC-B, and it arrives at Switch-1 on port 1. Switch-1 holds no record of where PC-B is, so at that same moment it sends a copy of the file out of both of its other connections at once — port 2 and port 3. These are two copies of one delivery, not two separate files. The copy on port 2 reaches PC-B, which is the machine the file is addressed to, and PC-B accepts it. The copy on port 3 reaches the Printer, which compares the file's destination against its own identity, sees that they are different, and does not accept it; nothing has gone wrong there. As the file arrived, Switch-1 recorded what it could see: the file came in on port 1 from PC-A, so PC-A is on port 1. Switch-1 still has no record of PC-B. PC-B then replies, and that reply arrives at Switch-1 on port 2, which is how Switch-1 records that PC-B is on port 2. The reply leaves by port 1 alone and reaches PC-A, because Switch-1 already knew where PC-A was. The second time, PC-A sends the same file to PC-B again and nothing about the file has changed. Switch-1 receives it on port 1, finds PC-B already recorded against port 2, and sends it out of port 2 only. Port 3 stays quiet and the Printer sees nothing at all. The file reaches PC-B. What changed between the two deliveries is not the file: it is what Switch-1 had recorded from the ordinary traffic it saw in between.",
+            "caption": "An instructional walkthrough of the local deliveries on one network. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
+            "textEquivalent": "A small local network contains PC-A, PC-B, a Printer, and Switch-1. PC-A connects to Switch-1 port 1, PC-B to port 2, and the Printer to port 3. PC-A is sending a local-network delivery intended for PC-B. Each host interface has a local hardware address visible in the inspector. Use the activity to observe what Switch-1 does on the first delivery, what information becomes available from traffic it receives, what changes after PC-B sends a reply, and what happens on a later delivery. The outcomes are revealed as you progress through the activity.",
             "parameters": {
               "interactionType": "packet_journey",
               "groups": [
@@ -628,7 +626,7 @@
                   "label": "PC-A",
                   "role": "host",
                   "groupId": "local-network",
-                  "about": "PC-A is the computer sending the file, in both of the deliveries this walkthrough follows. It connects to port 1 on Switch-1, and it addresses the file to PC-B's interface.",
+                  "about": "PC-A is the host where this activity begins. It connects to Switch-1 port 1.",
                   "interfaces": [
                     {
                       "interfaceId": "pc-a-nic",
@@ -652,7 +650,7 @@
                   "label": "PC-B",
                   "role": "host",
                   "groupId": "local-network",
-                  "about": "PC-B is the machine the file is meant for, both times it is sent. It connects to port 2 on Switch-1, and its interface carries the hardware identity PC-A addresses the file to.",
+                  "about": "PC-B is the intended destination for the first local-network delivery. It connects to Switch-1 port 2.",
                   "interfaces": [
                     {
                       "interfaceId": "pc-b-nic",
@@ -676,7 +674,7 @@
                   "label": "Printer",
                   "role": "printer",
                   "groupId": "local-network",
-                  "about": "The Printer is a third host on this network, connected to port 3. The file is not meant for it either time. Watch what reaches the Printer during the first delivery and what does not reach it during the second, because the difference between those two moments is the whole of this mission.",
+                  "about": "The Printer is another host on this local network. It connects to Switch-1 port 3, but it is not the intended destination.",
                   "interfaces": [
                     {
                       "interfaceId": "printer-nic",
@@ -700,7 +698,7 @@
                   "label": "Switch-1",
                   "role": "switch",
                   "groupId": "local-network",
-                  "about": "Switch-1 connects all three hosts, one to each port. Everything in this walkthrough arrives here first, and what Switch-1 does with it changes between the first delivery and the second. What it records in between is the subject of this mission.",
+                  "about": "Switch-1 connects all three hosts. Select it as the activity progresses to inspect the state the lesson has revealed so far.",
                   "interfaces": [
                     {
                       "interfaceId": "sw-1-p1",
@@ -765,26 +763,38 @@
                 }
               ],
               "traffic": {
-                "label": "the file",
+                "label": "one local-network delivery",
                 "sourceNodeId": "pc-a",
                 "destinationNodeId": "pc-b",
-                "startActionLabel": "Send the file to PC-B"
+                "startActionLabel": "Send the delivery to PC-B"
               },
               "stages": [
                 {
                   "stageId": "d1-pc-a-sends",
                   "atNodeId": "pc-a",
-                  "action": "sending the file to PC-B",
-                  "narration": "The person at PC-A shares a file with a colleague at PC-B. PC-A puts the file onto its connection, addressed to PC-B.",
-                  "decision": "PC-A does not decide how the file will travel. PC-A addresses it and sends it; working out which connection leads where is not PC-A's job.",
-                  "outcome": "proceeds"
+                  "action": "sending a local-network delivery to PC-B",
+                  "narration": "PC-A puts one local-network delivery onto its connection toward Switch-1. The delivery is intended for PC-B.",
+                  "decision": "PC-A sends using the local interface identity it already has for PC-B. How that identity was discovered is outside this mission.",
+                  "outcome": "proceeds",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 has recorded",
+                      "facts": [
+                        {
+                          "label": "PC-B",
+                          "value": "No location recorded yet"
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "stageId": "d2-switch-sends-copies",
-                  "action": "sending a copy out of every other port",
+                  "action": "receiving the delivery and choosing outgoing connections",
                   "atNodeId": "sw-1",
-                  "narration": "The file arrives at Switch-1 on port 1. Switch-1 holds no record of where PC-B is, so at that same moment it sends a copy of the file out of both of its other connections at once — port 2 and port 3. These are two copies of one delivery, not two separate files.",
-                  "decision": "Switch-1 is not guessing and it is not giving up. It has one delivery for PC-B and no record of which connection leads there, so it uses every connection it has left. Whichever one PC-B is on, the file arrives.",
+                  "narration": "The delivery reaches Switch-1 on port 1. Switch-1 has no recorded location for PC-B, so it sends a copy through port 2 and port 3. It does not send a copy back out port 1.",
+                  "decision": "When the destination is not in its recorded locations, Switch-1 uses every other port so the delivery can reach whichever port leads to PC-B.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-a",
                   "alsoOnLinkIds": [
@@ -792,35 +802,51 @@
                     "link-printer"
                   ],
                   "prediction": {
-                    "prompt": "Switch-1 has only just been switched on. Nothing addressed to PC-B has ever passed through it. What does Switch-1 do with this file?",
+                    "prompt": "Switch-1 has no recorded location for PC-B. What do you think it does with this delivery?",
                     "options": [
-                      "Sends it out of port 2 only, because that is where PC-B is",
-                      "Sends a copy out of every other connection, because it does not yet know which one leads to PC-B",
-                      "Holds on to it and asks PC-B where it is"
-                    ]
-                  }
-                },
-                {
-                  "stageId": "d3-copies-arrive",
-                  "action": "accepting the file it was addressed",
-                  "atNodeId": "pc-b",
-                  "narration": "The copy on port 2 reaches PC-B, which is the machine the file is addressed to, so PC-B accepts it. The copy on port 3 reaches the Printer at the same moment. The Printer compares the file's destination against its own identity, sees that they are different, and does not accept it.",
-                  "decision": "Nothing has gone wrong at the Printer. Every machine checks whether an arriving delivery is addressed to it, and leaves it alone when it is not. Meanwhile Switch-1 recorded what it could see as the file came past: the file arrived on port 1 and PC-A sent it, so PC-A is on port 1. Nobody configured that. Switch-1 still has no record of PC-B, because PC-B has not sent anything yet.",
-                  "outcome": "proceeds",
-                  "viaLinkId": "link-pc-b",
-                  "prediction": {
-                    "prompt": "Switch-1 has now seen the file arrive from PC-A on port 1. What does Switch-1 know at this point?",
-                    "options": [
-                      "That PC-A is on port 1",
-                      "That PC-B is on port 2",
-                      "Both where PC-A is and where PC-B is",
-                      "Neither, until someone configures it"
+                      "Sends it through port 2 only",
+                      "Sends a copy through port 2 and port 3",
+                      "Sends it back through port 1 and waits"
                     ]
                   },
                   "deviceFacts": [
                     {
                       "nodeId": "sw-1",
-                      "label": "What Switch-1 knows",
+                      "label": "What Switch-1 has recorded",
+                      "facts": [
+                        {
+                          "label": "PC-A",
+                          "value": "Port 1"
+                        }
+                      ]
+                    }
+                  ],
+                  "knowledgeChecks": [
+                    {
+                      "checkId": "m2-d2-source-learning",
+                      "prompt": "Why can Switch-1 record PC-A on port 1 after this arrival?",
+                      "options": [
+                        "Because the delivery arrived on port 1 with PC-A as its source",
+                        "Because PC-B is connected to port 2",
+                        "Because the Printer ignored its copy"
+                      ],
+                      "correctOption": "Because the delivery arrived on port 1 with PC-A as its source",
+                      "explanation": "A switch learns from the source of traffic it receives. This delivery arrived on port 1 from PC-A, so the arrival supports the PC-A-to-port-1 entry."
+                    }
+                  ]
+                },
+                {
+                  "stageId": "d3-copies-arrive",
+                  "action": "receiving the first delivery",
+                  "atNodeId": "pc-b",
+                  "narration": "One copy reaches PC-B on port 2 and is accepted because the delivery is intended for PC-B. At the same time, the other copy reaches the Printer on port 3. The Printer sees that the delivery is not intended for it and does not accept it.",
+                  "decision": "Nothing is broken. Switch-1 had no recorded location for PC-B, so both other ports carried a copy. Only the intended destination accepts the delivery.",
+                  "outcome": "proceeds",
+                  "viaLinkId": "link-pc-b",
+                  "deviceFacts": [
+                    {
+                      "nodeId": "sw-1",
+                      "label": "What Switch-1 has recorded",
                       "facts": [
                         {
                           "label": "PC-A",
@@ -834,24 +860,30 @@
                       "facts": [
                         {
                           "label": "Copy arrived",
-                          "value": "Not accepted — the file is addressed to PC-B"
+                          "value": "Not accepted — the delivery is intended for PC-B"
                         }
                       ]
                     }
+                  ],
+                  "alsoOnLinkIds": [
+                    "link-printer"
+                  ],
+                  "alsoAtNodeIds": [
+                    "printer"
                   ]
                 },
                 {
                   "stageId": "d4-pc-b-replies",
-                  "action": "carrying PC-B's reply back",
+                  "action": "receiving PC-B's reply",
                   "atNodeId": "sw-1",
-                  "narration": "PC-B answers, and its reply arrives at Switch-1 on port 2.",
-                  "decision": "Switch-1 records this arrival exactly as it recorded the first one: the reply came in on port 2 and PC-B sent it, so PC-B is on port 2. That is the one thing Switch-1 was missing a moment ago, and ordinary traffic supplied it.",
+                  "narration": "PC-B replies. The reply reaches Switch-1 on port 2.",
+                  "decision": "This arrival shows Switch-1 that traffic sourced by PC-B is arriving through port 2, so Switch-1 records PC-B on port 2.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-b",
                   "deviceFacts": [
                     {
                       "nodeId": "sw-1",
-                      "label": "What Switch-1 knows",
+                      "label": "What Switch-1 has recorded",
                       "facts": [
                         {
                           "label": "PC-A",
@@ -863,14 +895,19 @@
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "traffic": {
+                    "label": "PC-B's reply",
+                    "sourceNodeId": "pc-b",
+                    "destinationNodeId": "pc-a"
+                  }
                 },
                 {
                   "stageId": "d5-reply-reaches-pc-a",
-                  "action": "receiving the reply",
+                  "action": "delivering PC-B's reply to PC-A",
                   "atNodeId": "pc-a",
-                  "narration": "The reply leaves by port 1 alone and arrives at PC-A. The Printer's connection stays quiet this time.",
-                  "decision": "Switch-1 already knew that PC-A was on port 1, because it recorded that when the file first came past. The reply therefore never needed to go anywhere else.",
+                  "narration": "Switch-1 already has a recorded location for PC-A, so the reply leaves only through port 1 and reaches PC-A. The Printer's port is not used for this reply.",
+                  "decision": "The destination is already in the recorded locations, so Switch-1 can use the single recorded port.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-a",
                   "deviceFacts": [
@@ -888,14 +925,19 @@
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "traffic": {
+                    "label": "PC-B's reply",
+                    "sourceNodeId": "pc-b",
+                    "destinationNodeId": "pc-a"
+                  }
                 },
                 {
                   "stageId": "d6-pc-a-sends-again",
-                  "action": "sending the same file a second time",
+                  "action": "sending another local-network delivery to PC-B",
                   "atNodeId": "pc-a",
-                  "narration": "A little later, the person at PC-A sends the same file to PC-B again. Nothing about the file itself has changed.",
-                  "decision": "Same sender, same destination, same network, same file. The only thing that is different is what has happened in between.",
+                  "narration": "A little later, PC-A sends another local-network delivery to PC-B. The hosts and links are unchanged.",
+                  "decision": "Before the delivery moves through Switch-1, compare what Switch-1 has recorded with what it had at the start.",
                   "outcome": "proceeds",
                   "deviceFacts": [
                     {
@@ -916,19 +958,21 @@
                 },
                 {
                   "stageId": "d7-switch-sends-once",
-                  "action": "sending it out of one port only",
+                  "action": "choosing the outgoing port",
                   "atNodeId": "sw-1",
-                  "narration": "The file arrives at Switch-1 on port 1 again. This time Switch-1 finds PC-B already recorded against port 2, and sends the file out of port 2 alone. Port 3 stays quiet, and the Printer sees nothing at all.",
-                  "decision": "This is the whole difference. Switch-1 is no cleverer than it was a minute ago. It simply knows one thing now that it did not know then, and it learned that thing by watching ordinary traffic that nobody sent for the purpose.",
+                  "narration": "The delivery reaches Switch-1 on port 1. Switch-1 already has PC-B recorded on port 2, so it sends the delivery only through port 2. Port 3 remains unused.",
+                  "decision": "This time the destination has a recorded location, so one outgoing port is enough.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-a",
                   "prediction": {
-                    "prompt": "Switch-1 has now seen a reply arrive from PC-B on port 2. What does it do with this second copy of the file?",
+                    "prompt": "Switch-1 now has PC-B recorded on port 2. What will it do with this delivery?",
                     "options": [
-                      "Sends a copy out of every other connection again",
-                      "Sends it out of port 2 only",
-                      "Waits for PC-B to answer before sending anything"
-                    ]
+                      "Send a copy through port 2 and port 3",
+                      "Send it through port 2 only",
+                      "Send it back through port 1"
+                    ],
+                    "correctOption": "Send it through port 2 only",
+                    "explanation": "PC-B is already recorded on port 2, so Switch-1 can send this delivery through that port without using the Printer's port."
                   },
                   "deviceFacts": [
                     {
@@ -949,10 +993,10 @@
                 },
                 {
                   "stageId": "d8-pc-b-receives",
-                  "action": "receiving the file",
+                  "action": "receiving the later delivery",
                   "atNodeId": "pc-b",
-                  "narration": "The file arrives at PC-B. One copy, one connection, and nothing anywhere else on the network.",
-                  "decision": "Compare that with the first delivery: the same two machines and the same file, but one connection used instead of three.",
+                  "narration": "The delivery reaches PC-B through port 2. The Printer does not receive a copy this time.",
+                  "decision": "Compare the two deliveries: the topology did not change. What changed was the location information Switch-1 had learned from earlier traffic.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-b",
                   "deviceFacts": [
@@ -975,10 +1019,11 @@
               ],
               "actions": [],
               "confirmation": {
-                "narration": "The file reached PC-B directly the second time, and the Printer never saw it.",
-                "summary": "The first time, Switch-1 had no record of where PC-B was, so it sent a copy of the file out of every other connection at once and the file still arrived. Switch-1 recorded where each machine was by watching ordinary traffic arrive — PC-A when the file came past, PC-B when the reply came back. By the second time Switch-1 knew, so one copy out of one connection was enough."
+                "narration": "Delivered. The later delivery reached PC-B without using the Printer's port.",
+                "summary": "On the first delivery, Switch-1 had no recorded location for PC-B and used both other ports. From incoming traffic, it learned PC-A on port 1 and then PC-B on port 2 when PC-B replied. On the later delivery, the recorded location for PC-B let Switch-1 use port 2 only. Next, you will name the local identities and table entries you just used."
               }
-            }
+            },
+            "requiredForProgression": true
           }
         },
         {
@@ -988,11 +1033,11 @@
             "type": "concept",
             "title": "What you just watched",
             "paragraphs": [
-              "The first time, Switch-1 had never seen anything addressed to PC-B, so it did not know which port led there. It did the one thing that reliably works: sent a copy out of every other connection at once, so whichever one led to PC-B, the file would arrive. That is called flooding.",
-              "Flooding is not a mistake. It is what a switch does when it does not yet know where a destination is, and it worked — the file reached PC-B. It is merely wasteful: the Printer was handed a copy it had no use for.",
-              "It also does not last. Everything arriving at a switch shows which port it came in on and which interface sent it, and a switch keeps a record of that. Switch-1 recorded PC-A against port 1 the instant the file came past, and PC-B against port 2 when the reply arrived — out of ordinary traffic, with nobody configuring it.",
-              "Notice the order. A switch learns where the SENDER is from the very first delivery, because the sender is the one thing an arrival always shows. It could not learn where PC-B was until PC-B sent something of its own — one entry after the first delivery, two after the reply.",
-              "By the second delivery Switch-1 had PC-B on that record: one connection, one copy, the Printer left quiet. Nothing about the file changed between the two. What changed is what Switch-1 knew."
+              "The first time, Switch-1 had no recorded location for PC-B. Sending copies out every other port in that situation is called flooding.",
+              "Flooding is expected behavior when the destination is not in the switch's recorded locations. The switch does not send the copy back through the port where the traffic arrived.",
+              "At the same time, a switch can learn from the source of incoming traffic. PC-A's delivery arrived on port 1, so Switch-1 could record PC-A on port 1. PC-B's reply arrived on port 2, so Switch-1 could record PC-B on port 2.",
+              "The order matters. A switch learns a source from traffic that actually arrives. It does not learn where a quiet destination is merely because another host is trying to reach it.",
+              "Once PC-B had sent traffic of its own, Switch-1 had enough local information to use port 2 for the later delivery instead of flooding it."
             ]
           }
         },
@@ -1003,10 +1048,10 @@
             "type": "concept",
             "title": "The identity on an interface",
             "paragraphs": [
-              "The value you could read on each interface in the inspector is the identity PC-A addressed the file to, and the same value is what Switch-1 recorded against a port. That value is called a MAC address.",
-              "A MAC address belongs to an interface rather than to a machine, so a laptop with a socket and an aerial carries two. It is set when the hardware is made, and within one local network it is the identity that matters.",
-              "You read a MAC address; you do not calculate with it. Six pairs of characters separated by colons, and for now that is all the notation you need.",
-              "The record you watched Switch-1 build is called the MAC address table. The walkthrough showed it with device names so you could read it at a glance; what a switch actually stores against each port is the MAC address of the interface it last saw sending there."
+              "The local interface identity you saw in the inspector is called a MAC address. A switch reads source and destination MAC addresses while handling local Ethernet traffic.",
+              "A MAC address belongs to a network interface rather than to the whole machine. A device with more than one network interface can therefore have more than one MAC address.",
+              "Many physical interfaces are given a MAC address by their manufacturer, but a MAC address is not an immutable hardware serial number. Software and virtual interfaces can use locally administered or changed MAC addresses. For this mission, the important fact is the current MAC address on the interface.",
+              "The record you watched Switch-1 build is called a MAC address table. Each learned entry associates a source MAC address with the port where the switch most recently saw traffic from that source. In this simple topology, one host is directly connected to each port, so the walkthrough used device names for readability. A real switch can learn more than one MAC address through the same port."
             ]
           }
         },
@@ -1015,9 +1060,9 @@
           "position": 4,
           "content": {
             "type": "command",
-            "caption": "The MAC address of one interface, as a real machine reports it. This is displayed output for you to read — nothing here offers to run anything. Real output carries several more lines and several more fields; this shows only the line that matters here, so that nothing appears which you have not met yet.",
+            "caption": "Field excerpt from ip link show eth0. Real output includes interface state and additional fields around this value; this excerpt preserves only the link/ether field and MAC address used in this mission.",
             "command": "ip link show eth0",
-            "output": "eth0    link/ether 00:1b:44:11:3a:b7",
+            "output": "link/ether 00:1b:44:11:3a:b7",
             "language": "shell"
           }
         },
@@ -1028,9 +1073,10 @@
             "type": "concept",
             "title": "The unit that moved",
             "paragraphs": [
-              "Something specific traveled from PC-A's interface to a port on Switch-1, and on to PC-B's. It carried the address of the interface it was for, and of the interface that sent it.",
-              "That unit is called a frame. A frame is what moves across one local network, from interface to interface, addressed by the kind of address you have just met.",
-              "A second unit exists, with a different job, and it matters the moment something has to leave this network. You meet it in Mission 6 — naming it now would mean nothing, because you have not yet watched anything leave."
+              "The switch does not forward an entire application file as one indivisible object. The local-network delivery you followed represents one Ethernet frame carrying data for the communication.",
+              "A frame carries source and destination MAC addresses and moves across a local Ethernet link from interface to interface.",
+              "A file transfer normally requires many frames. This mission follows one representative frame so you can reason about the switch's local delivery decision without adding the higher-layer details yet.",
+              "When traffic must leave this local network, another unit has a different job. You will meet that later, after you have a reason to use it."
             ]
           }
         },
@@ -1041,9 +1087,197 @@
             "type": "concept",
             "title": "Looks wrong, works as designed",
             "paragraphs": [
-              "The Printer was handed a copy of a file that had nothing to do with it, compared the address against its own, saw they did not match, and did not accept it. Nothing went wrong.",
-              "The first time you see traffic arriving somewhere it was not meant for, it looks like a fault. Form the habit now of asking a different question first: is this broken, or is this the system working as designed?",
-              "You will need that question for the rest of the course — most of all in Mission 8, where something genuinely is broken."
+              "The Printer receiving a copy during the first delivery did not mean the network was broken. It was an expected consequence of flooding while Switch-1 lacked a destination entry for PC-B.",
+              "Troubleshooting starts by separating an observation from a conclusion. Ask what state the device had, then ask whether the behavior is consistent with that state.",
+              "You will reuse that habit when later missions introduce behavior that really is a fault."
+            ]
+          }
+        },
+        {
+          "stableId": "m2-s8-try-a-different-switch",
+          "position": 7,
+          "content": {
+            "type": "near_transfer",
+            "title": "Try it on a different switch",
+            "framing": "A different office uses Switch-2 with two workstations and a camera. Use the topology and the MAC-table state stated in each question. Nothing here requires configuration.",
+            "topology": {
+              "nodes": [
+                {
+                  "nodeId": "workstation-a",
+                  "label": "Workstation-A",
+                  "role": "host"
+                },
+                {
+                  "nodeId": "workstation-b",
+                  "label": "Workstation-B",
+                  "role": "host"
+                },
+                {
+                  "nodeId": "camera",
+                  "label": "Camera",
+                  "role": "host"
+                },
+                {
+                  "nodeId": "switch-2",
+                  "label": "Switch-2",
+                  "role": "switch"
+                }
+              ],
+              "links": [
+                {
+                  "linkId": "nt2-workstation-a",
+                  "label": "Workstation-A to Switch-2 port 1",
+                  "endpoints": [
+                    "workstation-a",
+                    "switch-2"
+                  ],
+                  "portLabels": [
+                    {
+                      "nodeId": "switch-2",
+                      "label": "Port 1"
+                    }
+                  ]
+                },
+                {
+                  "linkId": "nt2-workstation-b",
+                  "label": "Workstation-B to Switch-2 port 2",
+                  "endpoints": [
+                    "workstation-b",
+                    "switch-2"
+                  ],
+                  "portLabels": [
+                    {
+                      "nodeId": "switch-2",
+                      "label": "Port 2"
+                    }
+                  ]
+                },
+                {
+                  "linkId": "nt2-camera",
+                  "label": "Camera to Switch-2 port 3",
+                  "endpoints": [
+                    "camera",
+                    "switch-2"
+                  ],
+                  "portLabels": [
+                    {
+                      "nodeId": "switch-2",
+                      "label": "Port 3"
+                    }
+                  ]
+                }
+              ],
+              "textEquivalent": "Workstation-A connects to Switch-2 port 1. Workstation-B connects to Switch-2 port 2. The Camera connects to Switch-2 port 3."
+            },
+            "questions": [
+              {
+                "questionStableId": "m2-nt-q1-unknown-destination",
+                "type": "single_choice",
+                "prompt": "Switch-2 has no MAC-table entry for Workstation-B. A frame from Workstation-A arrives on port 1 for Workstation-B. Which ports should carry copies next?",
+                "options": [
+                  {
+                    "optionId": "port-2-only",
+                    "text": "Port 2 only"
+                  },
+                  {
+                    "optionId": "ports-2-and-3",
+                    "text": "Ports 2 and 3"
+                  },
+                  {
+                    "optionId": "ports-1-2-and-3",
+                    "text": "Ports 1, 2, and 3"
+                  }
+                ],
+                "correctOptionIds": [
+                  "ports-2-and-3"
+                ],
+                "explanation": "Because Workstation-B is not in the table, Switch-2 floods the frame through the other ports. It does not send the frame back out the ingress port 1."
+              },
+              {
+                "questionStableId": "m2-nt-q2-source-learning",
+                "type": "single_choice",
+                "prompt": "From that same arrival on port 1, which entry can Switch-2 learn immediately?",
+                "options": [
+                  {
+                    "optionId": "workstation-a-port-1",
+                    "text": "Workstation-A → port 1"
+                  },
+                  {
+                    "optionId": "workstation-b-port-2",
+                    "text": "Workstation-B → port 2"
+                  },
+                  {
+                    "optionId": "camera-port-3",
+                    "text": "Camera → port 3"
+                  },
+                  {
+                    "optionId": "none-until-configured",
+                    "text": "None until an administrator configures the switch"
+                  }
+                ],
+                "correctOptionIds": [
+                  "workstation-a-port-1"
+                ],
+                "explanation": "A switch learns from the source MAC address of traffic it receives. The frame arrived on port 1 from Workstation-A, so Switch-2 can learn Workstation-A on port 1."
+              },
+              {
+                "questionStableId": "m2-nt-q3-camera-copy",
+                "type": "single_choice",
+                "prompt": "The Camera receives a copy of that first frame, but the destination MAC address belongs to Workstation-B. What does the Camera receiving the copy establish?",
+                "options": [
+                  {
+                    "optionId": "switch-broken",
+                    "text": "The switch is broken"
+                  },
+                  {
+                    "optionId": "expected-flood",
+                    "text": "This can be expected during flooding and does not by itself establish a fault"
+                  },
+                  {
+                    "optionId": "camera-address-changed",
+                    "text": "The Camera's MAC address must have changed"
+                  }
+                ],
+                "correctOptionIds": [
+                  "expected-flood"
+                ],
+                "explanation": "An unknown destination can cause the switch to flood the frame through the other ports. An unintended host seeing that copy is therefore not enough by itself to establish a fault."
+              },
+              {
+                "questionStableId": "m2-nt-q4-known-destination",
+                "type": "single_choice",
+                "prompt": "Later, after Workstation-B sends a reply, Switch-2 has learned Workstation-B on port 2. Workstation-A sends another frame to Workstation-B. Which port should Switch-2 use?",
+                "options": [
+                  {
+                    "optionId": "port-1",
+                    "text": "Port 1 only"
+                  },
+                  {
+                    "optionId": "port-2",
+                    "text": "Port 2 only"
+                  },
+                  {
+                    "optionId": "ports-2-and-3",
+                    "text": "Ports 2 and 3"
+                  }
+                ],
+                "correctOptionIds": [
+                  "port-2"
+                ],
+                "explanation": "Workstation-B is now a known destination on port 2, so Switch-2 can forward the frame through port 2 without flooding it to the Camera."
+              }
+            ]
+          }
+        },
+        {
+          "stableId": "m2-s9-what-comes-next",
+          "position": 8,
+          "content": {
+            "type": "concept",
+            "title": "What comes next",
+            "paragraphs": [
+              "You can now explain why a switch floods when a destination MAC address is not yet in its table, how it learns source MAC locations from arriving frames, and why later traffic can use a single learned port.",
+              "Mission 3 adds a second kind of interface identity. You will read it from a host and compare what it tells you with the local MAC identity you used here."
             ]
           }
         }
@@ -1054,7 +1288,7 @@
       "stableId": "nf-m3-ipv4-the-second-identity",
       "moduleStableId": "nf-mod2-addresses-and-boundaries",
       "title": "Mission 3 — IPv4 addresses: the second identity",
-      "description": "Before this mission you should be able to: explain how one machine reaches another inside a single network, and what the built-in factory identity is for (Mission 2).\n\nEvery machine you have looked at already has an identity. So why does it need a second one?\n\nThe factory identity has a problem: it says nothing about where the machine is. It cannot be changed, it follows the hardware, and it is useless for organising anything. A second identity fixes that. It is assigned rather than built in, it is written as four numbers separated by dots, and unlike the first one it can be chosen to say something about which group a machine belongs to.\n\nYou will look at real output from a machine and find its second identity, sitting next to the name of the connection that holds it. Reading that output is a small skill with a large payoff: it is how you confirm what a machine actually has, rather than what someone told you it has.\n\nThis mission does not yet tell you how a machine uses the second identity to decide anything. That decision needs one more piece of information, and it is the whole of the next mission. Here you are establishing the fact that the identity exists, that it is assigned, that it can be read, and that it is a different kind of thing from the one you met in Mission 2.\n\nAddresses can be set by hand or handed out automatically by another machine. This course sets them by hand so you can see exactly what is where. Machines can also be reached by name rather than by address; that is a separate system, and this course works in addresses deliberately.\n\nBy the end you will be able to read a machine's assigned address from real output, say which connection holds it, and explain how it differs from the identity you met in Mission 2. You will use that in every mission that follows, and in every later course that asks you to check what a machine actually has.",
+      "description": "Before this mission you should be able to: explain how a switch uses MAC addresses and learned port mappings for local delivery (Mission 2).\n\nEvery interface you have looked at already has a MAC address used for local Ethernet delivery. So why does the same interface also need an IPv4 address?\n\nA MAC address identifies an interface for local Ethernet delivery, but it is not the address this course will use to organize machines into IP networks. An IPv4 address is assigned to the interface, is written as four decimal numbers separated by dots, and can be chosen to reflect which IP network the interface belongs to.\n\nYou will look at displayed machine output and find the IPv4 address beside the interface that holds it. Reading the machine's own report is how you confirm its current state instead of relying on a diagram or memory.\n\nThis mission does not yet teach how the host uses the IPv4 address to decide whether another address is local or remote. That decision needs the number after the slash, and it is the next mission.\n\nAddresses can be configured manually or assigned automatically. This course uses controlled values so you can see exactly what is where. Names such as hostnames are a separate system and are not needed for this exercise.\n\nBy the end you will be able to read a machine's IPv4 address from displayed output, say which interface holds it, and explain how its job differs from the MAC address you used in Mission 2.",
       "position": 0,
       "estimatedMinutes": 45,
       "competencies": [
@@ -1084,10 +1318,10 @@
             "paragraphs": [
               "A machine is on the network and working, and you have been asked to identify it — to say which machine it is and where it sits.",
               "Your job: read what PC-A reports about itself, and find the identity that answers the second half of that question.",
-              "In Mission 2 you already read one identity off PC-A's connection: set when the hardware was made, recorded by Switch-1 against a port. It did a real job.",
-              "Here is what should bother you: it says nothing about where PC-A is. It was fixed in a factory before anyone knew which network the machine would join, and it stays the same if you carry the machine to another building.",
-              "Inside one network that did not matter — Switch-1 only needed to know which of its own ports PC-A was on.",
-              "So the connection already has an identity. Why would it need a second one? Do not take the answer from this page — look at what the machine reports about itself."
+              "In Mission 2 you read PC-A's MAC address from its interface and watched Switch-1 learn that source MAC on port 1. That address mattered for local Ethernet delivery.",
+              "But the MAC address does not tell you which IP network the interface belongs to. The interface needs a different kind of address for that job.",
+              "Inside the local Ethernet network, Switch-1 could deliver using learned MAC-to-port entries. The next questions need a different kind of address.",
+              "So the interface already has a MAC address. Why does it also need an IP address? Do not take the answer from this page — look at what the machine reports about itself."
             ]
           }
         },
@@ -1109,10 +1343,10 @@
             "type": "concept",
             "title": "The second identity",
             "paragraphs": [
-              "The line you had not seen before begins with inet, and the connection holding it is eth0 — the same connection whose factory identity you read in Mission 2. One connection, carrying both at once. Neither replaced the other.",
-              "The four numbers separated by dots, 192.168.1.10, are an IPv4 address. Unlike the factory identity, an IPv4 address is assigned: somebody chose it, it can be changed later, and it can be chosen deliberately so that machines meant to be grouped together are given addresses that look alike.",
-              "Hold the two apart, because they answer different questions. The MAC address is built into the hardware and identifies this equipment wherever it goes. The IPv4 address is assigned where the machine currently sits, and is about where it has been placed rather than what it is.",
-              "In ordinary words: one is which hardware this is, the other is where this machine belongs. Both are true at once, both sit on the same connection, and both can be read rather than taken on trust."
+              "The line you had not seen before begins with inet, and the interface holding it is eth0 — the same interface whose MAC address you read in Mission 2. One interface can carry both at once. Neither replaces the other.",
+              "The four numbers separated by dots, 192.168.1.10, are an IPv4 address. An IPv4 address is assigned to an interface, can be changed, and can be chosen as part of an addressing plan.",
+              "Hold the two jobs apart. The MAC address is used for local Ethernet delivery. The IPv4 address is the interface's assigned IP address; with the number after the slash that you will learn next, it helps the host reason about which IP network an address belongs to.",
+              "Both addresses can exist on the same interface and both can be read from the machine's own state. They answer different networking questions."
             ]
           }
         },
@@ -1134,7 +1368,7 @@
             "type": "concept",
             "title": "The same reading, on a machine that looks different",
             "paragraphs": [
-              "That was PC-B. Its connection is called enp0s3 rather than eth0, its factory identity ends c2 rather than b7, and its IPv4 address is 192.168.1.11 rather than 192.168.1.10.",
+              "That was PC-B. Its interface is called enp0s3 rather than eth0, its MAC address ends c2 rather than b7, and its IPv4 address is 192.168.1.11 rather than 192.168.1.10.",
               "Nothing about the reading itself changed. You looked for four numbers separated by dots, and you looked at which connection name they sat beneath. The name of the connection was not the thing you were looking for — it was only where you looked.",
               "That distinction is worth keeping. Connection names are not standardized across machines, so a reader who memorized eth0 is stuck the first time a machine disagrees. A reader who knows what shape of thing to look for is not.",
               "That habit is what the mission is really for: saying what a machine actually holds, from its own report, is how you check a claim rather than trust it."
@@ -1162,7 +1396,7 @@
             "type": "concept",
             "title": "The question to carry forward",
             "paragraphs": [
-              "Two identities on one connection: one built into the hardware, one assigned where the machine sits. You can find both on any machine, from its own report.",
+              "Two kinds of address on one interface: a MAC address used for local Ethernet delivery, and an IPv4 address assigned for IP. You can find both in the machine's own report.",
               "What you cannot do yet is say where PC-A's own network ends. So far as you have read it, PC-A holds nothing that says which other addresses are close enough to reach the way Switch-1 delivered in Mission 2.",
               "It does hold that, and you have already looked straight at it without being able to use it. So carry one question into the next mission: what tells the machine where its local network ends?"
             ]
@@ -1175,7 +1409,7 @@
       "stableId": "nf-m4-the-prefix-and-the-decision",
       "moduleStableId": "nf-mod2-addresses-and-boundaries",
       "title": "Mission 4 — The prefix, and the decision every host makes",
-      "description": "Before this mission you should be able to: read a machine's assigned address from real output (Mission 3), and compare two numbers.\n\nThis is the mission the rest of the course rests on.\n\nAn assigned address is written with a second number after it. That number says how much of the address names the group the machine belongs to, and how much names the machine itself. A larger number means more of the address is fixed and the group is smaller. You will compare two of them so the number stops being decoration and starts being a quantity.\n\nWith that, a machine can answer the only question that matters before it sends anything: is what I am trying to reach part of my own group, or not? Watch a machine answer it both ways. When the answer is yes, it delivers directly, using what you learned in Mission 2 — and you will see the small exchange it performs first to turn an assigned address into the factory identity it actually needs to address the traffic. When the answer is no, it does something you have not seen before: it hands the traffic to a different device entirely, one it was not trying to reach.\n\nThat hand-off will look wrong. Nothing was delivered to the destination, and yet nothing is broken. Deciding whether what you are watching is a fault or correct behavior is the most useful question in this course, and this is the first place you get to ask it with enough information to answer.\n\nYou will not be told what that other device is called yet. You will see what it receives and why, and the name comes next.\n\nBy the end you will be able to take two machines' addresses and say whether one will deliver to the other directly, and say what it does instead when it will not.",
+      "description": "Before this mission you should be able to: read a machine's assigned address from real output (Mission 3), and compare two numbers.\n\nThis is the mission the rest of the course rests on.\n\nAn assigned address is written with a second number after it. That number says how much of the address names the group the machine belongs to, and how much names the machine itself. A larger number means more of the address is fixed and the group is smaller. You will compare two of them so the number stops being decoration and starts being a quantity.\n\nWith that, a machine can answer the only question that matters before it sends anything: is what I am trying to reach part of my own group, or not? Watch a machine answer it both ways. When the answer is yes, it delivers directly, using what you learned in Mission 2 — and you will see the small exchange it performs first to learn the destination MAC address it needs for local delivery. When the answer is no, it does something you have not seen before: it hands the traffic to a different device entirely, one it was not trying to reach.\n\nThat hand-off will look wrong. Nothing was delivered to the destination, and yet nothing is broken. Deciding whether what you are watching is a fault or correct behavior is the most useful question in this course, and this is the first place you get to ask it with enough information to answer.\n\nYou will not be told what that other device is called yet. You will see what it receives and why, and the name comes next.\n\nBy the end you will be able to take two machines' addresses and say whether one will deliver to the other directly, and say what it does instead when it will not.",
       "position": 1,
       "estimatedMinutes": 65,
       "competencies": [
@@ -1232,7 +1466,7 @@
             "sourceKind": "authored_teaching",
             "supportLevel": "show_me",
             "caption": "PC-A reaching a destination inside its own group. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
-            "textEquivalent": "A network of five devices on one local network: PC-A, PC-B and a Printer, each with one interface, plus Switch-1 in the middle and Router-1 connected to Switch-1's fourth port. PC-A holds the address 192.168.1.10 with 24 after it, PC-B holds 192.168.1.11 with 24 after it, and the Printer holds 192.168.1.12. Each interface also carries a hardware identity of its own. The walkthrough follows PC-A being asked to reach 192.168.1.11. Before anything moves, PC-A asks itself one question: is that destination part of my own group? The 24 after its address is what answers it — it says the first three octets of the address name the group rather than the machine, so PC-A's group is 192.168.1. The destination 192.168.1.11 is also 192.168.1, so it is in the same group, and PC-A concludes it can deliver directly. It cannot deliver yet, though. Switch-1 delivers by hardware identity and never looks at an address like 192.168.1.11, and PC-A does not know the hardware identity of the machine holding that address. So PC-A asks for it: a question addressed to no one in particular, saying whoever holds 192.168.1.11 should reply with their hardware identity. That question arrives at Switch-1 on port 1, and Switch-1 sends a copy out of every other connection at the same moment — to PC-B, to the Printer and to Router-1. The Printer and Router-1 both compare the address against their own, find it is not theirs, and stay silent. PC-B recognizes the address as its own and answers with its hardware identity, 00:1b:44:11:3a:c2. PC-A now holds both identities for the same machine, and the delivery proceeds: Switch-1 receives it on port 1, finds PC-B recorded against port 2, and sends it out of port 2 alone. It reached PC-B directly, and Router-1 was never involved.",
+            "textEquivalent": "A network of five devices on one local network: PC-A, PC-B and a Printer, each with one interface, plus Switch-1 in the middle and Router-1 connected to Switch-1's fourth port. PC-A holds the address 192.168.1.10 with 24 after it, PC-B holds 192.168.1.11 with 24 after it, and the Printer holds 192.168.1.12. Each interface also carries a MAC address of its own. The walkthrough follows PC-A being asked to reach 192.168.1.11. Before anything moves, PC-A asks itself one question: is that destination part of my own group? The 24 after its address is what answers it — it says the first three octets of the address name the group rather than the machine, so PC-A's group is 192.168.1. The destination 192.168.1.11 is also 192.168.1, so it is in the same group, and PC-A concludes it can deliver directly. It cannot deliver yet, though. Switch-1 does not use an IPv4 address like 192.168.1.11 to choose an outgoing port; it forwards local Ethernet traffic using destination MAC addresses. PC-A knows PC-B's IPv4 address but does not yet know PC-B's MAC address, so PC-A cannot yet build the local Ethernet frame for PC-B. So PC-A asks for it: a question addressed to no one in particular, saying whoever holds 192.168.1.11 should reply with their MAC address. That question arrives at Switch-1 on port 1, and Switch-1 sends a copy out of every other connection at the same moment — to PC-B, to the Printer and to Router-1. The Printer and Router-1 both compare the address against their own, find it is not theirs, and stay silent. PC-B recognizes the address as its own and answers with its MAC address, 00:1b:44:11:3a:c2. PC-A now holds both identities for the same machine, and the delivery proceeds: Switch-1 receives it on port 1, finds PC-B recorded against port 2, and sends it out of port 2 alone. It reached PC-B directly, and Router-1 was never involved.",
             "parameters": {
               "interactionType": "packet_journey",
               "groups": [
@@ -1259,7 +1493,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:b7"
                         },
                         {
@@ -1287,7 +1521,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:c2"
                         },
                         {
@@ -1315,7 +1549,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:d9"
                         },
                         {
@@ -1331,7 +1565,7 @@
                   "label": "Switch-1",
                   "role": "switch",
                   "groupId": "local-network",
-                  "about": "Switch-1 connects everything on this network. It delivers by hardware identity, and it sends a copy everywhere when it has no record of where something is.",
+                  "about": "Switch-1 connects everything on this network. It forwards local Ethernet traffic using MAC addresses, and when a destination MAC address is not in its table, it floods the frame through the other ports.",
                   "interfaces": [
                     {
                       "interfaceId": "sw-1-p1",
@@ -1392,7 +1626,7 @@
                       "prominent": true,
                       "attributes": [
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:01"
                         },
                         {
@@ -1504,16 +1738,16 @@
                 },
                 {
                   "stageId": "a3-something-missing",
-                  "action": "missing the factory identity it needs",
+                  "action": "missing the destination MAC address it needs",
                   "atNodeId": "pc-a",
                   "narration": "PC-A is ready to deliver directly. It cannot yet.",
-                  "decision": "Switch-1 never once looks at an address like 192.168.1.11 — it delivers by the factory identity written on each interface, and that is the only thing it records against a port. PC-A knows the destination's assigned address. It does not know that machine's factory identity, and without it there is nothing for Switch-1 to deliver to.",
+                  "decision": "Switch-1 does not use an IPv4 address like 192.168.1.11 to choose an outgoing port; it forwards local Ethernet traffic using destination MAC addresses. PC-A knows PC-B's IPv4 address, but it does not yet know PC-B's MAC address. Without that destination MAC address, PC-A cannot build the local Ethernet frame for PC-B.",
                   "outcome": "proceeds",
                   "prediction": {
-                    "prompt": "PC-A has decided PC-B is in its own group, and knows PC-B's address is 192.168.1.11. Switch-1 delivers by factory identity, which PC-A does not have. What can PC-A do?",
+                    "prompt": "PC-A has decided PC-B is on its own network and knows PC-B's IPv4 address is 192.168.1.11. PC-A does not yet know PC-B's MAC address. What can PC-A do?",
                     "options": [
-                      "Give up, because the factory identity was never configured",
-                      "Ask the network, and let the machine that holds that address answer",
+                      "Give up, because PC-B's MAC address was never configured",
+                      "Ask the local network, and let the interface holding 192.168.1.11 answer with its MAC address",
                       "Send to Router-1 instead and let it work out the rest"
                     ]
                   }
@@ -1522,7 +1756,7 @@
                   "stageId": "a4-asking-everyone",
                   "action": "passing the question to every other port",
                   "atNodeId": "sw-1",
-                  "narration": "PC-A asks. The question is addressed to no one in particular — it says, in effect, whoever holds 192.168.1.11, tell me your factory identity. It reaches Switch-1 on port 1, and Switch-1 sends a copy out of every other connection at the same moment: to PC-B, to the Printer, and to Router-1.",
+                  "narration": "PC-A asks. The question says, in effect: whoever is using 192.168.1.11 on this local network, reply with the MAC address for that interface. It reaches Switch-1 on port 1, and Switch-1 sends a copy out of every other connection at the same moment: to PC-B, to the Printer, and to Router-1.",
                   "decision": "PC-A cannot ask PC-B directly, because not knowing how to address PC-B is the whole problem. So it asks everyone at once and lets the right machine answer. Every machine on this network receives the question, and only one of them has any reason to reply.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-a",
@@ -1556,9 +1790,9 @@
                 },
                 {
                   "stageId": "a5-one-machine-answers",
-                  "action": "answering with its factory identity",
+                  "action": "answering with its MAC address",
                   "atNodeId": "pc-b",
-                  "narration": "PC-B recognizes the address as its own and answers with its factory identity. The Printer and Router-1 both received the same question, compared it against their own addresses, and said nothing.",
+                  "narration": "PC-B recognizes 192.168.1.11 as its own IPv4 address and answers with its MAC address. The Printer and Router-1 both received the same question, compared the IPv4 address against their own, and said nothing.",
                   "decision": "Nothing has gone wrong at the two machines that stayed silent. Being asked a question that turns out not to be yours is ordinary: a machine compares the address against its own, finds it is not a match, and says nothing.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-b",
@@ -1579,7 +1813,7 @@
                   "stageId": "a6-now-mission-2-again",
                   "action": "receiving the file",
                   "atNodeId": "pc-b",
-                  "narration": "PC-A now has both identities for the same machine, and the delivery proceeds: Switch-1 receives it on port 1, finds PC-B's factory identity recorded against port 2, and sends it out of port 2 alone.",
+                  "narration": "PC-A now has PC-B's IPv4 address and MAC address, and the delivery proceeds: Switch-1 receives the frame on port 1, finds PC-B's MAC address recorded on port 2, and forwards the frame through port 2 alone.",
                   "decision": "Nothing new happened in this last step. That is the point — the second half of this delivery is the ordinary local delivery you already know, unchanged. What this mission added is everything that had to happen before that delivery could begin.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-pc-b"
@@ -1588,7 +1822,7 @@
               "actions": [],
               "confirmation": {
                 "narration": "It reached PC-B, directly, without Router-1 being involved at all.",
-                "summary": "PC-A compared the destination against its own group and found it inside. That let it deliver directly — but delivering directly meant it first had to turn an assigned address into a factory identity, which it did by asking every machine on the network at once and letting the right one answer. After that, it was an ordinary local delivery."
+                "summary": "PC-A compared the destination with its own network and found it local. Direct delivery still required PC-B's MAC address, so PC-A asked the local network and PC-B answered with that MAC address. After that, the frame followed the ordinary local-delivery behavior you already learned."
               }
             }
           }
@@ -1614,10 +1848,10 @@
             "type": "concept",
             "title": "Turning one identity into the other",
             "paragraphs": [
-              "Deciding the destination was local was not enough to deliver to it. Switch-1 delivers by hardware identity and never looks at an address like 192.168.1.11 at all, so PC-A held the wrong one of its two identities.",
-              "So PC-A asked for the other one. The request it sent is called ARP, and its job is exactly that: take an assigned address that belongs to this network, and find out which hardware identity holds it.",
-              "Notice what ARP is not. Not a lookup in a configured list, not a service running somewhere. It is a question asked out loud on the local network, answered by whichever machine recognizes the address as its own.",
-              "This is where the two identities connect. Mission 2 gave you the one a switch delivers by; Mission 3 gave you the one a person assigns. ARP is the step between them — and it only works on your own network, which is why PC-A settled the local question first."
+              "Deciding that the destination was local was not enough to deliver to it. Switch-1 forwards local Ethernet traffic using destination MAC addresses, so PC-A still needed PC-B's MAC address before it could send the frame.",
+              "So PC-A asked for it. The request it sent is called ARP. In this situation, ARP lets a host ask which MAC address is associated with a local IPv4 address.",
+              "Notice what ARP is not. It is not a lookup in a configured list or a service running somewhere else. It is a request sent on the local network, and the interface using that IPv4 address can answer.",
+              "This is where the two addresses connect. Mission 2 gave you the MAC address used for local Ethernet delivery; Mission 3 gave you the IPv4 address assigned to the interface. ARP supplies the local mapping PC-A needs before it can build the frame — and it works for this purpose on the local network, which is why PC-A settled the local question first."
             ]
           }
         },
@@ -1658,7 +1892,7 @@
             "sourceKind": "authored_teaching",
             "supportLevel": "show_me",
             "caption": "The same machine, asked to reach a destination outside its own group. This is authored teaching, not a live environment, and nothing here is running on real hardware.",
-            "textEquivalent": "The same local network as before — PC-A, PC-B, the Printer, Switch-1 and Router-1 — and beyond Router-1 a second machine, PC-C, holding the address 192.168.2.20 with 24 after it. PC-C is in a separate group of its own. The walkthrough follows PC-A being asked to reach 192.168.2.20. PC-A asks itself exactly the same question it asked before: is this destination part of my own group? It reads the same 24 after its own address, which says the first three octets name the group, so its group is still 192.168.1. The destination is 192.168.2, and that differing number sits inside the part that names the group, so the answer this time is no. PC-A therefore does not ask the network for 192.168.2.20's hardware identity and does not attempt to deliver to it. Instead it hands what it is sending to Router-1, a device it was never trying to reach. Nothing was sent to PC-B or the Printer, and nothing arrived at 192.168.2.20 during the walkthrough. Nothing is broken. Why PC-A hands it to Router-1 in particular, and what Router-1 does with it afterwards, is not shown here.",
+            "textEquivalent": "The same local network as before — PC-A, PC-B, the Printer, Switch-1 and Router-1 — and beyond Router-1 a second machine, PC-C, holding the address 192.168.2.20 with 24 after it. PC-C is in a separate group of its own. The walkthrough follows PC-A being asked to reach 192.168.2.20. PC-A asks itself exactly the same question it asked before: is this destination part of my own group? It reads the same 24 after its own address, which says the first three octets name the group, so its group is still 192.168.1. The destination is 192.168.2, and that differing number sits inside the part that names the group, so the answer this time is no. PC-A therefore does not ask the network for 192.168.2.20's MAC address and does not attempt to deliver to it. Instead it hands what it is sending to Router-1, a device it was never trying to reach. Nothing was sent to PC-B or the Printer, and nothing arrived at 192.168.2.20 during the walkthrough. Nothing is broken. Why PC-A hands it to Router-1 in particular, and what Router-1 does with it afterwards, is not shown here.",
             "parameters": {
               "interactionType": "packet_journey",
               "groups": [
@@ -1689,7 +1923,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:b7"
                         },
                         {
@@ -1717,7 +1951,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:c2"
                         },
                         {
@@ -1745,7 +1979,7 @@
                           "prominent": true
                         },
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:d9"
                         },
                         {
@@ -1761,7 +1995,7 @@
                   "label": "Switch-1",
                   "role": "switch",
                   "groupId": "local-network",
-                  "about": "Switch-1 connects everything on this network. It delivers by hardware identity, and it sends a copy everywhere when it has no record of where something is.",
+                  "about": "Switch-1 connects everything on this network. It forwards local Ethernet traffic using MAC addresses, and when a destination MAC address is not in its table, it floods the frame through the other ports.",
                   "interfaces": [
                     {
                       "interfaceId": "sw-1-p1",
@@ -1822,7 +2056,7 @@
                       "prominent": true,
                       "attributes": [
                         {
-                          "label": "Hardware identity",
+                          "label": "MAC address",
                           "value": "00:1b:44:11:3a:01"
                         },
                         {
@@ -1987,7 +2221,7 @@
                   "stageId": "b3-hands-it-over",
                   "action": "taking the handoff PC-A could not deliver itself",
                   "atNodeId": "r-1",
-                  "narration": "PC-A does not ask the network for 192.168.2.20's factory identity, and does not attempt to deliver to it. It hands what it is sending to Router-1 instead — a device it was never trying to reach.",
+                  "narration": "PC-A does not use ARP to ask the local network for a MAC address associated with 192.168.2.20, and it does not attempt direct local delivery to PC-C. It hands what it is sending to Router-1 instead — a device it was never trying to reach.",
                   "decision": "Watch what did NOT happen. Nobody was asked for 192.168.2.20. Nothing went to PC-B or to the Printer. And nothing arrived at 192.168.2.20 during anything you just watched.",
                   "outcome": "proceeds",
                   "viaLinkId": "link-r-1",
@@ -2043,7 +2277,7 @@
             "paragraphs": [
               "PC-A was asked to reach 192.168.2.20 and sent what it was sending to Router-1, which is not 192.168.2.20 and never claimed to be. Nothing arrived at the destination in anything you watched.",
               "In Mission 2 you were asked to form a habit: before deciding something is broken, ask whether it is the system working as designed. This is the second time that question has been worth asking, and this time you have enough to answer it.",
-              "It is working as designed. Everything PC-A can do by itself — ask on the local network, deliver by hardware identity — only works on its own network. Delivering this one was never PC-A's job, and handing it to Router-1 is PC-A recognizing the limit of what it can do.",
+              "It is working as designed. Everything PC-A can do by itself — ask for a local destination's MAC address and deliver a local frame — applies only on its own network. Delivering this remote traffic was never PC-A's job, and handing it to Router-1 is PC-A recognizing the limit of direct local delivery.",
               "What PC-A did is settled. Why Router-1 is where it goes is not."
             ]
           }

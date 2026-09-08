@@ -62,7 +62,7 @@
 # `broadcast` moves to Mission 4 rather than to an arbitrary later point,
 # because Mission 4 is where the course itself makes it teachable. Its authored
 # description already promises "the small exchange it performs first to turn an
-# assigned address into the factory identity it actually needs" — that exchange
+# assigned address into the destination MAC address it needs" — that exchange
 # is ARP, ARP requests are broadcast, and row 17 already places ARP there. So
 # Mission 4 is both the first mission where a learner has the addressing
 # context for the term to be accurate, and the first mission that needs it.

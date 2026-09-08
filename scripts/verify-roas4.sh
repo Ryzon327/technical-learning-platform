@@ -368,9 +368,15 @@ MIGRATION_COUNT="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
 [ "$MIGRATION_COUNT" -ge 37 ] \
   || fail "migrations were removed: $MIGRATION_COUNT present, at least 37 required"
 
-CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_LOCK" = "0" ] \
-  || fail "ROAS-4 changed the lockfile; no dependency change is authorized"
+# Dependencies are judged by the shared policy, not by a merge-base line count.
+#
+# This compared against `origin/main...HEAD`, which reports differently before
+# and after `git commit` on the same tree - it passes on a branch with no
+# commits and fails once that identical content is committed. The shared policy
+# compares parsed JSON against HEAD instead, so it behaves the same locally and
+# in CI, and refuses unauthorized shapes rather than all change.
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "ROAS-4"
 
 # No secret may be committed, and the command must read credentials from the
 # environment rather than carrying one.

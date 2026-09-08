@@ -162,6 +162,16 @@ export interface LearnerInteractionStep {
   /** Required, so the projection cannot silently drop it. */
   readonly textEquivalent: string;
   readonly caption?: string;
+  /**
+   * Whether the lesson waits here. Carried at EVERY support level, including
+   * one that withholds the interaction entirely: it is a SEQUENCING fact about
+   * the lesson, not instructional content, and it reveals nothing.
+   *
+   * See `MissionStepInteractionContent.requiredForProgression`. It is not a
+   * control the client enforces against the server; nothing is authorised by
+   * it and nothing is recorded from it.
+   */
+  readonly requiredForProgression?: boolean;
   readonly presentation: LearnerInteractionPresentation;
 }
 
@@ -401,6 +411,14 @@ function projectPacketJourneyParameters(
     ...(stage.alsoOnLinkIds !== undefined
       ? { alsoOnLinkIds: stage.alsoOnLinkIds }
       : {}),
+    // Carried unconditionally for the same reason again. WHO else was involved
+    // and WHAT was moving are both readings off the screen — the same kind of
+    // fact as `atNodeId` and the journey's own traffic label, neither of which
+    // is withheld either. The answer is `decision`, and that is dropped above.
+    ...(stage.alsoAtNodeIds !== undefined
+      ? { alsoAtNodeIds: stage.alsoAtNodeIds }
+      : {}),
+    ...(stage.traffic !== undefined ? { traffic: stage.traffic } : {}),
     ...(stage.deviceFacts !== undefined
       ? { deviceFacts: stage.deviceFacts }
       : {}),
@@ -561,6 +579,11 @@ export function projectMissionStepContent(
         supportLevel: content.supportLevel,
         textEquivalent: content.textEquivalent,
         ...(content.caption !== undefined ? { caption: content.caption } : {}),
+        // Copied, never decided. Absent stays absent, so a step that authored
+        // nothing reaches the learner exactly as it does today.
+        ...(content.requiredForProgression !== undefined
+          ? { requiredForProgression: content.requiredForProgression }
+          : {}),
         presentation: projectInteractionPresentation(content)
       };
 

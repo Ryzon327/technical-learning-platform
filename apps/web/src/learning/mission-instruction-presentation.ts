@@ -12,7 +12,7 @@ import { parseMissionBrief, type BriefBlock } from "./roas-course-content";
  *
  * Every decision here could have been written as a chain of conditionals inside
  * `MissionDetail`. It is not, for one reason: this repository has no rendered-DOM
- * test harness — no jsdom, no happy-dom, no testing-library — and WP-F may not
+ * harness beyond one narrow jsdom focus suite — no browser, no testing-library — and WP-F may not
  * add one, because a dependency change fails `verify-roas3.sh`.
  *
  * So the rules that matter are pulled out of JSX and into total functions over
@@ -398,6 +398,128 @@ export function describePracticeCheckpoint(): string {
 export type RequiredInstructionState = "none" | "outstanding" | "satisfied";
 
 /**
+ * A required-instruction state together with the mission it describes.
+ *
+ * The state is reported UPWARD by the lesson, and the view that holds it
+ * outlives any one lesson. A bare word therefore cannot be trusted on the
+ * render where the selection moves: it is last mission's answer to this
+ * mission's question. Tagging it is the same remedy `MissionInstructionRequest`
+ * already uses, for the same reason.
+ */
+export interface ReportedRequiredInstruction {
+  readonly missionStableId: string;
+  /**
+   * WHICH RENDERING of that mission produced the word.
+   *
+   * The mission alone is not enough. A learner who settles a mission's required
+   * activity, opens another mission, and comes back is looking at a NEW lesson
+   * with empty state — and the held report still names the right mission, still
+   * says "satisfied", and is still about a visit that has ended.
+   *
+   * The view owns this number, because the view owns the lesson's lifetime: it
+   * knows when a mission's instruction is requested and when the lesson is
+   * mounted or torn down. The lesson only echoes back the generation it was
+   * handed, so it cannot mint an identity for itself and cannot vouch for its
+   * own freshness.
+   */
+  readonly generation: number;
+  readonly state: RequiredInstructionState;
+}
+
+/**
+ * Whether structured instruction is still owed for this mission.
+ *
+ * ## The window this exists to close
+ *
+ * `selectInstructionSource` answers a DISPLAY question — what should be on
+ * screen right now — and during a fetch it correctly answers "the bundled
+ * brief", because the brief is authored truth already in memory and a spinner
+ * would be worse. That answer was then read a second time as a COMPLETION
+ * question, where it means something entirely different: "this surface renders
+ * no steps, so it can author no required activity".
+ *
+ * True of a settled bundled mission. False of a bundled render standing in for
+ * a structured one that has not arrived. The kind cannot tell them apart, and
+ * for the whole network round trip "Mark as complete" was live on a mission
+ * whose required activity the learner had not been shown.
+ *
+ * So completion asks the REQUEST, not the display. Anything still owed — not
+ * asked yet, asked and in flight, or asked about a different mission — is owed,
+ * and a mission is only let go once its own request has come back with an
+ * answer that renders no steps.
+ */
+export function expectsStructuredInstruction(
+  request: MissionInstructionRequest,
+  missionStableId: string
+): boolean {
+  // Not asked yet. The effect that asks runs after this render, so "idle" and
+  // "another mission's request" both mean the answer is still coming.
+  if (request.status === "idle") return true;
+  if (request.missionStableId !== missionStableId) return true;
+
+  if (request.status === "loading") return true;
+
+  // Settled on an answer that renders no steps. `error` reaches either the
+  // bundled brief or the unavailable notice, and neither carries a required
+  // activity; `legacy_brief` and `content_error` are the same.
+  if (request.status === "error") return false;
+
+  return request.response.instruction.state === "available";
+}
+
+/**
+ * What the mission controls should believe about required instruction RIGHT
+ * NOW, for the mission actually on screen.
+ *
+ * ## Why this exists, and why it fails closed
+ *
+ * The reported state is held by the view and reported by the lesson, and those
+ * are not the same lifetime. A learner leaving a mission with no required
+ * activity (`"none"`) for one that has a required activity produced a window in
+ * which the view still held `"none"` while the new mission was rendering — and
+ * `"none"` authorises completion. The window is not sub-frame: while the new
+ * mission's instruction is being fetched, no structured lesson is mounted at
+ * all, so nothing reports anything for the whole round trip, and "Mark as
+ * complete" was live the entire time for a mission whose required activity the
+ * learner had not seen.
+ *
+ * So an untagged, mismatched or absent report is not read as `"none"`. What it
+ * resolves to depends on what is on screen:
+ *
+ *   - a `structured` lesson that has not yet spoken is UNKNOWN, and unknown
+ *     fails closed to `"outstanding"`. Over-blocking for one commit is a
+ *     learner pressing a button a moment later; under-blocking is a mission
+ *     completed without its required activity;
+ *   - `bundled`, `legacy` and `unavailable` render no steps, so they can author
+ *     no required activity, and `"none"` is the truth rather than a default.
+ *     Failing closed there would block every pre-WP-F mission permanently.
+ *
+ * Correctness is still not a gate anywhere in this path, and this function
+ * still knows nothing about near-transfer, interactions or questions.
+ */
+export function resolveReportedRequiredInstruction(
+  reported: ReportedRequiredInstruction | null,
+  current: { readonly missionStableId: string; readonly generation: number },
+  expectsStructured: boolean
+): RequiredInstructionState {
+  // Both halves of the tag, and both are load-bearing. The mission stops
+  // another mission's word being read here; the generation stops an earlier
+  // visit to THIS mission being read as the current one.
+  if (
+    reported !== null &&
+    reported.missionStableId === current.missionStableId &&
+    reported.generation === current.generation
+  ) {
+    return reported.state;
+  }
+
+  // Nothing current has spoken. If a lesson is still owed, unknown fails
+  // CLOSED: over-blocking costs a learner one moment, and under-blocking
+  // completes a mission whose required activity was never on screen.
+  return expectsStructured ? "outstanding" : "none";
+}
+
+/**
  * What a learner is told while required instruction is outstanding.
  *
  * The wording says "finish" rather than "answer" because answering is no
@@ -419,16 +541,16 @@ export function describeRequiredInstructionOutstanding(): string {
  * ## The seam, and its deliberate size
  *
  * `isSatisfied` is asked about every step and answers `null` for the ones it
- * has no opinion about. Today exactly one step type is required — a
- * `near_transfer` check — and the caller supplies that opinion, so this
- * function contains no knowledge of near-transfer, of questions, or of any
- * mission.
+ * has no opinion about. Two kinds of step can be required today — a
+ * `near_transfer` check, and an `interaction` whose author marked it
+ * `requiredForProgression` — and the caller supplies both opinions, so this
+ * function still contains no knowledge of near-transfer, of interactions, of
+ * questions, or of any mission.
  *
- * That is the whole abstraction. A future required interaction or required
- * practical handoff answers the same predicate; nothing here becomes a
- * workflow engine, a step-state machine, or a progression graph, because the
- * question being asked is genuinely this small: *is anything the learner has
- * to do still undone?*
+ * The second kind arriving changed nothing here, which was the point of the
+ * seam being this size. Nothing became a workflow engine, a step-state machine
+ * or a progression graph, because the question being asked is genuinely this
+ * small: *is anything the learner has to do still undone?*
  */
 export function resolveRequiredInstruction(
   steps: readonly LearnerMissionStep[],

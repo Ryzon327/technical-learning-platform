@@ -506,6 +506,119 @@ describe("WP-C mission step architectural boundaries", () => {
     expect(INTERACTION_TYPES).not.toContain(content.interactionStableId);
   });
 
+  it("lets an author say the lesson waits at this interaction", () => {
+    /*
+      Mission 2 Founder UAT. Every step after the walkthrough explains what the
+      walkthrough shows, and all of them were on screen from the moment the
+      mission opened — so a learner could read the answer without watching a
+      single stage.
+
+      Authored, and optional. A renderer deciding for itself which activities
+      are worth requiring would be writing pedagogy, and it would be wrong the
+      first time a mission wanted a demonstration beside prose.
+    */
+    expect(
+      validateMissionStepContent(
+        { ...interaction, requiredForProgression: true },
+        "s01"
+      )
+    ).toEqual([]);
+
+    expect(
+      validateMissionStepContent(
+        { ...interaction, requiredForProgression: false },
+        "s01"
+      )
+    ).toEqual([]);
+  });
+
+  it("leaves an interaction that says nothing exactly as it was", () => {
+    // The additive test. Absent means today's behaviour, so every interaction
+    // authored before this field existed still validates and still means what
+    // it meant.
+    expect("requiredForProgression" in interaction).toBe(false);
+    expect(validateMissionStepContent(interaction, "s01")).toEqual([]);
+  });
+
+  it("refuses a progression gate that is not a yes or a no", () => {
+    /*
+      `"true"` is the failure worth naming. A string is truthy in JavaScript
+      and falsy to a strict `=== true` read, so accepting it would produce a
+      step that LOOKS required in the document and behaves as not-required on
+      screen — a learner reaching the closing steps of Mission 2 without having
+      watched anything, with nothing anywhere reporting a problem.
+    */
+    const errors = validateMissionStepContent(
+      { ...interaction, requiredForProgression: "true" } as never,
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("requiredForProgression must be true or false");
+  });
+
+  it("refuses a progression gate on an activity the learner would never see", () => {
+    /*
+      The deadlock. PROVE IT withholds a teaching-mode interaction entirely,
+      so a learner never sees the activity, never reaches its authored end,
+      and never settles it — while the step waits for exactly that settlement.
+      The mission becomes uncompletable for everyone, and correctness has
+      nothing to do with it.
+
+      DEC-059 is the authority: PROVE IT withholds instructional assistance
+      and NOT "the environment required to demonstrate competency". This
+      combination withholds the environment, so refusing it upholds the
+      decision rather than adding to it.
+    */
+    const errors = validateMissionStepContent(
+      {
+        ...interaction,
+        supportLevel: "prove_it",
+        requiredForProgression: true
+      },
+      "s01"
+    );
+
+    expect(errors.join(" ")).toContain("could never reach its end");
+  });
+
+  it("still allows the gate at every support level that shows the activity", () => {
+    // The rule is about being WITHHELD, not about being protected. CHALLENGE
+    // ME strips the answer-bearing fields and still renders the activity, so
+    // a learner can work it and finish it — and an author may require it.
+    for (const supportLevel of [
+      "show_me",
+      "help_me",
+      "ask_me",
+      "challenge_me"
+    ] as const) {
+      expect(
+        validateMissionStepContent(
+          { ...interaction, supportLevel, requiredForProgression: true },
+          "s01"
+        )
+      ).toEqual([]);
+    }
+
+    // And PROVE IT itself is untouched when nothing waits on it.
+    expect(
+      validateMissionStepContent(
+        { ...interaction, supportLevel: "prove_it" },
+        "s01"
+      )
+    ).toEqual([]);
+
+    expect(
+      validateMissionStepContent(
+        {
+          ...interaction,
+          supportLevel: "prove_it",
+          requiredForProgression: false
+        },
+        "s01"
+      )
+    ).toEqual([]);
+  });
+
   it("refuses an unregistered interaction type", () => {
     const errors = validateMissionStepContent(
       { ...interaction, interactionType: "subnet_slider" } as never,

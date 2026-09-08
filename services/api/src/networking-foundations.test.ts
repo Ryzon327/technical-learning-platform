@@ -852,14 +852,43 @@ describe("a prediction is graded only where the learner can already reason", () 
     PC-A's single link ending on Switch-1 port 1 — the learner can read it off
     the picture, so committing to it and being told plainly is right.
 
-    Missions not on this list are not yet repaired. Their predictions stay
-    exploratory, and this test is what stops one acquiring an answer key
-    without the ruling that authorises it.
+    ## Why this is a list of STAGES and not a list of missions
+
+    It was a list of missions, and it read correctly while every graded mission
+    had exactly one journey with one graded prediction in it. The Mission 2
+    Founder UAT repair broke that: Mission 2 authors TWO predictions, and only
+    the second may be graded.
+
+      d2  what does a switch do with a destination it has no record of?
+          The learner has never been shown this. The observation IS the answer,
+          and marking the guess would tell them they were wrong for doing
+          exactly what the step asked. UNGRADED.
+
+      d7  and what does it do once it has one?
+          By now they have watched Switch-1 record where PC-B is, so they can
+          reason it out — and leaving them to infer from the animation whether
+          they were right is the defect Founder UAT reported. GRADED.
+
+    A mission-level list cannot express that. Adding `nf-m2-inside-one-network`
+    to one would have permitted an answer key on d2 as well, which is the exact
+    thing the repair was careful not to do — so the permission moved down to the
+    stage, which is the level the decision is actually made at.
+
+    Nothing is widened. Every stage not named here must stay exploratory, and
+    the set below is asserted to be EXACT rather than a floor: an answer key
+    appearing on an unlisted stage fails, and so does one disappearing from a
+    listed stage.
   */
-  const GRADED_MISSIONS = new Set([
-    "nf-m1-what-a-network-is",
-    "nf-m8-when-it-does-not-work"
-  ]);
+  const GRADED_STAGES: readonly string[] = [
+    // Settled by the picture: PC-A's single link ends on Switch-1 port 1.
+    "nf-m1-what-a-network-is|t1-pc-a",
+    // Settled by what the learner has just watched Switch-1 record.
+    "nf-m2-inside-one-network|d7-switch-sends-once",
+    // Settled by Missions 4 and 5, which taught the comparison outright.
+    "nf-m8-when-it-does-not-work|f1-pc-a-decides"
+  ];
+
+  const GRADED = new Set(GRADED_STAGES);
 
   function predictionsOf(missionStableId: string) {
     const mission = document.missions.find((m) => m.stableId === missionStableId);
@@ -888,9 +917,9 @@ describe("a prediction is graded only where the learner can already reason", () 
 
   it("leaves every exploratory prediction ungraded", () => {
     for (const mission of document.missions) {
-      if (GRADED_MISSIONS.has(mission.stableId)) continue;
-
       for (const { stageId, prediction } of predictionsOf(mission.stableId)) {
+        if (GRADED.has(`${mission.stableId}|${stageId}`)) continue;
+
         expect(
           `${mission.stableId} ${stageId} is graded: ${prediction.correctOption !== undefined}`
         ).toBe(`${mission.stableId} ${stageId} is graded: false`);
@@ -898,16 +927,22 @@ describe("a prediction is graded only where the learner can already reason", () 
     }
   });
 
-  it("grades the predictions the repaired missions authorise", () => {
-    for (const stableId of GRADED_MISSIONS) {
-      const graded = predictionsOf(stableId).filter(
-        (entry) => entry.prediction.correctOption !== undefined
-      );
+  it("grades exactly the stages the Architect authorised, and no others", () => {
+    /*
+      Exact, in both directions. A floor ("at least these are graded") would let
+      an answer key appear on an unlisted stage; a ceiling alone would let one
+      silently disappear from a listed one, and the learner would go back to
+      inferring from the animation whether they had been right.
+    */
+    const graded = document.missions
+      .flatMap((mission) =>
+        predictionsOf(mission.stableId)
+          .filter((entry) => entry.prediction.correctOption !== undefined)
+          .map((entry) => `${mission.stableId}|${entry.stageId}`)
+      )
+      .sort();
 
-      expect(`${stableId} graded predictions: ${graded.length > 0}`).toBe(
-        `${stableId} graded predictions: true`
-      );
-    }
+    expect(graded).toEqual([...GRADED_STAGES].sort());
   });
 
   it("gives every graded prediction a reason, not only a verdict", () => {
@@ -920,25 +955,29 @@ describe("a prediction is graded only where the learner can already reason", () 
       the entry is removed the moment that copy arrives. Listing it here means
       the gap fails loudly if anyone tries to close it by deleting the rule.
     */
-    const AWAITING_REASON = new Set(["f1-pc-a-decides"]);
+    const AWAITING_REASON = new Set(["nf-m8-when-it-does-not-work|f1-pc-a-decides"]);
 
-    for (const stableId of GRADED_MISSIONS) {
-      for (const { stageId, prediction } of predictionsOf(stableId)) {
-        if (prediction.correctOption === undefined) continue;
+    for (const key of GRADED_STAGES) {
+      const [stableId, stageId] = key.split("|");
+      const entry = predictionsOf(stableId!).find(
+        (candidate) => candidate.stageId === stageId
+      );
 
-        const explained = (prediction.explanation ?? "").length > 0;
+      expect(`${key} exists: ${entry !== undefined}`).toBe(`${key} exists: true`);
+      if (entry === undefined) continue;
 
-        if (AWAITING_REASON.has(stageId)) {
-          expect(`${stableId} ${stageId} still awaits its reason: ${!explained}`).toBe(
-            `${stableId} ${stageId} still awaits its reason: true`
-          );
-          continue;
-        }
+      const explained = (entry.prediction.explanation ?? "").length > 0;
 
-        expect(
-          `${stableId} ${stageId} explains the answer: ${explained}`
-        ).toBe(`${stableId} ${stageId} explains the answer: true`);
+      if (AWAITING_REASON.has(key)) {
+        expect(`${key} still awaits its reason: ${!explained}`).toBe(
+          `${key} still awaits its reason: true`
+        );
+        continue;
       }
+
+      expect(`${key} explains the answer: ${explained}`).toBe(
+        `${key} explains the answer: true`
+      );
     }
   });
 
@@ -1637,11 +1676,38 @@ describe("beginner wording does not become a false model", () => {
   });
 
   it("connects the plain word to the technical one rather than dropping it", () => {
-    // The frame is introduced as a name for what the learner already watched,
-    // not as a definition arriving from nowhere.
+    /*
+      The frame is introduced as a NAME FOR WHAT THE LEARNER ALREADY WATCHED,
+      not as a definition arriving from nowhere. That is the rule, and it is
+      the whole reason the course is allowed to say "the delivery" for a whole
+      mission before it says "frame".
+
+      ## Why this no longer matches one sentence
+
+      It used to require the literal `is called a frame`. The Mission 2 Founder
+      UAT repair rewords the step to "The local-network delivery you followed
+      represents one Ethernet frame carrying data for the communication." —
+      which does exactly what the rule asks, in a sentence the pattern could
+      not see. A gate that fails on the repair it asked for is testing the
+      sentence rather than the invariant, and this repository has recorded that
+      lesson enough times to stop repeating it.
+
+      So the assertion reads the sentence that FIRST names the frame and
+      requires it to point back at the learner's own observation. A definition
+      dropped in cold — "a frame is a unit of data at the data link layer" —
+      still fails, which is the failure this test exists for.
+    */
     const mission2 = proseOf("nf-m2-inside-one-network").toLowerCase();
     expect(mission2).toContain("frame");
-    expect(mission2).toMatch(/that unit is called a frame|is called a frame/);
+
+    const naming = mission2
+      .split(/(?<=[.!?])\s+/)
+      .find((sentence) => /\bframe\b/.test(sentence));
+
+    expect(naming, "Mission 2 never names the frame in a sentence").toBeDefined();
+    expect(naming).toMatch(
+      /\byou (followed|watched|just watched|saw|read)\b|\bis called\b/
+    );
   });
 
   it("does not name a later unit before the mission that owns it", () => {

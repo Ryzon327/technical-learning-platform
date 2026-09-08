@@ -128,6 +128,39 @@ awk '
 [ -s "$MODULE1_BLOCK" ] \
   || fail "Module 1 could not be located; the mission ordering this gate depends on has changed"
 
+# ## Why the two missions are also extracted separately
+#
+# Every count in this gate used to be taken over the Module 1 block as a whole,
+# and while both missions were small and symmetrical that read correctly. The
+# Mission 2 Founder UAT repair broke the symmetry — it removes one prediction,
+# adds a second near-transfer topology and adds two steps — and a whole-block
+# floor cannot tell "Mission 2 gained a step" from "Mission 1 lost one".
+#
+# The comment at the text-equivalent check below records the rule this gate has
+# followed since WP-NF-NT1: when a count stops measuring what it was written to
+# protect, the answer is to move it to where the distinction is visible, never
+# to raise the number. Splitting the block is the shell-side half of that; the
+# parsed-side half lives in `networking-foundations-module1.test.ts`.
+M1_BLOCK="$SCAN_DIR/mission-1.json"
+M2_BLOCK="$SCAN_DIR/mission-2.json"
+
+awk '
+  /"stableId": "nf-m1-what-a-network-is"/ { start = 1 }
+  /"stableId": "nf-m2-inside-one-network"/ { start = 0 }
+  start
+' "$DOCUMENT" > "$M1_BLOCK"
+
+awk '
+  /"stableId": "nf-m2-inside-one-network"/ { start = 1 }
+  /"stableId": "nf-m3-ipv4-the-second-identity"/ { start = 0 }
+  start
+' "$DOCUMENT" > "$M2_BLOCK"
+
+[ -s "$M1_BLOCK" ] \
+  || fail "Mission 1 could not be located inside Module 1; every per-mission count below would be reading the wrong mission"
+[ -s "$M2_BLOCK" ] \
+  || fail "Mission 2 could not be located inside Module 1; every per-mission count below would be reading the wrong mission"
+
 AUTHORED_TEACHING="$(grep -c '"sourceKind": "authored_teaching"' "$MODULE1_BLOCK" || true)"
 [ "$AUTHORED_TEACHING" = "2" ] \
   || fail "$AUTHORED_TEACHING of 2 Module 1 interactions declare an authored teaching source"
@@ -198,9 +231,39 @@ echo "PASS:  3. neither journey authors a fault or a repair"
 grep -q '"textEquivalent": *""' "$MODULE1_BLOCK" \
   && fail "Module 1 authors an empty text equivalent; the accessible path is not equivalent to the visual one"
 
+# Rebased again by the Mission 2 Founder UAT repair, and by the same rule the
+# paragraph above records: the floor was `-ge 2` while Module 1 held exactly two
+# interactions and one near-transfer topology. Mission 2 now authors a second
+# near-transfer topology, so the number rises to four — and a floor of 2 would
+# then be satisfied by a Module 1 that had lost BOTH interaction equivalents,
+# which is precisely the accessible path this check exists to protect.
+#
+# Raising it to 4 would only postpone the same failure. So the count is now
+# DERIVED from what the block actually authors: every interaction step and every
+# near-transfer topology carries exactly one text equivalent, and nothing else
+# carries one at all. That equality re-bases itself the next time a step is
+# added, and it fails the moment one loses its accessible description.
 TEXT_EQUIVALENTS="$(grep -c '"textEquivalent"' "$MODULE1_BLOCK" || true)"
-[ "$TEXT_EQUIVALENTS" -ge 2 ] \
-  || fail "Module 1 carries $TEXT_EQUIVALENTS text equivalents; both interactions must author one"
+INTERACTION_STEPS="$(grep -c '"type": "interaction"' "$MODULE1_BLOCK" || true)"
+NEAR_TRANSFER_STEPS="$(grep -c '"type": "near_transfer"' "$MODULE1_BLOCK" || true)"
+EXPECTED_EQUIVALENTS="$((INTERACTION_STEPS + NEAR_TRANSFER_STEPS))"
+
+[ "$INTERACTION_STEPS" -ge 2 ] \
+  || fail "Module 1 authors $INTERACTION_STEPS interactions; both missions carry a journey, and a mission without one has nothing for the learner to watch"
+
+[ "$TEXT_EQUIVALENTS" = "$EXPECTED_EQUIVALENTS" ] \
+  || fail "Module 1 authors $EXPECTED_EQUIVALENTS things that need an accessible description ($INTERACTION_STEPS journeys and $NEAR_TRANSFER_STEPS near-transfer topologies) but carries $TEXT_EQUIVALENTS text equivalents; a learner using assistive technology would meet a picture with no words for it"
+
+# Each mission carries its own. A whole-block count cannot tell one mission
+# losing both of its equivalents from the other having gained two.
+for scoped in "$M1_BLOCK:Mission 1" "$M2_BLOCK:Mission 2"; do
+  SCOPED_BLOCK="${scoped%%:*}"
+  SCOPED_NAME="${scoped#*:}"
+  SCOPED_EQUIVALENTS="$(grep -c '"textEquivalent"' "$SCOPED_BLOCK" || true)"
+
+  [ "$SCOPED_EQUIVALENTS" -ge 2 ] \
+    || fail "$SCOPED_NAME carries $SCOPED_EQUIVALENTS text equivalents; it authors a journey and a near-transfer topology, and both need words a screen reader can read"
+done
 
 # The 400-character floor that used to run here is gone for the same reason the
 # exact count is. It swept EVERY `textEquivalent` in the document, and after
@@ -250,11 +313,32 @@ echo "PASS:  5. no diagram, practice, standalone prediction or asset dependency"
 # Decision C's positive half. Ruling the standalone step out is only half the
 # instruction; the predictions have to exist somewhere, and the journey is where
 # a commitment is interactive, persists, and is shown beside the observation.
+#
+# ## Why this is now counted per mission
+#
+# It was `-ge 3` over the Module 1 block, which read correctly while Mission 1
+# authored one prediction and Mission 2 authored three. The Mission 2 Founder
+# UAT repair removes one of Mission 2's — d3 asked what the switch had learned
+# before the learner had been shown a switch learning anything, so it was a
+# guess dressed as reasoning, and the question now sits on d2 as a knowledge
+# check AFTER the evidence.
+#
+# The block total is then exactly 3, so the floor still passes — and would go on
+# passing for a Module 1 in which Mission 1 had lost its only prediction and
+# Mission 2 had gained one. A count that cannot tell those apart is measuring
+# the wrong thing, and raising or lowering the number does not fix it. Each
+# mission is counted in its own block instead.
 PREDICTIONS="$(grep -c '"prediction": {' "$MODULE1_BLOCK" || true)"
-[ "$PREDICTIONS" -ge 3 ] \
-  || fail "Module 1 authors $PREDICTIONS predictions inside its journeys; the method asks the learner to commit before observing"
+M1_PREDICTIONS="$(grep -c '"prediction": {' "$M1_BLOCK" || true)"
+M2_PREDICTIONS="$(grep -c '"prediction": {' "$M2_BLOCK" || true)"
 
-echo "PASS:  6. the learner commits to predictions inside the journeys"
+[ "$M1_PREDICTIONS" -ge 1 ] \
+  || fail "Mission 1 authors $M1_PREDICTIONS predictions inside its journey; the learner would watch the print request arrive without ever having committed to where it would go first"
+
+[ "$M2_PREDICTIONS" -ge 2 ] \
+  || fail "Mission 2 authors $M2_PREDICTIONS predictions inside its journey; the mission compares an UNLEARNED delivery with a LEARNED one, so the learner must commit before each pass or the comparison is something they read rather than something they made"
+
+echo "PASS:  6. the learner commits to predictions inside the journeys ($M1_PREDICTIONS in Mission 1, $M2_PREDICTIONS in Mission 2)"
 
 # ------------------------------------------------------------
 # 6b. PJ1's visual is true, not merely disclaimed
@@ -670,9 +754,21 @@ PRESENTATION="apps/web/src/learning/packet-journey-presentation.ts"
 [ -f "$PRESENTATION" ] || fail "missing required file: $PRESENTATION"
 
 # 1. Every device a learner can select has an answer. Five in PJ1, four in PJ2.
+#
+#    Unchanged by the Mission 2 repair, and worth saying why: a near-transfer
+#    topology's nodes carry no `about`, because nothing in a near-transfer
+#    check is selectable. So adding Mission 2's second near-transfer topology
+#    leaves this at nine, and the number still means what it says.
+#
+#    The per-node form — every node in each journey has an explanation, longer
+#    than a label and naming its own device — is asserted in
+#    `networking-foundations-module1.test.ts`, which reads the parsed document.
+#    What stays here is the file-level total, which is the one thing a parsed
+#    test cannot notice: nine explanations authored somewhere other than on the
+#    nodes.
 ABOUT_COUNT="$(grep -c '"about":' "$MODULE1_BLOCK" || true)"
 if [ "$ABOUT_COUNT" -lt 9 ]; then
-  fail "not every Module 1 device is explained ($ABOUT_COUNT authored, expected 9)"
+  fail "not every Module 1 device is explained ($ABOUT_COUNT authored, expected 9); a learner selecting a device would be shown its technical inventory with nothing saying what it is or why it is here"
 fi
 
 # 2. Optional on the node, exactly like `groupId`. A required field would
@@ -754,12 +850,36 @@ grep -Fq 'names a device that is not declared' "$REGISTRY" \
   || fail "an authored device display is not cross-referenced"
 
 # 4. Mission 2 actually authors both.
-grep -Fq '"alsoOnLinkIds"' "$DOCUMENT" \
-  || fail "Mission 2 no longer authors simultaneous delivery; the flood would draw as a serial path"
-grep -Fq '"deviceFacts"' "$DOCUMENT" \
-  || fail "Mission 2 no longer authors what Switch-1 knows"
-grep -Fq 'What Switch-1 knows' "$DOCUMENT" \
-  || fail "the learned-state caption a learner reads is gone"
+#
+#    ## The defect this repair closes
+#
+#    These three read `$DOCUMENT` — the WHOLE course — while claiming to assert
+#    something about Mission 2. Mission 4 also authors `alsoOnLinkIds`, and
+#    several missions author `deviceFacts`, so an audit found this section
+#    reporting success on Mission 4's data for a Mission 2 that no longer had
+#    the thing the section is named after. A check that another mission can
+#    satisfy is not checking this one.
+#
+#    Scoped to Mission 2's own block. The `"What Switch-1 knows"` caption is
+#    matched as a REGEX alternation with `"has recorded"`, because the Founder
+#    UAT repair rewords the earlier stages' caption — the invariant is that the
+#    learner is shown, in words, what the switch has recorded, not that a
+#    particular sentence survives. A gate that fails on the repair it asked for
+#    is testing the wording rather than the rule.
+grep -Fq '"alsoOnLinkIds"' "$M2_BLOCK" \
+  || fail "Mission 2 no longer authors simultaneous delivery; the flood would draw as a serial path and the learner would watch the copies arrive one after another instead of at one moment"
+grep -Fq '"deviceFacts"' "$M2_BLOCK" \
+  || fail "Mission 2 no longer authors what Switch-1 has recorded; the learner would be told the switch learned something and shown nothing that changed"
+grep -Eq 'What Switch-1 (knows|has recorded)' "$M2_BLOCK" \
+  || fail "the learned-state caption a learner reads is gone from Mission 2; the switch's record would be an unlabelled list of facts"
+
+#    The Mission 2 Founder UAT repair adds a second half to the same idea: a
+#    stage may say the traffic is also AT a device, not only ON a link. Without
+#    it the Printer's copy lights a wire that ends at a device showing no sign
+#    of having received anything, which reads as a drawing error rather than as
+#    the point.
+grep -Fq '"alsoAtNodeIds"' "$M2_BLOCK" \
+  || fail "Mission 2 no longer authors the devices a simultaneous copy also reached; the Printer's copy would light a connection toward a device that shows nothing"
 
 # 5. The presentation READS them and draws what it is given.
 grep -Fq 'alsoOnLinkIds' "$LAYOUT" \
@@ -959,18 +1079,28 @@ echo "PASS:  9. the concept ledger still orders what Module 1 teaches"
 # ------------------------------------------------------------
 # 10. No migration, dependency, publication or lab side effect
 # ------------------------------------------------------------
-shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
-  || fail "a migration this package was written against was modified"
+# Migration integrity, stated so a later authorized migration cannot break it.
+#
+# This asserted an exact count of 43. `20260907000100_mission_step_near_transfer.sql`
+# then landed as an approved forward-only repair, and this gate failed with
+# "Module 1 adds none to 43" — blaming a package that had not been touched.
+#
+# The shared helper asserts the two things a count could not: every APPLIED
+# migration is byte-identical, and none was removed. The floor is derived from
+# the frozen baseline, so it cannot go stale the way the literal did.
+# `verify-db-rls.sh` owns "every migration change is an addition"; a second copy
+# of that here is the drift `scripts/lib/` exists to prevent.
+source scripts/lib/migration-floor.sh
+migration_floor_check "Module 1"
 
-MIGRATION_COUNT="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
-[ "$MIGRATION_COUNT" = "43" ] \
-  || fail "the repository carries $MIGRATION_COUNT migrations; Module 1 adds none to 43"
-
-for manifest in package.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  git diff --quiet HEAD -- "$manifest" 2>/dev/null \
-    || fail "Module 1 changed a dependency manifest: $manifest"
-done
+# One authoritative dependency policy, not a second weaker copy.
+#
+# This carried its own inline check, which compared dependency NAME SETS and
+# would therefore have accepted a version bump, a scripts edit or any unrelated
+# manifest field. Nine other gates already source the shared policy; leaving a
+# looser variant here is exactly the drift the shared file exists to prevent.
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "Module 1"
 
 # Authoring is not publishing. Nothing in this slice may reach a database, a
 # provider or a deployment.
@@ -1027,8 +1157,16 @@ grep -Fq 'scripts/verify-wpj-m1.sh' "$SELECTOR" \
 # breaking one of those assertions would never run it. Sections 6c and 6d added
 # five presentation files to what this gate owns, so they are listed here too —
 # a gate that checks a file it is not woken for is a gate that passes forever.
+# `$PRESENTATION` joined this list in the Mission 2 Founder UAT repair. Sections
+# 6f and 6g have asserted things about `packet-journey-presentation.ts` since
+# they were written — that device inspection reads the authored explanation,
+# that it states a device's relation to the journey, that it surfaces authored
+# device state and computes no switching — and nothing in the selector woke this
+# gate for a change to that file. A gate that checks a file it is not selected
+# for is a gate that passes forever, which is the rule the loop below exists to
+# enforce; it simply was not applied to the file this gate reads most.
 for owned in "$DOCUMENT" "$HARNESS" "$MODULE1_TESTS" "$SYMBOL" "$NODE" \
-             "$VIEW" "$LAYOUT" "$STYLES"; do
+             "$VIEW" "$LAYOUT" "$STYLES" "$PRESENTATION"; do
   SELECTED="$(bash "$SELECTOR" "$owned")"
   case "
 $SELECTED
@@ -1062,6 +1200,19 @@ npm run test --workspace @tlp/shared-types -- instruction-interaction mission-st
 echo ""
 echo "--- running the topology geometry suite ---"
 npm run test --workspace @tlp/web -- src/learning/topology-layout
+
+# ## The journey presentation suite, and where it runs
+#
+# This gate asserts, by grep, what `packet-journey-presentation.ts` DOES — see
+# sections 6f and 6g — but has never run the suite that proves it. That was a
+# real gap while nothing else ran it either.
+#
+# `verify-wpj-m2.sh` now runs it, and both gates are selected by the same
+# `apps/web/src/learning/packet-journey-presentation*` rule, so a presentation
+# repair cannot reach `main` without that suite executing. Running it here as
+# well would double a slow suite on every curriculum change for no additional
+# signal, so it stays in one place — deliberately, and recorded here so the
+# omission is not read as the oversight it used to be.
 
 # ------------------------------------------------------------
 # Advisory

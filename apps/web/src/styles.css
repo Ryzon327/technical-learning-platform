@@ -364,6 +364,18 @@ dd {
    Colours are the greys and slates already used elsewhere in this sheet, so a
    later tokenization pass has one palette to replace rather than two. */
 
+/* Programmatic focus only.
+
+   A step is given `tabIndex={-1}` so finishing a required activity can hand
+   focus to the content that press revealed. It is never a Tab stop, so the
+   ring shows only when a keyboard learner is actually there — the same
+   treatment `.packet-journey-beat-heading` gets for the same reason. */
+.instruction-step:focus-visible {
+  outline: 2px solid var(--tlp-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
 .instruction-step + .instruction-step {
   margin-top: 1.75rem;
   padding-top: 1.75rem;
@@ -486,9 +498,51 @@ dd {
 /* What connects to what, in words. Visible prose for every reader — the same
    rule the instruction figure follows, and for the same reason. */
 
+/* The authored text equivalent for a near-transfer diagram.
+
+   VISIBLE, which is what it has always been and what Mission 1 was approved
+   with. This rule must stay visible: an earlier repair hid the sentence here,
+   in the shared class, and silently changed a closed mission's rendered
+   screen. The suppression belongs to the modifier below and to nothing else. */
+
 .near-transfer-scenario-text {
   margin: 0.6rem 0 0;
   color: #475569;
+}
+
+/* The sentence, where the DIAGRAM already names its ports.
+
+   Founder UAT read Mission 2's scenario and met the same port mapping three
+   times on one screen: the framing paragraph, Port 1 / Port 2 / Port 3 drawn
+   on the topology, and this sentence underneath it. The Architect ruled that
+   the picture owns the mapping and the visible repetition goes — for that
+   activity, not for every activity.
+
+   `NearTransferStep` adds this class only when the layout produced port
+   labels, so the condition is a property of the drawing rather than of a
+   mission id. A topology that names no port keeps the plain rule above.
+
+   Hidden rather than removed, because both halves of the ruling have to hold.
+   `textEquivalent` is required by `validateNearTransferContent` whenever a
+   topology is authored, CURR-011 s16 makes a missing accessible equivalent
+   publication-BLOCKING, and deleting the paragraph would leave a required
+   authored field presented nowhere at all. So the words stay for a learner who
+   cannot see the drawing and stop competing for the attention of one who can.
+
+   The same declarations as `.topology-description`, which has carried the
+   arrangement this way since WP-I. One hiding technique in this stylesheet,
+   not two: `display: none` and `visibility: hidden` would take the sentence
+   away from assistive technology as well, which is the failure this avoids. */
+
+.near-transfer-scenario-text.is-visually-redundant {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* Orientation, not a score. "Question 2 of 4" says where the learner is; it
@@ -1793,12 +1847,19 @@ dd {
    so it must not read as success. Only `confirmed` is allowed to look like
    something concluded. */
 
-.topology-device.is-visited {
+/* `participating` shares this treatment deliberately. The two states differ in
+   WORDS — one device was part of the moment on screen, the other was part of
+   an earlier one — and both are equally "involved, not concluded". Giving
+   participation its own colour would be inventing a visual rank nobody
+   authored, and would compete with `is-current` for attention. */
+.topology-device.is-visited,
+.topology-device.is-participating {
   border-color: var(--tlp-line-strong);
   background: var(--tlp-surface-sunken);
 }
 
-.topology-device.is-visited .topology-device-figure {
+.topology-device.is-visited .topology-device-figure,
+.topology-device.is-participating .topology-device-figure {
   background: var(--tlp-surface);
 }
 
@@ -2558,10 +2619,17 @@ dd {
    two controls are mutually exclusive, because the advance control is
    suppressed on a question beat, which is the only beat the prediction submit
    appears on. Reusing the name would have made the gate count two progression
-   controls and forced it to be loosened to accommodate a paint job. */
+   controls and forced it to be loosened to accommodate a paint job.
+
+   `.packet-journey-settle` joins the same rule on the same terms. It is the
+   control that finishes a required walkthrough, it appears only once the
+   journey has reached its authored end — by which point the advance control is
+   gone — and it adds no design values of its own. Separate name, one
+   treatment, gate intact. */
 
 .packet-journey-advance,
-.packet-journey-prediction-submit {
+.packet-journey-prediction-submit,
+.packet-journey-settle {
   margin: 0.5rem 0;
   padding: 0.6rem 1.1rem;
   border: 1px solid var(--tlp-accent);

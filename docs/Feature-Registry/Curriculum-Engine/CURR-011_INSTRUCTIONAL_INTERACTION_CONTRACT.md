@@ -220,7 +220,10 @@ This scope fence is part of the Feature, so the interaction cannot grow into a
 network simulator.
 
 - No real packet forwarding and no protocol stack.
-- No ARP, MAC learning, spanning tree, DHCP or DNS.
+- No independent protocol or forwarding simulation for ARP, MAC learning,
+  spanning tree, DHCP or DNS. Teaching-mode interactions may display explicitly
+  authored observations about these behaviors when the curriculum requires them;
+  the projection and renderer must not compute, infer or adjudicate the behavior.
 - No routing protocols and no routing-table computation.
 - No timing, latency, throughput, congestion or MTU.
 - No IPv6, NAT, ACLs, QoS, firewalls or wireless.
@@ -522,3 +525,4 @@ Approved by DEC-058, with the support-level contract from DEC-059.
 | Version | Date | Summary |
 |---|---|---|
 | 1.0 | 2026-08-30 | Initial Feature specification. One shared authoritative contract with application-side renderer mapping; the `ObservationModel` seam is a required design constraint; teaching mode produces no evidence and live mode is deferred to `WP-K`. Accessibility requires accessible interaction equivalence — the learner performs the instructional task, not merely reads a description of it — with the authored text trace retained as narration rather than as a substitute for learner agency. |
+| 1.1 | 2026-09-07 | Mission 2 repair. Section 10.1's scope fence now distinguishes independent protocol or forwarding SIMULATION, which remains excluded, from explicitly authored observations about those behaviors, which a teaching-mode interaction may display when the curriculum requires them. The projection and renderer must still not compute, infer or adjudicate the behavior, and the adjacent no-inference rule is unchanged. This is a scope clarification and authorizes no protocol engine. |

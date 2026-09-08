@@ -503,3 +503,86 @@ describe("a near-transfer check produces nothing", () => {
     }
   });
 });
+
+
+/* ------------------------------------------------------------------ *
+ * PORT NAMES ON A CONNECTION
+ *
+ * Founder UAT, Mission 2's "Try it on a different switch": the questions ask
+ * which ports carry copies and which entry the switch learns, and the diagram
+ * named no port. The mapping lived only in prose.
+ *
+ * The renderer was never the gap. `buildTopologyLayout` has drawn `prominent`
+ * interface labels beside wires since WP-I; this contract simply had no way to
+ * say which port a link occupies on a device, so there was nothing to flag.
+ * These fix the shape of that answer, which is what stops a later author
+ * writing a port name onto a device the wire does not reach.
+ * ------------------------------------------------------------------ */
+
+function links(draft: Record<string, unknown>): Record<string, unknown>[] {
+  return topology(draft).links as Record<string, unknown>[];
+}
+
+describe("a port name on a connection", () => {
+  it("is optional, and its absence is not a defect", () => {
+    // Every topology authored before this existed declares none.
+    expect(validateNearTransferContent(valid(), "step")).toEqual([]);
+  });
+
+  it("is accepted on either end, or on both", () => {
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = [{ nodeId: "b", label: "Port 1" }];
+        links(draft)[1]!.portLabels = [
+          { nodeId: "b", label: "Port 2" },
+          { nodeId: "c", label: "Gi0/0" }
+        ];
+      })
+    ).toEqual([]);
+  });
+
+  it("is refused on a device the connection does not reach", () => {
+    // The label would be drawn against a wire that does not touch it.
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = [{ nodeId: "c", label: "Port 1" }];
+      })
+    ).toEqual([
+      "step.topology.links[0].portLabels[0].nodeId is not an endpoint of this link: c"
+    ]);
+  });
+
+  it("is refused twice on one end", () => {
+    // Two names for one port is two answers to one question.
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = [
+          { nodeId: "b", label: "Port 1" },
+          { nodeId: "b", label: "Port 9" }
+        ];
+      })
+    ).toEqual(["step.topology.links[0].portLabels[1] names b a second time"]);
+  });
+
+  it("is refused empty, or with an unknown key, or as a non-list", () => {
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = [{ nodeId: "b", label: "  " }];
+      })
+    ).toEqual(["step.topology.links[0].portLabels[0].label is empty"]);
+
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = [
+          { nodeId: "b", label: "Port 1", prominent: true }
+        ];
+      })
+    ).not.toEqual([]);
+
+    expect(
+      withChange((draft) => {
+        links(draft)[0]!.portLabels = "Port 1";
+      })
+    ).toEqual(["step.topology.links[0].portLabels must be a list"]);
+  });
+});

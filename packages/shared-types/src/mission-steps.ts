@@ -21,7 +21,12 @@
  *   - there is no version here — a step belongs to a Mission at a version;
  *   - there is no competency field, no evidence field and no progress field, so
  *     no step can contribute to a competency claim;
- *   - there is no `required` flag, so a step cannot become a prerequisite.
+ *   - there is no `required` flag that makes a step a prerequisite.
+ *     WP-NF-NT1B added `requiredForProgression` to `interaction`, and it is
+ *     deliberately not one: it is session-local, unpersisted, records nothing,
+ *     and gates only what the learner reads next inside the open mission.
+ *     Nothing about it reaches `learning_prerequisite_rules`, and no other
+ *     step type carries it.
  *
  * Mission remains the authoritative unit for learner progress, resume and
  * navigation, prerequisite evaluation, competency relationship, lab association
@@ -52,6 +57,7 @@
 
 import {
   validateInteractionContent,
+  withholdsEntireInteraction,
   type InteractionParameters,
   type InteractionSupportLevel,
   type InteractionType
@@ -244,6 +250,31 @@ export interface MissionStepInteractionContent {
   readonly parameters: InteractionParameters;
   readonly textEquivalent: string;
   readonly caption?: string;
+  /**
+   * Whether the lesson waits here until the learner has worked the interaction.
+   *
+   * ## What it is
+   *
+   * The same authoring decision a near-transfer check already carries
+   * implicitly: this activity is the point of the instruction around it, so
+   * what an author places AFTER it waits. Founder UAT on Mission 2 read the
+   * closing steps while the walkthrough above them was still on its first
+   * stage — the lesson answered its own activity before the learner had done
+   * it.
+   *
+   * ## What it is not
+   *
+   * Not a score, not a pass mark, not evidence, and not correctness. What
+   * satisfies it is the learner reaching the interaction's own authored end
+   * and saying they are finished — the same "attempted, not passed" rule the
+   * rest of instruction runs on. Nothing counts anything, and nothing is
+   * persisted.
+   *
+   * Optional, and ABSENT means exactly today's behaviour: the interaction is
+   * offered, nothing waits on it, and every mission authored before this field
+   * existed is unchanged.
+   */
+  readonly requiredForProgression?: boolean;
 }
 
 /**
@@ -268,9 +299,12 @@ export interface MissionStepPracticeContent {
 /**
  * `reference` — concise optional material the learner may open when needed.
  *
- * **Optional enrichment, structurally.** There is no `required` field on any
- * step, so a reference has no mechanism by which to become a prerequisite, and
- * prerequisites remain owned solely by `learning_prerequisite_rules`.
+ * **Optional enrichment, structurally.** A reference carries no required-ness
+ * field of any kind, so it has no mechanism by which to become a prerequisite,
+ * and prerequisites remain owned solely by `learning_prerequisite_rules`. The
+ * one required-ness field that now exists — `requiredForProgression` — is
+ * declared on `interaction` alone and gates reading order inside an open
+ * mission, never prerequisite structure.
  *
  * BEGINNER-COMPLETE-1 depends on this staying true: required prerequisite
  * instruction belongs in the instructional path, not hidden behind an optional
@@ -484,6 +518,48 @@ export function validateMissionStepContent(
         at("an interaction step requires an authored text equivalent");
       } else if (!withinLimit(content.textEquivalent)) {
         at(`text equivalent exceeds ${MISSION_STEP_TEXT_LIMIT} characters`);
+      }
+      // A gate the author asked for, or nothing. Absent is the ordinary case
+      // and means the lesson does not wait here; anything that is not a
+      // boolean is an authoring mistake, and the honest place to say so is
+      // publication. Accepting `"true"` would silently produce a step that
+      // reads as not-required — the same class of silent failure as the typo'd
+      // optional field that made unknown keys a publication error.
+      if (
+        content.requiredForProgression !== undefined &&
+        typeof content.requiredForProgression !== "boolean"
+      ) {
+        at("requiredForProgression must be true or false");
+      }
+      /*
+        The deadlock, refused at publication.
+
+        PROVE IT withholds a teaching-mode interaction entirely
+        (`withholdsEntireInteraction`), so the learner is never shown the
+        activity, can never reach its authored end, and can never settle it.
+        A step that both waits for settlement and is withheld is a mission
+        that cannot be completed by anyone, at any level of correctness.
+
+        This is not a new doctrine. DEC-059 already says PROVE IT "withholds
+        instructional assistance. It does not withhold the environment
+        required to demonstrate competency", and corrects an earlier draft
+        that withheld the interaction wholesale precisely because "withholding
+        the environment would prevent the demonstration rather than protect
+        it". A required-for-progression interaction IS that environment.
+
+        Refused here rather than repaired at render time: silently ignoring
+        the gate would publish a mission whose author asked the learner to
+        work an activity they cannot see, and silently lowering the support
+        level would publish curriculum nobody authored. The combination is an
+        authoring mistake, and publication is the honest place to say so.
+      */
+      if (
+        content.requiredForProgression === true &&
+        withholdsEntireInteraction(content.supportLevel, content.sourceKind)
+      ) {
+        at(
+          "requiredForProgression cannot be set on an interaction that is withheld entirely at its support level; the learner could never reach its end"
+        );
       }
       // The registry owns the type vocabulary, the source discriminator, the
       // support level and every parameter rule. Restating any of it here would

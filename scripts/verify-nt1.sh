@@ -201,6 +201,63 @@ grep -Fq '{resolution.verdict}' "$CODE" \
 grep -Fq '{content.topology.textEquivalent}' "$CODE" \
   || fail "the topology's authored text equivalent is no longer rendered, leaving the relationships in pixels only"
 
+# The text equivalent is rendered, and suppressed ONLY where the diagram
+# already names its ports.
+#
+# Founder UAT read Mission 2's scenario and met the same port mapping three
+# times on one screen: the framing paragraph, Port 1 / Port 2 / Port 3 drawn on
+# the topology, and the sentence underneath it. The Architect ruled that the
+# picture owns the mapping and the visible repetition goes.
+#
+# The first repair did that in the SHARED class, which hid the sentence for
+# every near-transfer activity — including Mission 1, already Founder-approved
+# with it visible and with a diagram that names no port. The Architect refused
+# that rendered change. These assertions exist so it cannot come back.
+#
+# The condition is a property of the DRAWING: the component adds the modifier
+# when `layout.portLabels` is non-empty. No mission id appears anywhere in the
+# decision, and no list has to be maintained.
+grep -Fq 'layout.portLabels.length > 0' "$CODE" \
+  || fail "the scenario text no longer decides visibility from the drawing's own port labels"
+
+grep -Fq 'is-visually-redundant' "$CODE" \
+  || fail "the scenario text no longer carries the modifier that suppresses it"
+
+if grep -qE 'missionStableId|nf-m1-|nf-m2-' "$CODE"; then
+  fail "$COMPONENT branches on a mission identity; visibility must follow the drawing, not the mission"
+fi
+
+# The SHARED rule stays visible. This is the regression itself, pinned.
+SHARED_RULE="$SCAN_DIR/scenario-text-shared.css"
+awk '/^\.near-transfer-scenario-text \{/,/^\}/' apps/web/src/styles.css > "$SHARED_RULE"
+[ -s "$SHARED_RULE" ] \
+  || fail "apps/web/src/styles.css declares no .near-transfer-scenario-text rule"
+
+for hiding in 'clip-path' 'position: absolute' 'display: none' 'visibility: hidden'; do
+  if grep -Fq "$hiding" "$SHARED_RULE"; then
+    fail "the SHARED .near-transfer-scenario-text rule carries '$hiding'; that hides the sentence for every activity and silently changed Mission 1's approved screen once already"
+  fi
+done
+
+# The modifier does the hiding, and does it the one way that keeps the words
+# available to assistive technology.
+REDUNDANT_RULE="$SCAN_DIR/scenario-text-redundant.css"
+awk '/^\.near-transfer-scenario-text\.is-visually-redundant \{/,/^\}/' apps/web/src/styles.css > "$REDUNDANT_RULE"
+[ -s "$REDUNDANT_RULE" ] \
+  || fail "apps/web/src/styles.css declares no .near-transfer-scenario-text.is-visually-redundant rule; Mission 2's redundant sentence would be visible again"
+
+for declaration in 'position: absolute' 'width: 1px' 'height: 1px' \
+                   'overflow: hidden' 'clip-path: inset(50%)'; do
+  grep -Fq "$declaration" "$REDUNDANT_RULE" \
+    || fail ".near-transfer-scenario-text.is-visually-redundant lost '$declaration'; the redundant sentence would be visible again"
+done
+
+for silencing in 'display: none' 'visibility: hidden'; do
+  if grep -Fq "$silencing" "$REDUNDANT_RULE"; then
+    fail ".near-transfer-scenario-text.is-visually-redundant uses '$silencing', which hides the authored text equivalent from assistive technology too"
+  fi
+done
+
 # ------------------------------------------------------------
 # 4. It is instruction, not assessment
 # ------------------------------------------------------------
@@ -367,7 +424,12 @@ grep -Fq 'return attemptedNearTransfer(blocking, states) === false;' "$PRESENTAT
 INSTRUCTION_CODE="$SCAN_DIR/mission-instruction-code.tsx"
 strip_checked "$INSTRUCTION" "$INSTRUCTION_CODE"
 
-grep -Fq 'hasUnattemptedInstruction(steps, nearTransfer)' "$INSTRUCTION_CODE" \
+# Matched on the CALL, not on its exact argument list. Mission 2 added a third
+# argument — the required-interaction settlement map — and pinning the two-arg
+# spelling would have failed on a legitimate signature change while protecting
+# nothing extra. What matters is that the notice asks whether questions are
+# UNANSWERED, not that the call has a particular arity.
+grep -Fq 'hasUnattemptedInstruction(steps, nearTransfer' "$INSTRUCTION_CODE" \
   || fail "MissionInstruction no longer asks whether questions are UNANSWERED before showing the notice; a stale \"answer the questions above\" would return under the final feedback"
 
 grep -Fq 'visible.length < steps.length' "$INSTRUCTION_CODE" \

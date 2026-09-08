@@ -68,11 +68,63 @@ PRESENTATION_LOGIC="$SCAN_DIR/presentation-logic.txt"
 SERVICE_LOGIC="$SCAN_DIR/service-logic.txt"
 WPF_LOGIC="$SCAN_DIR/wpf-logic.txt"
 
-code_of() { grep -vE '^\s*(//|\*|/\*)' "$1" || true; }
+# A real block-comment stripper, not a line-shape guess.
+#
+# `grep -vE '^\s*(//|\*|/\*)'` dropped only lines that LOOK like comments —
+# ones opening with `//`, `*` or `/*`. A block comment written without leading
+# asterisks keeps its continuation lines, and those were then scanned as code.
+# That is how this gate came to report "WP-H interaction behaviour was pulled
+# forward into WP-F" about a sentence explaining which component owns a focus
+# handoff.
+#
+# The direction of the bug matters: the old form was over-strict, failing on
+# prose, never lenient about code. The rule it protects is unchanged — no
+# packet-journey behaviour, no observation model, no simulation in the mission
+# renderer — and is now asserted against the code that would actually do it.
+code_of() {
+  awk '
+    {
+      line = $0
+      out = ""
+      while (length(line) > 0) {
+        if (inblock) {
+          end = index(line, "*/")
+          if (end == 0) { line = ""; break }
+          line = substr(line, end + 2)
+          inblock = 0
+          continue
+        }
+        start = index(line, "/*")
+        eol = index(line, "//")
+        if (eol > 0 && (start == 0 || eol < start)) {
+          out = out substr(line, 1, eol - 1)
+          line = ""
+          break
+        }
+        if (start == 0) { out = out line; line = ""; break }
+        out = out substr(line, 1, start - 1)
+        line = substr(line, start + 2)
+        inblock = 1
+      }
+      print out
+    }
+  ' "$1"
+}
 
 code_of "$RENDERER" > "$RENDERER_LOGIC"
 code_of "$PRESENTATION" > "$PRESENTATION_LOGIC"
 code_of "$SERVICE" > "$SERVICE_LOGIC"
+
+# A non-empty source that strips to nothing would let every absence check below
+# pass while reading no code at all.
+for pair in "$RENDERER:$RENDERER_LOGIC" "$PRESENTATION:$PRESENTATION_LOGIC" \
+            "$SERVICE:$SERVICE_LOGIC"; do
+  SOURCE="${pair%%:*}"
+  STRIPPED="${pair##*:}"
+  if [ -s "$SOURCE" ] && [ ! -s "$STRIPPED" ]; then
+    fail "stripping $SOURCE produced nothing, but the file is not empty — every absence check reading it would pass while examining no code"
+  fi
+done
 cat "$RENDERER_LOGIC" "$PRESENTATION_LOGIC" > "$WPF_LOGIC"
 
 # ------------------------------------------------------------
@@ -378,13 +430,23 @@ echo "PASS:  9. one source at a time, and the legacy path is intact"
 shasum -a 256 -c scripts/migration-baseline.sha256 --quiet \
   || fail "a migration this package was written against was modified"
 
-CHANGED_LOCK="$(git diff --name-only origin/main...HEAD -- package-lock.json 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-[ "$CHANGED_LOCK" = "0" ] \
-  || fail "the lockfile changed; no dependency change is authorized in this package"
-
-CHANGED_WEB_DEPS="$(git diff origin/main...HEAD -- apps/web/package.json 2>/dev/null | grep -cE '^\+.*"(dependencies|devDependencies)"|^\+\s+"[^"]+": "\^?[0-9~]' || true)"
-[ "$CHANGED_WEB_DEPS" = "0" ] \
-  || fail "the web workspace gained $CHANGED_WEB_DEPS dependency line(s); none is authorized"
+# Dependencies are judged by the shared policy, not by counting diff lines.
+#
+# This counted lines in `git diff origin/main...HEAD`, and both halves were
+# unsound. The lockfile half compared against the merge base, so it passed on a
+# branch with no commits and would have failed the moment the same tree was
+# committed — a check that reports differently before and after `git commit` is
+# a check nobody can act on. The manifest half matched `^\+\s+"name": "^ver"`,
+# which `npm install` trips by alphabetically re-sorting untouched packages: on
+# the current tree it counts four, three of which are pure formatting.
+#
+# `authorized_dependency_check` compares parsed JSON against the MERGE BASE
+# with the target branch, so re-sorting is invisible and the answer does not
+# change when the branch is committed. It refuses every unauthorized shape
+# rather than every change, proved case by case and end to end in
+# `scripts/verify-dependency-policy.sh`.
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "WP-F"
 
 # WP-F consumes the shared contract. It does not own it.
 #

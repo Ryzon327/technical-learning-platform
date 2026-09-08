@@ -226,6 +226,30 @@ export type MissionNearTransferState = Readonly<
 >;
 
 /**
+ * Which required INTERACTIONS the learner has settled, by step stableId.
+ *
+ * ## Why a boolean is the whole state
+ *
+ * A near-transfer check needs a state machine because the lesson has to know
+ * which question the learner is on. An interaction owns its own state entirely
+ * — where the journey is, what was predicted, what was applied — and the lesson
+ * needs exactly one fact from it: has the learner said they are finished. One
+ * boolean is that fact, and anything richer would be a second copy of state the
+ * interaction already holds.
+ *
+ * ## What it is not
+ *
+ * Not a score, not a result, not evidence, and not correctness. It records that
+ * the learner pressed Finish on an activity, the same way `acknowledged`
+ * records that they pressed Finish on a question's feedback. It is browsing
+ * state: nothing persists it and nothing is sent anywhere.
+ *
+ * An absent entry is `false` — not settled — which is the correct reading for
+ * an activity the learner has not reached.
+ */
+export type MissionInteractionSettlement = Readonly<Record<string, boolean>>;
+
+/**
  * The steps a learner may currently see.
  *
  * A near-transfer check is the point of the instruction that precedes it, so
@@ -251,15 +275,100 @@ export type MissionNearTransferState = Readonly<
  * permanently: the only thing standing between them and the next step is
  * pressing Finish.
  *
+ * ## The second kind of required activity
+ *
+ * A required INTERACTION waits in exactly the same way, on exactly the same
+ * terms. Founder UAT on Mission 2 read the closing steps while the walkthrough
+ * above them was still on its first stage: the lesson answered its own activity
+ * before the learner had worked it. What it waits on is the learner pressing
+ * Finish on the activity — settled, never correct — and only where the author
+ * marked the step required. `settlement` is optional, and omitting it is
+ * today's behaviour exactly.
+ *
+ * Whichever kind comes FIRST in authored order is the one the lesson waits at.
+ *
  * Generic: it knows about the step TYPE and about nothing in any mission. The
- * near-transfer step itself always stays visible — it is the thing being
- * waited on.
+ * blocking step itself always stays visible — it is the thing being waited on.
  */
+/**
+ * The step a learner is moved to once a required activity is finished.
+ *
+ * ## Why the reveal needs a destination at all
+ *
+ * Finishing a required activity unmounts the control that was pressed — its
+ * own render condition goes false — and the focus it was holding falls to
+ * `document.body`. A keyboard learner is returned to the top of the document,
+ * and a screen-reader learner is told nothing about the steps that press just
+ * revealed. Inside the expanded workspace it is worse: losing focus also drops
+ * the learner out of the pane's Tab cycle.
+ *
+ * So the reveal announces itself, and this says where.
+ *
+ * ## What it knows, and what it refuses to know
+ *
+ * AUTHORED ORDER, and nothing else. It does not read step types, content,
+ * settlement or near-transfer state, and it does not ask whether the next step
+ * is itself withheld — `visibleInstructionSteps` already decides that, and
+ * asking twice would let the two disagree.
+ *
+ * `null` when the finished step was the last authored one. That is ordinary:
+ * there is nothing after it, and the caller leaves focus where it is rather
+ * than inventing a destination.
+ */
+/**
+ * Whether this change to a near-transfer's state is the one that reveals what
+ * comes after it.
+ *
+ * ## Why a transition, and not simply "is it settled now"
+ *
+ * The lesson hands focus on exactly ONCE, at the moment the steps behind a
+ * required activity appear. Asking "is it settled" would be true of every
+ * subsequent keystroke in the revealed content too, and focus would be yanked
+ * back to the same section over and over.
+ *
+ * ## Why the near-transfer needs this at all
+ *
+ * The interaction's Finish already hands focus on, from its own `onSettle`.
+ * The near-transfer has no `onSettle` — it settles by acknowledging the last
+ * question's feedback, through the same `onChange` every other answer goes
+ * through — so nothing on that path could tell the reveal from an ordinary
+ * selection. Mission 2 has both controls, and until this existed only one of
+ * them carried the learner forward.
+ *
+ * Correctness is no part of it. A learner who answered every question wrongly
+ * settles, reveals and is carried on exactly as one who answered them all
+ * correctly.
+ */
+export function revealedByNearTransfer(
+  step: LearnerMissionStep,
+  before: NearTransferState,
+  after: NearTransferState
+): boolean {
+  if (step.content.type !== "near_transfer") return false;
+
+  return !isSettled(step.content, before) && isSettled(step.content, after);
+}
+
+export function nextInstructionStepId(
+  steps: readonly LearnerMissionStep[],
+  stableId: string
+): string | null {
+  const at = steps.findIndex((step) => step.stableId === stableId);
+
+  // A step that is not in this lesson has no successor in it. Returning
+  // `steps[0]` for `-1 + 1` would move the learner to the top of a mission
+  // because of a bookkeeping error somewhere else.
+  if (at === -1) return null;
+
+  return steps[at + 1]?.stableId ?? null;
+}
+
 export function visibleInstructionSteps(
   steps: readonly LearnerMissionStep[],
-  states: MissionNearTransferState
+  states: MissionNearTransferState,
+  settlement: MissionInteractionSettlement = {}
 ): readonly LearnerMissionStep[] {
-  const blockedAt = blockingStepIndex(steps, states);
+  const blockedAt = blockingStepIndex(steps, states, settlement);
 
   return blockedAt === -1 ? steps : steps.slice(0, blockedAt + 1);
 }
@@ -271,15 +380,31 @@ export function visibleInstructionSteps(
  * stops. Two `findIndex` calls with the same intent is how the thing that
  * hides the steps and the thing that explains why they are hidden come to
  * disagree — which is the defect below.
+ *
+ * ## Two kinds of required activity, one rule
+ *
+ * `findIndex` stops at the FIRST unsettled one in AUTHORED ORDER, whichever
+ * kind it is. That ordering is the whole guarantee: a mission that authors a
+ * required walkthrough and then a near-transfer check waits at the walkthrough,
+ * and one that authors them the other way round waits at the check. Asking
+ * about one kind first would let a later activity hide an earlier one.
+ *
+ * An interaction blocks only when its author SAID it should
+ * (`requiredForProgression`). Absent means today's behaviour exactly: the step
+ * is not a gate and nothing waits on it.
  */
 function blockingStepIndex(
   steps: readonly LearnerMissionStep[],
-  states: MissionNearTransferState
+  states: MissionNearTransferState,
+  settlement: MissionInteractionSettlement
 ): number {
   return steps.findIndex((step) => {
-    if (step.content.type !== "near_transfer") return false;
-    const state = states[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE;
-    return !isSettled(step.content, state);
+    if (step.content.type === "near_transfer") {
+      const state = states[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE;
+      return !isSettled(step.content, state);
+    }
+
+    return requiredInteraction(step, settlement) === false;
   });
 }
 
@@ -309,9 +434,10 @@ function blockingStepIndex(
  */
 export function hasUnattemptedInstruction(
   steps: readonly LearnerMissionStep[],
-  states: MissionNearTransferState
+  states: MissionNearTransferState,
+  settlement: MissionInteractionSettlement = {}
 ): boolean {
-  const blockedAt = blockingStepIndex(steps, states);
+  const blockedAt = blockingStepIndex(steps, states, settlement);
   if (blockedAt === -1) return false;
 
   const blocking = steps[blockedAt];
@@ -320,8 +446,14 @@ export function hasUnattemptedInstruction(
   // Reads ATTEMPTED directly, and must never delegate to
   // `requiredNearTransfer`: that one reads SETTLED, so it reports `false` for
   // any blocking step by construction, and the notice would return underneath
-  // the final feedback. `false` here is "this step has questions left";
-  // `null` cannot occur, because only a near-transfer step can block.
+  // the final feedback. `false` here is "this step has questions left".
+  //
+  // `null` now DOES occur, and returning false for it is the point rather than
+  // an oversight: a required interaction can block, and the notice this drives
+  // says "Answer the questions above to continue." A walkthrough has no
+  // questions and carries its own Finish control, so telling a learner to
+  // answer questions that do not exist would be the same stale-notice defect
+  // in a new place. The activity says what it needs; the lesson stays quiet.
   return attemptedNearTransfer(blocking, states) === false;
 }
 
@@ -366,6 +498,50 @@ export function requiredNearTransfer(
     step.content,
     states[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE
   );
+}
+
+/**
+ * Whether one step is a required INTERACTION, and whether it is DONE.
+ *
+ * The sibling of `requiredNearTransfer`, answering the same question about the
+ * other kind of inline activity. `null` means "not my kind of step" — which
+ * covers every step that is not an interaction, and equally every interaction
+ * whose author did not mark it required.
+ *
+ * ## Why the author decides, and not this function
+ *
+ * An interaction is not required merely by existing. Most are demonstrations
+ * placed beside prose, and gating the lesson on every one of them would change
+ * the behaviour of every mission already written. `requiredForProgression` is
+ * the authored fact, it is optional, and its absence is today's behaviour
+ * exactly.
+ *
+ * ## Done means SETTLED, the same as it does next door
+ *
+ * The learner pressing Finish on the activity, and nothing else. Not the
+ * journey reaching its authored end — that is the interaction's own state, not
+ * the learner saying they have read it — and not correctness, which does not
+ * exist here: an interaction produces no score, no attempt and no evidence, so
+ * a learner who predicted wrongly at every stage settles it exactly as one who
+ * predicted correctly does.
+ *
+ * ## Why this lives here rather than inline
+ *
+ * The same reason `requiredNearTransfer` does. Mutation testing showed that a
+ * predicate of this kind sitting inside a component with no test harness could
+ * be swapped without a single failure, so it is pinned in a module that has
+ * one.
+ */
+export function requiredInteraction(
+  step: LearnerMissionStep,
+  settlement: MissionInteractionSettlement
+): boolean | null {
+  if (step.content.type !== "interaction") return null;
+  if (step.content.requiredForProgression !== true) return null;
+
+  // Absent is "not settled", which is the correct reading for an activity the
+  // learner has not reached yet.
+  return settlement[step.stableId] === true;
 }
 
 /**
@@ -545,15 +721,43 @@ export function buildStaticTopologyLayout(
       label: node.label,
       role: node.role,
       ...(node.about !== undefined ? { about: node.about } : {}),
-      // One interface per link end, so the existing layout can anchor a wire.
+      /*
+        One interface per link end, so the existing layout can anchor a wire.
+
+        Where the author named the PORT this link occupies on this device, that
+        name becomes the interface label and the end is flagged `prominent` —
+        which is the same authored flag Switch-1 uses in the main Packet
+        Journey, read by the same `buildTopologyLayout`, drawn by the same
+        `TopologyView`, in the same place beside the same wire. There is no
+        second visual language here and no second placement rule.
+
+        Founder UAT, Mission 2's "Try it on a different switch": the questions
+        ask which ports carry copies and which entry the switch can learn, and
+        the diagram named no port at all. The mapping lived in prose, so a
+        learner had to memorise it to answer questions about switching.
+
+        Where the author named no port, nothing changes: the interface keeps
+        the link's own label, stays unflagged, and no label is drawn. Mission
+        1's near-transfer authors none and is untouched.
+      */
       interfaces: topology.links
         .filter((link) => link.endpoints.includes(node.nodeId))
-        .map((link) => ({
-          interfaceId: `${node.nodeId}--${link.linkId}`,
-          label: link.label,
-          availability: "available" as const,
-          attributes: []
-        }))
+        .map((link) => {
+          // Matched by nodeId, never by endpoint position. Which end a port
+          // belongs to is an authored fact; reordering `endpoints` must not
+          // silently move a port from one device to the other.
+          const port = link.portLabels?.find(
+            (candidate) => candidate.nodeId === node.nodeId
+          );
+
+          return {
+            interfaceId: `${node.nodeId}--${link.linkId}`,
+            label: port?.label ?? link.label,
+            availability: "available" as const,
+            attributes: [],
+            ...(port !== undefined ? { prominent: true } : {})
+          };
+        })
     })),
     // Carried across unchanged. The renderer draws what the author declared;
     // nothing here decides that a network exists past a device.

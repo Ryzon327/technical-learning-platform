@@ -1,4 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { parseCurriculumDocument } from "@tlp/shared-types";
+import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
+// Read as text through Vite's own `?raw`, which `"types": ["vite/client"]`
+// already declares. `node:fs` has no types in this browser workspace, and
+// adding `@types/node` to reach it would be a dependency change.
+import nearTransferStepSource from "./NearTransferStep.tsx?raw";
 import type {
   LearnerMissionStep,
   LearnerNearTransferStep
@@ -18,8 +24,11 @@ import {
   describeWithheldStepsNotice,
   hasUnattemptedInstruction,
   isComplete,
+  nextInstructionStepId,
+  revealedByNearTransfer,
   isSelected,
   isSettled,
+  requiredInteraction,
   requiredNearTransfer,
   resolveQuestion,
   toggleOption,
@@ -644,6 +653,341 @@ describe("what the near-transfer check holds back", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * A required interaction, alongside the near-transfer check
+ * ------------------------------------------------------------------ */
+
+describe("what a required interaction holds back", () => {
+  /**
+   * Mission 2 Founder UAT. Every step after the walkthrough explains what the
+   * walkthrough shows, and all of them were on screen from the moment the
+   * mission opened — so a learner could read the answer without watching a
+   * single stage.
+   *
+   * The near-transfer check already had this behaviour. What is new is that an
+   * INTERACTION can ask for it too, and that both kinds are answered by ONE
+   * traversal rule in authored order rather than by two rules that could
+   * disagree about where the lesson stops.
+   *
+   * Generic throughout: no mission, no course, no networking. Mission 2's own
+   * authoring is pinned in the course suite.
+   */
+  const requiredJourney: LearnerMissionStep = {
+    stableId: "walkthrough",
+    position: 1,
+    content: {
+      type: "interaction",
+      interactionStableId: "a-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      textEquivalent: "A description of the journey.",
+      requiredForProgression: true,
+      presentation: { state: "withheld", reason: "protected_demonstration" }
+    }
+  };
+
+  /** The same step with the author's gate absent, which is the ordinary case. */
+  const optionalJourney: LearnerMissionStep = {
+    stableId: "walkthrough",
+    position: 1,
+    content: {
+      type: "interaction",
+      interactionStableId: "a-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored_teaching",
+      supportLevel: "show_me",
+      textEquivalent: "A description of the journey.",
+      presentation: { state: "withheld", reason: "protected_demonstration" }
+    }
+  };
+
+  const lesson = (activity: LearnerMissionStep): readonly LearnerMissionStep[] => [
+    {
+      stableId: "teaching",
+      position: 0,
+      content: { type: "concept", paragraphs: ["Taught."] }
+    },
+    activity,
+    {
+      stableId: "explains-it",
+      position: 2,
+      content: { type: "concept", paragraphs: ["What the activity showed."] }
+    }
+  ];
+
+  it("hands focus on when the near-transfer's own Finish reveals the rest", () => {
+    /*
+      Mission 2 has TWO Finish controls, and until this existed only one of
+      them carried the learner forward.
+
+      The interaction's Finish has an `onSettle` and hands focus to the step it
+      revealed. The near-transfer's Finish has no `onSettle` at all — it
+      settles by acknowledging the last question's feedback, through the same
+      `onChange` every answer goes through — so nothing on that path could tell
+      the reveal from an ordinary selection, and the focus it was holding fell
+      to the document body.
+    */
+    const check: LearnerMissionStep = {
+      stableId: "the-check",
+      position: 2,
+      content: STEP
+    };
+    const answered = STEP.questions.map(
+      (question) => question.questionStableId
+    );
+
+    const beforeLast: NearTransferState = {
+      selection: Object.fromEntries(
+        answered.map((id) => [id, ["any"] as readonly string[]])
+      ),
+      committed: answered,
+      acknowledged: answered.slice(0, -1)
+    };
+
+    const settled: NearTransferState = {
+      ...beforeLast,
+      acknowledged: answered
+    };
+
+    expect(revealedByNearTransfer(check, beforeLast, settled)).toBe(true);
+  });
+
+  it("hands focus on once, and not on every change afterwards", () => {
+    // A TRANSITION, not a state. Asking "is it settled" would be true of every
+    // later change too, and would keep pulling focus back to the same section
+    // while the learner was reading past it.
+    const check: LearnerMissionStep = {
+      stableId: "the-check",
+      position: 2,
+      content: STEP
+    };
+    const answered = STEP.questions.map(
+      (question) => question.questionStableId
+    );
+
+    const settled: NearTransferState = {
+      selection: Object.fromEntries(
+        answered.map((id) => [id, ["any"] as readonly string[]])
+      ),
+      committed: answered,
+      acknowledged: answered
+    };
+
+    expect(revealedByNearTransfer(check, settled, settled)).toBe(false);
+  });
+
+  it("hands focus nowhere while questions are still unanswered", () => {
+    const check: LearnerMissionStep = {
+      stableId: "the-check",
+      position: 2,
+      content: STEP
+    };
+    const first = STEP.questions[0]?.questionStableId as string;
+
+    const oneAnswered: NearTransferState = {
+      selection: { [first]: ["any"] },
+      committed: [first],
+      acknowledged: []
+    };
+    const oneAcknowledged: NearTransferState = {
+      ...oneAnswered,
+      acknowledged: [first]
+    };
+
+    expect(
+      revealedByNearTransfer(check, oneAnswered, oneAcknowledged)
+    ).toBe(false);
+  });
+
+  it("says nothing about a step that is not a near-transfer", () => {
+    // The interaction has its own handoff, from its own `onSettle`. Two
+    // mechanisms firing for one press would move focus twice.
+    expect(
+      revealedByNearTransfer(
+        requiredJourney,
+        INITIAL_NEAR_TRANSFER_STATE,
+        INITIAL_NEAR_TRANSFER_STATE
+      )
+    ).toBe(false);
+  });
+
+  it("names the step a finished activity reveals, in authored order", () => {
+    /*
+      The focus handoff's destination.
+
+      Finishing a required activity unmounts the button that was pressed, and
+      the focus it held falls to the document body: a keyboard learner is sent
+      to the top of the page, and a screen-reader learner hears nothing about
+      what appeared. The lesson moves them to what the press revealed instead,
+      and this is the only thing that decides where that is.
+
+      Authored order and nothing else. No step type, no content, no settlement
+      state — `visibleInstructionSteps` already owns whether the next step is
+      itself withheld, and asking a second time would let the two disagree.
+    */
+    const steps = lesson(requiredJourney);
+
+    expect(nextInstructionStepId(steps, "walkthrough")).toBe("explains-it");
+    expect(nextInstructionStepId(steps, "teaching")).toBe("walkthrough");
+  });
+
+  it("moves the learner nowhere when there is nothing after the activity", () => {
+    // Two ordinary cases that must not produce a destination: the finished
+    // step was the last one authored, and — the bookkeeping error — a step id
+    // that is not in this lesson at all. `findIndex` returns -1 there, and
+    // `steps[-1 + 1]` would silently move the learner to the top of the
+    // mission.
+    const steps = lesson(requiredJourney);
+
+    expect(nextInstructionStepId(steps, "explains-it")).toBeNull();
+    expect(nextInstructionStepId(steps, "not-in-this-lesson")).toBeNull();
+    expect(nextInstructionStepId([], "walkthrough")).toBeNull();
+  });
+
+  it("withholds everything after it until the learner finishes it", () => {
+    // The defect, in one assertion: without this, "What the activity showed."
+    // is on screen while the activity is still on its first stage.
+    expect(
+      visibleInstructionSteps(lesson(requiredJourney), {}, {}).map(
+        (step) => step.stableId
+      )
+    ).toEqual(["teaching", "walkthrough"]);
+  });
+
+  it("releases them once the learner says they have finished", () => {
+    expect(
+      visibleInstructionSteps(lesson(requiredJourney), {}, {
+        walkthrough: true
+      }).map((step) => step.stableId)
+    ).toEqual(["teaching", "walkthrough", "explains-it"]);
+  });
+
+  it("holds nothing back for an interaction the author did not mark", () => {
+    /*
+      The additive half, and the one that matters most. Most interactions in
+      the course are demonstrations placed beside prose; gating the lesson on
+      every one of them would change the behaviour of every mission already
+      written. Absent means today's behaviour exactly.
+    */
+    const steps = lesson(optionalJourney);
+
+    expect(visibleInstructionSteps(steps, {}, {})).toEqual(steps);
+    expect(requiredInteraction(optionalJourney, {})).toBeNull();
+  });
+
+  it("behaves exactly as before when no settlement is passed at all", () => {
+    /*
+      The compatibility guarantee, pinned rather than assumed. Every existing
+      caller passes two arguments, and a mission that authors no required
+      interaction must be unaffected by the third — otherwise this change
+      would alter what a learner sees in seven missions that did not ask for
+      it.
+    */
+    expect(visibleInstructionSteps(STEPS, {})).toEqual(
+      visibleInstructionSteps(STEPS, {}, {})
+    );
+    expect(hasUnattemptedInstruction(STEPS, {})).toBe(
+      hasUnattemptedInstruction(STEPS, {}, {})
+    );
+
+    const settledCheck = (() => {
+      let state = answer(INITIAL_NEAR_TRANSFER_STATE, "q1", ["o1", "o3"]);
+      state = acknowledgeAnswer(state, "q1");
+      state = answer(state, "q2", ["p2"]);
+      return acknowledgeAnswer(state, "q2");
+    })();
+
+    expect(visibleInstructionSteps(STEPS, { check: settledCheck })).toEqual(
+      STEPS
+    );
+  });
+
+  it("waits at whichever required activity comes first in authored order", () => {
+    /*
+      One traversal rule, and this is the assertion that makes it one. Asking
+      about near-transfer checks first would let a later check hide an earlier
+      required walkthrough, and asking about interactions first would do the
+      reverse. `findIndex` over the authored order cannot make either mistake.
+    */
+    const journeyThenCheck: readonly LearnerMissionStep[] = [
+      requiredJourney,
+      { stableId: "check", position: 2, content: STEP }
+    ];
+
+    expect(
+      visibleInstructionSteps(journeyThenCheck, {}, {}).map((s) => s.stableId)
+    ).toEqual(["walkthrough"]);
+
+    const checkThenJourney: readonly LearnerMissionStep[] = [
+      { stableId: "check", position: 0, content: STEP },
+      requiredJourney
+    ];
+
+    expect(
+      visibleInstructionSteps(checkThenJourney, {}, {}).map((s) => s.stableId)
+    ).toEqual(["check"]);
+  });
+
+  it("says nothing about answering questions when a journey is the blocker", () => {
+    /*
+      The notice under an activity is "Answer the questions above to continue."
+      A walkthrough has no questions, so that sentence would be an instruction
+      the learner cannot follow — the same class of stale notice Founder video
+      UAT found on the near-transfer check.
+
+      `hasUnattemptedInstruction` reads ATTEMPTED, and an interaction has
+      nothing attempted to read, so it reports false and the pane says nothing.
+    */
+    expect(hasUnattemptedInstruction(lesson(requiredJourney), {}, {})).toBe(false);
+
+    // And the steps really are still withheld in that same state, which is the
+    // invariant the quiet notice must not have traded away.
+    expect(
+      visibleInstructionSteps(lesson(requiredJourney), {}, {}).map(
+        (step) => step.stableId
+      )
+    ).toEqual(["teaching", "walkthrough"]);
+  });
+
+  it("has no opinion about a step that is not an interaction", () => {
+    // `null` is "not my kind of step", which is what keeps the traversal rule
+    // generic and lets the two predicates live side by side.
+    expect(requiredInteraction(STEPS[0]!, {})).toBeNull();
+    expect(requiredInteraction(STEPS[1]!, {})).toBeNull();
+    expect(requiredNearTransfer(requiredJourney, {})).toBeNull();
+  });
+
+  it("reads settlement and nothing else — correctness does not exist here", () => {
+    /*
+      An interaction produces no score, no attempt and no evidence, so there is
+      no correctness for a gate to read even if someone wanted one. What
+      settles it is the learner pressing Finish, and that is the whole of it.
+
+      Pinned as arity as well as behaviour: `requiredInteraction` takes the
+      step and the settlement, and has no third input through which a
+      prediction, a knowledge-check answer or a journey's own progress could
+      reach it.
+    */
+    expect(requiredInteraction.length).toBe(2);
+
+    expect(requiredInteraction(requiredJourney, {})).toBe(false);
+    expect(requiredInteraction(requiredJourney, { walkthrough: true })).toBe(true);
+
+    // A settlement recorded against a DIFFERENT step settles nothing here.
+    expect(
+      requiredInteraction(requiredJourney, { "some-other-step": true })
+    ).toBe(false);
+
+    // And `false` is not a truthy value in disguise: only an explicit `true`
+    // settles, so a client sending anything else leaves the lesson waiting
+    // rather than releasing it.
+    expect(requiredInteraction(requiredJourney, { walkthrough: false })).toBe(
+      false
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * The scenario
  * ------------------------------------------------------------------ */
 
@@ -757,5 +1101,450 @@ describe("the static topology", () => {
     if (plain.state !== "available") throw new Error("expected a layout");
 
     expect(plain.externalNetworks).toEqual([]);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * PORT NAMES ON THE DIAGRAM
+ *
+ * Founder UAT, Mission 2's "Try it on a different switch". Its four questions
+ * ask which ports carry copies, which entry the switch can learn, which single
+ * port a known destination uses, and what the switch does with a frame it has
+ * no entry for — and the diagram named no port anywhere. The mapping existed
+ * only in the framing sentence and inside each link's `label`, so answering
+ * required memorising an invisible port-to-device mapping from prose. That is
+ * not what the questions are testing.
+ *
+ * The cause was the CONTRACT, not the renderer: `NearTransferTopologyLink` had
+ * `linkId`, `label` and `endpoints` and no way to say which port a link
+ * occupies on a device. `buildTopologyLayout` and `TopologyView` have drawn
+ * `prominent` interface labels beside wires since WP-I; the near-transfer
+ * bridge simply had nothing to flag.
+ * ------------------------------------------------------------------ */
+
+describe("authored port names are drawn beside their connections", () => {
+  const missionTwoScenario = () => {
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const mission = parsed.document.missions.find(
+      (candidate) => candidate.stableId === "nf-m2-inside-one-network"
+    );
+    const step = mission?.steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step === undefined || step.content.type !== "near_transfer") {
+      throw new Error("Mission 2 authors no near-transfer step");
+    }
+    if (step.content.topology === undefined) {
+      throw new Error("Mission 2's near-transfer authors no topology");
+    }
+
+    return step.content;
+  };
+
+  const drawnScenario = () => {
+    const layout = buildStaticTopologyLayout(missionTwoScenario().topology!);
+    if (layout.state !== "available") {
+      throw new Error(`the scenario did not draw: ${layout.reason}`);
+    }
+    return layout;
+  };
+
+  it("names Port 1, Port 2 and Port 3 at Switch-2's three connections", () => {
+    const drawnPorts = drawnScenario().portLabels.map(
+      (port) => `${port.linkId}@${port.nodeId}=${port.text}`
+    );
+
+    expect(drawnPorts).toEqual([
+      "nt2-workstation-a@switch-2=Port 1",
+      "nt2-workstation-b@switch-2=Port 2",
+      "nt2-camera@switch-2=Port 3"
+    ]);
+  });
+
+  it("maps each port to its link from authored data, not from position", () => {
+    /*
+      The mapping is keyed by `nodeId` inside the link that owns it, so it
+      cannot drift with layout order. Proved by REORDERING the authored
+      devices and links and asserting the pairing is unchanged: a
+      position-based implementation would follow the new order.
+    */
+    const topology = missionTwoScenario().topology!;
+
+    const reordered = buildStaticTopologyLayout({
+      ...topology,
+      nodes: [...topology.nodes].reverse(),
+      // Both orderings that could be mistaken for the mapping: the order of
+      // the links themselves, and the order of the two ends WITHIN each link.
+      links: [...topology.links].reverse().map((link) => ({
+        ...link,
+        endpoints: [link.endpoints[1], link.endpoints[0]] as const
+      }))
+    });
+    if (reordered.state !== "available") throw new Error("expected a layout");
+
+    const pairing = (ports: typeof reordered.portLabels) =>
+      [...ports]
+        .map((port) => `${port.linkId}=${port.text}`)
+        .sort();
+
+    expect(pairing(reordered.portLabels)).toEqual([
+      "nt2-camera=Port 3",
+      "nt2-workstation-a=Port 1",
+      "nt2-workstation-b=Port 2"
+    ]);
+    expect(pairing(reordered.portLabels)).toEqual(
+      pairing(drawnScenario().portLabels)
+    );
+  });
+
+  it("reads the end from the authored nodeId, not from list order", () => {
+    /*
+      The decisive case, and the reorder test above cannot supply it: Mission 2
+      names one port per link, so reversing anything still lands correctly by
+      luck. This authors BOTH ends of one link with different names and then
+      declares them in the order that a position-based implementation would get
+      backwards.
+    */
+    const layout = buildStaticTopologyLayout({
+      nodes: [
+        { nodeId: "host", label: "Host", role: "host" },
+        { nodeId: "sw", label: "Switch", role: "switch" }
+      ],
+      links: [
+        {
+          linkId: "one",
+          label: "Host to Switch",
+          endpoints: ["host", "sw"],
+          // Declared switch-end FIRST, while `endpoints` names the host first.
+          portLabels: [
+            { nodeId: "sw", label: "Port 7" },
+            { nodeId: "host", label: "eth0" }
+          ]
+        }
+      ],
+      textEquivalent: "Host connects to Switch."
+    });
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    expect(
+      layout.portLabels
+        .map((port) => `${port.nodeId}=${port.text}`)
+        .sort()
+    ).toEqual(["host=eth0", "sw=Port 7"]);
+  });
+
+  it("keeps the port on the end the author named, never the other one", () => {
+    // Every drawn label belongs to Switch-2, which is the end the author
+    // named. The hosts are unlabelled, exactly as PC-A's NIC is in the main
+    // Packet Journey while Switch-1's ports are the flagged ends.
+    for (const port of drawnScenario().portLabels) {
+      expect(`${port.linkId} is on ${port.nodeId}`).toBe(
+        `${port.linkId} is on switch-2`
+      );
+    }
+  });
+
+  it("says the same ports in words, so the drawing carries no private fact", () => {
+    // The picture and the spoken arrangement must agree. This is the same
+    // `prominent` flag driving both, which is what makes that structural.
+    const description = drawnScenario().description;
+
+    expect(description).toContain("Workstation-A and Switch-2 Port 1");
+    expect(description).toContain("Workstation-B and Switch-2 Port 2");
+    expect(description).toContain("Camera and Switch-2 Port 3");
+  });
+
+  it("places every label clear of every device card", () => {
+    // Readability, mechanically: a label drawn over a card is unreadable at
+    // any zoom, and the row gap is where these belong.
+    const layout = drawnScenario();
+
+    for (const port of layout.portLabels) {
+      for (const device of layout.devices) {
+        const inside =
+          port.at.x >= device.box.x &&
+          port.at.x <= device.box.x + device.box.width &&
+          port.at.y >= device.box.y &&
+          port.at.y <= device.box.y + device.box.height;
+
+        expect(`${port.text} inside ${device.nodeId}: ${inside}`).toBe(
+          `${port.text} inside ${device.nodeId}: false`
+        );
+      }
+
+      // And inside the canvas the renderer reserves.
+      expect(port.at.x).toBeGreaterThanOrEqual(0);
+      expect(port.at.y).toBeGreaterThanOrEqual(0);
+      expect(port.at.x).toBeLessThanOrEqual(layout.frame.width);
+      expect(port.at.y).toBeLessThanOrEqual(layout.frame.height);
+    }
+  });
+
+  it("draws no port where the author named none", () => {
+    // Mission 1's near-transfer asks nothing about ports and names none, so
+    // it must not acquire labels. Absence stays absence.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const missionOne = parsed.document.missions.find(
+      (candidate) => candidate.stableId === "nf-m1-what-a-network-is"
+    );
+    const step = missionOne?.steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step === undefined || step.content.type !== "near_transfer") {
+      throw new Error("Mission 1 authors no near-transfer step");
+    }
+
+    const layout = buildStaticTopologyLayout(step.content.topology!);
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    expect(layout.portLabels).toEqual([]);
+  });
+
+  it("leaves the four questions, their keys and completion untouched", () => {
+    // The repair is visual. Nothing about what is asked, what is correct or
+    // when the activity is finished may move with it.
+    const content = missionTwoScenario();
+
+    expect(
+      content.questions.map(
+        (question) =>
+          `${question.questionStableId} -> ${[...question.correctOptionIds].join(",")}`
+      )
+    ).toEqual([
+      "m2-nt-q1-unknown-destination -> ports-2-and-3",
+      "m2-nt-q2-source-learning -> workstation-a-port-1",
+      "m2-nt-q3-camera-copy -> expected-flood",
+      "m2-nt-q4-known-destination -> port-2"
+    ]);
+
+    // Completion still needs every question ATTEMPTED, and nothing else. The
+    // learner-facing shape, which is what the component actually holds.
+    const step: LearnerNearTransferStep = {
+      type: "near_transfer",
+      questions: content.questions.map((question) => ({
+        questionStableId: question.questionStableId,
+        type: question.type,
+        prompt: question.prompt,
+        options: question.options
+      })),
+      answers: Object.fromEntries(
+        content.questions.map((question) => [
+          question.questionStableId,
+          {
+            correctOptionIds: question.correctOptionIds,
+            explanation: question.explanation
+          }
+        ])
+      )
+    };
+
+    const committed: string[] = [];
+    for (const question of step.questions) {
+      expect(
+        isComplete(step, { selection: {}, committed, acknowledged: [] })
+      ).toBe(false);
+      committed.push(question.questionStableId);
+    }
+    expect(
+      isComplete(step, { selection: {}, committed, acknowledged: [] })
+    ).toBe(true);
+  });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * ONE OWNER FOR THE PORT MAPPING
+ *
+ * Founder UAT, after the port labels landed: Mission 2's scenario stated the
+ * same mapping three times on one screen — in the framing paragraph, on the
+ * topology as Port 1 / Port 2 / Port 3, and again in the sentence underneath
+ * it. The Architect ruled that the diagram owns it visually.
+ *
+ * The two halves of that ruling pull against each other and both have to hold:
+ * the visible repetition goes, and nothing leaves assistive technology. So the
+ * framing sentence drops the mapping, the diagram keeps it, and the authored
+ * text equivalent stays in the document while being hidden from sight.
+ * ------------------------------------------------------------------ */
+
+describe("the port mapping is stated visibly in one place", () => {
+  const nearTransferOf = (missionStableId: string) => {
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const mission = parsed.document.missions.find(
+      (candidate) => candidate.stableId === missionStableId
+    );
+    const step = mission?.steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step === undefined || step.content.type !== "near_transfer") {
+      throw new Error(`${missionStableId} authors no near-transfer step`);
+    }
+    return step.content;
+  };
+
+  it("keeps the mapping on the diagram, where the ruling put it", () => {
+    const layout = buildStaticTopologyLayout(
+      nearTransferOf("nf-m2-inside-one-network").topology!
+    );
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    expect(
+      layout.portLabels.map((port) => `${port.linkId}=${port.text}`)
+    ).toEqual([
+      "nt2-workstation-a=Port 1",
+      "nt2-workstation-b=Port 2",
+      "nt2-camera=Port 3"
+    ]);
+  });
+
+  it("stops repeating the mapping in the visible framing", () => {
+    const framing = nearTransferOf("nf-m2-inside-one-network").framing ?? "";
+
+    // Still orients the learner, and still says the two things only it says.
+    expect(framing).toContain("A different office");
+    expect(framing).toContain(
+      "Use the topology and the MAC-table state stated in each question."
+    );
+    expect(framing).toContain("Nothing here requires configuration.");
+
+    // And no longer carries the mapping the diagram now owns.
+    for (const port of ["port 1", "port 2", "port 3"]) {
+      expect(`framing names ${port}: ${framing.toLowerCase().includes(port)}`).toBe(
+        `framing names ${port}: false`
+      );
+    }
+    for (const device of ["Workstation-A", "Workstation-B"]) {
+      expect(`framing names ${device}: ${framing.includes(device)}`).toBe(
+        `framing names ${device}: false`
+      );
+    }
+  });
+
+  it("still renders that sentence, so hiding it did not delete it", () => {
+    // A future cleanup could reasonably remove an element nothing displays.
+    // This is what stops that: the authored equivalent must reach the DOM.
+    expect(nearTransferStepSource).toContain(
+      "{content.topology.textEquivalent}"
+    );
+    expect(nearTransferStepSource).toContain("near-transfer-scenario-text");
+  });
+
+  it("decides visibility from the drawing, never from which mission it is", () => {
+    /*
+      THE REGRESSION THIS BLOCK EXISTS TO PREVENT A SECOND TIME.
+
+      The first version of this repair suppressed the sentence in the SHARED
+      class, so every near-transfer activity lost it — including Mission 1,
+      already Founder-approved with it visible and with a diagram that names no
+      port. The Architect refused that rendered change.
+
+      The condition is now a property of the picture: the component reads
+      `layout.portLabels`. A mission id in this decision would be the same
+      mistake in a different shape, so its absence is asserted too.
+    */
+    expect(nearTransferStepSource).toContain("layout.portLabels.length > 0");
+    expect(nearTransferStepSource).toContain("is-visually-redundant");
+
+    for (const identity of ["missionStableId", "nf-m1-", "nf-m2-"]) {
+      expect(
+        `NearTransferStep branches on ${identity}: ${nearTransferStepSource.includes(identity)}`
+      ).toBe(`NearTransferStep branches on ${identity}: false`);
+    }
+  });
+
+  it("suppresses the sentence for Mission 2, whose diagram names its ports", () => {
+    const layout = buildStaticTopologyLayout(
+      nearTransferOf("nf-m2-inside-one-network").topology!
+    );
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    // Non-empty is the condition the component reads, so this IS the assertion
+    // that Mission 2's sentence is suppressed.
+    expect(layout.portLabels.length).toBe(3);
+  });
+
+  it("leaves Mission 1's sentence visible, because its diagram names no port", () => {
+    // Mission 1 was Founder-approved and closed with this sentence visible.
+    // An empty port-label set is exactly what keeps it that way.
+    const layout = buildStaticTopologyLayout(
+      nearTransferOf("nf-m1-what-a-network-is").topology!
+    );
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    expect(layout.portLabels).toEqual([]);
+  });
+
+  it("changes no other near-transfer activity's visibility", () => {
+    // Every authored near-transfer in the course, and which way it resolves.
+    // A future activity appearing here with an unexpected verdict is a
+    // rendered change somebody has to approve.
+    const parsed = parseCurriculumDocument(networkingFoundations);
+    if (!parsed.valid) throw new Error("the authored course does not parse");
+
+    const verdicts: string[] = [];
+
+    for (const mission of parsed.document.missions) {
+      for (const step of mission.steps) {
+        if (step.content.type !== "near_transfer") continue;
+        if (step.content.topology === undefined) continue;
+
+        const layout = buildStaticTopologyLayout(step.content.topology);
+        if (layout.state !== "available") throw new Error("expected a layout");
+
+        verdicts.push(
+          `${mission.stableId} -> ${
+            layout.portLabels.length > 0 ? "suppressed" : "visible"
+          }`
+        );
+      }
+    }
+
+    expect(verdicts).toEqual([
+      "nf-m1-what-a-network-is -> visible",
+      "nf-m2-inside-one-network -> suppressed"
+    ]);
+  });
+
+  it("still tells assistive technology which port each device uses", () => {
+    const content = nearTransferOf("nf-m2-inside-one-network");
+    const layout = buildStaticTopologyLayout(content.topology!);
+    if (layout.state !== "available") throw new Error("expected a layout");
+
+    // Two independent routes, and the mapping survives on both.
+    for (const pairing of [
+      "Workstation-A and Switch-2 Port 1",
+      "Workstation-B and Switch-2 Port 2",
+      "Camera and Switch-2 Port 3"
+    ]) {
+      expect(layout.description).toContain(pairing);
+    }
+
+    expect(content.topology!.textEquivalent).toBe(
+      "Workstation-A connects to Switch-2 port 1. Workstation-B connects to Switch-2 port 2. The Camera connects to Switch-2 port 3."
+    );
+  });
+
+  it("leaves Mission 1's authored near-transfer exactly as it was", () => {
+    // Mission 1 asks nothing about ports. Its scenario text is hidden by the
+    // shared rule above, which is a stylesheet change and not an authored one;
+    // every authored value here is unchanged.
+    const content = nearTransferOf("nf-m1-what-a-network-is");
+
+    expect(content.framing).toBe(
+      "This network uses different devices, but the same ideas still apply. Use the topology to answer each question."
+    );
+    expect(content.topology!.textEquivalent).toBe(
+      "Laptop-A connects to Switch-2. Server-A connects to Switch-2. Router-2 connects to Switch-2. Router-2 also connects to another network."
+    );
+
+    const layout = buildStaticTopologyLayout(content.topology!);
+    if (layout.state !== "available") throw new Error("expected a layout");
+    expect(layout.portLabels).toEqual([]);
   });
 });

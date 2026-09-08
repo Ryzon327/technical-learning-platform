@@ -241,12 +241,8 @@ echo "PASS:  5. the ledger still orders IPv4 here and the rest afterwards"
 # Mission 3 is authored content. It needed no new step type, no new interaction
 # type, no schema change and no dependency — and a slice that quietly acquired
 # one would be a different work package.
-for manifest in package.json package-lock.json apps/web/package.json \
-                packages/shared-types/package.json services/api/package.json; do
-  if ! git diff --quiet HEAD -- "$manifest" 2>/dev/null; then
-    fail "this slice changed a dependency manifest: $manifest"
-  fi
-done
+source scripts/lib/authorized-dependency.sh
+authorized_dependency_check "the Mission 3 slice"
 
 if [ -d supabase/migrations ] && ! git diff --quiet HEAD -- supabase/migrations 2>/dev/null; then
   fail "this slice changed a migration; Mission 3 authors curriculum only"
@@ -389,8 +385,8 @@ WP-J MISSION 3 INSTRUCTION VERIFIED
 Mission 3 is authored as production curriculum that parses
 through the real parser. It reads a machine's own report
 before it names the term, shows a second reading on a
-different machine, reuses the connection and factory
-identity Mission 2 established, and authors no interaction,
+different machine, reuses the connection and MAC address
+Mission 2 established, and authors no interaction,
 no assessment and no lab surface.
 
 The course is fully authored (DEC-061), so this gate no

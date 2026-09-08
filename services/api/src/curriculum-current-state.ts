@@ -57,23 +57,84 @@ import { describeDatabaseError } from "./db-diagnostics";
  * `version = max + 1` on every create, so creating unconditionally would produce
  * a second version of the whole course on the second run.
  */
-async function findExisting(
+/**
+ * Which optional columns each curriculum table actually has.
+ *
+ * ## Why this exists
+ *
+ * Both readers below used to select a fixed column list for every table,
+ * including `position` and `estimated_minutes`. That is true of the ordered
+ * middle of the hierarchy and false at both ends, so a publication dry run
+ * against the real database failed with:
+ *
+ *   [42703] column learning_paths.position does not exist
+ *
+ * The schema is right and the query was wrong. `20260811000300_curriculum_
+ * foundation.sql` gives `position` only to `courses`, `learning_modules` and
+ * `missions` — the tables whose rows are SIBLINGS ordered within a parent. A
+ * learning path is the root and has no siblings to order; a competency is not
+ * part of the hierarchy at all, and has neither `position` nor
+ * `estimated_minutes`.
+ *
+ * `competencies` was the second instance of the same defect and had not been
+ * reached: the dry run reads the learning path first and never got that far.
+ * Fixing only the reported table would have moved the failure, not removed it.
+ *
+ * Declared per table rather than inferred from "does it have a parent",
+ * because those two facts are not the same one. A competency is unparented and
+ * also has no estimated duration; a learning path is unparented and does.
+ */
+const NODE_COLUMNS: Readonly<
+  Record<string, { readonly position: boolean; readonly estimatedMinutes: boolean }>
+> = {
+  learning_paths: { position: false, estimatedMinutes: true },
+  courses: { position: true, estimatedMinutes: true },
+  learning_modules: { position: true, estimatedMinutes: true },
+  missions: { position: true, estimatedMinutes: true },
+  competencies: { position: false, estimatedMinutes: false }
+};
+
+/**
+ * The exact select list for one table.
+ *
+ * Exported so a test can assert the column contract directly, rather than
+ * asserting the spelling of a query string somewhere.
+ */
+export function curriculumNodeColumns(
   table: string,
-  stableId: string,
   parentColumn: string | null
-): Promise<ExistingCurriculumNode | null> {
-  const supabase = createServerSupabaseClient();
-  const columns = [
+): string {
+  const shape = NODE_COLUMNS[table];
+
+  if (shape === undefined) {
+    // A table nobody declared is a table nobody checked against the schema.
+    // Guessing its columns is how this defect happened the first time.
+    throw new Error(
+      `No column contract is declared for curriculum table "${table}"; ` +
+        "add it to NODE_COLUMNS against the migration that creates it."
+    );
+  }
+
+  return [
     "id",
     "stable_id",
     "version",
     "publication_state",
     "title",
     "description",
-    "position",
-    "estimated_minutes",
+    ...(shape.position ? ["position"] : []),
+    ...(shape.estimatedMinutes ? ["estimated_minutes"] : []),
     ...(parentColumn ? [parentColumn] : [])
   ].join(",");
+}
+
+async function findExisting(
+  table: string,
+  stableId: string,
+  parentColumn: string | null
+): Promise<ExistingCurriculumNode | null> {
+  const supabase = createServerSupabaseClient();
+  const columns = curriculumNodeColumns(table, parentColumn);
 
   const { data, error } = await supabase
     .from(table)
@@ -126,9 +187,7 @@ async function readChildren(
 
   const { data, error } = await supabase
     .from(table)
-    .select(
-      `id,stable_id,version,publication_state,title,description,position,estimated_minutes,${parentColumn}`
-    )
+    .select(curriculumNodeColumns(table, parentColumn))
     .eq(parentColumn, parentId);
 
   if (error) {

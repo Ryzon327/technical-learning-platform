@@ -405,6 +405,36 @@ export function isObservationStageOutcome(
 }
 
 /**
+ * What is moving at ONE stage, when it is not what the journey opened with.
+ *
+ * ## Why a stage may restate the traffic
+ *
+ * `ObservationModel.trafficLabel` and the authored `traffic` block describe the
+ * unit of traffic the journey is ABOUT. A source may report a stage where
+ * something else is on the wire — a reply travelling the other way, a different
+ * exchange the same observation covers — and until now the only way to say so
+ * was the narration, which no consumer may read.
+ *
+ * Founder UAT on Mission 2 recorded the consequence: the orientation line and
+ * the quick reference kept naming the opening traffic and its opening direction
+ * while the learner was looking at a stage about something else, so the two
+ * halves of the screen described different events.
+ *
+ * ## What it is, and is not
+ *
+ * It is an AUTHORED OVERRIDE, carried exactly like every other stage fact. It
+ * says what is moving and between which two declared devices — nothing more.
+ * Nothing derives it: not from `viaLinkId`, not from the stage order, not from
+ * device roles. A stage that authors none is a stage about the journey's own
+ * traffic, which is every stage written before this field existed.
+ */
+export interface ObservationStageTraffic {
+  readonly label: string;
+  readonly sourceNodeId: string;
+  readonly destinationNodeId: string;
+}
+
+/**
  * One position in the journey.
  *
  * `narration` is the text trace entry and is REQUIRED. CURR-011 section 14.3
@@ -482,6 +512,39 @@ export interface ObservationStage {
    * Optional and additive: absent means one link, or none, exactly as before.
    */
   readonly alsoOnLinkIds?: readonly string[];
+  /**
+   * Further devices INVOLVED at the same moment as this stage.
+   *
+   * ## Why this cannot be read off `alsoOnLinkIds`
+   *
+   * They are two different authored facts and neither implies the other. A link
+   * being occupied says something was on the wire; a device being involved says
+   * the moment happened AT that device too. Deriving one from the other means
+   * walking a link to its far end and deciding the device there participated —
+   * a topology inference, and exactly the forwarding computation DEC-058
+   * forbids. It is also simply wrong in either direction: a source can report a
+   * busy link whose far end never handled anything, and can report several
+   * devices involved at once with no link named at all.
+   *
+   * Founder UAT on Mission 2 found the visible consequence. A stage where the
+   * author had said several devices were involved captioned all but one of them
+   * "Not involved so far", because every consumer keyed on `atNodeId` alone.
+   *
+   * `atNodeId` remains the ONE place the stage is anchored. This names the
+   * others, every id must resolve to a declared device, and repeating
+   * `atNodeId` here is refused: a device is named once.
+   *
+   * Optional and additive: absent means one device, exactly as before.
+   */
+  readonly alsoAtNodeIds?: readonly string[];
+  /**
+   * What is moving at this stage, when the author says it is not the journey's
+   * opening traffic. See `ObservationStageTraffic`.
+   *
+   * Absent on every stage that is about the journey's own traffic, which is
+   * every stage authored before this field existed.
+   */
+  readonly traffic?: ObservationStageTraffic;
   /**
    * What named devices are SHOWING at this stage, as authored facts.
    *

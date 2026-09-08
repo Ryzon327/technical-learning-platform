@@ -23,7 +23,7 @@ import {
  *
  * ## What Mission 3 teaches, and what it deliberately does not
  *
- * A connection already has an identity — Mission 2's factory MAC address. This
+ * A connection already has an identity — the MAC address Mission 2 taught. This
  * mission establishes that the same connection also carries an ASSIGNED
  * identity, that it can be read out of the machine's own report, and that the
  * two answer different questions.
@@ -466,7 +466,7 @@ describe("the second reading is a changed context, not a repetition", () => {
    * The approved addresses, pinned.
    *
    * PC-A holds 192.168.1.10 and PC-B holds 192.168.1.11, on one network,
-   * beside the factory identities Mission 2 already showed for the same two
+   * beside the MAC addresses Mission 2 already showed for the same two
    * machines. That pairing is the designed continuity of this course: a later
    * mission returning to PC-A must find the machine the learner already met.
    *
@@ -484,7 +484,7 @@ describe("the second reading is a changed context, not a repetition", () => {
     expect(outputs).toContain("192.168.1.11");
   });
 
-  it("pairs each address with the factory identity Mission 2 showed", () => {
+  it("pairs each address with the MAC address Mission 2 showed", () => {
     const readings = commandSteps(M3).map((content) =>
       content.type === "command" ? content.output ?? "" : ""
     );
