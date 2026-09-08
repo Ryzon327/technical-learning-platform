@@ -47,7 +47,13 @@ import {
   checkUnauthorizedManifest,
   checkLockfile,
   authorizationIsSpent,
-  AUTHORIZED_LOCKFILE_SHA256
+  securityLockfileVerdict,
+  AUTHORIZED_LOCKFILE_SHA256,
+  SECURITY_BASE_LOCKFILE_SHA256,
+  SECURITY_LOCKFILE_SHA256,
+  SECURITY_VERSION_FROM,
+  SECURITY_VERSION_TO,
+  SECURITY_LOCK_RECORD
 } from "./scripts/lib/authorized-dependency-policy.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -161,6 +167,111 @@ accept("M", "no dependency delta at all", [
 { accept("O3", "authorizationIsSpent reads the base, not the change",
     authorizationIsSpent(withJsdom()) && !authorizationIsSpent(BASE) ? [] : ["spent-detection is wrong"]); }
 
+/* ------------------------------------------------------------------ *
+   SEC1-SEC9: the one-time js-yaml security authorization.
+
+   The PRE-patch lockfile is DERIVED from the approved one by putting the
+   js-yaml record back to 4.3.1 — the same technique the live fixtures use for
+   their base, and for the same reason: a fixture that read git would change
+   meaning the moment this patch merged. SEC0 proves the derivation reproduces
+   the pinned FROM digest byte for byte, so every case below starts from the
+   real approved base rather than an approximation of it.
+ * ------------------------------------------------------------------ */
+const JS_YAML_4_3_1 = {
+  version: "4.3.1",
+  resolved: "https://registry.npmjs.org/js-yaml/-/js-yaml-4.3.1.tgz",
+  integrity:
+    "sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ=="
+};
+
+const relock = (mutate) => {
+  const lock = JSON.parse(APPROVED_LOCK);
+  mutate(lock);
+  return JSON.stringify(lock, null, 2) + "\n";
+};
+
+const PRE_PATCH_LOCK = relock((lock) => {
+  Object.assign(lock.packages[SECURITY_LOCK_RECORD], JS_YAML_4_3_1);
+});
+
+accept("SEC0", "the derived pre-patch lockfile reproduces the pinned FROM digest",
+  sha256(PRE_PATCH_LOCK) === SECURITY_BASE_LOCKFILE_SHA256
+    ? [] : ["the derived pre-patch lockfile does not match SECURITY_BASE_LOCKFILE_SHA256"]);
+
+accept("SEC1", "the exact js-yaml " + SECURITY_VERSION_FROM + " to " + SECURITY_VERSION_TO + " transition",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, APPROVED_LOCK, sha256));
+
+refuse("SEC2", "js-yaml patched to 4.3.3 instead of the authorized version",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    lock.packages[SECURITY_LOCK_RECORD].version = "4.3.3";
+  }), sha256));
+
+refuse("SEC3", "js-yaml moved to an arbitrary other version",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    lock.packages[SECURITY_LOCK_RECORD].version = "5.0.0";
+  }), sha256));
+
+refuse("SEC4", "the exact js-yaml patch PLUS an unrelated package added",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    lock.packages["node_modules/left-pad"] = { version: "1.3.0", dev: true };
+  }), sha256));
+
+refuse("SEC5", "the exact js-yaml patch PLUS an unrelated package removed",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    const key = Object.keys(lock.packages).find(
+      (name) => name.startsWith("node_modules/") && name !== SECURITY_LOCK_RECORD
+    );
+    delete lock.packages[key];
+  }), sha256));
+
+refuse("SEC6", "a vitest change riding on the security authorization",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    const key = Object.keys(lock.packages).find((name) => name.endsWith("/vitest"));
+    lock.packages[key].version = "4.1.11";
+  }), sha256));
+
+refuse("SEC7", "js-yaml removed rather than patched",
+  checkLockfile(withJsdom(), PRE_PATCH_LOCK, relock((lock) => {
+    delete lock.packages[SECURITY_LOCK_RECORD];
+  }), sha256));
+
+/* SPENT: once the base IS the patched lockfile, the authorization is gone.
+   `securityLockfileVerdict` returns null - it does not apply at all - and the
+   ordinary spent refusal takes over. There is no state to reset and nothing to
+   reuse. */
+refuse("SEC8", "a LATER lockfile change once 4.3.2 is already in the base",
+  checkLockfile(withJsdom(), APPROVED_LOCK, relock((lock) => {
+    lock.packages["node_modules/left-pad"] = { version: "1.3.0", dev: true };
+  }), sha256));
+
+accept("SEC9", "the security authorization no longer APPLIES once it is spent",
+  securityLockfileVerdict(APPROVED_LOCK, APPROVED_LOCK + "x", sha256) === null
+    ? [] : ["a spent security authorization still claims the transition"]);
+
+/* POST-MERGE MAIN: no delta at all, so nothing is judged and nothing fails. */
+accept("SEC10", "an unchanged post-merge main tree still passes", [
+  ...checkAuthorizedManifest(withJsdom(), withJsdom()),
+  ...checkUnauthorizedManifest("package.json", BASE, clone(BASE)),
+  ...checkLockfile(withJsdom(), APPROVED_LOCK, APPROVED_LOCK, sha256)
+]);
+
+/* LOCKFILE ONLY: a manifest edit alongside the patch is still refused, by the
+   manifest checks this authorization never touches. */
+refuse("SEC11", "the exact js-yaml patch PLUS a package.json change", [
+  ...checkLockfile(withJsdom(), PRE_PATCH_LOCK, APPROVED_LOCK, sha256),
+  ...checkAuthorizedManifest(withJsdom(), (() => {
+    const later = clone(withJsdom());
+    later.dependencies.react = "^19.9.9";
+    return later;
+  })())
+]);
+
+accept("SEC12", "both security pins are well-formed sha256 values, and differ",
+  /^[0-9a-f]{64}$/.test(SECURITY_BASE_LOCKFILE_SHA256) &&
+  /^[0-9a-f]{64}$/.test(SECURITY_LOCKFILE_SHA256) &&
+  SECURITY_BASE_LOCKFILE_SHA256 !== SECURITY_LOCKFILE_SHA256
+    ? [] : ["the security transition is not pinned at two distinct digests"]);
+
 /* P: the pin is a real value. */
 accept("P", "the approved lockfile pin is a well-formed sha256",
   /^[0-9a-f]{64}$/.test(AUTHORIZED_LOCKFILE_SHA256) ? [] : ["the pin is not a sha256"]);
@@ -207,10 +318,152 @@ APPROVED_MANIFEST="$ROOT/apps/web/package.json"
 APPROVED_LOCKFILE="$ROOT/package-lock.json"
 BASE_MANIFEST="$LIVE_ROOT/base-manifest.json"
 BASE_LOCKFILE="$LIVE_ROOT/base-lockfile.json"
-BASE_REF="$(git -C "$ROOT" merge-base HEAD origin/main 2>/dev/null || true)"
-[ -n "$BASE_REF" ] || fail "this repository has no origin/main to derive the live fixtures from"
-git -C "$ROOT" show "$BASE_REF:apps/web/package.json" > "$BASE_MANIFEST"
-git -C "$ROOT" show "$BASE_REF:package-lock.json" > "$BASE_LOCKFILE"
+
+# ------------------------------------------------------------
+# The PRE-AUTHORIZATION base, DERIVED rather than read from git history.
+#
+# ## The failure this replaces
+#
+# These two files used to be read from `merge-base HEAD origin/main`. That is
+# the pre-change baseline on a feature branch, and it is HEAD itself on a
+# push-to-main run — so the moment Mission 2 merged, the "base" the fixtures
+# were built from was the POST-authorization tree, already carrying jsdom.
+#
+# Every fixture below that exists to prove "the authorized addition is
+# accepted" then had nothing to add. TEST 5b copied the approved manifest over
+# a base that already equalled it, produced an empty delta, and `live_commit`
+# aborted the whole gate on git's "nothing to commit" under `set -e`. CI run
+# #170 on d24b836 failed exactly there, and TEST 5a had already stopped testing
+# anything: with no delta it was passing through the "no dependency change at
+# all" arm rather than the authorized-addition arm.
+#
+# The bug was not that `origin/main` was missing. It resolved correctly, in
+# Actions and locally, and five live cases ran before the abort. The bug was
+# that the fixtures' base was allowed to depend on WHERE THIS REPOSITORY
+# HAPPENS TO SIT relative to the change it is describing.
+#
+# ## Why derivation is the right answer, not a workaround
+#
+# This gate proves the POLICY: given a (base, current) pair, does it reach the
+# right verdict. The base is an INPUT to that question and must therefore be
+# controlled, not inherited from whatever branch the gate is invoked on. The
+# real merge base is still exercised on every run — by the nine production
+# verifiers that call `authorized_dependency_check` against it. That coverage
+# is not lost here; it was never this gate's to provide.
+#
+# So the base is the approved manifest and lockfile with the authorized package
+# removed, using the policy's OWN constants rather than a second copy of them.
+# It is identical on a feature branch, on main, after the merge, in a detached
+# checkout, and in a fresh clone with no `origin/main` at all.
+# ------------------------------------------------------------
+node --input-type=module -e '
+  import { readFileSync, writeFileSync } from "node:fs";
+  import {
+    AUTHORIZED_PACKAGE,
+    AUTHORIZED_BLOCK
+  } from "./scripts/lib/authorized-dependency-policy.mjs";
+
+  // `node -e` passes user arguments starting at argv[1]: there is no script
+  // path to skip, unlike a normal `node file.mjs` invocation.
+  const [approvedManifest, approvedLockfile, baseManifest, baseLockfile] =
+    process.argv.slice(1);
+
+  // The manifest, minus the one authorized dependency.
+  const manifest = JSON.parse(readFileSync(approvedManifest, "utf8"));
+  if (!(AUTHORIZED_PACKAGE in (manifest[AUTHORIZED_BLOCK] ?? {}))) {
+    console.error(
+      "the approved manifest does not carry " + AUTHORIZED_PACKAGE +
+      " in " + AUTHORIZED_BLOCK + "; the derived base would be identical to it"
+    );
+    process.exit(1);
+  }
+  delete manifest[AUTHORIZED_BLOCK][AUTHORIZED_PACKAGE];
+  writeFileSync(baseManifest, JSON.stringify(manifest, null, 2) + "\n");
+
+  // The lockfile, minus the same dependency on the workspace that declares it.
+  // Only the workspace record is touched: the point is a base that DIFFERS
+  // from the approved lockfile in the authorized dependency, not a faithful
+  // reconstruction of npm history.
+  const lockfile = JSON.parse(readFileSync(approvedLockfile, "utf8"));
+  let removed = false;
+  for (const record of Object.values(lockfile.packages ?? {})) {
+    if (AUTHORIZED_PACKAGE in (record?.[AUTHORIZED_BLOCK] ?? {})) {
+      delete record[AUTHORIZED_BLOCK][AUTHORIZED_PACKAGE];
+      removed = true;
+    }
+  }
+  if (!removed) {
+    console.error(
+      "no lockfile workspace record declares " + AUTHORIZED_PACKAGE +
+      "; the derived base lockfile would be identical to the approved one"
+    );
+    process.exit(1);
+  }
+  writeFileSync(baseLockfile, JSON.stringify(lockfile, null, 2) + "\n");
+' "$APPROVED_MANIFEST" "$APPROVED_LOCKFILE" "$BASE_MANIFEST" "$BASE_LOCKFILE" \
+  || fail "the pre-authorization base fixtures could not be derived"
+
+# THE REGRESSION, asserted before a single fixture is built.
+#
+# `authorizationIsSpent` reads exactly this: is the authorized package present
+# in the base. If it is, every "authorized addition" case below degenerates
+# into "no change", which is what CI run #170 hit. This assertion fails on the
+# defect and cannot be satisfied by a base read from a merged main.
+node --input-type=module -e '
+  import { readFileSync } from "node:fs";
+  import { authorizationIsSpent } from "./scripts/lib/authorized-dependency-policy.mjs";
+  const base = JSON.parse(readFileSync(process.argv[1], "utf8"));
+  if (authorizationIsSpent(base)) {
+    console.error(
+      "the derived fixture base already carries the authorized dependency, so " +
+      "the authorized-addition cases would test nothing"
+    );
+    process.exit(1);
+  }
+' "$BASE_MANIFEST" \
+  || fail "the live fixture base is not a PRE-authorization base"
+
+cmp -s "$BASE_MANIFEST" "$APPROVED_MANIFEST" \
+  && fail "the derived base manifest equals the approved one; the authorized delta is empty"
+cmp -s "$BASE_LOCKFILE" "$APPROVED_LOCKFILE" \
+  && fail "the derived base lockfile equals the approved one; the authorized delta is empty"
+
+# The PRE-SECURITY-PATCH lockfile: the approved one with the js-yaml record put
+# back to its vulnerable version. Derived for the same reason as the base above
+# — a fixture that read git would silently change meaning once this patch
+# merges — and asserted against the authorization's own FROM pin, so it is the
+# real approved base rather than an approximation of it.
+PRE_PATCH_LOCKFILE="$LIVE_ROOT/pre-patch-lockfile.json"
+node --input-type=module -e '
+  import { createHash } from "node:crypto";
+  import { readFileSync, writeFileSync } from "node:fs";
+  import {
+    SECURITY_LOCK_RECORD,
+    SECURITY_BASE_LOCKFILE_SHA256
+  } from "./scripts/lib/authorized-dependency-policy.mjs";
+
+  const [approvedLockfile, out] = process.argv.slice(1);
+  const lock = JSON.parse(readFileSync(approvedLockfile, "utf8"));
+  Object.assign(lock.packages[SECURITY_LOCK_RECORD], {
+    version: "4.3.1",
+    resolved: "https://registry.npmjs.org/js-yaml/-/js-yaml-4.3.1.tgz",
+    integrity:
+      "sha512-CY6crGq313MX8GkwvB7tzgp99vjQxY1++5y10/BKN/GUfHqWaOGQMNZkBvqSzsZKWk/ijwHlWzzkLulsGHhjWQ=="
+  });
+  const text = JSON.stringify(lock, null, 2) + "\n";
+  const digest = createHash("sha256").update(text).digest("hex");
+  if (digest !== SECURITY_BASE_LOCKFILE_SHA256) {
+    console.error(
+      "the derived pre-patch lockfile hashes to " + digest.slice(0, 12) +
+      "… but the authorization pins " + SECURITY_BASE_LOCKFILE_SHA256.slice(0, 12) + "…"
+    );
+    process.exit(1);
+  }
+  writeFileSync(out, text);
+' "$APPROVED_LOCKFILE" "$PRE_PATCH_LOCKFILE" \
+  || fail "the pre-security-patch lockfile could not be derived"
+
+echo "       ok: the live fixture base is a derived PRE-authorization tree"
 
 live_repo() {
   local name="$1" repo="$LIVE_ROOT/$1"
@@ -238,6 +491,16 @@ live_repo() {
 
 live_commit() {
   git -C "$1" add -A
+  # Guarded, and the guard is the second half of the CI #170 repair.
+  #
+  # When the fixture's base already contained the change the case meant to
+  # apply, there was nothing to commit, `git commit` returned non-zero, and
+  # `set -e` killed the gate with git's "nothing to commit, working tree
+  # clean" as the only clue — a fixture-construction defect wearing the
+  # costume of a policy failure. A case that stages no delta is now named.
+  if git -C "$1" diff --cached --quiet; then
+    fail "live fixture $1 staged no change; the case constructed no delta to test"
+  fi
   git -C "$1" commit -q -m "feature change"
 }
 
@@ -420,6 +683,80 @@ node -e 'const f="'"$REPO"'/package.json";const fs=require("fs");const d=JSON.pa
 live_commit "$REPO"
 live_case 13 REFUSED "dropping a workspace glob from the root manifest" "$(live_run "$REPO")"
 
+# ------------------------------------------------------------
+# TESTS 14-17 - the one-time js-yaml security authorization, live.
+#
+# These fixtures model MAIN AFTER MISSION 2 MERGED: the base manifest carries
+# jsdom, so the jsdom authorization is spent and every ordinary lockfile change
+# is refused. The only thing that may pass is the exact pinned transition.
+# ------------------------------------------------------------
+security_repo() {
+  local name="$1" repo="$LIVE_ROOT/$1"
+  mkdir -p "$repo/apps/web" "$repo/packages/shared-types" "$repo/services/api" \
+           "$repo/scripts/lib"
+
+  cp "$ROOT/package.json" "$repo/package.json"
+  # The APPROVED manifest, so jsdom is in the base and its authorization is
+  # spent — exactly the state that made the security patch need its own.
+  cp "$APPROVED_MANIFEST" "$repo/apps/web/package.json"
+  cp "$PRE_PATCH_LOCKFILE" "$repo/package-lock.json"
+  cp "$ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
+  cp "$ROOT/services/api/package.json" "$repo/services/api/package.json"
+  cp "$ROOT/scripts/lib/authorized-dependency.sh" "$repo/scripts/lib/"
+  cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$repo/scripts/lib/"
+
+  git -C "$repo" init -q
+  git -C "$repo" config user.email "policy@test.invalid"
+  git -C "$repo" config user.name "Dependency Policy Test"
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m "main after the jsdom authorization merged"
+  git -C "$repo" update-ref refs/remotes/origin/main HEAD
+  git -C "$repo" checkout -q -b feature
+  echo "$repo"
+}
+
+# TEST 14 - the exact transition, DIRTY.
+REPO="$(security_repo t14)"
+cp "$APPROVED_LOCKFILE" "$REPO/package-lock.json"
+live_case 14 PASS "the exact js-yaml security patch, uncommitted" "$(live_run "$REPO")"
+
+# TEST 15 - the exact transition, COMMITTED. The half that matters after merge.
+REPO="$(security_repo t15)"
+cp "$APPROVED_LOCKFILE" "$REPO/package-lock.json"
+live_commit "$REPO"
+live_case 15 PASS "the exact js-yaml security patch, COMMITTED" "$(live_run "$REPO")"
+
+# TEST 16 - a DIFFERENT js-yaml version must not ride the authorization.
+REPO="$(security_repo t16)"
+node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.packages["node_modules/js-yaml"].version="4.3.3";fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 16 REFUSED "a js-yaml version other than the authorized one" "$(live_run "$REPO")"
+
+# TEST 17 - the base ALREADY carries 4.3.2: the authorization is spent and a
+# later lockfile change cannot reuse it.
+REPO="$LIVE_ROOT/t17"
+mkdir -p "$REPO/apps/web" "$REPO/packages/shared-types" "$REPO/services/api" "$REPO/scripts/lib"
+cp "$ROOT/package.json" "$REPO/package.json"
+cp "$APPROVED_MANIFEST" "$REPO/apps/web/package.json"
+cp "$APPROVED_LOCKFILE" "$REPO/package-lock.json"
+cp "$ROOT/packages/shared-types/package.json" "$REPO/packages/shared-types/package.json"
+cp "$ROOT/services/api/package.json" "$REPO/services/api/package.json"
+cp "$ROOT/scripts/lib/authorized-dependency.sh" "$REPO/scripts/lib/"
+cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$REPO/scripts/lib/"
+git -C "$REPO" init -q
+git -C "$REPO" config user.email "policy@test.invalid"
+git -C "$REPO" config user.name "Dependency Policy Test"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "main after the security patch merged"
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+git -C "$REPO" checkout -q -b feature
+# Unchanged first: a post-merge main has no delta and must PASS.
+live_case 17a PASS "an unchanged post-merge main tree" "$(live_run "$REPO")"
+# Then a later change, which must NOT be able to reuse the spent authorization.
+node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.packages["node_modules/left-pad"]={version:"1.3.0",dev:true};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 17b REFUSED "a later lockfile change once the patch is in the base" "$(live_run "$REPO")"
+
 echo ""
 echo "PASS: the live wrapper resolves a trusted base and holds after commit"
 
@@ -437,11 +774,23 @@ echo "One dependency is authorized: jsdom, dev-only, in the web"
 echo "workspace, at one exact specification, with one exact"
 echo "lockfile pinned whole by SHA-256."
 echo ""
-echo "The baseline is the merge base with the target branch, so"
-echo "the same unauthorized change is refused while dirty AND"
-echo "after it is committed. There is no fallback to HEAD, no"
-echo "caller-supplied base, and no way for a caller to omit a"
-echo "protected path."
+echo "IN PRODUCTION the baseline is the merge base with the target"
+echo "branch, so the same unauthorized change is refused while"
+echo "dirty AND after it is committed. There is no fallback to"
+echo "HEAD, no caller-supplied base, and no way for a caller to"
+echo "omit a protected path."
+echo ""
+echo "THESE FIXTURES do not read that merge base. Their baseline"
+echo "is DERIVED — the approved files with the authorized change"
+echo "removed — so the same cases are exercised identically on a"
+echo "feature branch, on main, in a detached checkout, and after"
+echo "an authorization has already merged."
+echo ""
+echo "A second, narrower authorization covers one security patch:"
+echo "js-yaml 4.3.1 to 4.3.2 for GHSA-2883-xcg3-v3hh, lockfile"
+echo "only, pinned at BOTH ends by SHA-256. Pinning the FROM end"
+echo "is what makes it one-time: once it merges, no base hashes to"
+echo "it again and it can never be reused."
 echo ""
 echo "The authorization is an ADDITION against that base, so it"
 echo "spends itself: once Mission 2 merges, jsdom is in the base"
