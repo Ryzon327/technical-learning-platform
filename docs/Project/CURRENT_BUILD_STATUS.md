@@ -587,21 +587,67 @@ Their cause is **not established**, and the historical failures stand as
 recorded (completion review §3.1). A documentation-only change does not select
 the gate in CI.
 
+SEARCH-RELEASE-CLOSURE-1 (2026-10-02, at `de7cfc8` with these documentation
+edits applied) re-ran the combined state (completion review §3.4, observed):
+the completion gate exited **1** only at `npm audit --audit-level=high` on the
+same `brace-expansion` high advisory; gate sections 1–17, the 72 Wave 9 checks,
+typecheck, tests (986 / 1,388 / 1,779 passed, no timeout) and the build all
+passed inside it. `npm run gate -- dependency-policy` passed; `npm run
+security:scan` exited 1 on the same audit finding; `npm run lint` exited 2; gate
+selection over the three changed documents selected nothing. The lockfile still
+hashes to `5718e120…f58f`.
+
 ## Limitations carried forward
 
 - **The Search Engine completion gate fails** on the `npm audit` high-severity
   `brace-expansion` advisory. The committed lockfile shows one dev-only record,
   `brace-expansion` 1.1.18, reached through `@tlp/web → eslint → minimatch 3.1.5`.
-  Recommended remedy (completion review §4.1): re-resolve that one lockfile
-  record to the lowest patched 1.x release, with no manifest change. It is
+  Proposed remedy (completion review §4.1.1, SEARCH-SECURITY-PREP-1):
+  re-resolve that one lockfile record to **1.1.21**, the lowest 1.x release
+  outside all three recorded advisories (observed in the GitHub Advisory
+  Database), which satisfies minimatch's `^1.1.7`, with no manifest change.
+  SEARCH-CLOSURE-REMEDY-PREP-1 observed the registry metadata for 1.1.21 in
+  npm's local cache, without repeating the twice-refused `npm view`. It records
+  the tarball, the integrity value and the same dependencies, and the cached
+  1.1.18 integrity matches the lockfile. The remedy stays one record. Lockfile
+  digest: `5718e120…f58f` before the change, computed to be `ae794bd9…bdd5`
+  after it. It is
   consequential under the accepted dependency policy, which refuses any
   unauthorized lockfile change and treated the analogous js-yaml patch
-  (`47bfdcd`) as its own Founder decision. It therefore needs that specific
-  decision and a separate bounded package. No dependency was changed.
+  (`47bfdcd`) as its own Founder decision.
+  - **Authority (reconciled, §4.2.2):** the active Founder directive
+    `tlp-delivery-first-2026-10-02` directs Search closure to *"resolve only
+    blocking closure/security issues"*. This advisory is the gate's only
+    failing step and a security issue. The directive therefore supplies the
+    Founder approval DEC-048 requires, for exactly the one pinned transition
+    `5718e120…f58f` → `ae794bd9…bdd5` and nothing else. No further Founder
+    decision is needed.
+  - **Still required:** a separate bounded applying package that records the
+    directive in the dependency policy, with the regression cases. No
+    dependency or policy was changed.
 - **Lint does not pass.** ESLint 9 flat configuration is absent; `npm run lint`
-  exits 2 (observed). Pre-existing. A fix is inferred to need a new dev
-  dependency, which would need its own specific decision, in a separate bounded
-  package.
+  exits 2 (observed). Pre-existing. Observed in SEARCH-RELEASE-CLOSURE-1: every
+  lintable `apps/web` file is TypeScript, and no TypeScript ESLint parser is
+  installed. A configuration using only installed packages would have to ignore
+  all of them, which would weaken the check, so none was added. A real fix needs
+  a new dev dependency that supplies a TypeScript parser, which the dependency
+  policy refuses without its own specific Founder decision, in a separate bounded
+  package (completion review §4.2).
+  - **Proposed** (§4.2.1): `typescript-eslint` **8.71.0**, an exact pin. Its
+    upstream peers accept eslint 9.39.5 and typescript 5.9.3. Add it to
+    `apps/web` devDependencies, and declare the already-installed `@eslint/js`
+    9.39.5 and `globals` 14.0.0 there. The lockfile gains new records only, and
+    is pinned by digest. A new `apps/web/eslint.config.js` uses the
+    `@eslint/js` and `typescript-eslint` `recommended` rules, with no rule
+    disabled.
+  - **Findings:** any findings it exposes are reported, not suppressed.
+  - **Authorization (§4.2.2):** not covered. Lint is not a completion-gate step
+    and not a security issue, so it is outside the directive
+    `tlp-delivery-first-2026-10-02` closure scope. It adds a new dependency, which
+    Engineering-OS §7 (DEC-048) reserves to the Founder. The jsdom and js-yaml
+    authorizations are spent. The older, consumed issue #52 response covered
+    routine verification only. It does **not** block Search closure or Founder
+    Search UAT. It needs its own Founder decision only when it is scheduled.
 - No live PostgreSQL/RLS harness. Search authorization evidence remains
   **query-level and structural**.
 - No browser harness and no Search DOM test. Search accessibility evidence is

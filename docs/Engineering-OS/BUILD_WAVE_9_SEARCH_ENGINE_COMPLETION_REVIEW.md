@@ -4,7 +4,13 @@
 **Work packages:** SEARCH-CLOSURE-1 (review, runbook); SEARCH-CLOSURE-2 (completion
 gate and repository verification, section 3.2); SEARCH-CLOSURE-3 (evidence
 classification, re-executed gate and lint in section 3.3, dependency remedy in
-finding 4.1)
+finding 4.1); SEARCH-SECURITY-PREP-1 and SEARCH-SECURITY-PREP-2 (exact
+remediation proposal, section 4.1.1); SEARCH-RELEASE-CLOSURE-1 (combined-state
+verification, section 3.4; lint boundary, finding 4.2);
+SEARCH-CLOSURE-REMEDY-PREP-1 (registry metadata and both digests, section
+4.1.1; lint proposal, section 4.2.1; authority analysis, section 4.2.2);
+SEARCH-CLOSURE-AUTHORITY-RECONCILE-1 (authority reconciled with directive
+`tlp-delivery-first-2026-10-02`, section 4.2.2)
 **Authority:** `docs/Feature-Registry/Search-Engine/` (SEARCH-001 … SEARCH-008,
 `SEARCH_ENGINE_FEATURES.md`) governed by `FEATURE_REGISTRY_SPEC.md`; DEC-046,
 DEC-047, DEC-048; `MVP_IMPLEMENTATION_SEQUENCE.md` §11 and §15d
@@ -231,6 +237,38 @@ Inside the gate, in order, all seen in untruncated output:
 
 These observations agree with every SEARCH-CLOSURE-2 report they cover.
 
+### 3.4 Combined-state verification — SEARCH-RELEASE-CLOSURE-1
+
+Executed on 2026-10-02 at `de7cfc8` with the uncommitted edits to these three
+documents applied, and nothing else changed. Every result below is
+**observed** by SEARCH-RELEASE-CLOSURE-1 in untruncated output.
+
+| Check | Command | Exit | Result |
+|---|---|---|---|
+| **Search Engine completion gate** | `npm run gate -- search-engine-completion` | **1** | **FAILED** at its final step, `npm audit --audit-level=high`, only |
+| Dependency policy | `npm run gate -- dependency-policy` | 0 | 32 pure cases and the live cases (TEST 1–17b) **PASS**; "DEPENDENCY POLICY VERIFIED" |
+| Security scan | `npm run security:scan` | **1** | `.env` and credential checks **PASS**; `npm audit` same findings as the gate |
+| npm audit | `npm audit --audit-level=high` | **1** | `brace-expansion <=1.1.20` **high** (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7, GHSA-6j4f-fj2g-mc7p), "fix available via `npm audit fix`"; `@vitest/mocker`/`vitest` **moderate**; "3 vulnerabilities (2 moderate, 1 high)" |
+| lint | `npm run lint` | **2** | ESLint 9.39.5: "couldn't find an eslint.config.(js\|mjs\|cjs) file" |
+| Gate selection | `npm run gate -- select` over the three changed document paths | 0 | no gate selected |
+| Lockfile digest | `shasum -a 256 package-lock.json` | 0 | `5718e120…f58f`, unchanged |
+
+Inside the completion gate, in order: sections 1–17 all **PASS** (including
+section 3, against these edited documents); the delegated
+`scripts/verify-wave9.sh` checks, 72 lines, all **PASS**; typecheck of all three
+workspaces with no error output; tests web 22 files **986 passed**, shared-types
+59 files **1,388 passed**, API 73 files **1,779 passed**, no timeout (slowest
+file `curriculum-search.test.ts`, 2,592 ms); `npm run build`, `@tlp/web` 181
+modules and `@tlp/api` `tsc -p tsconfig.build.json` completed; then the security
+scan above. Build, typecheck and tests therefore ran inside the gate and were not
+re-run separately. `git status` after the run showed only the three documents.
+
+**The current blocker is unchanged:** the only failing step of the completion
+gate is the `brace-expansion` high advisory, whose proposed remedy is in
+section 4.1.1. The registry read that section still needs was **not**
+re-attempted: it had already been refused twice (PREP-1, PREP-2), which is the
+directive's two-attempt limit, and it was not substituted by another route.
+
 ---
 
 ## 4. Findings
@@ -274,16 +312,11 @@ scope directs. Observed there:
 - This describes the committed lockfile, not the installed `node_modules` tree,
   which only the refused command would have shown.
 
-**Minimal remedy — recommended, not executed.** Re-resolve the single lockfile
-record `node_modules/brace-expansion` from 1.1.18 to the lowest patched 1.x
-release. A 1.x release above 1.1.20 satisfies `^1.1.7`, so no range moves and
-no manifest changes. That such a release exists is **inferred** from npm
-reporting the fix as available via plain `npm audit fix`, which does not make
-out-of-range changes; the exact target version is not observable from the
-repository and must be confirmed when the package is prepared. Scope: one
-lockfile record (version, `resolved`, `integrity`), no manifest, no other
-record. The moderate `vitest`/`@vitest/mocker` findings are excluded: they do
-not fail `--audit-level=high`, and their only reported fix is a breaking
+**Minimal remedy — proposed, not executed.** Re-resolve the single lockfile
+record `node_modules/brace-expansion` from 1.1.18 to **1.1.21**, with no manifest
+change. The exact proposal, prepared in SEARCH-SECURITY-PREP-1, is in
+section 4.1.1. The moderate `vitest`/`@vitest/mocker` findings are excluded: they
+do not fail `--audit-level=high`, and their only reported fix is a breaking
 upgrade to vitest 5, a separate decision.
 
 **Is the remedy consequential under accepted authority? Yes — specifically, not
@@ -318,6 +351,164 @@ paths, and a documentation-only change selects no engine gate.
 remedy above, a bounded dependency package that applies it, and an observed
 passing `npm run gate -- search-engine-completion`.
 
+### 4.1.1 Exact remediation proposal — SEARCH-SECURITY-PREP-1
+
+Prepared at `de7cfc8` on 2026-10-02 (SEARCH-SECURITY-PREP-1) and re-attempted
+there the same day (SEARCH-SECURITY-PREP-2). Nothing was applied:
+`package-lock.json`, every manifest and the dependency policy are unchanged.
+The committed lockfile still hashes to `5718e120…f58f` (observed in
+SEARCH-SECURITY-PREP-2).
+
+**Advisories — observed** through `gh api -X GET /advisories/<id>` (GitHub
+Advisory Database), npm ecosystem, 1.x line:
+
+| Advisory | CVE | GitHub severity | 1.x vulnerable | 1.x first patched |
+|---|---|---|---|---|
+| GHSA-6j4f-fj2g-mc7p | CVE-2026-102276 | high | `< 1.1.19` | 1.1.19 |
+| GHSA-qhr7-859c-m2p7 | CVE-2026-102278 | high | `< 1.1.20` | 1.1.20 |
+| GHSA-q2hr-2g5m-vwhr | CVE-2026-102277 | medium | `< 1.1.21` | 1.1.21 |
+
+- **1.1.21 is the lowest 1.x release outside all three recorded ranges.** It is
+  the version proposed. 1.1.20 would clear both high-rated advisories but stays
+  inside GHSA-q2hr-2g5m-vwhr, and npm's audit reported the three together as one
+  high finding over `<=1.1.20`, so 1.1.20 is not proposed.
+- 1.1.21 satisfies minimatch 3.1.5's existing range `^1.1.7`
+  (`>=1.1.7 <2.0.0`). No range moves and no manifest changes.
+- **Upstream — observed** through `gh api -X GET repos/juliangruber/brace-expansion/...`:
+  `v1.1.21` (commit `8e81e187b6e9c6c723d16c042657c00acefc2483`) is the newest
+  1.1.x tag. Its `package.json` declares version `1.1.21`, license `MIT`,
+  dependencies `balanced-match ^1.0.0` and `concat-map 0.0.1`, and no `engines`
+  — the same fields the 1.1.18 lockfile record carries. The lockfile already
+  holds `balanced-match` 1.0.2 and `concat-map` 0.0.1, which satisfy them, so
+  **no other record is expected to move**.
+
+**Proposed lockfile record.** Three fields change; `dev`, `license`,
+`dependencies` and the record's position stay as committed.
+
+| Field | Committed (observed) | Proposed |
+|---|---|---|
+| `version` | `1.1.18` | `1.1.21` |
+| `resolved` | `https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.18.tgz` | `https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.21.tgz` |
+| `integrity` | `sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw==` | `sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==` |
+
+**Registry metadata — history.** In PREP-1 and PREP-2 the registry read
+(`npm view brace-expansion@1.1.21 …`) was refused by the permission system
+before execution, twice. That exhausted the two-attempt limit; it was not
+retried in any later package, and it was not replaced by a web fetch, an
+interpreter making a network request, or any other route to the registry.
+
+**Registry metadata — observed in SEARCH-CLOSURE-REMEDY-PREP-1** from npm's own
+local HTTP cache (`~/.npm/_cacache`), which needs no network request and no new
+command class. The cache holds the registry's install document for
+`https://registry.npmjs.org/brace-expansion`, which npm fetched itself on
+2026-10-02 at 23:13:36 GMT (registry `last-modified` 2026-09-14). The
+document was located with a search and read in memory with `python3`. Nothing
+was written and no cache entry was changed. Observed in it:
+
+- 1.1.19, 1.1.20 and 1.1.21 are published; dist-tag `1.x` is `1.1.21`.
+- 1.1.21: `dist.tarball`
+  `https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.21.tgz`;
+  `dist.integrity` as in the table above; `dist.shasum`
+  `edf4fab5c64d051aea5a8def49aba1c7522279f3`; `dependencies`
+  `balanced-match ^1.0.0` and `concat-map 0.0.1`; no `engines` and no
+  `deprecated` field. This install document does not carry `license`. The
+  upstream tag declares MIT (observed in PREP-1), and the record's `license`
+  field stays `MIT`.
+- **Cross-check:** the cached 1.1.18 `dist.integrity` is byte-identical to the
+  committed lockfile's 1.1.18 `integrity`. The npm cache also holds the 1.1.18
+  tarball under that same integrity.
+
+**No metadata mismatch.** The published 1.1.21 manifest matches the upstream
+tag, and its dependencies are already met by the lockfile's `balanced-match`
+1.0.2 and `concat-map` 0.0.1. The committed lockfile has exactly one
+`brace-expansion` record. **The remedy stays one record**, and the stop
+condition for a widened remedy is not triggered.
+
+**Both digests — computed in memory with `node`, nothing written.** The
+committed lockfile re-serialises byte-exactly as
+`JSON.stringify(lock, null, 2) + "\n"` (computed in PREP-2 and again here).
+Applying only the three field values above:
+
+| | SHA-256 of `package-lock.json` |
+|---|---|
+| **from** (committed, observed) | `5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f` |
+| **to** (computed) | `ae794bd905a31b2b969bcc27c48bea06909442496f2508428b6fc5939e62bdd5` |
+
+The line count is unchanged and exactly three lines differ. If `npm` writes
+anything else when the remedy is applied, the result will not hash to the
+**to** digest, the pinned policy will refuse it, and the package must stop.
+
+**Policy authorization required — following the js-yaml precedent (`47bfdcd`).**
+The current committed lockfile hashes to
+`5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f` (observed
+with `shasum -a 256`). That is the js-yaml transition's own `to` digest, so that
+authorization is spent, and `checkLockfile` would refuse the brace-expansion
+change. The narrowest authorization is a second, separately named one-time
+transition in `scripts/lib/authorized-dependency-policy.mjs`, with the same
+shape as the js-yaml one:
+
+- advisories GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr;
+  package `brace-expansion`; record `node_modules/brace-expansion`;
+  `1.1.18` → `1.1.21`;
+- **from** digest `5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f`;
+- **to** digest `ae794bd905a31b2b969bcc27c48bea06909442496f2508428b6fc5939e62bdd5`;
+- consulted by `checkLockfile` before the spent refusal, returning `null` unless
+  the base hashes to exactly the `from` digest — so it stops applying the moment
+  it merges;
+- no manifest authorization, no parameter, list or wildcard, and no change to
+  the jsdom or js-yaml authorizations.
+
+**Regression checks required in `scripts/verify-dependency-policy.sh`.**
+
+1. *Existing fixtures, re-based without weakening.* The gate reads the working
+   `package-lock.json` as the jsdom- and js-yaml-approved lockfile (pure
+   `APPROVED_LOCK`, live `APPROVED_LOCKFILE`), and the cases that depend on its
+   digest — at least K2, SEC0–SEC12, the jsdom live cases built from it, and
+   live tests 14–17 — assume it still hashes to `5718e120…f58f`. After the patch
+   it does not, so the gate must first derive the pre-patch lockfile
+   — the brace-expansion record put back to the committed 1.1.18 values in the
+   table above — and assert it hashes to `5718e120…f58f`, the same derivation
+   technique SEC0 already uses for js-yaml. Every existing assertion stays as it
+   is.
+2. *New pure cases, mirroring SEC0–SEC12:* the derived base reproduces the
+   `from` digest; the exact 1.1.18 → 1.1.21 transition is accepted; 1.1.20, any
+   later 1.x and any 2.x are refused; the patch plus an unrelated record added,
+   removed or changed (including a `vitest` change) is refused; removing the
+   record is refused; the patch plus a manifest change is refused; once 1.1.21
+   is in the base the transition returns `null` and a later lockfile change is
+   refused; the js-yaml transition still returns `null`; both pins are
+   well-formed and distinct.
+3. *New live cases, mirroring tests 14–17:* exact patch uncommitted and
+   committed pass; another version is refused; an unchanged post-merge tree
+   passes; a later lockfile change after merge is refused.
+
+**Expected diff of the applying package:** `package-lock.json` — three changed
+lines in one record; `scripts/lib/authorized-dependency-policy.mjs`;
+`scripts/verify-dependency-policy.sh`. Nothing else.
+
+**Routine checks the applying package runs itself:** `npm run gate --
+dependency-policy`; `npm audit --audit-level=high` (expected: no high finding;
+the two moderate `vitest`/`@vitest/mocker` findings remain and do not fail it);
+`npm run gate -- search-engine-completion` (expected exit 0); `npm test`;
+`npm run typecheck`; `npm run build`; and `npm run gate -- select` over the
+changed paths, running whatever it selects. None of these needs a Founder
+decision.
+
+**Founder decision — now supplied by directive `tlp-delivery-first-2026-10-02`
+for this exact scope (section 4.2.2).** The scope as originally requested:
+exactly one transition, the committed
+lockfile `5718e120…f58f` → lockfile `ae794bd9…bdd5`, which is the same lockfile
+with only `node_modules/brace-expansion` moved from 1.1.18 to 1.1.21 (the
+`resolved` and `integrity` values above), plus the matching one-time pinned transition and its
+regression cases in the two dependency-policy files above. This authorization
+would not cover: any manifest change, any other record, `npm audit fix`
+applied wholesale, the `vitest` 5 upgrade, or any other version of
+brace-expansion. The registry metadata now confirms one record (above). If
+applying it still produces any lockfile other than `ae794bd9…bdd5`, the
+authorization does not apply and a revised scope comes back first. The applying
+package remains separate and bounded, and records the directive as its
+authorizing decision in the policy file.
+
 ### 4.2 Lint does not pass — **OPEN, PRE-EXISTING, NOT A SEARCH DEFECT**
 
 `npm run lint` exited **2** on 2026-10-02: reported in SEARCH-CLOSURE-2
@@ -326,13 +517,254 @@ passing `npm run gate -- search-engine-completion`.
 `eslint.config.(js|mjs|cjs)` exists.
 
 This pre-dates Wave 9 and was recorded at the Wave 9 progress checkpoint.
-`typescript-eslint` is absent from the lockfile (observed). That a working
-configuration for the TypeScript sources needs it, or another new dev
-dependency, is **inferred** and was not investigated here. Adding a dependency
-changes a protected manifest, which the accepted dependency policy refuses
-without its own recorded authorization, so that step would need a specific
-Founder decision once a remedy is proposed. It is left for a separate bounded
-engineering package and is **not** resolved here.
+
+**Investigated in SEARCH-RELEASE-CLOSURE-1 — observed:**
+
+- No ESLint configuration of any form (`eslint.config.*`, `.eslintrc*`) has
+  ever been committed: `git log --all` over those paths returns nothing.
+- Every lintable file tracked under `apps/web` is TypeScript — `src/**/*.ts`,
+  `src/**/*.tsx` and `vite.config.ts`; there is no `.js`, `.mjs` or `.cjs`
+  source.
+- Installed lint packages are `eslint` 9.39.5 with its own `@eslint/*`
+  dependencies (including `@eslint/js`) and `globals`. No TypeScript parser is
+  installed: `node_modules/@typescript-eslint` and
+  `node_modules/typescript-eslint` do not exist, and neither do React lint
+  plugins.
+
+**Consequence — inferred from ESLint's documented behaviour, not executed:**
+ESLint's built-in parser (espree) does not parse TypeScript syntax. A flat
+configuration built only from installed packages could therefore pass only by
+ignoring every `.ts`/`.tsx` file, which is all of `apps/web`. That makes
+`eslint . --max-warnings=0` check nothing while reporting success. It would
+weaken the check, so it was **not** done, and no configuration file was added.
+
+**Exact authorization boundary.** A lint that checks the TypeScript sources
+needs at least one new dev dependency in `apps/web/package.json` that supplies a
+TypeScript parser (for example `typescript-eslint`), plus its lockfile records,
+and then an `apps/web/eslint.config.js`. The accepted dependency policy refuses
+every edit to a protected manifest now that the jsdom authorization is spent
+(`scripts/lib/authorized-dependency-policy.mjs`). That is a dependency decision
+for the Founder, separate from the `brace-expansion` decision, and not covered
+by the active directive (section 4.2.2). The exact proposal is in section 4.2.1.
+Lint is **not** resolved here.
+
+### 4.2.1 Exact lint proposal — SEARCH-CLOSURE-REMEDY-PREP-1
+
+Nothing was applied: no manifest, lockfile, configuration or source changed.
+
+**Context — observed.** Only `@tlp/web` defines `lint`
+(`eslint . --max-warnings=0`). The root `npm run lint` runs it through
+`--workspaces --if-present`, and `services/api` and `packages/shared-types` have
+no lint script. Installed versions: `eslint` 9.39.5, `@eslint/js` 9.39.5,
+`globals` 14.0.0 and `typescript` 5.9.3. The root `engines.node` is `>=22`.
+
+**Package — observed upstream** through `gh api -X GET` on
+`typescript-eslint/typescript-eslint`: the latest release is **`v8.71.0`**
+(published 2026-09-28). Its `packages/typescript-eslint/package.json` at that tag
+declares version `8.71.0`, license MIT, `engines.node`
+`^18.18.0 || ^20.9.0 || >=21.1.0`, and peer dependencies
+`eslint ^8.57.0 || ^9.0.0 || ^10.0.0` and `typescript >=4.8.4 <6.1.0`.
+
+**Compatibility.** eslint 9.39.5, typescript 5.9.3 and Node ≥22 all satisfy
+those ranges (computed by comparing the observed values). No other installed
+package needs to move to meet a peer range. That the npm-published 8.71.0
+matches the tag was **not** observed: no registry document for it is in the
+local npm cache, and the registry read was not attempted by another route.
+
+**Proposed change — one package, three files plus the lockfile:**
+
+1. `apps/web/package.json` `devDependencies`: add `"typescript-eslint": "8.71.0"`,
+   an exact pin. It is the single meta-package that supplies the parser and the
+   plugin, and it is the only **new** package. The configuration also imports
+   `@eslint/js` and `globals`, which are already installed through `eslint`.
+   They are declared at their installed versions, `"@eslint/js": "9.39.5"` and
+   `"globals": "14.0.0"`, so the imports are not undeclared, and **no record is
+   added or moved for either**. The manifest changes by three lines, all in
+   `devDependencies`.
+2. `package-lock.json`: the `packages["apps/web"].devDependencies` entry, plus
+   **new** records only, for `typescript-eslint`, `@typescript-eslint/*` and
+   whatever transitive packages are not already present. No existing record may
+   change version. The exact set of new records is resolved by npm
+   and is **not** computed here. The applying package derives it with
+   `npm install -D typescript-eslint@8.71.0 -w @tlp/web`, reports it, and pins
+   the resulting lockfile by digest before the policy accepts it. If any
+   existing record changes, it stops.
+3. New `apps/web/eslint.config.js`:
+   `tseslint.config(js.configs.recommended, ...tseslint.configs.recommended)`,
+   with `ignores: ["dist/**"]`, `files: ["**/*.{ts,tsx}"]`,
+   `languageOptions.globals` from `globals.browser`, and the existing
+   `--max-warnings=0` kept.
+   - Rules: `@eslint/js` `recommended` plus `typescript-eslint` `recommended`
+     (syntactic, not type-checked), with **no rule disabled, and no rule
+     downgraded to a warning**.
+   - Type-checked presets are excluded. They need parser project
+     configuration and a full program build per run, which is more scope than
+     restoring a working lint.
+   - React plugins (`eslint-plugin-react-hooks`, `-react-refresh`) are
+     excluded: each is a further dependency decision.
+
+**Handling of existing findings — bounded.** Whether the current TypeScript
+sources pass these rules is **unknown**, because the rules cannot run without the
+dependency. The applying package therefore:
+
+- runs `npm run lint` once after configuration and records the counts per rule
+  and per file;
+- if it is clean, finishes;
+- if there are findings, it does **not** disable or downgrade rules, add
+  `eslint-disable` comments, widen `ignores`, or raise `--max-warnings`. It
+  stops and reports them;
+- leaves source fixes to a separate bounded package, because changing product
+  source is outside a dependency package.
+
+So the lint gate is not weakened to make it pass.
+
+**Policy authorization required.** The jsdom authorization is spent, and
+`checkUnauthorizedManifest` refuses every change to `apps/web/package.json`.
+`checkLockfile` refuses every lockfile other than the pinned ones.
+
+- **Proposed authorization:** a third, separately named one-time authorization
+  in `scripts/lib/authorized-dependency-policy.mjs`, with the same shape. It
+  allows exactly the three `devDependencies` additions in item 1 to
+  `apps/web/package.json`, and exactly one resulting lockfile, pinned by SHA-256.
+- **Matching regression cases** in `scripts/verify-dependency-policy.sh`: the
+  exact additions pass; any other version or package is refused; any further
+  addition is refused; once it is spent, a further change is refused; and the
+  jsdom, js-yaml and brace-expansion pins are unchanged.
+- **Ordering:** if the `brace-expansion` remedy lands first, this pin's
+  **from** digest is `ae794bd9…bdd5`; otherwise it is `5718e120…f58f`. The two
+  remedies must be applied in sequence, never combined into one transition.
+
+### 4.2.2 Authority for either transition — SEARCH-CLOSURE-REMEDY-PREP-1, reconciled in SEARCH-CLOSURE-AUTHORITY-RECONCILE-1
+
+**Conclusion (reconciled): the `brace-expansion` security transition is
+covered by the active Founder directive `tlp-delivery-first-2026-10-02`,
+bounded to exactly the pinned transition in section 4.1.1. The
+`typescript-eslint` lint transition is not covered and is not a Search closure
+blocker.** No dependency or policy was changed by this package. The two
+conclusions are assessed separately below.
+
+The analysis first recorded by SEARCH-CLOSURE-REMEDY-PREP-1 rested on the
+issue #52 response. That response has been consumed and is now superseded as the
+current directive. It is kept below as history.
+
+**Canonical requirements — unchanged, and binding on both transitions:**
+
+- `Engineering-OS.md` §7 (DEC-048), "Actions that always require Founder
+  approval", lists **adding, removing, upgrading or replacing dependencies**.
+  The `brace-expansion` upgrade and the `typescript-eslint` addition are both in
+  that category.
+- DEC-050 lists **dependency changes** among the consequential gates for which
+  the Founder remains the authority. DEC-051 restates this, and `CLAUDE.md`
+  Change Control lists "consequential dependency changes" under "never do
+  independently".
+- The accepted policy (`scripts/lib/authorized-dependency-policy.mjs`) records
+  two one-time Founder authorizations, jsdom and js-yaml (`47bfdcd`). Both are
+  pinned to their own exact content, and both are spent. Its own text says that
+  a future authorization must be a separate, written decision. Neither
+  authorization can be reused.
+- No decision with ledger status **Locked** governs dependencies. DEC-048,
+  DEC-050 and DEC-051 are **Approved**. The directive is consistent with them,
+  because it is itself a Founder authorization, and it does not amend them. No
+  conflict with a Locked decision was found.
+
+**Older directive — the issue #52 response (consumed 2026-10-02, superseded).**
+It said: *"No Founder decision is required for routine verification. Complete
+the required writable local verification …"*. It authorized routine
+verification only. It did not mention a dependency, a lockfile or the policy,
+so it authorized neither transition. That remains true of that response.
+
+**Active directive — `tlp-delivery-first-2026-10-02`** (observed in the
+workstation-local `.ai-runtime/platform-directive.json`): `authorized_by`
+`Founder`, `authorized_at` `2026-10-02T22:50:00Z`, `enabled` `true`. It is later
+than the issue #52 response and replaces it as the current execution directive.
+Its relevant terms, quoted:
+
+- `search_rescue.objective`: *"Finish Search release closure from the accepted
+  implementation and existing closure evidence; resolve only blocking
+  closure/security issues, run required deterministic verification, produce a
+  durable checkpoint, then open Founder Search UAT."*
+- `search_rescue.preserve_remote_checkpoint`: `de7cfc8…`, and
+  `do_not_rebuild_search_001_through_008`: `true`.
+- `execution_rules`: *"Founder interruption is reserved for meaningful
+  learner-facing UAT, a genuinely new product/business decision,
+  credentials/secrets/billing, privileged destructive actions, or an exhausted
+  safety stop"*; and *"No new architecture, framework, or scope is introduced
+  merely to make the automation easier."*
+- `human_boundaries`: Founder Search UAT and later learner-facing UAT; new
+  product/business choices; credentials, billing, secrets or account
+  authorization; privileged or destructive external actions; production
+  deployment or public exposure.
+
+Its provenance is not observable from the repository. It is a workstation-local
+runtime file, not a GitHub issue (DEC-050/051), and it is not committed (runtime
+evidence is excluded from product commits). This conclusion treats it as the
+Founder's directive because this work package names it as the current Founder
+execution directive.
+
+**Security conclusion — `brace-expansion` 1.1.18 → 1.1.21: covered, exactly
+bounded.**
+
+- The advisory is the **only** step on which the Search Engine completion gate
+  fails (section 3.4, observed). The gate runs `npm audit --audit-level=high`
+  through `scripts/security-scan.sh`. It is therefore both a **blocking
+  closure** issue and a **security** issue, the class the directive explicitly
+  tells this delivery to resolve.
+- DEC-048 needs a Founder approval for a dependency upgrade. It does not need a
+  separate approval channel. The directive is a written Founder authorization to
+  resolve exactly this class of issue, and section 4.1.1 has fully specified the
+  only remedy since before the directive was issued. The remedy changes one
+  lockfile record from `5718e120…f58f` to `ae794bd9…bdd5`, is dev-only, stays
+  inside minimatch's existing `^1.1.7` range, and changes no manifest. It is not
+  a new product or business choice, and it touches no credentials or production.
+  It is outside every directive `human_boundaries` entry.
+- So the Founder approval DEC-048 needs is supplied, **for that one pinned
+  transition only**. It does not cover any manifest change, any other record,
+  wholesale `npm audit fix`, the `vitest` 5 upgrade, any other `brace-expansion`
+  version, or any lockfile other than `ae794bd9…bdd5`. If the applied result
+  differs, the coverage lapses and a revised scope returns first, as section
+  4.1.1 already states.
+- **What still applies:** the dependency policy's own rule that a future
+  authorization is a change to `scripts/lib/authorized-dependency-policy.mjs`,
+  reviewed as the policy change it is. The applying package therefore remains a
+  separate bounded package. It records `tlp-delivery-first-2026-10-02` as the
+  authorizing decision in that file, in the same form as the js-yaml
+  authorization. Its diff, checks and expected results are exactly those in
+  section 4.1.1. It still goes through architecture review and CI. This package
+  does not apply it.
+- **No further Founder decision is required for this transition.**
+
+**Lint conclusion — `typescript-eslint` 8.71.0: not covered, and not a closure
+blocker.**
+
+- Lint is **not** a step of the Search Engine completion gate. The gate's steps
+  other than `npm audit` all passed while `npm run lint` exited 2, in the same
+  run (section 3.4, observed). Lint is pre-existing, pre-dates Wave 9, and is
+  not a Search defect (finding 4.2). It is also not a security issue. So it is
+  outside *"resolve only blocking closure/security issues"*.
+- Unlike the security remedy, it **adds** a new package and changes a protected
+  manifest. That is new dev tooling, which the directive does not mention, and
+  which its *"no new … framework, or scope"* rule leaves outside the current
+  delivery scope.
+- No other authority covers it. The jsdom and js-yaml authorizations are spent
+  and pinned to their own content. The issue #52 response covered verification
+  only. DEC-048 still needs a Founder approval for adding a dependency.
+- **Consequence:** Search closure and Founder Search UAT do **not** wait on it,
+  and no Founder interruption is raised for it now. It stays an open,
+  carried-forward limitation (finding 4.2), with its exact proposal in section
+  4.2.1.
+- **Founder decision required only when lint is scheduled** (the approved
+  sequence's Hardening stage is the natural point, but this package does not
+  schedule it). The protected transition is: `apps/web/package.json`
+  `devDependencies` gains exactly `"typescript-eslint": "8.71.0"`,
+  `"@eslint/js": "9.39.5"` and `"globals": "14.0.0"`. The lockfile moves from
+  `ae794bd9…bdd5` (or `5718e120…f58f` if the security transition has not landed)
+  to one npm-resolved digest that adds records only. A third one-time policy
+  authorization pins both. Existing authority cannot cover it because it adds a
+  dependency and changes a manifest, it is neither blocking nor security, and
+  every prior dependency authorization is spent.
+
+The two transitions remain sequential and are never combined (section 4.2.1,
+Ordering).
 
 ### 4.3 No live PostgreSQL / RLS proof — **OPEN, CARRIED FORWARD**
 
@@ -405,7 +837,10 @@ not run one.
 ## 5. Boundaries held by this package
 
 No product source, test, verifier, dependency, dependency policy, migration, CI
-workflow or Feature Registry entry was changed by the SEARCH-CLOSURE packages. No
+workflow or Feature Registry entry was changed by the SEARCH-CLOSURE packages,
+SEARCH-SECURITY-PREP-1, SEARCH-SECURITY-PREP-2, SEARCH-RELEASE-CLOSURE-1,
+SEARCH-CLOSURE-REMEDY-PREP-1 or SEARCH-CLOSURE-AUTHORITY-RECONCILE-1, and no
+ESLint configuration was added. No
 database command, curriculum publication, dependency fix, deployment or commit
 was performed. The refused `npm ls brace-expansion` was not retried and was not
 replaced by another command that inspects the installed tree. The Search Engine
@@ -415,15 +850,21 @@ completion gate and `scripts/verify-wave9.sh` are unchanged.
 
 ## 6. What this review does not establish
 
-- a passing completion gate; the observed gate exited 1 (finding 4.1)
+- a passing completion gate; the observed gate exited 1 again in section 3.4
+  (finding 4.1)
 - the installed dependency tree; the chain in finding 4.1 is read from the
-  committed lockfile, and the exact patched `brace-expansion` version is not
-  established
+  committed lockfile
+- that applying the `brace-expansion` remedy with npm produces exactly the
+  computed **to** digest. The digest is computed, not observed from an applied
+  change (section 4.1.1).
+- the exact lockfile records a `typescript-eslint` 8.71.0 install adds, or that
+  the TypeScript sources pass the proposed rules (section 4.2.1)
 - inspectable raw output for SEARCH-CLOSURE-1 and SEARCH-CLOSURE-2 results;
   those are reported, and only the gate and lint were re-observed (section 3.3)
 - the cause of the historical test timeouts, or that they cannot recur
   (section 3.1)
-- passing lint (finding 4.2)
+- passing lint, or that the TypeScript sources would pass a configured lint
+  (finding 4.2)
 - live row level security enforcement (finding 4.3)
 - rendered usability, rendered accessibility or visual quality (finding 4.4)
 - that a searchable corpus exists in any environment (finding 4.6)
@@ -432,6 +873,9 @@ completion gate and `scripts/verify-wave9.sh` are unchanged.
   **pending**, and final Search product acceptance is **not granted** (DEC-047)
 
 **Status: IMPLEMENTED — AUTOMATED VALIDATION INCOMPLETE (completion gate exit 1
-on the npm audit dependency advisory, remedy awaiting its specific Founder
-decision; lint exit 2) — Rendered Architect review
+on the npm audit dependency advisory, remedy covered by directive
+`tlp-delivery-first-2026-10-02` for the one pinned transition and not yet
+applied; lint exit 2, not a closure blocker, its dependency remedy not covered
+and needing its own Founder decision when scheduled, section 4.2.2; all other
+gate steps observed passing in section 3.4) — Rendered Architect review
 and Founder Search Human UAT pending — PENDING INDEPENDENT ARCHITECTURE REVIEW.**

@@ -23,10 +23,20 @@ and nothing in this document grants Search product acceptance.
    high-severity `brace-expansion` advisory reached dev-only through
    `@tlp/web → eslint → minimatch`. Gate sections 1–17, the Wave 9 structural
    checks, typecheck, tests and `npm run build` all passed inside the gate in
-   the observed run. That is not a Search defect.
-   The recommended remedy is a one-record, lockfile-only update; under the
-   accepted dependency policy it needs its own specific Founder decision and a
-   separate bounded package (completion review finding 4.1).
+   the observed run. That is not a Search defect. SEARCH-RELEASE-CLOSURE-1
+   re-ran it at `de7cfc8` on 2026-10-02 and observed the same result: exit
+   **1** on the same advisory only, with every other step passing (completion
+   review section 3.4).
+   The proposed remedy is a lockfile-only update of the one `brace-expansion`
+   record from 1.1.18 to 1.1.21. Its registry metadata is now observed and
+   confirms that one record is enough. The lockfile digest is `5718e120…f58f`
+   before the change and is computed to be `ae794bd9…bdd5` after it
+   (SEARCH-CLOSURE-REMEDY-PREP-1). The active Founder directive
+   `tlp-delivery-first-2026-10-02` covers that one pinned transition as a
+   blocking closure/security issue, so no further Founder decision is needed. It
+   is applied in a separate bounded package (completion review finding 4.1,
+   exact proposal in section 4.1.1, authority in section 4.2.2). Lint (`npm run
+   lint`, exit 2) is not a gate step and does not block this UAT.
 2. The independent architecture review of the Search closure packages is
    complete.
 3. Rendered Architect review has occurred. It is **pending**.
