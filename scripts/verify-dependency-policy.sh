@@ -53,7 +53,11 @@ import {
   SECURITY_LOCKFILE_SHA256,
   SECURITY_VERSION_FROM,
   SECURITY_VERSION_TO,
-  SECURITY_LOCK_RECORD
+  SECURITY_LOCK_RECORD,
+  braceLockfileVerdict,
+  BRACE_BASE_LOCKFILE_SHA256,
+  BRACE_LOCKFILE_SHA256,
+  BRACE_LOCK_RECORD
 } from "./scripts/lib/authorized-dependency-policy.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -75,8 +79,26 @@ const withJsdom = () => {
   return after;
 };
 
-/* The REAL approved lockfile, so the whole-file pin is exercised for real. */
-const APPROVED_LOCK = readFileSync("package-lock.json", "utf8");
+/* The working lockfile, which carries the brace-expansion patch. */
+const CURRENT_LOCK = readFileSync("package-lock.json", "utf8");
+
+/*
+  The REAL jsdom- and js-yaml-approved lockfile, so the whole-file pin is
+  exercised for real. DERIVED from the working one by putting the
+  brace-expansion record back to 1.1.18, so every case below keeps the meaning
+  it had before that patch; BRACE0 proves the derivation byte-exact.
+*/
+const BRACE_1_1_18 = {
+  version: "1.1.18",
+  resolved: "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.18.tgz",
+  integrity:
+    "sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw=="
+};
+const APPROVED_LOCK = (() => {
+  const lock = JSON.parse(CURRENT_LOCK);
+  Object.assign(lock.packages[BRACE_LOCK_RECORD], BRACE_1_1_18);
+  return JSON.stringify(lock, null, 2) + "\n";
+})();
 
 const cases = [];
 const refuse = (id, what, problems) =>
@@ -272,6 +294,105 @@ accept("SEC12", "both security pins are well-formed sha256 values, and differ",
   SECURITY_BASE_LOCKFILE_SHA256 !== SECURITY_LOCKFILE_SHA256
     ? [] : ["the security transition is not pinned at two distinct digests"]);
 
+/* ------------------------------------------------------------------ *
+   BRACE0-BRACE15: the one-time brace-expansion security authorization
+   (tlp-delivery-first-2026-10-02).
+
+   Its base is APPROVED_LOCK, derived above; its result is the working
+   lockfile. jsdom is in the base for all of these, so the jsdom authorization
+   is spent and only the pinned transition may pass.
+ * ------------------------------------------------------------------ */
+const braceRelock = (mutate) => {
+  const lock = JSON.parse(CURRENT_LOCK);
+  mutate(lock);
+  return JSON.stringify(lock, null, 2) + "\n";
+};
+const braceVersion = (version) => braceRelock((lock) => {
+  Object.assign(lock.packages[BRACE_LOCK_RECORD], {
+    version,
+    resolved: "https://registry.npmjs.org/brace-expansion/-/brace-expansion-" + version + ".tgz"
+  });
+});
+
+accept("BRACE0", "the derived pre-patch lockfile reproduces the pinned FROM digest",
+  sha256(APPROVED_LOCK) === BRACE_BASE_LOCKFILE_SHA256
+    ? [] : ["the derived pre-brace lockfile does not match BRACE_BASE_LOCKFILE_SHA256"]);
+
+accept("BRACE1", "the working lockfile is exactly the pinned TO digest",
+  sha256(CURRENT_LOCK) === BRACE_LOCKFILE_SHA256
+    ? [] : ["the working lockfile does not match BRACE_LOCKFILE_SHA256"]);
+
+accept("BRACE2", "the exact brace-expansion 1.1.18 to 1.1.21 transition",
+  checkLockfile(withJsdom(), APPROVED_LOCK, CURRENT_LOCK, sha256));
+
+refuse("BRACE3", "brace-expansion patched to 1.1.20 instead of the authorized version",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceVersion("1.1.20"), sha256));
+
+refuse("BRACE4", "brace-expansion moved to a later 1.x",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceVersion("1.1.22"), sha256));
+
+refuse("BRACE5", "brace-expansion moved to 2.x",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceVersion("2.0.2"), sha256));
+
+refuse("BRACE6", "the exact brace-expansion patch PLUS an unrelated package added",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceRelock((lock) => {
+    lock.packages["node_modules/left-pad"] = { version: "1.3.0", dev: true };
+  }), sha256));
+
+refuse("BRACE7", "the exact brace-expansion patch PLUS an unrelated package removed",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceRelock((lock) => {
+    const key = Object.keys(lock.packages).find(
+      (name) => name.startsWith("node_modules/") && name !== BRACE_LOCK_RECORD
+    );
+    delete lock.packages[key];
+  }), sha256));
+
+refuse("BRACE8", "a vitest change riding on the brace-expansion authorization",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceRelock((lock) => {
+    const key = Object.keys(lock.packages).find((name) => name.endsWith("/vitest"));
+    lock.packages[key].version = "4.1.11";
+  }), sha256));
+
+refuse("BRACE9", "brace-expansion removed rather than patched",
+  checkLockfile(withJsdom(), APPROVED_LOCK, braceRelock((lock) => {
+    delete lock.packages[BRACE_LOCK_RECORD];
+  }), sha256));
+
+refuse("BRACE10", "the exact brace-expansion patch PLUS a package.json change", [
+  ...checkLockfile(withJsdom(), APPROVED_LOCK, CURRENT_LOCK, sha256),
+  ...checkAuthorizedManifest(withJsdom(), (() => {
+    const later = clone(withJsdom());
+    later.dependencies.react = "^19.9.9";
+    return later;
+  })())
+]);
+
+/* SPENT: once 1.1.21 is in the base the transition no longer applies. */
+refuse("BRACE11", "a LATER lockfile change once 1.1.21 is already in the base",
+  checkLockfile(withJsdom(), CURRENT_LOCK, braceRelock((lock) => {
+    lock.packages["node_modules/left-pad"] = { version: "1.3.0", dev: true };
+  }), sha256));
+
+accept("BRACE12", "the brace-expansion authorization no longer APPLIES once it is spent",
+  braceLockfileVerdict(CURRENT_LOCK, CURRENT_LOCK + "x", sha256) === null
+    ? [] : ["a spent brace-expansion authorization still claims the transition"]);
+
+accept("BRACE13", "the js-yaml authorization stays spent against the brace-expansion base",
+  securityLockfileVerdict(APPROVED_LOCK, CURRENT_LOCK, sha256) === null &&
+  securityLockfileVerdict(CURRENT_LOCK, CURRENT_LOCK + "x", sha256) === null
+    ? [] : ["the js-yaml authorization applies to a base it does not cover"]);
+
+accept("BRACE14", "both brace-expansion pins are well-formed sha256 values, and differ",
+  /^[0-9a-f]{64}$/.test(BRACE_BASE_LOCKFILE_SHA256) &&
+  /^[0-9a-f]{64}$/.test(BRACE_LOCKFILE_SHA256) &&
+  BRACE_BASE_LOCKFILE_SHA256 !== BRACE_LOCKFILE_SHA256
+    ? [] : ["the brace-expansion transition is not pinned at two distinct digests"]);
+
+accept("BRACE15", "an unchanged post-merge main tree still passes", [
+  ...checkAuthorizedManifest(withJsdom(), withJsdom()),
+  ...checkLockfile(withJsdom(), CURRENT_LOCK, CURRENT_LOCK, sha256)
+]);
+
 /* P: the pin is a real value. */
 accept("P", "the approved lockfile pin is a well-formed sha256",
   /^[0-9a-f]{64}$/.test(AUTHORIZED_LOCKFILE_SHA256) ? [] : ["the pin is not a sha256"]);
@@ -315,7 +436,40 @@ LIVE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$LIVE_ROOT"' EXIT
 
 APPROVED_MANIFEST="$ROOT/apps/web/package.json"
-APPROVED_LOCKFILE="$ROOT/package-lock.json"
+# The working lockfile carries the brace-expansion patch. Every fixture written
+# before that patch reads APPROVED_LOCKFILE as the jsdom- and js-yaml-approved
+# file, so it is DERIVED with the brace-expansion record put back to 1.1.18 and
+# asserted against that transition's own FROM pin.
+CURRENT_LOCKFILE="$ROOT/package-lock.json"
+APPROVED_LOCKFILE="$LIVE_ROOT/approved-lockfile.json"
+node --input-type=module -e '
+  import { createHash } from "node:crypto";
+  import { readFileSync, writeFileSync } from "node:fs";
+  import {
+    BRACE_LOCK_RECORD,
+    BRACE_BASE_LOCKFILE_SHA256
+  } from "./scripts/lib/authorized-dependency-policy.mjs";
+
+  const [currentLockfile, out] = process.argv.slice(1);
+  const lock = JSON.parse(readFileSync(currentLockfile, "utf8"));
+  Object.assign(lock.packages[BRACE_LOCK_RECORD], {
+    version: "1.1.18",
+    resolved: "https://registry.npmjs.org/brace-expansion/-/brace-expansion-1.1.18.tgz",
+    integrity:
+      "sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw=="
+  });
+  const text = JSON.stringify(lock, null, 2) + "\n";
+  const digest = createHash("sha256").update(text).digest("hex");
+  if (digest !== BRACE_BASE_LOCKFILE_SHA256) {
+    console.error(
+      "the derived pre-brace lockfile hashes to " + digest.slice(0, 12) +
+      "… but the authorization pins " + BRACE_BASE_LOCKFILE_SHA256.slice(0, 12) + "…"
+    );
+    process.exit(1);
+  }
+  writeFileSync(out, text);
+' "$CURRENT_LOCKFILE" "$APPROVED_LOCKFILE" \
+  || fail "the pre-brace-expansion lockfile could not be derived"
 BASE_MANIFEST="$LIVE_ROOT/base-manifest.json"
 BASE_LOCKFILE="$LIVE_ROOT/base-lockfile.json"
 
@@ -699,7 +853,8 @@ security_repo() {
   # The APPROVED manifest, so jsdom is in the base and its authorization is
   # spent — exactly the state that made the security patch need its own.
   cp "$APPROVED_MANIFEST" "$repo/apps/web/package.json"
-  cp "$PRE_PATCH_LOCKFILE" "$repo/package-lock.json"
+  # The base lockfile: pre-js-yaml unless a case names another.
+  cp "${2:-$PRE_PATCH_LOCKFILE}" "$repo/package-lock.json"
   cp "$ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
   cp "$ROOT/services/api/package.json" "$repo/services/api/package.json"
   cp "$ROOT/scripts/lib/authorized-dependency.sh" "$repo/scripts/lib/"
@@ -757,6 +912,42 @@ node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JS
 live_commit "$REPO"
 live_case 17b REFUSED "a later lockfile change once the patch is in the base" "$(live_run "$REPO")"
 
+# ------------------------------------------------------------
+# TESTS 18-21 - the one-time brace-expansion security authorization, live
+# (tlp-delivery-first-2026-10-02). The base is main after the js-yaml patch
+# merged: jsdom present, js-yaml 4.3.2, brace-expansion 1.1.18.
+# ------------------------------------------------------------
+
+# TEST 18 - the exact transition, DIRTY and then COMMITTED.
+REPO="$(security_repo t18a "$APPROVED_LOCKFILE")"
+cp "$CURRENT_LOCKFILE" "$REPO/package-lock.json"
+live_case 18a PASS "the exact brace-expansion security patch, uncommitted" "$(live_run "$REPO")"
+
+REPO="$(security_repo t18b "$APPROVED_LOCKFILE")"
+cp "$CURRENT_LOCKFILE" "$REPO/package-lock.json"
+live_commit "$REPO"
+live_case 18b PASS "the exact brace-expansion security patch, COMMITTED" "$(live_run "$REPO")"
+
+# TEST 19 - a DIFFERENT brace-expansion version must not ride the authorization.
+REPO="$(security_repo t19 "$APPROVED_LOCKFILE")"
+node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.packages["node_modules/brace-expansion"].version="1.1.20";fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 19 REFUSED "a brace-expansion version other than the authorized one" "$(live_run "$REPO")"
+
+# TEST 20 - the exact lockfile patch PLUS a manifest change is refused.
+REPO="$(security_repo t20 "$APPROVED_LOCKFILE")"
+cp "$CURRENT_LOCKFILE" "$REPO/package-lock.json"
+node -e 'const f="'"$REPO"'/apps/web/package.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.dependencies.react="^19.9.9";fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 20 REFUSED "the brace-expansion patch alongside a manifest change" "$(live_run "$REPO")"
+
+# TEST 21 - the base ALREADY carries 1.1.21: unchanged passes, reuse is refused.
+REPO="$(security_repo t21 "$CURRENT_LOCKFILE")"
+live_case 21a PASS "an unchanged tree after the brace-expansion patch merged" "$(live_run "$REPO")"
+node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.packages["node_modules/left-pad"]={version:"1.3.0",dev:true};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 21b REFUSED "a later lockfile change once 1.1.21 is in the base" "$(live_run "$REPO")"
+
 echo ""
 echo "PASS: the live wrapper resolves a trusted base and holds after commit"
 
@@ -791,6 +982,10 @@ echo "js-yaml 4.3.1 to 4.3.2 for GHSA-2883-xcg3-v3hh, lockfile"
 echo "only, pinned at BOTH ends by SHA-256. Pinning the FROM end"
 echo "is what makes it one-time: once it merges, no base hashes to"
 echo "it again and it can never be reused."
+echo ""
+echo "A third, equally narrow one covers brace-expansion 1.1.18"
+echo "to 1.1.21 (tlp-delivery-first-2026-10-02), starting from"
+echo "the js-yaml result and pinned at both ends the same way."
 echo ""
 echo "The authorization is an ADDITION against that base, so it"
 echo "spends itself: once Mission 2 merges, jsdom is in the base"

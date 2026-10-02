@@ -176,6 +176,85 @@ export function securityLockfileVerdict(baseLockText, currentLockText, sha256) {
   ];
 }
 
+/* ------------------------------------------------------------------ *
+ * THE SECOND SECURITY AUTHORIZATION — brace-expansion, also one-time.
+ *
+ * Founder directive `tlp-delivery-first-2026-10-02` authorizes exactly the
+ * remedy recorded in BUILD_WAVE_9_SEARCH_ENGINE_COMPLETION_REVIEW.md section
+ * 4.1.1, and nothing wider.
+ *
+ * GHSA-6j4f-fj2g-mc7p and GHSA-qhr7-859c-m2p7 (high) and GHSA-q2hr-2g5m-vwhr
+ * (medium) cover `brace-expansion` below 1.1.21 on the 1.x line. The
+ * repository reaches it transitively and dev-only:
+ *
+ *   @tlp/web → eslint ^9.17.0 → minimatch ^3.1.5 → brace-expansion ^1.1.7
+ *
+ * 1.1.21 satisfies `^1.1.7`, so the remedy is again LOCKFILE-ONLY: one record,
+ * three fields (`version`, `resolved`, `integrity`), no range moved.
+ *
+ * It is a separate transition rather than an edit to the js-yaml one, for the
+ * same reason the js-yaml one is separate from jsdom: each Founder decision is
+ * written down on its own. Its FROM end is the js-yaml transition's TO end —
+ * the lockfile main carries once that patch merged — so the js-yaml
+ * authorization is already spent and stays exactly as it was.
+ *
+ * Same shape, same guarantees: both ends pinned by SHA-256 over the whole
+ * file, `null` unless the base is exactly the FROM file, and therefore unusable
+ * the moment it merges. No manifest is authorized.
+ * ------------------------------------------------------------------ */
+
+/** Human-readable identity of the brace-expansion transition. */
+export const BRACE_DIRECTIVE = "tlp-delivery-first-2026-10-02";
+export const BRACE_ADVISORIES = [
+  "GHSA-6j4f-fj2g-mc7p",
+  "GHSA-qhr7-859c-m2p7",
+  "GHSA-q2hr-2g5m-vwhr"
+];
+export const BRACE_PACKAGE = "brace-expansion";
+export const BRACE_LOCK_RECORD = "node_modules/brace-expansion";
+export const BRACE_VERSION_FROM = "1.1.18";
+export const BRACE_VERSION_TO = "1.1.21";
+
+/** The lockfile this transition starts FROM: the js-yaml transition's result. */
+export const BRACE_BASE_LOCKFILE_SHA256 =
+  "5718e12047ca39436a505d42a4112e6430aa406cbe506356bfb0341157b5f58f";
+
+/** The lockfile this transition ends AT, and no other. */
+export const BRACE_LOCKFILE_SHA256 =
+  "ae794bd905a31b2b969bcc27c48bea06909442496f2508428b6fc5939e62bdd5";
+
+/**
+ * The verdict of the brace-expansion authorization, or `null` when it does
+ * not apply. Same contract as `securityLockfileVerdict`.
+ */
+export function braceLockfileVerdict(baseLockText, currentLockText, sha256) {
+  if (sha256(baseLockText) !== BRACE_BASE_LOCKFILE_SHA256) return null;
+
+  const digest = sha256(currentLockText);
+  if (digest === BRACE_LOCKFILE_SHA256) return [];
+
+  return [
+    "package-lock.json changed from the base the brace-expansion authorization" +
+      " covers, but not into the approved result (sha256 " +
+      digest.slice(0, 12) +
+      "… where " +
+      BRACE_LOCKFILE_SHA256.slice(0, 12) +
+      "… is authorized). The only authorized change is " +
+      BRACE_PACKAGE +
+      " " +
+      BRACE_VERSION_FROM +
+      " to " +
+      BRACE_VERSION_TO +
+      " in " +
+      BRACE_LOCK_RECORD +
+      " for " +
+      BRACE_ADVISORIES.join(", ") +
+      " (" +
+      BRACE_DIRECTIVE +
+      "), with every other record byte-identical"
+  ];
+}
+
 /** Deep structural equality, order-independent for object keys. */
 function deepEqual(left, right) {
   if (left === right) return true;
@@ -320,6 +399,11 @@ export function checkLockfile(
   // hash to that again.
   const security = securityLockfileVerdict(baseLockText, currentLockText, sha256);
   if (security !== null) return security;
+
+  // The brace-expansion transition, on the same terms. Its FROM digest is the
+  // js-yaml TO digest, so at most one of the two can ever apply to a base.
+  const brace = braceLockfileVerdict(baseLockText, currentLockText, sha256);
+  if (brace !== null) return brace;
 
   if (authorizationIsSpent(baseManifest)) {
     return [
