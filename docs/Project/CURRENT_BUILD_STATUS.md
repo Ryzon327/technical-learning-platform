@@ -506,3 +506,124 @@ implementation state here rather than by advancing Feature Registry status.
 
 Next implementation stage: **SEARCH-006 — Personal Notes Search Integration**.
 <!-- END WAVE 9 IMPLEMENTATION PROGRESS -->
+
+---
+
+<!-- BEGIN WAVE 9 IMPLEMENTATION CLOSURE CHECKPOINT -->
+# Wave 9 Implementation Closure Checkpoint — 2026-10-01
+
+This section supersedes the Search Feature state and "Not yet done" list in the
+Wave 9 progress section above, which were recorded at SEARCH-005 and are retained
+as the historical record.
+
+- Reviewed at: `7717b16` (work packages SEARCH-CLOSURE-1, SEARCH-CLOSURE-2 and
+  SEARCH-CLOSURE-3).
+- Review: `docs/Engineering-OS/BUILD_WAVE_9_SEARCH_ENGINE_COMPLETION_REVIEW.md`.
+- UAT runbook: `docs/Engineering-OS/SEARCH_UAT_RUNBOOK.md`.
+- Build Wave 9 — Search Engine: implementation of SEARCH-001 through SEARCH-008
+  committed; **Founder Search Human UAT pending; final Search product acceptance
+  not granted** (DEC-047).
+
+Search Feature state:
+
+- SEARCH-001 Search Document and Index Model — **implemented** (`99e6fca`)
+- SEARCH-002 Curriculum Search — **implemented** (`0033374`)
+- SEARCH-003 Permission-Aware Search — **implemented** (`3111772`)
+- SEARCH-004 Search Filters and Facets — **implemented** (`0628ad4`)
+- SEARCH-005 Technical Query Normalization and Typo Tolerance —
+  **implemented** (`0d2b8de`, `6671b55`)
+- SEARCH-006 Personal Notes Search Integration — **implemented** (`894f864`)
+- SEARCH-007 Indexing and Freshness Pipeline — **implemented** (`c870e9d`)
+- SEARCH-008 Search Result Ranking and Fallback — **implemented** (`ec7d40a`)
+
+The Search Engine completion gate (`scripts/verify-search-engine-completion.sh`)
+exists (`8e884a9`). Feature Registry lifecycle states are unchanged.
+
+## Automated verification at this checkpoint
+
+2026-10-02 at `7717b16`, with exit status. Evidence classes follow the
+completion review §3: **observed** (output seen by the recording package),
+**reported** (recorded by an earlier Builder; raw output not preserved),
+**inferred** (from script control flow), **refused** (blocked before execution).
+
+Observed in SEARCH-CLOSURE-3 (completion review §3.3):
+
+- `npm run gate -- search-engine-completion` — **1. The gate fails.**
+  Gate sections 1–17 and every delegated `verify-wave9.sh` check passed (seen
+  in untruncated output); typecheck passed; tests passed (web 986, shared-types
+  1,388, API 1,779, no timeout); `npm run build` passed. The failure is
+  `npm audit --audit-level=high` in the security scan: `brace-expansion`
+  `<=1.1.20`, high severity (plus two moderate `vitest`/`@vitest/mocker`
+  findings). This is a dependency advisory, not a Search defect.
+- `npm run lint` — **2** (no ESLint 9 flat configuration).
+
+Reported by the SEARCH-CLOSURE-2 Builder (completion review §3.2), reused
+unchanged because their inputs have not changed:
+
+- `npm run gate -- list` — 0.
+- The same gate exit 1 on the same `npm audit` finding, run twice.
+- Focused checks, run separately from the full suite, all exit 0:
+  curriculum-search I11 1 passed; `mission-instruction-focus.test.tsx` 4 passed;
+  certificate-correction H 2 passed.
+- `npm test` — 0: web 986, shared-types 1,388, API 1,779.
+- `npm run typecheck` — 0.
+- In that run, no delegated `verify-wave9.sh` failure was inferred rather than
+  seen, because its output was truncated; SEARCH-CLOSURE-3 has since observed
+  every check passing.
+
+Refused: `npm ls brace-expansion`, in SEARCH-CLOSURE-2, before execution; no
+exit status. It is recorded in the harness's permission-denial record, is a
+permission refusal rather than a command failure, and was not retried or
+substituted.
+
+In SEARCH-CLOSURE-1 the gate, build and security scan were refused before
+execution and had no exit status. They have since executed.
+
+Earlier quick-gate runs recorded 5,000 ms test timeouts (three API tests in one
+run; two web tests, `packet-journey-presentation` and `topology-layout`, in
+another). They did not recur in the focused re-runs and the 2026-10-02 full
+suite (reported) or in the SEARCH-CLOSURE-3 gate run (observed).
+Their cause is **not established**, and the historical failures stand as
+recorded (completion review §3.1). A documentation-only change does not select
+the gate in CI.
+
+## Limitations carried forward
+
+- **The Search Engine completion gate fails** on the `npm audit` high-severity
+  `brace-expansion` advisory. The committed lockfile shows one dev-only record,
+  `brace-expansion` 1.1.18, reached through `@tlp/web → eslint → minimatch 3.1.5`.
+  Recommended remedy (completion review §4.1): re-resolve that one lockfile
+  record to the lowest patched 1.x release, with no manifest change. It is
+  consequential under the accepted dependency policy, which refuses any
+  unauthorized lockfile change and treated the analogous js-yaml patch
+  (`47bfdcd`) as its own Founder decision. It therefore needs that specific
+  decision and a separate bounded package. No dependency was changed.
+- **Lint does not pass.** ESLint 9 flat configuration is absent; `npm run lint`
+  exits 2 (observed). Pre-existing. A fix is inferred to need a new dev
+  dependency, which would need its own specific decision, in a separate bounded
+  package.
+- No live PostgreSQL/RLS harness. Search authorization evidence remains
+  **query-level and structural**.
+- No browser harness and no Search DOM test. Search accessibility evidence is
+  **structural**; no rendered review has occurred.
+- Search result links are not routed by the SPA (recorded since Batch 2).
+- **Searchable curriculum requires publication, not authorship.** Networking
+  Foundations is authored in `content/curriculum/` and was UAT-reviewed through
+  the bundled development harness; neither makes it searchable. No seed or
+  migration inserts curriculum. Whether any curriculum is published in the UAT
+  project is not observable from the repository; publishing is a Founder gate.
+- The CERT-008 correction migration remains committed and **not executed**.
+
+## Flagged, not edited
+
+`MVP_IMPLEMENTATION_SEQUENCE.md` §15d/§15e and `content/README.md` contain
+statements that pre-date Batches 7–9 and the curriculum import mechanism. They
+are recorded in the completion review §4.7 for Founder/architect direction.
+
+Next required gate: the specific Founder decision on the `brace-expansion`
+lockfile remedy, a bounded dependency package that applies it, and an observed
+passing Search Engine completion gate.
+After that come independent architecture review, rendered Architect review and
+**Founder Search Human UAT** per `SEARCH_UAT_RUNBOOK.md`. Both reviews and the UAT
+remain **pending**, and final Search product acceptance is **not granted**.
+<!-- END WAVE 9 IMPLEMENTATION CLOSURE CHECKPOINT -->
