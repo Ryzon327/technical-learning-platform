@@ -506,3 +506,202 @@ implementation state here rather than by advancing Feature Registry status.
 
 Next implementation stage: **SEARCH-006 — Personal Notes Search Integration**.
 <!-- END WAVE 9 IMPLEMENTATION PROGRESS -->
+
+---
+
+<!-- BEGIN WAVE 9 IMPLEMENTATION CLOSURE CHECKPOINT -->
+# Wave 9 Implementation Closure Checkpoint — 2026-10-01
+
+This section supersedes the Search Feature state and "Not yet done" list in the
+Wave 9 progress section above, which were recorded at SEARCH-005 and are retained
+as the historical record.
+
+- Reviewed at: `7717b16` (work packages SEARCH-CLOSURE-1, SEARCH-CLOSURE-2 and
+  SEARCH-CLOSURE-3); security closure at `c2c684b` (SEARCH-SECURITY-APPLY-1,
+  recorded by SEARCH-SECURITY-CLOSURE-1).
+- Review: `docs/Engineering-OS/BUILD_WAVE_9_SEARCH_ENGINE_COMPLETION_REVIEW.md`.
+- UAT runbook: `docs/Engineering-OS/SEARCH_UAT_RUNBOOK.md`.
+- Build Wave 9 — Search Engine: implementation of SEARCH-001 through SEARCH-008
+  committed; **Founder Search Human UAT pending; final Search product acceptance
+  not granted** (DEC-047).
+
+Search Feature state:
+
+- SEARCH-001 Search Document and Index Model — **implemented** (`99e6fca`)
+- SEARCH-002 Curriculum Search — **implemented** (`0033374`)
+- SEARCH-003 Permission-Aware Search — **implemented** (`3111772`)
+- SEARCH-004 Search Filters and Facets — **implemented** (`0628ad4`)
+- SEARCH-005 Technical Query Normalization and Typo Tolerance —
+  **implemented** (`0d2b8de`, `6671b55`)
+- SEARCH-006 Personal Notes Search Integration — **implemented** (`894f864`)
+- SEARCH-007 Indexing and Freshness Pipeline — **implemented** (`c870e9d`)
+- SEARCH-008 Search Result Ranking and Fallback — **implemented** (`ec7d40a`)
+
+The Search Engine completion gate (`scripts/verify-search-engine-completion.sh`)
+exists (`8e884a9`). Feature Registry lifecycle states are unchanged.
+
+## Automated verification at this checkpoint
+
+2026-10-02 at `7717b16`, with exit status. Evidence classes follow the
+completion review §3: **observed** (output seen by the recording package),
+**reported** (recorded by an earlier Builder; raw output not preserved),
+**inferred** (from script control flow), **refused** (blocked before execution).
+
+Observed in SEARCH-CLOSURE-3 (completion review §3.3):
+
+- `npm run gate -- search-engine-completion` — **1. The gate fails.**
+  Gate sections 1–17 and every delegated `verify-wave9.sh` check passed (seen
+  in untruncated output); typecheck passed; tests passed (web 986, shared-types
+  1,388, API 1,779, no timeout); `npm run build` passed. The failure is
+  `npm audit --audit-level=high` in the security scan: `brace-expansion`
+  `<=1.1.20`, high severity (plus two moderate `vitest`/`@vitest/mocker`
+  findings). This is a dependency advisory, not a Search defect.
+- `npm run lint` — **2** (no ESLint 9 flat configuration).
+
+Reported by the SEARCH-CLOSURE-2 Builder (completion review §3.2), reused
+unchanged because their inputs have not changed:
+
+- `npm run gate -- list` — 0.
+- The same gate exit 1 on the same `npm audit` finding, run twice.
+- Focused checks, run separately from the full suite, all exit 0:
+  curriculum-search I11 1 passed; `mission-instruction-focus.test.tsx` 4 passed;
+  certificate-correction H 2 passed.
+- `npm test` — 0: web 986, shared-types 1,388, API 1,779.
+- `npm run typecheck` — 0.
+- In that run, no delegated `verify-wave9.sh` failure was inferred rather than
+  seen, because its output was truncated; SEARCH-CLOSURE-3 has since observed
+  every check passing.
+
+Refused: `npm ls brace-expansion`, in SEARCH-CLOSURE-2, before execution; no
+exit status. It is recorded in the harness's permission-denial record, is a
+permission refusal rather than a command failure, and was not retried or
+substituted.
+
+In SEARCH-CLOSURE-1 the gate, build and security scan were refused before
+execution and had no exit status. They have since executed.
+
+Earlier quick-gate runs recorded 5,000 ms test timeouts (three API tests in one
+run; two web tests, `packet-journey-presentation` and `topology-layout`, in
+another). They did not recur in the focused re-runs and the 2026-10-02 full
+suite (reported) or in the SEARCH-CLOSURE-3 gate run (observed).
+Their cause is **not established**, and the historical failures stand as
+recorded (completion review §3.1). A documentation-only change does not select
+the gate in CI.
+
+SEARCH-RELEASE-CLOSURE-1 (2026-10-02, at `de7cfc8` with these documentation
+edits applied) re-ran the combined state (completion review §3.4, observed):
+the completion gate exited **1** only at `npm audit --audit-level=high` on the
+same `brace-expansion` high advisory; gate sections 1–17, the 72 Wave 9 checks,
+typecheck, tests (986 / 1,388 / 1,779 passed, no timeout) and the build all
+passed inside it. `npm run gate -- dependency-policy` passed; `npm run
+security:scan` exited 1 on the same audit finding; `npm run lint` exited 2; gate
+selection over the three changed documents selected nothing. The lockfile still
+hashes to `5718e120…f58f`.
+
+### Security closure — `c2c684b` (completion review §3.5)
+
+SEARCH-SECURITY-APPLY-1 applied exactly the pinned transition under directive
+`tlp-delivery-first-2026-10-02`, passed independent architecture review, and
+was committed as `c2c684b`. It changed three files: `package-lock.json` (one
+record, `node_modules/brace-expansion` 1.1.18 → 1.1.21, no manifest change),
+`scripts/lib/authorized-dependency-policy.mjs` (a separate one-time
+authorization pinned `5718e120…f58f` → `ae794bd9…bdd5`) and
+`scripts/verify-dependency-policy.sh` (BRACE0–BRACE15 and TEST 18a–21b; existing
+assertions unchanged).
+
+- **Supplied** to that architecture review by the orchestrator's full gate run:
+  tests, typecheck and build passed. Raw output not preserved.
+- **Reported** by the SEARCH-SECURITY-APPLY-1 Builder: dependency policy passed;
+  `npm audit --audit-level=high` 0; completion gate 0; selected gates
+  `dependency-policy` and `wpj-m2` passed; `git diff --check` clean.
+- **Observed** by SEARCH-SECURITY-CLOSURE-1 at `c2c684b`: lockfile hashes to
+  `ae794bd9…bdd5`; `npm run gate -- dependency-policy` 0;
+  `npm audit --audit-level=high` **0** (two moderate `vitest`/`@vitest/mocker`
+  findings remain); `npm run gate -- search-engine-completion` **0** — sections
+  1–17, the 72 Wave 9 checks, typecheck, tests (986 / 1,388 / 1,779, no
+  timeout), build and the security scan all passed; `npm run lint` **2**,
+  unchanged.
+- **CI — not observed.** No GitHub Actions run exists for `c2c684b`; CI success
+  is not claimed.
+
+The earlier gate failures above remain the historical record.
+
+## Limitations carried forward
+
+- **Remedied at `c2c684b` — retained as history.** The Search Engine completion
+  gate failed on the `npm audit` high-severity
+  `brace-expansion` advisory. The committed lockfile shows one dev-only record,
+  `brace-expansion` 1.1.18, reached through `@tlp/web → eslint → minimatch 3.1.5`.
+  Proposed remedy (completion review §4.1.1, SEARCH-SECURITY-PREP-1):
+  re-resolve that one lockfile record to **1.1.21**, the lowest 1.x release
+  outside all three recorded advisories (observed in the GitHub Advisory
+  Database), which satisfies minimatch's `^1.1.7`, with no manifest change.
+  SEARCH-CLOSURE-REMEDY-PREP-1 observed the registry metadata for 1.1.21 in
+  npm's local cache, without repeating the twice-refused `npm view`. It records
+  the tarball, the integrity value and the same dependencies, and the cached
+  1.1.18 integrity matches the lockfile. The remedy stays one record. Lockfile
+  digest: `5718e120…f58f` before the change, computed to be `ae794bd9…bdd5`
+  after it. It is
+  consequential under the accepted dependency policy, which refuses any
+  unauthorized lockfile change and treated the analogous js-yaml patch
+  (`47bfdcd`) as its own Founder decision.
+  - **Authority (reconciled, §4.2.2):** the active Founder directive
+    `tlp-delivery-first-2026-10-02` directs Search closure to *"resolve only
+    blocking closure/security issues"*. This advisory is the gate's only
+    failing step and a security issue. The directive therefore supplies the
+    Founder approval DEC-048 requires, for exactly the one pinned transition
+    `5718e120…f58f` → `ae794bd9…bdd5` and nothing else. No further Founder
+    decision is needed.
+  - **Applied:** the separate bounded package SEARCH-SECURITY-APPLY-1 recorded
+    the directive in the dependency policy, with the regression cases, and is
+    committed as `c2c684b` (above).
+- **Lint does not pass.** ESLint 9 flat configuration is absent; `npm run lint`
+  exits 2 (observed). Pre-existing. Observed in SEARCH-RELEASE-CLOSURE-1: every
+  lintable `apps/web` file is TypeScript, and no TypeScript ESLint parser is
+  installed. A configuration using only installed packages would have to ignore
+  all of them, which would weaken the check, so none was added. A real fix needs
+  a new dev dependency that supplies a TypeScript parser, which the dependency
+  policy refuses without its own specific Founder decision, in a separate bounded
+  package (completion review §4.2).
+  - **Proposed** (§4.2.1): `typescript-eslint` **8.71.0**, an exact pin. Its
+    upstream peers accept eslint 9.39.5 and typescript 5.9.3. Add it to
+    `apps/web` devDependencies, and declare the already-installed `@eslint/js`
+    9.39.5 and `globals` 14.0.0 there. The lockfile gains new records only, and
+    is pinned by digest, from `ae794bd9…bdd5` now that the security transition
+    has landed. A new `apps/web/eslint.config.js` uses the
+    `@eslint/js` and `typescript-eslint` `recommended` rules, with no rule
+    disabled.
+  - **Findings:** any findings it exposes are reported, not suppressed.
+  - **Authorization (§4.2.2):** not covered. Lint is not a completion-gate step
+    and not a security issue, so it is outside the directive
+    `tlp-delivery-first-2026-10-02` closure scope. It adds a new dependency, which
+    Engineering-OS §7 (DEC-048) reserves to the Founder. The jsdom and js-yaml
+    authorizations are spent. The older, consumed issue #52 response covered
+    routine verification only. It does **not** block Search closure or Founder
+    Search UAT. It needs its own Founder decision only when it is scheduled.
+- No live PostgreSQL/RLS harness. Search authorization evidence remains
+  **query-level and structural**.
+- No browser harness and no Search DOM test. Search accessibility evidence is
+  **structural**; no rendered review has occurred.
+- Search result links are not routed by the SPA (recorded since Batch 2).
+- **Searchable curriculum requires publication, not authorship.** Networking
+  Foundations is authored in `content/curriculum/` and was UAT-reviewed through
+  the bundled development harness; neither makes it searchable. No seed or
+  migration inserts curriculum. Whether any curriculum is published in the UAT
+  project is not observable from the repository; publishing is a Founder gate.
+- The CERT-008 correction migration remains committed and **not executed**.
+
+## Flagged, not edited
+
+`MVP_IMPLEMENTATION_SEQUENCE.md` §15d/§15e and `content/README.md` contain
+statements that pre-date Batches 7–9 and the curriculum import mechanism. They
+are recorded in the completion review §4.7 for Founder/architect direction.
+
+The `brace-expansion` decision, its bounded applying package (`c2c684b`) and
+the completion gate observation (above) are recorded. Still outstanding: an
+observed required CI `verify` run for the pushed commits.
+Next come independent architecture review of SEARCH-SECURITY-CLOSURE-1,
+rendered Architect review and
+**Founder Search Human UAT** per `SEARCH_UAT_RUNBOOK.md`. Both reviews and the UAT
+remain **pending**, and final Search product acceptance is **not granted**.
+<!-- END WAVE 9 IMPLEMENTATION CLOSURE CHECKPOINT -->
