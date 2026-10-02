@@ -1,6 +1,6 @@
 # Search Engine — Founder Human UAT Runbook
 
-**Work packages:** SEARCH-CLOSURE-1 (prepared); SEARCH-CLOSURE-2 and SEARCH-CLOSURE-3 (gate status, section 0.1)
+**Work packages:** SEARCH-CLOSURE-1 (prepared); SEARCH-CLOSURE-2 and SEARCH-CLOSURE-3 (gate status, section 0.1); SEARCH-SECURITY-CLOSURE-1 (security closure at `c2c684b`, section 0.1)
 **Prepared at:** `7717b16`
 **Covers:** SEARCH-001 through SEARCH-008 as committed
 **Governed by:** DEC-047; `MVP_IMPLEMENTATION_SEQUENCE.md` §15d "Search Engine UAT"
@@ -16,8 +16,13 @@ and nothing in this document grants Search product acceptance.
 
 ### 0.1 Gates that precede this UAT
 
-1. `npm run gate -- search-engine-completion` passes. **It has not passed.** On
-   2026-10-02 at `7717b16` it exited **1** — reported in SEARCH-CLOSURE-2 and
+1. `npm run gate -- search-engine-completion` passes. **Current state
+   (SEARCH-SECURITY-CLOSURE-1, completion review section 3.5):** the pinned
+   `brace-expansion` 1.1.18 → 1.1.21 transition was applied at `c2c684b`; at
+   that commit `npm audit --audit-level=high` exits 0 (observed) and the gate
+   exits **0** (observed), with every step passing. No CI run has been observed for `c2c684b`, so CI success
+   is not claimed. The history below is retained.
+   **History:** on 2026-10-02 at `7717b16` it exited **1** — reported in SEARCH-CLOSURE-2 and
    observed in SEARCH-CLOSURE-3 (completion review sections 3.2–3.3). The
    failure is `npm audit --audit-level=high` in the security scan, on a
    high-severity `brace-expansion` advisory reached dev-only through
@@ -34,11 +39,13 @@ and nothing in this document grants Search product acceptance.
    (SEARCH-CLOSURE-REMEDY-PREP-1). The active Founder directive
    `tlp-delivery-first-2026-10-02` covers that one pinned transition as a
    blocking closure/security issue, so no further Founder decision is needed. It
-   is applied in a separate bounded package (completion review finding 4.1,
-   exact proposal in section 4.1.1, authority in section 4.2.2). Lint (`npm run
-   lint`, exit 2) is not a gate step and does not block this UAT.
+   was applied in the separate bounded package SEARCH-SECURITY-APPLY-1
+   (`c2c684b`; completion review finding 4.1, exact proposal in section 4.1.1,
+   authority in section 4.2.2). Lint (`npm run lint`, exit 2, re-observed at
+   `c2c684b`) is not a gate step and does not block this UAT.
 2. The independent architecture review of the Search closure packages is
-   complete.
+   complete. SEARCH-SECURITY-APPLY-1 was accepted; SEARCH-SECURITY-CLOSURE-1
+   is **pending** that review.
 3. Rendered Architect review has occurred. It is **pending**.
 
 ### 0.2 Authored curriculum is not searchable curriculum
@@ -201,12 +208,13 @@ refused. Exercising it is optional for this UAT.
 
 ## 11. Unresolved limitations entering UAT
 
-- Completion gate exits 1 on the `npm audit` high-severity dependency advisory;
-  build passed; the remedy awaits its specific Founder decision (finding 4.1).
+- The `npm audit` high-severity dependency advisory that failed the completion
+  gate was remedied at `c2c684b` (finding 4.1); the gate result there is in
+  completion review section 3.5. CI for that commit has not been observed.
 - Lint exits 2; ESLint 9 flat configuration is absent (finding 4.2).
-- Earlier closure results are reported by the Builder that ran them; only the
-  gate and lint were re-observed in SEARCH-CLOSURE-3 (completion review
-  section 3).
+- Earlier closure results are reported by the Builder that ran them; the
+  gate and lint were re-observed in SEARCH-CLOSURE-3, SEARCH-RELEASE-CLOSURE-1
+  and SEARCH-SECURITY-CLOSURE-1 (completion review section 3).
 - Historical 5,000 ms test timeouts did not reproduce; their cause is not
   established (completion review section 3.1).
 - No live RLS harness; authorization evidence is query-level (finding 4.3).

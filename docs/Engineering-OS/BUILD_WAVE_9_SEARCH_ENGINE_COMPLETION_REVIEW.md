@@ -1,6 +1,8 @@
 # BUILD WAVE 9 — SEARCH ENGINE IMPLEMENTATION COMPLETION REVIEW
 
-**Reviewed at:** `7717b16` — Merge pull request #51 (fix/dependency-policy-post-merge-ci)
+**Reviewed at:** `7717b16` — Merge pull request #51 (fix/dependency-policy-post-merge-ci);
+security closure recorded at `c2c684b` — fix(security): apply authorized
+brace-expansion transition (section 3.5)
 **Work packages:** SEARCH-CLOSURE-1 (review, runbook); SEARCH-CLOSURE-2 (completion
 gate and repository verification, section 3.2); SEARCH-CLOSURE-3 (evidence
 classification, re-executed gate and lint in section 3.3, dependency remedy in
@@ -10,7 +12,9 @@ verification, section 3.4; lint boundary, finding 4.2);
 SEARCH-CLOSURE-REMEDY-PREP-1 (registry metadata and both digests, section
 4.1.1; lint proposal, section 4.2.1; authority analysis, section 4.2.2);
 SEARCH-CLOSURE-AUTHORITY-RECONCILE-1 (authority reconciled with directive
-`tlp-delivery-first-2026-10-02`, section 4.2.2)
+`tlp-delivery-first-2026-10-02`, section 4.2.2); SEARCH-SECURITY-APPLY-1 (the
+pinned `brace-expansion` transition applied, `c2c684b`); SEARCH-SECURITY-CLOSURE-1
+(security closure evidence, section 3.5)
 **Authority:** `docs/Feature-Registry/Search-Engine/` (SEARCH-001 … SEARCH-008,
 `SEARCH_ENGINE_FEATURES.md`) governed by `FEATURE_REGISTRY_SPEC.md`; DEC-046,
 DEC-047, DEC-048; `MVP_IMPLEMENTATION_SEQUENCE.md` §11 and §15d
@@ -102,7 +106,9 @@ directly in the SEARCH-CLOSURE-3 gate run (section 3.3).
 package that records it. *Reported* — recorded by an earlier Builder whose raw
 output was not preserved. *Inferred* — concluded from script structure or
 control flow, not from output. *Refused* — blocked by the permission system
-before execution; no output and no exit status.
+before execution; no output and no exit status. *Supplied* (from section 3.5)
+— gate results the orchestrator supplied to the independent architecture
+review; their raw output is not preserved in the repository.
 
 | Check | Command | Result |
 |---|---|---|
@@ -263,17 +269,94 @@ modules and `@tlp/api` `tsc -p tsconfig.build.json` completed; then the security
 scan above. Build, typecheck and tests therefore ran inside the gate and were not
 re-run separately. `git status` after the run showed only the three documents.
 
-**The current blocker is unchanged:** the only failing step of the completion
-gate is the `brace-expansion` high advisory, whose proposed remedy is in
+**The blocker at that point was unchanged:** the only failing step of the completion
+gate was the `brace-expansion` high advisory, whose proposed remedy is in
 section 4.1.1. The registry read that section still needs was **not**
 re-attempted: it had already been refused twice (PREP-1, PREP-2), which is the
 directive's two-attempt limit, and it was not substituted by another route.
+That blocker has since been remedied (section 3.5); this section is retained
+as the historical record.
+
+### 3.5 Security closure — SEARCH-SECURITY-APPLY-1 and SEARCH-SECURITY-CLOSURE-1
+
+**The applied transition.** SEARCH-SECURITY-APPLY-1 applied exactly the pinned
+transition in section 4.1.1, under directive `tlp-delivery-first-2026-10-02`.
+It passed independent architecture review and was committed as `c2c684b`
+(`fix(security): apply authorized brace-expansion transition`), parent
+`fb9dc88`. That commit changes exactly three files:
+
+- `package-lock.json` — one record, `node_modules/brace-expansion`, 1.1.18 →
+  **1.1.21**; `version`, `resolved` and `integrity` take the section 4.1.1
+  values. No manifest changed.
+- `scripts/lib/authorized-dependency-policy.mjs` — a separate one-time
+  `brace-expansion` authorization citing the directive and the three
+  advisories, pinned **from** `5718e120…f58f` **to** `ae794bd9…bdd5`. The jsdom
+  and js-yaml authorizations are unchanged.
+- `scripts/verify-dependency-policy.sh` — the pre-patch lockfile is now derived
+  from the working one and must hash to `5718e120…f58f`; existing assertions
+  are unchanged; new pure cases BRACE0–BRACE15 and live cases TEST 18a–21b.
+
+**Supplied to the architecture review of SEARCH-SECURITY-APPLY-1.** The
+orchestrator's full gate run at the patched tree supplied passing tests,
+typecheck and build. The review records that; it did not repeat the gates in
+its read-only environment, and its independent `git diff --check` passed. No raw
+output is preserved in the repository.
+
+**Reported by the SEARCH-SECURITY-APPLY-1 Builder** (raw output not preserved):
+`npm run gate -- dependency-policy` passed (reported as 48 pure and 26 live
+cases);
+`npm audit --audit-level=high` exit 0, the two moderate
+`vitest`/`@vitest/mocker` findings remaining; `npm run gate --
+search-engine-completion` exit **0**, with tests web 986, shared-types 1,388,
+API 1,779; `npm run gate -- select` over the three changed paths selected
+`dependency-policy` and `wpj-m2`, both passing; `git diff --check` clean. It did
+not reinstall dependencies, so the installed `node_modules` copy of
+`brace-expansion` was not changed by that package.
+
+**Observed by SEARCH-SECURITY-CLOSURE-1** on 2026-10-02 at `c2c684b`, in
+untruncated output. The only working-tree changes were these three documents.
+
+| Check | Command | Exit | Result |
+|---|---|---|---|
+| Lockfile digest | `sha256sum package-lock.json` | 0 | `ae794bd905a31b2b969bcc27c48bea06909442496f2508428b6fc5939e62bdd5` — the pinned **to** digest |
+| Dependency policy | `npm run gate -- dependency-policy` | 0 | 48 pure cases (including BRACE0–BRACE15) and the live cases (TEST 1–21b) **PASS**; "DEPENDENCY POLICY VERIFIED" |
+| npm audit | `npm audit --audit-level=high` | **0** | no high finding; `@vitest/mocker`/`vitest` **moderate** (GHSA-82fw-gwwq-j7x9) remain, "2 moderate severity vulnerabilities" |
+| **Search Engine completion gate** | `npm run gate -- search-engine-completion` | **0** | **PASSED**; "SEARCH ENGINE IMPLEMENTATION COMPLETION VERIFIED"; see below |
+| lint | `npm run lint` | **2** | ESLint 9.39.5: "couldn't find an eslint.config.(js\|mjs\|cjs) file" — unchanged, finding 4.2 |
+| Gate selection | `npm run gate -- select` over the three changed document paths | 0 | no gate selected |
+| Whitespace | `git diff --check` | 0 | no output |
+
+Inside the completion gate, in order: sections 1–17 all **PASS** (including
+section 3, against these edited documents); the delegated
+`scripts/verify-wave9.sh` checks, 72 lines, all **PASS**; typecheck of all three
+workspaces with no error output; tests web 22 files **986 passed**, shared-types
+59 files **1,388 passed**, API 73 files **1,779 passed**, no timeout (slowest
+file `curriculum-search.test.ts`, 3,107 ms); `npm run build`, `@tlp/web` 181
+modules and `@tlp/api` `tsc -p tsconfig.build.json` completed;
+`scripts/security-scan.sh` — `.env` and credential checks **PASS**, and "npm
+audit has no high/critical findings" **PASS**. The gate's own closing text
+states that it proves implementation completion only, not rendered usability,
+rendered accessibility, live row level security, Founder acceptance or Human UAT.
+
+**CI — not observed.** `gh run list --commit c2c684b…` returned no run for the
+pushed commit, so no required `verify` run has been observed for the security
+patch. CI success is **not** claimed here, and remains to be observed.
+
+The historical results in sections 3.1–3.4 stand as recorded, including every
+gate exit 1; this section does not erase them.
 
 ---
 
 ## 4. Findings
 
-### 4.1 The completion gate fails on a dependency advisory — **OPEN, BLOCKING THE GATE, NOT A SEARCH DEFECT**
+### 4.1 The completion gate failed on a dependency advisory — **REMEDIED AT `c2c684b`; NOT A SEARCH DEFECT**
+
+**Current state (SEARCH-SECURITY-CLOSURE-1, section 3.5).** The pinned remedy
+below was applied in SEARCH-SECURITY-APPLY-1 and committed as `c2c684b`. At
+that commit `npm audit --audit-level=high` exits 0 and the completion gate
+result is recorded in section 3.5 (observed). CI for that commit has not been
+observed. The rest of this finding is the historical record of the failure and
+its remedy, retained unchanged.
 
 `npm run gate -- search-engine-completion` exited **1** on 2026-10-02: reported
 in SEARCH-CLOSURE-2 (section 3.2) and observed in SEARCH-CLOSURE-3 (section 3.3).
@@ -349,7 +432,9 @@ paths, and a documentation-only change selects no engine gate.
 
 **Required before Founder Search UAT:** the specific Founder decision on the
 remedy above, a bounded dependency package that applies it, and an observed
-passing `npm run gate -- search-engine-completion`.
+passing `npm run gate -- search-engine-completion`. The decision was supplied by
+directive `tlp-delivery-first-2026-10-02` (section 4.2.2), the applying package
+is `c2c684b`, and the gate observation is in section 3.5.
 
 ### 4.1.1 Exact remediation proposal — SEARCH-SECURITY-PREP-1
 
@@ -509,6 +594,10 @@ authorization does not apply and a revised scope comes back first. The applying
 package remains separate and bounded, and records the directive as its
 authorizing decision in the policy file.
 
+**Applied — SEARCH-SECURITY-APPLY-1, `c2c684b`.** The committed lockfile now
+hashes to `ae794bd9…bdd5` (observed, section 3.5), so the applied result is
+exactly the computed **to** digest and the authorization's scope held.
+
 ### 4.2 Lint does not pass — **OPEN, PRE-EXISTING, NOT A SEARCH DEFECT**
 
 `npm run lint` exited **2** on 2026-10-02: reported in SEARCH-CLOSURE-2
@@ -633,6 +722,8 @@ So the lint gate is not weakened to make it pass.
 - **Ordering:** if the `brace-expansion` remedy lands first, this pin's
   **from** digest is `ae794bd9…bdd5`; otherwise it is `5718e120…f58f`. The two
   remedies must be applied in sequence, never combined into one transition.
+  The `brace-expansion` remedy has landed (`c2c684b`), so the **from** digest
+  is now `ae794bd9…bdd5`.
 
 ### 4.2.2 Authority for either transition — SEARCH-CLOSURE-REMEDY-PREP-1, reconciled in SEARCH-CLOSURE-AUTHORITY-RECONCILE-1
 
@@ -730,7 +821,8 @@ bounded.**
   authorizing decision in that file, in the same form as the js-yaml
   authorization. Its diff, checks and expected results are exactly those in
   section 4.1.1. It still goes through architecture review and CI. This package
-  does not apply it.
+  does not apply it. (It was applied later by SEARCH-SECURITY-APPLY-1,
+  `c2c684b`, after architecture review; CI is not yet observed — section 3.5.)
 - **No further Founder decision is required for this transition.**
 
 **Lint conclusion — `typescript-eslint` 8.71.0: not covered, and not a closure
@@ -758,7 +850,8 @@ blocker.**
   `devDependencies` gains exactly `"typescript-eslint": "8.71.0"`,
   `"@eslint/js": "9.39.5"` and `"globals": "14.0.0"`. The lockfile moves from
   `ae794bd9…bdd5` (or `5718e120…f58f` if the security transition has not landed)
-  to one npm-resolved digest that adds records only. A third one-time policy
+  to one npm-resolved digest that adds records only. The security transition
+  has landed, so the **from** digest is `ae794bd9…bdd5`. A third one-time policy
   authorization pins both. Existing authority cannot cover it because it adds a
   dependency and changes a manifest, it is neither blocking nor security, and
   every prior dependency authorization is spent.
@@ -846,17 +939,21 @@ was performed. The refused `npm ls brace-expansion` was not retried and was not
 replaced by another command that inspects the installed tree. The Search Engine
 completion gate and `scripts/verify-wave9.sh` are unchanged.
 
+SEARCH-SECURITY-APPLY-1 (`c2c684b`) is the one package that changed a
+dependency and the dependency policy: exactly the three files listed in section
+3.5, within the pinned transition. SEARCH-SECURITY-CLOSURE-1 changed only this
+review, `SEARCH_UAT_RUNBOOK.md` and `CURRENT_BUILD_STATUS.md`; it ran no
+install, fix or database command, and performed no commit, push or deployment.
+
 ---
 
 ## 6. What this review does not establish
 
-- a passing completion gate; the observed gate exited 1 again in section 3.4
-  (finding 4.1)
+- a passing CI run for `c2c684b` or for these documents; no required `verify`
+  run has been observed (section 3.5)
 - the installed dependency tree; the chain in finding 4.1 is read from the
-  committed lockfile
-- that applying the `brace-expansion` remedy with npm produces exactly the
-  computed **to** digest. The digest is computed, not observed from an applied
-  change (section 4.1.1).
+  committed lockfile, and no reinstall followed the lockfile change, so the
+  installed `brace-expansion` copy is not observed
 - the exact lockfile records a `typescript-eslint` 8.71.0 install adds, or that
   the TypeScript sources pass the proposed rules (section 4.2.1)
 - inspectable raw output for SEARCH-CLOSURE-1 and SEARCH-CLOSURE-2 results;
@@ -872,10 +969,10 @@ completion gate and `scripts/verify-wave9.sh` are unchanged.
 - Founder acceptance or Human UAT of any kind — Search Human UAT remains
   **pending**, and final Search product acceptance is **not granted** (DEC-047)
 
-**Status: IMPLEMENTED — AUTOMATED VALIDATION INCOMPLETE (completion gate exit 1
-on the npm audit dependency advisory, remedy covered by directive
-`tlp-delivery-first-2026-10-02` for the one pinned transition and not yet
-applied; lint exit 2, not a closure blocker, its dependency remedy not covered
-and needing its own Founder decision when scheduled, section 4.2.2; all other
-gate steps observed passing in section 3.4) — Rendered Architect review
+**Status: IMPLEMENTED — AUTOMATED VALIDATION PASSED (completion gate exit 0
+at `c2c684b`, observed in section 3.5; the pinned `brace-expansion`
+transition applied at `c2c684b` under directive `tlp-delivery-first-2026-10-02`;
+`npm audit --audit-level=high` exit 0, section 3.5; CI not yet observed; lint
+exit 2, not a closure blocker, its dependency remedy not covered and needing its
+own Founder decision when scheduled, section 4.2.2) — Rendered Architect review
 and Founder Search Human UAT pending — PENDING INDEPENDENT ARCHITECTURE REVIEW.**

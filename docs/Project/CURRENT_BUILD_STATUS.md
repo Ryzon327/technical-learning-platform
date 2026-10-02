@@ -517,7 +517,8 @@ Wave 9 progress section above, which were recorded at SEARCH-005 and are retaine
 as the historical record.
 
 - Reviewed at: `7717b16` (work packages SEARCH-CLOSURE-1, SEARCH-CLOSURE-2 and
-  SEARCH-CLOSURE-3).
+  SEARCH-CLOSURE-3); security closure at `c2c684b` (SEARCH-SECURITY-APPLY-1,
+  recorded by SEARCH-SECURITY-CLOSURE-1).
 - Review: `docs/Engineering-OS/BUILD_WAVE_9_SEARCH_ENGINE_COMPLETION_REVIEW.md`.
 - UAT runbook: `docs/Engineering-OS/SEARCH_UAT_RUNBOOK.md`.
 - Build Wave 9 — Search Engine: implementation of SEARCH-001 through SEARCH-008
@@ -597,9 +598,38 @@ security:scan` exited 1 on the same audit finding; `npm run lint` exited 2; gate
 selection over the three changed documents selected nothing. The lockfile still
 hashes to `5718e120…f58f`.
 
+### Security closure — `c2c684b` (completion review §3.5)
+
+SEARCH-SECURITY-APPLY-1 applied exactly the pinned transition under directive
+`tlp-delivery-first-2026-10-02`, passed independent architecture review, and
+was committed as `c2c684b`. It changed three files: `package-lock.json` (one
+record, `node_modules/brace-expansion` 1.1.18 → 1.1.21, no manifest change),
+`scripts/lib/authorized-dependency-policy.mjs` (a separate one-time
+authorization pinned `5718e120…f58f` → `ae794bd9…bdd5`) and
+`scripts/verify-dependency-policy.sh` (BRACE0–BRACE15 and TEST 18a–21b; existing
+assertions unchanged).
+
+- **Supplied** to that architecture review by the orchestrator's full gate run:
+  tests, typecheck and build passed. Raw output not preserved.
+- **Reported** by the SEARCH-SECURITY-APPLY-1 Builder: dependency policy passed;
+  `npm audit --audit-level=high` 0; completion gate 0; selected gates
+  `dependency-policy` and `wpj-m2` passed; `git diff --check` clean.
+- **Observed** by SEARCH-SECURITY-CLOSURE-1 at `c2c684b`: lockfile hashes to
+  `ae794bd9…bdd5`; `npm run gate -- dependency-policy` 0;
+  `npm audit --audit-level=high` **0** (two moderate `vitest`/`@vitest/mocker`
+  findings remain); `npm run gate -- search-engine-completion` **0** — sections
+  1–17, the 72 Wave 9 checks, typecheck, tests (986 / 1,388 / 1,779, no
+  timeout), build and the security scan all passed; `npm run lint` **2**,
+  unchanged.
+- **CI — not observed.** No GitHub Actions run exists for `c2c684b`; CI success
+  is not claimed.
+
+The earlier gate failures above remain the historical record.
+
 ## Limitations carried forward
 
-- **The Search Engine completion gate fails** on the `npm audit` high-severity
+- **Remedied at `c2c684b` — retained as history.** The Search Engine completion
+  gate failed on the `npm audit` high-severity
   `brace-expansion` advisory. The committed lockfile shows one dev-only record,
   `brace-expansion` 1.1.18, reached through `@tlp/web → eslint → minimatch 3.1.5`.
   Proposed remedy (completion review §4.1.1, SEARCH-SECURITY-PREP-1):
@@ -622,9 +652,9 @@ hashes to `5718e120…f58f`.
     Founder approval DEC-048 requires, for exactly the one pinned transition
     `5718e120…f58f` → `ae794bd9…bdd5` and nothing else. No further Founder
     decision is needed.
-  - **Still required:** a separate bounded applying package that records the
-    directive in the dependency policy, with the regression cases. No
-    dependency or policy was changed.
+  - **Applied:** the separate bounded package SEARCH-SECURITY-APPLY-1 recorded
+    the directive in the dependency policy, with the regression cases, and is
+    committed as `c2c684b` (above).
 - **Lint does not pass.** ESLint 9 flat configuration is absent; `npm run lint`
   exits 2 (observed). Pre-existing. Observed in SEARCH-RELEASE-CLOSURE-1: every
   lintable `apps/web` file is TypeScript, and no TypeScript ESLint parser is
@@ -637,7 +667,8 @@ hashes to `5718e120…f58f`.
     upstream peers accept eslint 9.39.5 and typescript 5.9.3. Add it to
     `apps/web` devDependencies, and declare the already-installed `@eslint/js`
     9.39.5 and `globals` 14.0.0 there. The lockfile gains new records only, and
-    is pinned by digest. A new `apps/web/eslint.config.js` uses the
+    is pinned by digest, from `ae794bd9…bdd5` now that the security transition
+    has landed. A new `apps/web/eslint.config.js` uses the
     `@eslint/js` and `typescript-eslint` `recommended` rules, with no rule
     disabled.
   - **Findings:** any findings it exposes are reported, not suppressed.
@@ -666,10 +697,11 @@ hashes to `5718e120…f58f`.
 statements that pre-date Batches 7–9 and the curriculum import mechanism. They
 are recorded in the completion review §4.7 for Founder/architect direction.
 
-Next required gate: the specific Founder decision on the `brace-expansion`
-lockfile remedy, a bounded dependency package that applies it, and an observed
-passing Search Engine completion gate.
-After that come independent architecture review, rendered Architect review and
+The `brace-expansion` decision, its bounded applying package (`c2c684b`) and
+the completion gate observation (above) are recorded. Still outstanding: an
+observed required CI `verify` run for the pushed commits.
+Next come independent architecture review of SEARCH-SECURITY-CLOSURE-1,
+rendered Architect review and
 **Founder Search Human UAT** per `SEARCH_UAT_RUNBOOK.md`. Both reviews and the UAT
 remain **pending**, and final Search product acceptance is **not granted**.
 <!-- END WAVE 9 IMPLEMENTATION CLOSURE CHECKPOINT -->
