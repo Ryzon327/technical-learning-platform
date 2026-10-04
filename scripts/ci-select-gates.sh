@@ -89,6 +89,14 @@ set -euo pipefail
 # glob: a glob would also match `package.json`, and the autonomy gate's selector
 # regression asserts that path's exact output.
 #
+# ## The two Search handoff documents
+#
+# `verify-search-engine-completion.sh` section 17b asserts that the Founder UAT
+# checklist and the rendered review record exist and that neither claims an
+# acceptance nobody granted. Every other UAT runbook in this table is mapped to
+# the gate that reads it, for the reason the header gives: a gate that checks a
+# file it is not woken for is a gate that passes forever.
+#
 # `verify-wpj-m2.sh` is new and owns Mission 2 alone. It is mapped from the
 # curriculum, the parsed suite, the ledger and the declaration like every other
 # per-mission gate, and additionally from the four presentation and contract
@@ -375,6 +383,8 @@ services/api/src/note-retrieval*|scripts/verify-search-engine-completion.sh
 packages/shared-types/src/search-*|scripts/verify-search-engine-completion.sh
 packages/shared-types/src/curriculum-search*|scripts/verify-search-engine-completion.sh
 apps/web/src/search/*|scripts/verify-search-engine-completion.sh
+docs/Engineering-OS/SEARCH_FOUNDER_UAT_CHECKLIST.md|scripts/verify-search-engine-completion.sh
+docs/Engineering-OS/SEARCH_RENDERED_REVIEW_RECORD.md|scripts/verify-search-engine-completion.sh
 services/api/src/certificate-*|scripts/verify-certificate-engine-completion.sh
 packages/shared-types/src/certificate-*|scripts/verify-certificate-engine-completion.sh
 apps/web/src/certificates/*|scripts/verify-certificate-engine-completion.sh

@@ -829,6 +829,73 @@ done
 echo "PASS: 17. the engine's verification infrastructure exists and covers every Search route"
 
 # ------------------------------------------------------------
+# 17b. The DOM evidence suite, and the Founder handoff it hands off to
+# ------------------------------------------------------------
+# SEARCH-UAT-HANDOFF-1. Completion-review finding 4.4 recorded that no Search
+# surface was exercised in a DOM anywhere, so every element-semantics and state
+# claim about `CurriculumSearchView` was read out of the source.
+#
+# The suite below closes the MECHANICAL half of that finding, and this section
+# exists so it cannot quietly disappear again. It asserts that the suite is
+# present, that it runs in a DOM rather than in Node, and that it still reaches
+# each state the UAT script asks a reviewer to visit — a suite that silently
+# stopped covering the unavailable state would otherwise keep passing.
+#
+# It deliberately asserts PRESENCE AND COVERAGE, never a result: the suite's own
+# assertions are run by the per-batch verifier below, through the full test
+# suite. Nothing here upgrades a jsdom observation into a rendered one.
+SEARCH_DOM_SUITE="$WEB_SRC/curriculum-search-surface.test.tsx"
+[ -f "$SEARCH_DOM_SUITE" ] \
+  || fail "the Search DOM evidence suite is missing: $SEARCH_DOM_SUITE"
+grep -Fq '@vitest-environment jsdom' "$SEARCH_DOM_SUITE" \
+  || fail "the Search DOM evidence suite does not declare a DOM environment"
+grep -Fq 'CurriculumSearchView' "$SEARCH_DOM_SUITE" \
+  || fail "the Search DOM evidence suite does not mount the Search surface"
+
+# One marker per state the Founder checklist and the runbook name. Each is a
+# phrase from the suite's own case names, so renaming a case away from the state
+# it covers fails here rather than going unnoticed.
+for state in \
+  'before anything is searched' \
+  'rejects an empty query' \
+  'withdraws BOTH sources' \
+  'while a search is in flight' \
+  'returns authorized results' \
+  'matched nothing' \
+  'could not run' \
+  'recovers on the next successful search' \
+  "the learner's own notes" \
+  'a recovered technical term' \
+  'searches from the keyboard alone'; do
+  grep -Fq "$state" "$SEARCH_DOM_SUITE" \
+    || fail "the Search DOM evidence suite no longer covers a UAT state: $state"
+done
+
+# The two invariants that are one boolean away from being wrong, asserted by
+# name so a case that stopped checking them is visible here.
+grep -Fq 'never rendered as an empty result' "$SEARCH_DOM_SUITE" \
+  || fail "the DOM suite stopped separating an unavailable search from an empty one"
+grep -Fq "never as 'no notes'" "$SEARCH_DOM_SUITE" \
+  || fail "the DOM suite stopped separating a failed notes search from no notes"
+
+# The handoff documents this gate's own closing lines point a reviewer at.
+HANDOFF_CHECKLIST="docs/Engineering-OS/SEARCH_FOUNDER_UAT_CHECKLIST.md"
+HANDOFF_RECORD="docs/Engineering-OS/SEARCH_RENDERED_REVIEW_RECORD.md"
+for doc in "$HANDOFF_CHECKLIST" "$HANDOFF_RECORD"; do
+  [ -f "$doc" ] || fail "the Search Founder handoff document is missing: $doc"
+
+  # The same honesty bar the rest of this gate holds: a handoff may report
+  # automated evidence and must never record acceptance nobody granted.
+  if grep -qiE 'uat (approved|passed|complete)|search is accepted|product acceptance granted' "$doc"; then
+    fail "a Search handoff document claims acceptance or a completed UAT: $doc"
+  fi
+done
+grep -Fq "pending" "$HANDOFF_CHECKLIST" \
+  || fail "the Founder UAT checklist does not record Search Human UAT as pending"
+
+echo "PASS: 17b. the Search surface is exercised in a DOM, and the Founder handoff exists"
+
+# ------------------------------------------------------------
 # 18. Defer to the per-batch verifier, which runs the toolchain
 # ------------------------------------------------------------
 echo ""
@@ -845,7 +912,10 @@ echo "============================================================"
 echo ""
 echo "This gate proves IMPLEMENTATION completion only. It does NOT prove:"
 echo "  - browser-rendered usability or rendered accessibility"
-echo "    (apps/web has no DOM harness; every accessibility claim is structural)"
+echo "    (the Search surface is exercised in jsdom, which establishes element"
+echo "     semantics and state reachability; jsdom is not a browser and has no"
+echo "     assistive technology, so focus quality, announcements, contrast,"
+echo "     zoom and reflow remain rendered-review claims)"
 echo "  - real PostgreSQL row level security enforcement"
 echo "    (there is no live database harness; authorization evidence is"
 echo "     query-level and structural, never live-database proof)"
