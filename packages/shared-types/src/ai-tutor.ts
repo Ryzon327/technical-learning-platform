@@ -70,6 +70,9 @@ export interface AiTutorResponse {
   nextAction?: string;
   uncertainty?: string;
   grounding: AiTutorGrounding;
+  availability: {
+    trustedLabState: "available" | "unavailable";
+  };
   authority: typeof AI_TUTOR_AUTHORITY;
   providerId: string;
 }
@@ -179,7 +182,8 @@ export function normalizeAiTutorProviderOutput(
   requestId: string,
   providerId: string,
   raw: unknown,
-  allowedSourceIds: ReadonlySet<string>
+  allowedSourceIds: ReadonlySet<string>,
+  trustedLabStateAvailable = false
 ): AiTutorResponse {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     throw new AppError({
@@ -231,6 +235,9 @@ export function normalizeAiTutorProviderOutput(
       ? { uncertainty: value.uncertainty.trim() }
       : {}),
     grounding,
+    availability: {
+      trustedLabState: trustedLabStateAvailable ? "available" : "unavailable"
+    },
     authority: AI_TUTOR_AUTHORITY,
     providerId
   };
