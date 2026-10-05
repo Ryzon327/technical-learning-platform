@@ -47,6 +47,8 @@ Grounding is selected deterministically with current lesson content first. Conte
 
 Selected-note context requires an explicit learner-selection marker. Lab context requires a trusted deterministic marker. Unsupported context fails validation.
 
+Request validation accepts `unknown` and establishes the shape before reading it, so untrusted input is refused with the normalized non-retryable `VALIDATION_ERROR` rather than a raw `TypeError`. A missing, `null` or non-array `context` stops validation before `.length` and before iteration; a malformed top-level object, a malformed context entry and a missing `learnerQuestion` are reported as problems instead of crashing. `assertValidAiTutorRequest` is a type assertion, so a caller holding a parsed body gains the narrowed type from the check itself and has no reason to cast an unvalidated value to reach it. The validation rules themselves are unchanged.
+
 Likely secrets are screened before the provider call. The audit-metadata helper records IDs, counts, kinds, correlation, and lab-state availability — not the learner's raw question or context text.
 
 ## Provider boundary
@@ -65,7 +67,11 @@ The rendering surface must treat the structured response as ordinary accessible 
 
 Automated coverage pins:
 
-- malformed request rejection
+- malformed request rejection, including missing / `null` / non-array `context`,
+  a malformed top-level request object and a malformed context entry — each
+  asserted to raise the normalized `VALIDATION_ERROR` and never a raw
+  `TypeError`, and each asserted at the orchestrated entry point to refuse
+  before a provider is called
 - selected-note and trusted-lab gates
 - secret screening before provider execution
 - bounded context selection

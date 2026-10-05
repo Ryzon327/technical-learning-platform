@@ -176,6 +176,70 @@ describe("AI Tutor provider boundary", () => {
     expect(attempts).toBe(2);
   });
 
+  /**
+   * The orchestrated runtime path must fail closed too.
+   *
+   * `answerAiTutorQuestion` validates before it screens for secrets and before
+   * it builds a provider request, so a malformed body must be refused with the
+   * normalized non-retryable `VALIDATION_ERROR` and must never reach a
+   * provider. The casts model exactly what a real boundary produces: an
+   * unvalidated parsed body arriving where a request is expected.
+   */
+  it("refuses a malformed request before any provider is called", async () => {
+    const malformed: unknown[] = [
+      null,
+      undefined,
+      "ask me something",
+      42,
+      [],
+      {},
+      { ...request(), context: undefined },
+      { ...request(), context: null },
+      { ...request(), context: {} },
+      { ...request(), context: "lesson-1" },
+      { ...request(), context: [null] }
+    ];
+
+    for (const value of malformed) {
+      const complete = vi.fn(async () => ({
+        conciseAnswer: "should not run",
+        explanation: "should not run"
+      }));
+      const provider: AiTutorProvider = { id: "spy", complete };
+
+      await expect(
+        answerAiTutorQuestion(value as AiTutorRequest, provider)
+      ).rejects.toMatchObject({
+        name: "AppError",
+        code: "VALIDATION_ERROR",
+        retryable: false
+      });
+
+      expect(complete).not.toHaveBeenCalled();
+    }
+  });
+
+  it("never lets a raw TypeError escape for a malformed request", async () => {
+    const provider: AiTutorProvider = {
+      id: "spy",
+      complete: vi.fn(async () => ({
+        conciseAnswer: "should not run",
+        explanation: "should not run"
+      }))
+    };
+
+    for (const value of [null, {}, { ...request(), context: null }]) {
+      const error = await answerAiTutorQuestion(
+        value as unknown as AiTutorRequest,
+        provider
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(AppError);
+      expect(error).not.toBeInstanceOf(TypeError);
+      expect((error as AppError).details?.problems).toBeDefined();
+    }
+  });
+
   it("times out and returns a normalized unavailable error", async () => {
     const provider: AiTutorProvider = {
       id: "hung",

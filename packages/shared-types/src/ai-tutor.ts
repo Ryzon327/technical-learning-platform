@@ -108,7 +108,58 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-export function aiTutorRequestProblems(request: AiTutorRequest): string[] {
+/**
+ * A plain object, which is the only shape a Tutor request or context source may
+ * take. Arrays are excluded deliberately: `typeof [] === "object"`, so an array
+ * would otherwise pass an object check and then fail unpredictably on property
+ * access.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validates an UNTRUSTED Tutor request and returns every problem found.
+ *
+ * ## Why this accepts `unknown`
+ *
+ * This is the fail-closed boundary for input the platform did not construct —
+ * a parsed request body, a cross-service payload, a fixture. A parameter typed
+ * `AiTutorRequest` is a compile-time promise about a value that has not been
+ * checked yet, and at a runtime boundary that promise is exactly what is in
+ * question. Taking `unknown` makes the guard unskippable: nothing can be
+ * dereferenced until it has been narrowed.
+ *
+ * ## Every dereference is guarded before it happens
+ *
+ * The rule is uniform: establish the shape, THEN read it. A malformed request
+ * must produce the normalized non-retryable `VALIDATION_ERROR` through
+ * `assertValidAiTutorRequest`, never a raw `TypeError` — a `TypeError` escapes
+ * the error contract, carries an internal message to the caller, and is not
+ * distinguishable by a caller from a genuine platform fault.
+ *
+ * Three places needed guarding, and all three are the same defect:
+ *
+ *   - the request itself, which may be `null`, a string or an array;
+ *   - `learnerQuestion.length`, which previously ran even after the field was
+ *     recorded as missing;
+ *   - `context`, which may be absent, `null`, or a non-array value, and which
+ *     was previously measured and iterated after being recorded as invalid.
+ *
+ * A non-array `context` RETURNS rather than continuing, so neither `.length`
+ * nor iteration is reached. Problems already collected are preserved, so a
+ * request that is malformed in several ways still reports what was established
+ * before the shape failure.
+ *
+ * The validation contract itself is unchanged: every rule that held before
+ * still holds, with the identical problem strings. This repair only stops the
+ * validator from crashing on the input it exists to reject.
+ */
+export function aiTutorRequestProblems(request: unknown): string[] {
+  if (!isRecord(request)) {
+    return ["request must be an object"];
+  }
+
   const problems: string[] = [];
 
   if (request.schemaVersion !== AI_TUTOR_REQUEST_SCHEMA) {
@@ -117,43 +168,79 @@ export function aiTutorRequestProblems(request: AiTutorRequest): string[] {
   if (request.task !== "tutor") problems.push("unsupported task");
   if (!nonEmpty(request.requestId)) problems.push("requestId is required");
   if (!nonEmpty(request.correlationId)) problems.push("correlationId is required");
-  if (!nonEmpty(request.learnerQuestion)) problems.push("learnerQuestion is required");
-  if (request.learnerQuestion.length > 4000) {
+  // Length is checked only once the field is known to be a string. The two
+  // checks are mutually exclusive: a missing question cannot also be too long.
+  if (!nonEmpty(request.learnerQuestion)) {
+    problems.push("learnerQuestion is required");
+  } else if (request.learnerQuestion.length > 4000) {
     problems.push("learnerQuestion exceeds 4000 characters");
   }
-  if (!Array.isArray(request.context)) problems.push("context must be an array");
+
+  if (!Array.isArray(request.context)) {
+    problems.push("context must be an array");
+    return problems;
+  }
   if (request.context.length > 24) problems.push("context exceeds 24 sources");
 
   const ids = new Set<string>();
   for (const source of request.context) {
-    if (!nonEmpty(source.id)) problems.push("context source id is required");
-    if (ids.has(source.id)) problems.push(`duplicate context source id: ${source.id}`);
-    ids.add(source.id);
+    if (!isRecord(source)) {
+      problems.push("context source must be an object");
+      continue;
+    }
 
-    if (!(CONTEXT_KINDS as readonly string[]).includes(source.kind)) {
+    // The label used in messages. `String` reproduces the previous template
+    // interpolation exactly, including "undefined" for an absent id, so no
+    // problem string changes shape for an input that already validated.
+    const label = String(source.id);
+
+    if (!nonEmpty(source.id)) {
+      problems.push("context source id is required");
+    } else {
+      if (ids.has(source.id)) {
+        problems.push(`duplicate context source id: ${source.id}`);
+      }
+      ids.add(source.id);
+    }
+
+    if (
+      typeof source.kind !== "string" ||
+      !(CONTEXT_KINDS as readonly string[]).includes(source.kind)
+    ) {
       problems.push(`unsupported context kind: ${String(source.kind)}`);
     }
-    if (!nonEmpty(source.text)) problems.push(`context source ${source.id} has no text`);
+    if (!nonEmpty(source.text)) problems.push(`context source ${label} has no text`);
     if (!nonEmpty(source.provenance)) {
-      problems.push(`context source ${source.id} has no provenance`);
+      problems.push(`context source ${label} has no provenance`);
     }
     if (source.kind === "selected_note") {
       if (source.learnerSelected !== true) {
-        problems.push(`selected note ${source.id} was not explicitly selected by the learner`);
+        problems.push(`selected note ${label} was not explicitly selected by the learner`);
       }
       if (source.ownerScope !== "current_learner") {
-        problems.push(`selected note ${source.id} is not scoped to the current learner`);
+        problems.push(`selected note ${label} is not scoped to the current learner`);
       }
     }
     if (source.kind === "trusted_lab_state" && source.trusted !== true) {
-      problems.push(`lab state ${source.id} is not trusted deterministic state`);
+      problems.push(`lab state ${label} is not trusted deterministic state`);
     }
   }
 
   return problems;
 }
 
-export function assertValidAiTutorRequest(request: AiTutorRequest): void {
+/**
+ * The fail-closed gate. Narrows an untrusted value to `AiTutorRequest`, or
+ * throws the normalized non-retryable `VALIDATION_ERROR`.
+ *
+ * Declared as a type assertion so a caller that validates an `unknown` payload
+ * gains the narrowed type from the check itself. That removes the reason a
+ * caller would otherwise cast an unvalidated body into `AiTutorRequest` just to
+ * reach this function, which is how an unchecked value gets downstream.
+ */
+export function assertValidAiTutorRequest(
+  request: unknown
+): asserts request is AiTutorRequest {
   const problems = aiTutorRequestProblems(request);
   if (problems.length === 0) return;
 
