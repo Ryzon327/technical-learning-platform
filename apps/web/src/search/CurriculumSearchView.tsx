@@ -273,9 +273,19 @@ export function CurriculumSearchView() {
     const queryError = validateCurriculumSearchQuery(query);
     if (queryError) {
       // A rejected query is neither a dependency failure nor an empty result.
+      //
+      // It withdraws BOTH sources. Curriculum results were always withdrawn
+      // here; the learner's note results were not, so a rejected query left the
+      // PREVIOUS query's notes and note count on screen beside the message —
+      // half of one search's results presented as the state of another, with
+      // nothing on the surface saying which query they belonged to. Clearing
+      // them keeps the two sources' lifetimes identical, which is the same rule
+      // that makes "no notes" and "notes unavailable" distinguishable below.
       setError(describeCurriculumSearchQueryError(queryError));
       setResults(null);
       setDegraded(false);
+      setNotes(null);
+      setNoteError("");
       return;
     }
 
