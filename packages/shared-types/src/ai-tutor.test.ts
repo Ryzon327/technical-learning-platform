@@ -99,6 +99,7 @@ describe("AI Tutor response authority", () => {
       new Set(["lesson-1"])
     );
 
+    expect(normalized.availability.trustedLabState).toBe("unavailable");
     expect(normalized.authority).toEqual(AI_TUTOR_AUTHORITY);
     expect(normalized.authority.canGrantMastery).toBe(false);
     expect(normalized.authority.canMarkLabCorrect).toBe(false);
