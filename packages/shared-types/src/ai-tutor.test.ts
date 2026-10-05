@@ -51,6 +51,23 @@ describe("AI Tutor request contract", () => {
     );
   });
 
+  it("requires selected notes to be scoped to the current learner", () => {
+    const value = request();
+    value.context = [
+      {
+        id: "note-1",
+        kind: "selected_note",
+        text: "My note",
+        provenance: "note:note-1",
+        learnerSelected: true
+      }
+    ];
+
+    expect(aiTutorRequestProblems(value)).toContain(
+      "selected note note-1 is not scoped to the current learner"
+    );
+  });
+
   it("requires deterministic trust before lab state can be attached", () => {
     const value = request();
     value.context = [
