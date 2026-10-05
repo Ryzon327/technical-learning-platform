@@ -38,7 +38,8 @@ function request(): AiTutorRequest {
         kind: "selected_note",
         text: "My note about MAC learning",
         provenance: "note:note-1",
-        learnerSelected: true
+        learnerSelected: true,
+        ownerScope: "current_learner"
       }
     ]
   };
