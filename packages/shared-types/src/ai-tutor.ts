@@ -24,6 +24,12 @@ export interface AiTutorContextSource {
    */
   learnerSelected?: boolean;
   /**
+   * Selected private learner context must explicitly assert that authorization
+   * already scoped it to the current learner. The Tutor never accepts a
+   * cross-learner owner id as provider context.
+   */
+  ownerScope?: "current_learner";
+  /**
    * Required only for trusted_lab_state. AI may explain deterministic lab
    * state, but must never invent it or decide whether the lab is correct.
    */
@@ -131,8 +137,13 @@ export function aiTutorRequestProblems(request: AiTutorRequest): string[] {
     if (!nonEmpty(source.provenance)) {
       problems.push(`context source ${source.id} has no provenance`);
     }
-    if (source.kind === "selected_note" && source.learnerSelected !== true) {
-      problems.push(`selected note ${source.id} was not explicitly selected by the learner`);
+    if (source.kind === "selected_note") {
+      if (source.learnerSelected !== true) {
+        problems.push(`selected note ${source.id} was not explicitly selected by the learner`);
+      }
+      if (source.ownerScope !== "current_learner") {
+        problems.push(`selected note ${source.id} is not scoped to the current learner`);
+      }
     }
     if (source.kind === "trusted_lab_state" && source.trusted !== true) {
       problems.push(`lab state ${source.id} is not trusted deterministic state`);
