@@ -288,6 +288,33 @@ describe("a malformed request fails closed", () => {
     );
   });
 
+  /**
+   * The correlation id is client-supplied and logged as a top-level field, so
+   * prose, unbounded text or a credential must never reach a log through it.
+   */
+  it("refuses a correlation id that is not an opaque bounded token", () => {
+    for (const correlationId of [
+      "my router password is hunter2",
+      "x".repeat(129),
+      "corr\nforged-log-line",
+      ["AKIA", "ABCDEFGHIJKLMNOP"].join("")
+    ]) {
+      expectRefusal(
+        assembleTutorRequest(input({ correlationId }), context()),
+        "correlation_id_invalid"
+      );
+    }
+  });
+
+  it("accepts an opaque correlation token", () => {
+    const assembly = assembleTutorRequest(
+      input({ correlationId: "web-3f2a.9b:01_x" }),
+      context()
+    );
+
+    expect(assembly.ok).toBe(true);
+  });
+
   it("refuses a request with no request id", () => {
     expectRefusal(
       assembleTutorRequest(input(), context({ requestId: "" })),

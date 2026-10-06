@@ -66,6 +66,9 @@ import {
 
 export const AI_TUTOR_REQUEST_CONTRACT_VERSION = "ai-tutor-request-v1";
 
+/** An opaque correlation token: 1-128 identifier characters, nothing else. */
+export const TUTOR_CORRELATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 /**
  * The task family this contract serves.
  *
@@ -277,6 +280,7 @@ export const TUTOR_REQUEST_REJECTIONS = [
   "lesson_identity_missing",
   "lesson_version_invalid",
   "correlation_id_missing",
+  "correlation_id_invalid",
   "request_id_missing",
   "forbidden_input_field",
   "context_type_unsupported",
@@ -326,6 +330,7 @@ export function describeTutorRequestRejection(
     case "lesson_version_invalid":
       return "The Tutor could not tell which lesson you are in. Reload the lesson and try again.";
     case "correlation_id_missing":
+    case "correlation_id_invalid":
     case "request_id_missing":
     case "forbidden_input_field":
       return "The Tutor could not accept that request. Nothing was sent and nothing changed.";
@@ -446,6 +451,14 @@ export function assembleTutorRequest(
 
   const correlationId = String(input.correlationId ?? "").trim();
   if (!correlationId) return refuse("correlation_id_missing");
+  // Client-supplied and written to routine logs as a top-level field, so it
+  // must be an opaque bounded token that cannot carry prose or a credential.
+  if (
+    !TUTOR_CORRELATION_ID_PATTERN.test(correlationId) ||
+    screenTutorTextForSecrets(correlationId).detected
+  ) {
+    return refuse("correlation_id_invalid");
+  }
 
   if (!isTutorTaskType(input.taskType)) return refuse("task_type_unsupported");
 

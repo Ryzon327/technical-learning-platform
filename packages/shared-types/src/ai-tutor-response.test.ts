@@ -367,6 +367,7 @@ describe("uncertainty is derived from platform facts, not self-report", () => {
       deriveTutorUncertainty({
         groundingMode: "lesson_grounded",
         droppedSegmentCount: 0,
+        verifiedCitationCount: 1,
         providerDeclaredUncertain: false
       }).level
     ).toBe("grounded");
@@ -381,6 +382,7 @@ describe("uncertainty is derived from platform facts, not self-report", () => {
       deriveTutorUncertainty({
         groundingMode: "general",
         droppedSegmentCount: 0,
+        verifiedCitationCount: 1,
         providerDeclaredUncertain: false
       }).level
     ).toBe("general");
@@ -390,6 +392,7 @@ describe("uncertainty is derived from platform facts, not self-report", () => {
     const uncertainty = deriveTutorUncertainty({
       groundingMode: "context_unavailable",
       droppedSegmentCount: 0,
+      verifiedCitationCount: 1,
       providerDeclaredUncertain: false
     });
 
@@ -397,11 +400,24 @@ describe("uncertainty is derived from platform facts, not self-report", () => {
     expect(uncertainty.statement).toContain("will not describe");
   });
 
+  it("is partial when a grounded answer cites no verified lesson segment", () => {
+    const uncertainty = deriveTutorUncertainty({
+      groundingMode: "lesson_grounded",
+      droppedSegmentCount: 0,
+      verifiedCitationCount: 0,
+      providerDeclaredUncertain: false
+    });
+
+    expect(uncertainty.level).toBe("partial");
+    expect(uncertainty.statement).not.toContain("comes from this lesson");
+  });
+
   it("honours a provider's own declaration of uncertainty by downgrading", () => {
     expect(
       deriveTutorUncertainty({
         groundingMode: "lesson_grounded",
         droppedSegmentCount: 0,
+        verifiedCitationCount: 1,
         providerDeclaredUncertain: true
       }).level
     ).toBe("partial");
@@ -412,6 +428,7 @@ describe("uncertainty is derived from platform facts, not self-report", () => {
       deriveTutorUncertainty({
         groundingMode: "lesson_grounded",
         droppedSegmentCount: 2,
+        verifiedCitationCount: 1,
         providerDeclaredUncertain: false
       }).level
     ).toBe("partial");

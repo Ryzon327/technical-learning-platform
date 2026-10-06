@@ -214,6 +214,8 @@ export type TutorNormalization =
 export function deriveTutorUncertainty(input: {
   groundingMode: TutorGroundingMode;
   droppedSegmentCount: number;
+  /** Citations that survived verification against the selected segments. */
+  verifiedCitationCount: number;
   providerDeclaredUncertain: boolean;
 }): TutorUncertainty {
   if (input.groundingMode === "context_unavailable") {
@@ -235,6 +237,16 @@ export function deriveTutorUncertainty(input: {
       level: "partial",
       statement:
         "This answer may be incomplete. Check it against the lesson text before relying on it."
+    };
+  }
+
+  // "Comes from this lesson" is only true when the answer points at lesson
+  // content the platform can verify; an uncited answer is not lesson-grounded.
+  if (input.verifiedCitationCount === 0) {
+    return {
+      level: "partial",
+      statement:
+        "This answer does not point to a specific part of the lesson. Check it against the lesson text before relying on it."
     };
   }
 
@@ -311,6 +323,7 @@ export function normalizeTutorProviderOutput(input: {
   const uncertainty = deriveTutorUncertainty({
     groundingMode: input.groundingMode,
     droppedSegmentCount: input.droppedSegmentCount,
+    verifiedCitationCount: verified.length,
     providerDeclaredUncertain: input.raw.uncertain === true
   });
 
