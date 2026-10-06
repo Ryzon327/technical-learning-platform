@@ -255,6 +255,136 @@ export function braceLockfileVerdict(baseLockText, currentLockText, sha256) {
   ];
 }
 
+/* ------------------------------------------------------------------ *
+ * THE THIRD SECURITY AUTHORIZATION — Vitest 3 to 4, one-time, issue #65.
+ *
+ * Founder-approved under DEPENDENCY-SECURITY-REMEDIATION-1 (issue #65).
+ *
+ * Advisories, all dev-only:
+ *
+ *   GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr (critical) — `tinypool` <=2.1.1
+ *     @tlp/* → vitest ^3.0.5 → tinypool ^1.1.1
+ *   GHSA-82fw-gwwq-j7x9 (moderate) — `@vitest/mocker` <4.1.11
+ *     @tlp/* → vitest ^3.0.5 → @vitest/mocker 3.2.7
+ *   GHSA-68fv-2mgg-jv7q (high) — `source-map-js` <1.2.2
+ *     @tlp/web → vite → postcss → source-map-js ^1.2.1
+ *     @tlp/web → jsdom → css-tree → source-map-js ^1.2.0
+ *
+ * ## Why this one moves manifests when the first two did not
+ *
+ * `source-map-js` is lockfile-only (1.2.2 satisfies both ranges). `tinypool`
+ * is not: every Vitest 3.x release declares `tinypool ^1.1.1`, no 1.x is
+ * patched, and forcing 2.x under Vitest 3 with an override would run the test
+ * runner's worker pool on a major its authors never shipped. Vitest 4.1.11
+ * removes tinypool entirely and is the first release outside the mocker
+ * advisory, so the smallest sound remedy is `vitest` `^3.0.5` → `^4.1.11` in
+ * the three workspace manifests that declare it, and nothing else.
+ *
+ * ## Why it is judged as ONE transition over four files
+ *
+ * A manifest bump without its lockfile, or a lockfile without its manifests, is
+ * not the approved change. So the four files are pinned together: each at its
+ * FROM digest in the base and its TO digest in the change. If any one of them
+ * moves, all four must land exactly. The root manifest is not in the set and
+ * stays under the ordinary refusal.
+ *
+ * Same guarantees as the two before it: `null` unless the base is exactly the
+ * FROM tree, so it is spent the moment it merges, and no parameter widens it.
+ * Its lockfile FROM digest is the brace-expansion TO digest, so both earlier
+ * authorizations are already spent and stay exactly as they were.
+ * ------------------------------------------------------------------ */
+
+/** Human-readable identity of the Vitest transition. */
+export const VITEST_DIRECTIVE = "DEPENDENCY-SECURITY-REMEDIATION-1 (issue #65)";
+export const VITEST_ADVISORIES = [
+  "GHSA-5gmw-xhrv-c9v3",
+  "GHSA-85c8-ppgw-ccpr",
+  "GHSA-82fw-gwwq-j7x9",
+  "GHSA-68fv-2mgg-jv7q"
+];
+export const VITEST_SPEC_FROM = "^3.0.5";
+export const VITEST_SPEC_TO = "^4.1.11";
+
+/** Every file the transition moves, each pinned at both ends by SHA-256. */
+export const VITEST_TRANSITION = {
+  "package-lock.json": {
+    from: "ae794bd905a31b2b969bcc27c48bea06909442496f2508428b6fc5939e62bdd5",
+    to: "e2faa947132a77121ec7753b0482da184c6ec881f57d903ce42faa57a9d23ea8"
+  },
+  "apps/web/package.json": {
+    from: "b7b8c5134b65cc41aec351870075b108f3640df12d0f052654a72fee8b0f23d1",
+    to: "534294daa8799ce61c3c268899df042d68a9dfb1188db7d1f2ff8bebd3ced712"
+  },
+  "packages/shared-types/package.json": {
+    from: "352b5aa1fcce1af6e315a1e2abae4bf54cf19c6d08afa54560e29374eaa15277",
+    to: "aa0a60924393fca2ee14b5a2c5890b0dcbc427daba539f47fea24288ef26f1b8"
+  },
+  "services/api/package.json": {
+    from: "7874b3483d72fc1e657030e3b6366f38749abd8064f7a544c56e887e201e10a1",
+    to: "28060c6513280362d277e5059004ee407df59a7d9ab557be184f2e7e7402ff97"
+  }
+};
+
+/**
+ * The verdict of the Vitest authorization, or `null` when it does not apply.
+ *
+ * `baseTexts` and `currentTexts` map each path in `VITEST_TRANSITION` to its
+ * exact bytes, or `null` where the file is absent.
+ *
+ * `null` unless EVERY base file is at its FROM digest and at least one current
+ * file differs from its base. The caller then falls through to the ordinary
+ * per-file policy, which refuses whatever it is. It is never a pass.
+ *
+ * Returns `[]` only when every current file is at its TO digest.
+ */
+export function vitestTransitionVerdict(baseTexts, currentTexts, sha256) {
+  const paths = Object.keys(VITEST_TRANSITION);
+
+  for (const path of paths) {
+    const base = baseTexts[path];
+    if (base === null || base === undefined) return null;
+    if (sha256(base) !== VITEST_TRANSITION[path].from) return null;
+  }
+
+  if (paths.every((path) => currentTexts[path] === baseTexts[path])) {
+    return null;
+  }
+
+  const problems = [];
+  for (const path of paths) {
+    const current = currentTexts[path];
+    if (current === null || current === undefined) {
+      problems.push(
+        path +
+          " was deleted; the " +
+          VITEST_DIRECTIVE +
+          " transition moves it, it does not remove it"
+      );
+      continue;
+    }
+    const digest = sha256(current);
+    if (digest !== VITEST_TRANSITION[path].to) {
+      problems.push(
+        path +
+          " is not the approved result of the vitest " +
+          VITEST_SPEC_FROM +
+          " to " +
+          VITEST_SPEC_TO +
+          " transition (sha256 " +
+          digest.slice(0, 12) +
+          "… where " +
+          VITEST_TRANSITION[path].to.slice(0, 12) +
+          "… is authorized) for " +
+          VITEST_ADVISORIES.join(", ") +
+          " (" +
+          VITEST_DIRECTIVE +
+          "); the four files move together, exactly, or not at all"
+      );
+    }
+  }
+  return problems;
+}
+
 /** Deep structural equality, order-independent for object keys. */
 function deepEqual(left, right) {
   if (left === right) return true;
