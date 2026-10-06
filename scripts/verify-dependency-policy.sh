@@ -37,9 +37,36 @@ WRAPPER="scripts/lib/authorized-dependency.sh"
 
 echo "===== DEPENDENCY POLICY GATE ====="
 echo ""
+
+# ------------------------------------------------------------
+# The PRE-VITEST tree, read from one immutable commit.
+#
+# Every case written before the Vitest transition (issue #65) describes main as
+# it stood before it: Vitest 3 in three manifests and the brace-expansion
+# lockfile. Those cases used to read that state from the working tree, which no
+# longer carries it. The Vitest delta is ~30 lockfile records, too many to undo
+# by hand the way the js-yaml and brace-expansion records are, so the four files
+# are read from the commit they were last true at.
+#
+# A COMMIT ID, not a branch: it cannot move, so these fixtures mean the same
+# thing before and after this change merges. VITEST0 asserts every file against
+# the transition's own FROM pin, so this is the real approved base and not an
+# approximation of it. A clone without that commit fails closed here.
+# ------------------------------------------------------------
+PRE_VITEST_COMMIT="2fcd896d2893318bd3395c56d544e8221ebed5fb"
+PRE_VITEST_ROOT="$(mktemp -d)"
+trap 'rm -rf "$PRE_VITEST_ROOT"' EXIT
+mkdir -p "$PRE_VITEST_ROOT/apps/web" "$PRE_VITEST_ROOT/packages/shared-types" \
+         "$PRE_VITEST_ROOT/services/api"
+for pre_vitest_path in package-lock.json apps/web/package.json \
+                       packages/shared-types/package.json services/api/package.json; do
+  git show "$PRE_VITEST_COMMIT:$pre_vitest_path" >"$PRE_VITEST_ROOT/$pre_vitest_path" \
+    || fail "the pre-Vitest fixture $pre_vitest_path could not be read from $PRE_VITEST_COMMIT (a full clone is required)"
+done
+
 echo "--- pure policy cases ---"
 
-node --input-type=module -e '
+PRE_VITEST_ROOT="$PRE_VITEST_ROOT" node --input-type=module -e '
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
@@ -57,7 +84,9 @@ import {
   braceLockfileVerdict,
   BRACE_BASE_LOCKFILE_SHA256,
   BRACE_LOCKFILE_SHA256,
-  BRACE_LOCK_RECORD
+  BRACE_LOCK_RECORD,
+  VITEST_TRANSITION,
+  vitestTransitionVerdict
 } from "./scripts/lib/authorized-dependency-policy.mjs";
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
@@ -79,12 +108,13 @@ const withJsdom = () => {
   return after;
 };
 
-/* The working lockfile, which carries the brace-expansion patch. */
-const CURRENT_LOCK = readFileSync("package-lock.json", "utf8");
+/* Main before the Vitest transition, which carries the brace-expansion patch. */
+const PRE_VITEST_ROOT = process.env.PRE_VITEST_ROOT;
+const CURRENT_LOCK = readFileSync(PRE_VITEST_ROOT + "/package-lock.json", "utf8");
 
 /*
   The REAL jsdom- and js-yaml-approved lockfile, so the whole-file pin is
-  exercised for real. DERIVED from the working one by putting the
+  exercised for real. DERIVED from the pre-Vitest one by putting the
   brace-expansion record back to 1.1.18, so every case below keeps the meaning
   it had before that patch; BRACE0 proves the derivation byte-exact.
 */
@@ -298,7 +328,7 @@ accept("SEC12", "both security pins are well-formed sha256 values, and differ",
    BRACE0-BRACE15: the one-time brace-expansion security authorization
    (tlp-delivery-first-2026-10-02).
 
-   Its base is APPROVED_LOCK, derived above; its result is the working
+   Its base is APPROVED_LOCK, derived above; its result is the pre-Vitest
    lockfile. jsdom is in the base for all of these, so the jsdom authorization
    is spent and only the pinned transition may pass.
  * ------------------------------------------------------------------ */
@@ -318,9 +348,9 @@ accept("BRACE0", "the derived pre-patch lockfile reproduces the pinned FROM dige
   sha256(APPROVED_LOCK) === BRACE_BASE_LOCKFILE_SHA256
     ? [] : ["the derived pre-brace lockfile does not match BRACE_BASE_LOCKFILE_SHA256"]);
 
-accept("BRACE1", "the working lockfile is exactly the pinned TO digest",
+accept("BRACE1", "the pre-Vitest lockfile is exactly the pinned TO digest",
   sha256(CURRENT_LOCK) === BRACE_LOCKFILE_SHA256
-    ? [] : ["the working lockfile does not match BRACE_LOCKFILE_SHA256"]);
+    ? [] : ["the pre-Vitest lockfile does not match BRACE_LOCKFILE_SHA256"]);
 
 accept("BRACE2", "the exact brace-expansion 1.1.18 to 1.1.21 transition",
   checkLockfile(withJsdom(), APPROVED_LOCK, CURRENT_LOCK, sha256));
@@ -393,6 +423,98 @@ accept("BRACE15", "an unchanged post-merge main tree still passes", [
   ...checkLockfile(withJsdom(), CURRENT_LOCK, CURRENT_LOCK, sha256)
 ]);
 
+/* ------------------------------------------------------------------ *
+   VITEST0-VITEST12: the one-time Vitest 3 to 4 security transition
+   (DEPENDENCY-SECURITY-REMEDIATION-1, issue #65).
+
+   FROM is the pre-Vitest tree read above; TO is the working tree. Four files
+   move as one unit, so the cases are built as whole (base, current) maps.
+ * ------------------------------------------------------------------ */
+const VITEST_PATHS = Object.keys(VITEST_TRANSITION);
+const VITEST_FROM = Object.fromEntries(VITEST_PATHS.map(
+  (path) => [path, readFileSync(PRE_VITEST_ROOT + "/" + path, "utf8")]));
+const VITEST_TO = Object.fromEntries(VITEST_PATHS.map(
+  (path) => [path, readFileSync(path, "utf8")]));
+const vitestWith = (overrides) => ({ ...VITEST_TO, ...overrides });
+const vitestManifest = (path, mutate) => {
+  const manifest = JSON.parse(VITEST_TO[path]);
+  mutate(manifest);
+  return JSON.stringify(manifest, null, 2) + "\n";
+};
+const vitestLock = (mutate) => {
+  const lock = JSON.parse(VITEST_TO["package-lock.json"]);
+  mutate(lock);
+  return JSON.stringify(lock, null, 2) + "\n";
+};
+const vitestVerdict = (base, current) => {
+  const verdict = vitestTransitionVerdict(base, current, sha256);
+  return verdict === null ? ["the transition did not apply"] : verdict;
+};
+
+accept("VITEST0", "the pre-Vitest fixtures reproduce every pinned FROM digest",
+  VITEST_PATHS.filter((path) => sha256(VITEST_FROM[path]) !== VITEST_TRANSITION[path].from)
+    .map((path) => path + " does not match its FROM pin"));
+
+accept("VITEST1", "the working tree is exactly every pinned TO digest",
+  VITEST_PATHS.filter((path) => sha256(VITEST_TO[path]) !== VITEST_TRANSITION[path].to)
+    .map((path) => path + " does not match its TO pin"));
+
+accept("VITEST2", "the exact four-file Vitest transition",
+  vitestVerdict(VITEST_FROM, VITEST_TO));
+
+refuse("VITEST3", "the manifests move but the lockfile does not",
+  vitestVerdict(VITEST_FROM, vitestWith({ "package-lock.json": VITEST_FROM["package-lock.json"] })));
+
+refuse("VITEST4", "the lockfile moves but one manifest does not",
+  vitestVerdict(VITEST_FROM, vitestWith({ "services/api/package.json": VITEST_FROM["services/api/package.json"] })));
+
+refuse("VITEST5", "a manifest moved to a different Vitest specification",
+  vitestVerdict(VITEST_FROM, vitestWith({
+    "apps/web/package.json": vitestManifest("apps/web/package.json", (m) => { m.devDependencies.vitest = "^5.0.3"; })
+  })));
+
+refuse("VITEST6", "the exact transition PLUS an unrelated manifest edit",
+  vitestVerdict(VITEST_FROM, vitestWith({
+    "apps/web/package.json": vitestManifest("apps/web/package.json", (m) => { m.dependencies.react = "^19.9.9"; })
+  })));
+
+refuse("VITEST7", "the exact transition PLUS an unrelated lockfile package",
+  vitestVerdict(VITEST_FROM, vitestWith({
+    "package-lock.json": vitestLock((lock) => {
+      lock.packages["node_modules/left-pad"] = { version: "1.3.0", dev: true };
+    })
+  })));
+
+refuse("VITEST8", "tinypool reintroduced into the approved lockfile",
+  vitestVerdict(VITEST_FROM, vitestWith({
+    "package-lock.json": vitestLock((lock) => {
+      lock.packages["node_modules/tinypool"] = { version: "1.1.1", dev: true };
+    })
+  })));
+
+refuse("VITEST9", "a transition manifest deleted",
+  vitestVerdict(VITEST_FROM, vitestWith({ "packages/shared-types/package.json": null })));
+
+accept("VITEST10", "the transition does not APPLY to a base that is not the FROM tree",
+  vitestTransitionVerdict(VITEST_TO, vitestWith({
+    "package-lock.json": VITEST_TO["package-lock.json"] + "\n"
+  }), sha256) === null &&
+  vitestTransitionVerdict({ ...VITEST_FROM, "package-lock.json": APPROVED_LOCK }, VITEST_TO, sha256) === null
+    ? [] : ["the Vitest transition applies to a base it does not cover"]);
+
+accept("VITEST11", "no delta at all is not judged by the transition",
+  vitestTransitionVerdict(VITEST_FROM, { ...VITEST_FROM }, sha256) === null
+    ? [] : ["an unchanged FROM tree is judged as a transition"]);
+
+accept("VITEST12", "the earlier security authorizations stay spent against the Vitest base",
+  securityLockfileVerdict(CURRENT_LOCK, VITEST_TO["package-lock.json"], sha256) === null &&
+  braceLockfileVerdict(CURRENT_LOCK, VITEST_TO["package-lock.json"], sha256) === null &&
+  VITEST_TRANSITION["package-lock.json"].from === BRACE_LOCKFILE_SHA256 &&
+  VITEST_PATHS.every((path) => /^[0-9a-f]{64}$/.test(VITEST_TRANSITION[path].from) &&
+    /^[0-9a-f]{64}$/.test(VITEST_TRANSITION[path].to) &&
+    VITEST_TRANSITION[path].from !== VITEST_TRANSITION[path].to)
+    ? [] : ["the Vitest transition is not chained to, and distinct from, the brace-expansion result"]);
+
 /* P: the pin is a real value. */
 accept("P", "the approved lockfile pin is a well-formed sha256",
   /^[0-9a-f]{64}$/.test(AUTHORIZED_LOCKFILE_SHA256) ? [] : ["the pin is not a sha256"]);
@@ -433,14 +555,14 @@ echo "--- live wrapper cases, in isolated git repositories ---"
 # measured against.
 # ------------------------------------------------------------
 LIVE_ROOT="$(mktemp -d)"
-trap 'rm -rf "$LIVE_ROOT"' EXIT
+trap 'rm -rf "$LIVE_ROOT" "$PRE_VITEST_ROOT"' EXIT
 
-APPROVED_MANIFEST="$ROOT/apps/web/package.json"
-# The working lockfile carries the brace-expansion patch. Every fixture written
+APPROVED_MANIFEST="$PRE_VITEST_ROOT/apps/web/package.json"
+# The pre-Vitest lockfile carries the brace-expansion patch. Every fixture written
 # before that patch reads APPROVED_LOCKFILE as the jsdom- and js-yaml-approved
 # file, so it is DERIVED with the brace-expansion record put back to 1.1.18 and
 # asserted against that transition's own FROM pin.
-CURRENT_LOCKFILE="$ROOT/package-lock.json"
+CURRENT_LOCKFILE="$PRE_VITEST_ROOT/package-lock.json"
 APPROVED_LOCKFILE="$LIVE_ROOT/approved-lockfile.json"
 node --input-type=module -e '
   import { createHash } from "node:crypto";
@@ -627,8 +749,8 @@ live_repo() {
   cp "$ROOT/package.json" "$repo/package.json"
   cp "$BASE_MANIFEST" "$repo/apps/web/package.json"
   cp "$BASE_LOCKFILE" "$repo/package-lock.json"
-  cp "$ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
-  cp "$ROOT/services/api/package.json" "$repo/services/api/package.json"
+  cp "$PRE_VITEST_ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
+  cp "$PRE_VITEST_ROOT/services/api/package.json" "$repo/services/api/package.json"
   cp "$ROOT/scripts/lib/authorized-dependency.sh" "$repo/scripts/lib/"
   cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$repo/scripts/lib/"
 
@@ -725,8 +847,8 @@ mkdir -p "$REPO/apps/web" "$REPO/packages/shared-types" "$REPO/services/api" "$R
 cp "$ROOT/package.json" "$REPO/package.json"
 cp "$APPROVED_MANIFEST" "$REPO/apps/web/package.json"
 cp "$APPROVED_LOCKFILE" "$REPO/package-lock.json"
-cp "$ROOT/packages/shared-types/package.json" "$REPO/packages/shared-types/package.json"
-cp "$ROOT/services/api/package.json" "$REPO/services/api/package.json"
+cp "$PRE_VITEST_ROOT/packages/shared-types/package.json" "$REPO/packages/shared-types/package.json"
+cp "$PRE_VITEST_ROOT/services/api/package.json" "$REPO/services/api/package.json"
 cp "$ROOT/scripts/lib/authorized-dependency.sh" "$REPO/scripts/lib/"
 cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$REPO/scripts/lib/"
 git -C "$REPO" init -q
@@ -855,8 +977,8 @@ security_repo() {
   cp "$APPROVED_MANIFEST" "$repo/apps/web/package.json"
   # The base lockfile: pre-js-yaml unless a case names another.
   cp "${2:-$PRE_PATCH_LOCKFILE}" "$repo/package-lock.json"
-  cp "$ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
-  cp "$ROOT/services/api/package.json" "$repo/services/api/package.json"
+  cp "$PRE_VITEST_ROOT/packages/shared-types/package.json" "$repo/packages/shared-types/package.json"
+  cp "$PRE_VITEST_ROOT/services/api/package.json" "$repo/services/api/package.json"
   cp "$ROOT/scripts/lib/authorized-dependency.sh" "$repo/scripts/lib/"
   cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$repo/scripts/lib/"
 
@@ -894,8 +1016,8 @@ mkdir -p "$REPO/apps/web" "$REPO/packages/shared-types" "$REPO/services/api" "$R
 cp "$ROOT/package.json" "$REPO/package.json"
 cp "$APPROVED_MANIFEST" "$REPO/apps/web/package.json"
 cp "$APPROVED_LOCKFILE" "$REPO/package-lock.json"
-cp "$ROOT/packages/shared-types/package.json" "$REPO/packages/shared-types/package.json"
-cp "$ROOT/services/api/package.json" "$REPO/services/api/package.json"
+cp "$PRE_VITEST_ROOT/packages/shared-types/package.json" "$REPO/packages/shared-types/package.json"
+cp "$PRE_VITEST_ROOT/services/api/package.json" "$REPO/services/api/package.json"
 cp "$ROOT/scripts/lib/authorized-dependency.sh" "$REPO/scripts/lib/"
 cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$REPO/scripts/lib/"
 git -C "$REPO" init -q
@@ -948,6 +1070,61 @@ node -e 'const f="'"$REPO"'/package-lock.json";const fs=require("fs");const d=JS
 live_commit "$REPO"
 live_case 21b REFUSED "a later lockfile change once 1.1.21 is in the base" "$(live_run "$REPO")"
 
+# ------------------------------------------------------------
+# TESTS 22-25 - the one-time Vitest transition, live (issue #65). The base is
+# main after the brace-expansion patch merged — the pre-Vitest tree — and the
+# change is the working tree's four files.
+# ------------------------------------------------------------
+vitest_apply() {
+  cp "$ROOT/package-lock.json" "$1/package-lock.json"
+  cp "$ROOT/apps/web/package.json" "$1/apps/web/package.json"
+  cp "$ROOT/packages/shared-types/package.json" "$1/packages/shared-types/package.json"
+  cp "$ROOT/services/api/package.json" "$1/services/api/package.json"
+}
+
+# TEST 22 - the exact transition, DIRTY and then COMMITTED.
+REPO="$(security_repo t22a "$CURRENT_LOCKFILE")"
+vitest_apply "$REPO"
+live_case 22a PASS "the exact Vitest security transition, uncommitted" "$(live_run "$REPO")"
+
+REPO="$(security_repo t22b "$CURRENT_LOCKFILE")"
+vitest_apply "$REPO"
+live_commit "$REPO"
+live_case 22b PASS "the exact Vitest security transition, COMMITTED" "$(live_run "$REPO")"
+
+# TEST 23 - the manifests without their lockfile.
+REPO="$(security_repo t23 "$CURRENT_LOCKFILE")"
+vitest_apply "$REPO"
+cp "$CURRENT_LOCKFILE" "$REPO/package-lock.json"
+live_commit "$REPO"
+live_case 23 REFUSED "the Vitest manifests without the approved lockfile" "$(live_run "$REPO")"
+
+# TEST 24 - the exact transition PLUS a root manifest edit, outside its set.
+REPO="$(security_repo t24 "$CURRENT_LOCKFILE")"
+vitest_apply "$REPO"
+node -e 'const f="'"$REPO"'/package.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.overrides={tinypool:"^2.2.0"};fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 24 REFUSED "the Vitest transition alongside a root manifest change" "$(live_run "$REPO")"
+
+# TEST 25 - the base ALREADY carries Vitest 4: unchanged passes, reuse is refused.
+REPO="$LIVE_ROOT/t25"
+mkdir -p "$REPO/apps/web" "$REPO/packages/shared-types" "$REPO/services/api" "$REPO/scripts/lib"
+cp "$ROOT/package.json" "$REPO/package.json"
+vitest_apply "$REPO"
+cp "$ROOT/scripts/lib/authorized-dependency.sh" "$REPO/scripts/lib/"
+cp "$ROOT/scripts/lib/authorized-dependency-policy.mjs" "$REPO/scripts/lib/"
+git -C "$REPO" init -q
+git -C "$REPO" config user.email "policy@test.invalid"
+git -C "$REPO" config user.name "Dependency Policy Test"
+git -C "$REPO" add -A
+git -C "$REPO" commit -q -m "main after the Vitest transition merged"
+git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+git -C "$REPO" checkout -q -b feature
+live_case 25a PASS "an unchanged tree after the Vitest transition merged" "$(live_run "$REPO")"
+node -e 'const f="'"$REPO"'/services/api/package.json";const fs=require("fs");const d=JSON.parse(fs.readFileSync(f,"utf8"));d.devDependencies.vitest="^5.0.3";fs.writeFileSync(f,JSON.stringify(d,null,2)+"\n");'
+live_commit "$REPO"
+live_case 25b REFUSED "a later manifest change once Vitest 4 is in the base" "$(live_run "$REPO")"
+
 echo ""
 echo "PASS: the live wrapper resolves a trusted base and holds after commit"
 
@@ -986,6 +1163,10 @@ echo ""
 echo "A third, equally narrow one covers brace-expansion 1.1.18"
 echo "to 1.1.21 (tlp-delivery-first-2026-10-02), starting from"
 echo "the js-yaml result and pinned at both ends the same way."
+echo ""
+echo "A fourth covers Vitest ^3.0.5 to ^4.1.11 and source-map-js"
+echo "1.2.2 (issue #65): three manifests and the lockfile, moved"
+echo "as one unit, every file pinned at both ends by SHA-256."
 echo ""
 echo "The authorization is an ADDITION against that base, so it"
 echo "spends itself: once Mission 2 merges, jsdom is in the base"
