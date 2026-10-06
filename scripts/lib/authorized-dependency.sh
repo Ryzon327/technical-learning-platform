@@ -121,7 +121,9 @@ authorized_dependency_check() {
       AUTHORIZED_MANIFEST,
       checkAuthorizedManifest,
       checkUnauthorizedManifest,
-      checkLockfile
+      checkLockfile,
+      VITEST_TRANSITION,
+      vitestTransitionVerdict
     } from "./scripts/lib/authorized-dependency-policy.mjs";
 
     const base = process.env.AUTHORIZED_BASE;
@@ -209,7 +211,25 @@ authorized_dependency_check() {
     const baseManifest =
       baseManifestText === null ? {} : JSON.parse(baseManifestText);
 
+    /*
+      The one-time Vitest transition moves four files as a unit, so it is
+      judged over all four BEFORE the per-file checks. When it applies, its
+      verdict replaces theirs for those four paths and nothing else; when it
+      does not (`null`), every path falls through to the ordinary policy.
+    */
+    const transitionPaths = Object.keys(VITEST_TRANSITION);
+    const transitionBase = {};
+    const transitionCurrent = {};
+    for (const path of transitionPaths) {
+      transitionBase[path] = atBase(path);
+      transitionCurrent[path] = existsSync(path) ? readFileSync(path, "utf8") : null;
+    }
+    const vitest = vitestTransitionVerdict(transitionBase, transitionCurrent, sha256);
+    if (vitest !== null) problems.push(...vitest);
+
     for (const path of paths) {
+      if (vitest !== null && transitionPaths.includes(path)) continue;
+
       const baseText = atBase(path);
       const exists = existsSync(path);
 
