@@ -156,6 +156,9 @@ function countingProvider(
 let logs: string[] = [];
 
 beforeEach(() => {
+  // Vitest 4's restoreAllMocks no longer clears vi.fn() call history, so
+  // "never called" assertions need an explicit per-test clear.
+  vi.clearAllMocks();
   logs = [];
   vi.spyOn(console, "log").mockImplementation((line: unknown) => {
     logs.push(String(line));
