@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import {
   CURRICULUM_SEARCH_FILTERABLE_CONTENT_TYPES,
   buildCurriculumFallbackGuidance,
@@ -264,6 +264,50 @@ export function CurriculumSearchView() {
   const [noteError, setNoteError] = useState("");
 
   /**
+   * SEARCH-INTERACTION-REPAIR-1 — focus continuity.
+   *
+   * Controls that start a search are never natively `disabled` while it runs:
+   * a browser blurs a focused control the moment it becomes disabled, which
+   * dropped keyboard focus to <body>. They carry `aria-disabled` instead and
+   * their handlers ignore activation until the search settles.
+   *
+   * Some activated controls legitimately disappear or become disabled once the
+   * new state renders — the original-query action, the fallback clear button,
+   * a clear-all with nothing left to clear, or the whole filter group when
+   * search becomes unavailable. The control that held focus is remembered, and
+   * once it can no longer hold focus, focus moves to the query input: it is
+   * always rendered, and it is where the next search begins.
+   */
+  const queryInputRef = useRef<HTMLInputElement>(null);
+  const activatedControl = useRef<HTMLElement | null>(null);
+
+  function rememberFocusedControl(event: SyntheticEvent<HTMLElement>): void {
+    if (document.activeElement === event.currentTarget) {
+      activatedControl.current = event.currentTarget;
+    }
+  }
+
+  useEffect(() => {
+    const control = activatedControl.current;
+    if (control === null) return;
+
+    // A control removed mid-search (the fallback clear suggestion goes as soon
+    // as no filter is active) is handled at once; otherwise wait for the result.
+    const unfocusable = !control.isConnected || control.matches(":disabled");
+    if (searching && !unfocusable) return;
+    activatedControl.current = null;
+
+    // Never take focus from somewhere the learner has since moved it.
+    const focused = document.activeElement;
+    const focusLost =
+      focused === null || focused === document.body || focused === control;
+
+    if (focusLost && unfocusable) {
+      queryInputRef.current?.focus();
+    }
+  });
+
+  /**
    * The selection is passed in rather than read from state, so a filter change
    * always searches with the selection the learner just made.
    */
@@ -332,7 +376,14 @@ export function CurriculumSearchView() {
     setSearching(false);
   }
 
-  function toggleContentType(contentType: CurriculumSearchContentType): void {
+  function toggleContentType(
+    contentType: CurriculumSearchContentType,
+    event: SyntheticEvent<HTMLElement>
+  ): void {
+    // `aria-disabled` while searching: the controlled checkbox snaps back.
+    if (searching) return;
+    rememberFocusedControl(event);
+
     const next = contentTypes.includes(contentType)
       ? contentTypes.filter((entry) => entry !== contentType)
       : [...contentTypes, contentType];
@@ -341,7 +392,10 @@ export function CurriculumSearchView() {
     void runSearch(next);
   }
 
-  function clearFilters(): void {
+  function clearFilters(event: SyntheticEvent<HTMLElement>): void {
+    if (searching || contentTypes.length === 0) return;
+    rememberFocusedControl(event);
+
     setContentTypes([]);
     void runSearch([]);
   }
@@ -350,6 +404,10 @@ export function CurriculumSearchView() {
   function facetCount(
     contentType: CurriculumSearchContentType
   ): number | undefined {
+    // The recovered results are hidden while the learner views their original
+    // query, so their counts would describe results that are not displayed. The
+    // original query's own facets were never returned, so none is shown.
+    if (showingOriginal) return undefined;
     return results?.facets?.contentTypes.find(
       (facet) => facet.value === contentType
     )?.count;
@@ -402,6 +460,7 @@ export function CurriculumSearchView() {
         <label htmlFor="curriculum-search-query">What are you looking for?</label>
         <input
           id="curriculum-search-query"
+          ref={queryInputRef}
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -427,8 +486,8 @@ export function CurriculumSearchView() {
                   id={inputId}
                   type="checkbox"
                   checked={contentTypes.includes(contentType)}
-                  disabled={searching}
-                  onChange={() => toggleContentType(contentType)}
+                  aria-disabled={searching}
+                  onChange={(event) => toggleContentType(contentType, event)}
                 />
                 {/* Label text carries the type and, where known, how many of
                     THESE results are of that type. Never a platform total. */}
@@ -445,7 +504,8 @@ export function CurriculumSearchView() {
           <button
             type="button"
             onClick={clearFilters}
-            disabled={searching || contentTypes.length === 0}
+            aria-disabled={searching}
+            disabled={!searching && contentTypes.length === 0}
           >
             {describeCurriculumSearchClearFilters()}
           </button>
@@ -481,7 +541,13 @@ export function CurriculumSearchView() {
         !error &&
         !showingOriginal && (
           <p>
-            <button type="button" onClick={() => setShowingOriginal(true)}>
+            <button
+              type="button"
+              onClick={(event) => {
+                rememberFocusedControl(event);
+                setShowingOriginal(true);
+              }}
+            >
               {describeCurriculumOriginalQueryAction(
                 results.queryAdjustment.originalQuery
               )}
@@ -560,7 +626,11 @@ export function CurriculumSearchView() {
                 {suggestion.action === "clear_filters" ? (
                   // The learner chooses. This reuses the existing clear-all
                   // control rather than relaxing the filter automatically.
-                  <button type="button" onClick={clearFilters} disabled={searching}>
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    aria-disabled={searching}
+                  >
                     {suggestion.label}
                   </button>
                 ) : (
