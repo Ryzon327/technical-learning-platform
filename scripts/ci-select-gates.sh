@@ -102,6 +102,19 @@ set -euo pipefail
 # per-mission gate, and additionally from the four presentation and contract
 # modules its assertions read — a gate that checks a file it is not woken for
 # is a gate that passes forever.
+#
+# ## The AI Tutor foundation (GitHub issue #62)
+#
+# `verify-ai-tutor-foundation.sh` is mapped from the seven shared contracts, the
+# two API modules, the AI Gateway Feature Registry it reads approval state from,
+# its build document and itself. Its own section 15 ASSERTS that mapping by
+# invoking this selector, so a rule deleted here fails the gate rather than
+# silently muting it.
+#
+# The `services/api/src/ai-tutor*` glob is deliberately distinct from
+# `services/api/src/search-*` and `services/api/src/lab-*`: the Tutor modules
+# share no prefix with any existing engine, so no other gate's mapping and no
+# `verify-autonomy.sh` selector-regression case is affected.
 RULES=$(
   cat <<'RULES'
 services/api/src/cors*|scripts/verify-api-cors.sh
@@ -440,6 +453,12 @@ scripts/migration-baseline.sha256|scripts/verify-wpj.sh
 scripts/migration-baseline.sha256|scripts/verify-wpi.sh
 scripts/migration-baseline.sha256|scripts/verify-wpj15.sh
 scripts/migration-baseline.sha256|scripts/verify-wph.sh
+packages/shared-types/src/ai-tutor-*|scripts/verify-ai-tutor-foundation.sh
+packages/shared-types/src/index.ts|scripts/verify-ai-tutor-foundation.sh
+services/api/src/ai-tutor*|scripts/verify-ai-tutor-foundation.sh
+docs/Feature-Registry/AI-Gateway/*|scripts/verify-ai-tutor-foundation.sh
+docs/Engineering-OS/BUILD_WAVE_10_BATCH_1_AI_TUTOR_FOUNDATION.md|scripts/verify-ai-tutor-foundation.sh
+scripts/verify-ai-tutor-foundation.sh|scripts/verify-ai-tutor-foundation.sh
 .claude/settings.json|scripts/verify-autonomy.sh
 CLAUDE.md|scripts/verify-autonomy.sh
 docs/Engineering-OS/Engineering-OS.md|scripts/verify-autonomy.sh
