@@ -167,10 +167,24 @@ echo "PASS:  2. the Search dependency graph is acyclic and its decisions are rec
 # necessarily CONTAINS the phrases it forbids, and a scan that judged its own
 # search pattern would fail on the day it was written.
 SELF="scripts/verify-search-engine-completion.sh"
-UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
-  docs/ scripts/ 2>/dev/null \
-  | grep -vF "$SELF" \
+
+# Documentation is scanned as prose because any matching claim there is
+# learner/operator-visible repository truth. Verifier source is code, though:
+# verifier implementations must necessarily contain the forbidden phrases they
+# enforce. For scripts, inspect only output-producing lines so rule definitions
+# such as `for claimed in 'HUMAN UAT PASSED' ...` are not misclassified as
+# product claims while an actual emitted claim still fails closed.
+DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
+  docs/ 2>/dev/null \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
+
+SCRIPT_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
+  scripts/ 2>/dev/null \
+  | grep -vF "$SELF" \
+  | grep -E '(^|:)[[:space:]]*(echo|printf)[[:space:]]' \
+  | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
+
+UAT_CLAIMS="$(printf '%s\n%s\n' "$DOC_UAT_CLAIMS" "$SCRIPT_UAT_CLAIMS" | sed '/^$/d')"
 [ -z "$UAT_CLAIMS" ] \
   || fail "the repository claims a Human UAT or product acceptance that has not occurred:
 $UAT_CLAIMS"
