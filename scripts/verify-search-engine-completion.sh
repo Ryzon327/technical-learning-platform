@@ -179,14 +179,22 @@ DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product 
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
 
 # Match shell output commands at the start of a reported source line or after
-# ordinary shell control separators. This catches inline forms such as
-# `if condition; then echo "HUMAN UAT PASSED"; fi` without treating a quoted
-# rule definition such as `CLAIM='echo HUMAN UAT PASSED'` as execution.
-SCRIPT_OUTPUT_CMD_RE='(:|[;|&()]|then[[:space:]]+|do[[:space:]]+)[[:space:]]*(echo|printf)[[:space:]]'
+# ordinary shell control separators. Shell grouping braces are command
+# boundaries too, so both `{ echo ...; }` and `fn() { echo ...; }` must
+# remain fail-closed. Quoted rule definitions are still not execution.
+SCRIPT_OUTPUT_CMD_RE='(:|[;|&(){}]|then[[:space:]]+|do[[:space:]]+)[[:space:]]*(echo|printf)[[:space:]]'
 
 INLINE_OUTPUT_PROBE='scripts/__probe__.sh:1:if true; then echo "HUMAN UAT PASSED"; fi'
 [[ "$INLINE_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
   || fail "script acceptance-claim detector misses inline output commands"
+
+FUNCTION_OUTPUT_PROBE='scripts/__probe__.sh:1:report() { echo "HUMAN UAT PASSED"; }; report'
+[[ "$FUNCTION_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
+  || fail "script acceptance-claim detector misses function-body output commands"
+
+BRACE_OUTPUT_PROBE='scripts/__probe__.sh:1:{ echo "HUMAN UAT PASSED"; }'
+[[ "$BRACE_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
+  || fail "script acceptance-claim detector misses brace-group output commands"
 
 RULE_DEFINITION_PROBE="scripts/__probe__.sh:1:CLAIM='echo HUMAN UAT PASSED'"
 [[ ! "$RULE_DEFINITION_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
