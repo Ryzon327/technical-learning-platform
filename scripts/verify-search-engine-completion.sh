@@ -178,10 +178,24 @@ DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product 
   docs/ 2>/dev/null \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
 
+# Match shell output commands at the start of a reported source line or after
+# ordinary shell control separators. This catches inline forms such as
+# `if condition; then echo "HUMAN UAT PASSED"; fi` without treating a quoted
+# rule definition such as `CLAIM='echo HUMAN UAT PASSED'` as execution.
+SCRIPT_OUTPUT_CMD_RE='(:|[;|&()]|then[[:space:]]+|do[[:space:]]+)[[:space:]]*(echo|printf)[[:space:]]'
+
+INLINE_OUTPUT_PROBE='scripts/__probe__.sh:1:if true; then echo "HUMAN UAT PASSED"; fi'
+[[ "$INLINE_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
+  || fail "script acceptance-claim detector misses inline output commands"
+
+RULE_DEFINITION_PROBE="scripts/__probe__.sh:1:CLAIM='echo HUMAN UAT PASSED'"
+[[ ! "$RULE_DEFINITION_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
+  || fail "script acceptance-claim detector misclassifies a quoted rule definition"
+
 SCRIPT_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
   scripts/ 2>/dev/null \
   | grep -vF "$SELF" \
-  | grep -E '(^|:)[[:space:]]*(echo|printf)[[:space:]]' \
+  | grep -E "$SCRIPT_OUTPUT_CMD_RE" \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
 
 UAT_CLAIMS="$(printf '%s\n%s\n' "$DOC_UAT_CLAIMS" "$SCRIPT_UAT_CLAIMS" | sed '/^$/d')"
