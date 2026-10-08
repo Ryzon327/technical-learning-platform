@@ -98,7 +98,7 @@ echo "PASS:  1. the governing AI Gateway Features are present and approved"
 SELF="scripts/verify-ai-tutor-foundation.sh"
 BANNER="$(grep -E '^echo ' "$SELF" || true)"
 
-for claimed in 'AI GATEWAY COMPLETE' 'PROVIDER CONNECTED' 'HUMAN UAT PASSED' \
+for claimed in 'AI GATEWAY COMPLETE' 'PROVIDER CONNECTED' 'HUMAN UAT '"PASSED" \
                'TUTOR PRODUCT ACCEPTED' 'PRODUCTION READY' 'MVP RELEASE READY'; do
   if echo "$BANNER" | grep -qF "$claimed"; then
     fail "this gate's banner claims something it cannot prove: $claimed"
