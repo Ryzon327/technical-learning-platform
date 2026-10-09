@@ -171,50 +171,49 @@ SELF="scripts/verify-search-engine-completion.sh"
 # Documentation is scanned as prose because any matching claim there is
 # learner/operator-visible repository truth. Verifier source is code, though:
 # verifier implementations must necessarily contain the forbidden phrases they
-# enforce. For scripts, inspect only output-producing lines so rule definitions
-# such as `for claimed in 'HUMAN UAT PASSED' ...` are not misclassified as
-# product claims while an actual emitted claim still fails closed.
+# enforce. Scripts are therefore scanned FAIL-CLOSED: every physical line that
+# carries a claim is reported, whatever emits it — echo, printf, a `cat`
+# heredoc, a variable expanded later, tee, a file write. The ONLY exemption is
+# the known banner rule-definition shape, `for claimed in '<literal>' ...; do`
+# immediately followed by `if echo "$BANNER" | grep -qF "$claimed"; then`,
+# which tests a banner for a claim rather than making one.
 DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
   docs/ 2>/dev/null \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
 
-# Match shell output commands at the start of a reported source line or after
-# ordinary shell control separators. Shell grouping braces are command
-# boundaries too, so both `{ echo ...; }` and `fn() { echo ...; }` must
-# remain fail-closed. Quoted rule definitions are still not execution.
-SCRIPT_OUTPUT_CMD_RE='(:|[;|&(){}]|then[[:space:]]+|do[[:space:]]+)[[:space:]]*(echo|printf)[[:space:]]'
-
-INLINE_OUTPUT_PROBE='scripts/__probe__.sh:1:if true; then echo "HUMAN UAT PASSED"; fi'
-[[ "$INLINE_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
-  || fail "script acceptance-claim detector misses inline output commands"
-
-FUNCTION_OUTPUT_PROBE='scripts/__probe__.sh:1:report() { echo "HUMAN UAT PASSED"; }; report'
-[[ "$FUNCTION_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
-  || fail "script acceptance-claim detector misses function-body output commands"
-
-BRACE_OUTPUT_PROBE='scripts/__probe__.sh:1:{ echo "HUMAN UAT PASSED"; }'
-[[ "$BRACE_OUTPUT_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
-  || fail "script acceptance-claim detector misses brace-group output commands"
-
-RULE_DEFINITION_PROBE="scripts/__probe__.sh:1:CLAIM='echo HUMAN UAT PASSED'"
-[[ ! "$RULE_DEFINITION_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
-  || fail "script acceptance-claim detector misclassifies a quoted rule definition"
-
-# Scripts are judged by LOGICAL COMMAND, not by physical line. A claim and the
-# command that emits it may sit on different lines — a backslash-continued
-# `printf '%s\n' \` with the claim on the next line, or a quoted string that
-# spans a newline — and a per-line scan would see the claim with no output
-# command beside it and silently drop it. This joins continuation lines,
-# multi-line quoted strings and heredoc bodies into one record reported as
-# `file:start-line:command`, and strips `#` comments outside quotes so an
-# apostrophe in a comment cannot open a phantom string. A multi-line
-# `for claimed in '...' \` rule list still joins into a command with no output
-# command in it, so rule definitions stay excluded.
+# Recognising that rule definition needs LOGICAL commands, not physical lines:
+# the `for claimed in` list may be backslash-continued across lines. This joins
+# continuation lines, multi-line quoted strings and heredoc bodies into one
+# logical command, and strips `#` comments outside quotes so an apostrophe in a
+# comment cannot open a phantom string. It then reports every PHYSICAL line of
+# every logical command as `file:line:raw-line`, except the lines of an exempt
+# rule definition. Claim and denial matching then run per physical line, so a
+# denial word on one line of a heredoc cannot mask a claim on another.
 SCRIPT_LOGICAL_COMMANDS_AWK='
-function flush() { if (buf != "") print src ":" start ":" buf; buf = "" }
-FNR == 1 { flush(); q = ""; hd = "" }
+function emit(   k) { for (k = 1; k <= nraw; k++) print src ":" nums[k] ":" raws[k] }
+function emit_pending(   k) {
+  for (k = 1; k <= npend; k++) print psrc ":" pnums[k] ":" praws[k]
+  npend = 0
+}
+function hold(   k) {
+  for (k = 1; k <= nraw; k++) { pnums[k] = nums[k]; praws[k] = raws[k] }
+  npend = nraw; psrc = src
+}
+function flush() {
+  if (nraw == 0) return
+  if (npend > 0) { if (buf ~ RULE_BODY_RE) npend = 0; else emit_pending() }
+  if (buf ~ RULE_HEAD_RE) hold(); else emit()
+  buf = ""; nraw = 0
+}
+BEGIN {
+  RULE_HEAD_RE = "^[ \t]*for[ \t]+claimed[ \t]+in([ \t]+(" sq "[^" sq "]*" sq "|\"[^\"]*\")+)+[ \t]*;[ \t]*do[ \t]*$"
+  RULE_BODY_RE = "^[ \t]*if[ \t]+echo[ \t]+\"[$]BANNER\"[ \t]*[|][ \t]*grep[ \t]+-qF[ \t]+\"[$]claimed\"[ \t]*;[ \t]*then[ \t]*$"
+}
+FNR == 1 { flush(); emit_pending(); q = ""; hd = "" }
 {
   line = $0
+  if (nraw == 0) src = FILENAME
+  nraw++; raws[nraw] = line; nums[nraw] = FNR
   if (hd != "") {
     buf = buf " " line
     t = line
@@ -222,7 +221,6 @@ FNR == 1 { flush(); q = ""; hd = "" }
     if (t == hd) { hd = ""; flush() }
     next
   }
-  if (buf == "") { start = FNR; src = FILENAME }
   out = ""; cont = 0; n = length(line)
   for (i = 1; i <= n; i++) {
     c = substr(line, i, 1)
@@ -247,14 +245,51 @@ FNR == 1 { flush(); q = ""; hd = "" }
   }
   flush()
 }
-END { flush() }'
+END { flush(); emit_pending() }'
 
 script_uat_claims() {
   awk -v sq="'" "$SCRIPT_LOGICAL_COMMANDS_AWK" "$@" \
     | grep -iE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
-    | grep -E "$SCRIPT_OUTPUT_CMD_RE" \
     | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true
 }
+
+INLINE_OUTPUT_PROBE='if true; then echo "HUMAN UAT PASSED"; fi'
+[ -n "$(script_uat_claims - <<<"$INLINE_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses inline output commands"
+
+FUNCTION_OUTPUT_PROBE='report() { echo "HUMAN UAT PASSED"; }; report'
+[ -n "$(script_uat_claims - <<<"$FUNCTION_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses function-body output commands"
+
+BRACE_OUTPUT_PROBE='{ echo "HUMAN UAT PASSED"; }'
+[ -n "$(script_uat_claims - <<<"$BRACE_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses brace-group output commands"
+
+CAT_HEREDOC_PROBE="$(printf '%s\n' 'cat <<EOF' 'HUMAN UAT PASSED' 'EOF')"
+[ -n "$(script_uat_claims - <<<"$CAT_HEREDOC_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim emitted through a cat heredoc"
+
+QUOTED_HEREDOC_PROBE="$(printf '%s\n' "cat <<-'EOF'" '	Search is not deployed yet.' \
+  '	HUMAN UAT PASSED' '	EOF')"
+[ -n "$(script_uat_claims - <<<"$QUOTED_HEREDOC_PROBE")" ] \
+  || fail "script acceptance-claim detector lets a denial word on one heredoc line mask a claim on another"
+
+VARIABLE_CLAIM_PROBE="$(printf '%s\n' "STATUS='HUMAN UAT PASSED'" 'echo "$STATUS"')"
+[ -n "$(script_uat_claims - <<<"$VARIABLE_CLAIM_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim stored in a variable then emitted"
+
+TEE_CLAIM_PROBE="$(printf '%s\n' "tee status.txt <<< 'MVP release ready'")"
+[ -n "$(script_uat_claims - <<<"$TEE_CLAIM_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim emitted by a non-echo command"
+
+RULE_DEFINITION_PROBE="$(printf '%s\n' "for claimed in 'SEARCH PRODUCT ACCEPTED' 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '    fail "banner claims: $claimed"' '  fi' 'done')"
+[ -z "$(script_uat_claims - <<<"$RULE_DEFINITION_PROBE")" ] \
+  || fail "script acceptance-claim detector misclassifies a banner rule definition"
+
+RULE_LIST_EMITTED_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" '  echo "$claimed"' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_LIST_EMITTED_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a claim list whose loop emits the claim"
 
 MULTILINE_PRINTF_PROBE="$(printf '%s\n' "printf '%s\\\\n' \\" '  "HUMAN UAT PASSED"')"
 [ -n "$(script_uat_claims - <<<"$MULTILINE_PRINTF_PROBE")" ] \
@@ -268,13 +303,18 @@ MULTILINE_ECHO_CONT_PROBE="$(printf '%s\n' 'echo \' "  'HUMAN UAT PASSED'")"
 [ -n "$(script_uat_claims - <<<"$MULTILINE_ECHO_CONT_PROBE")" ] \
   || fail "script acceptance-claim detector misses a backslash-continued echo claim"
 
-MULTILINE_RULE_PROBE="$(printf '%s\n' "for claimed in 'PRODUCTION READY' \\" \
-  "               'HUMAN UAT PASSED'; do" '  echo "$claimed"' 'done')"
+MULTILINE_RULE_PROBE="$(printf '%s\n' "for claimed in 'PRODUCTION READY' 'HUMAN UAT '\"PASSED\" \\" \
+  "               'MVP RELEASE READY'; do" '  if echo "$BANNER" | grep -qF "$claimed"; then' \
+  '    fail "banner claims: $claimed"' '  fi' 'done')"
 [ -z "$(script_uat_claims - <<<"$MULTILINE_RULE_PROBE")" ] \
   || fail "script acceptance-claim detector misclassifies a multi-line rule definition"
 
-COMMENT_APOSTROPHE_PROBE="$(printf '%s\n' "# the gate's rule list" 'echo "checking"' \
-  "CLAIM='HUMAN UAT PASSED'")"
+# An apostrophe in a comment must not open a phantom string: if it did, the
+# comment would swallow the rule definition below it and the exemption would
+# no longer recognise it.
+COMMENT_APOSTROPHE_PROBE="$(printf '%s\n' "# the gate's rule list" \
+  "for claimed in 'HUMAN UAT PASSED'; do" '  if echo "$BANNER" | grep -qF "$claimed"; then' \
+  '    fail "banner claims: $claimed"' '  fi' 'done')"
 [ -z "$(script_uat_claims - <<<"$COMMENT_APOSTROPHE_PROBE")" ] \
   || fail "script acceptance-claim detector lets a comment apostrophe join unrelated lines"
 
