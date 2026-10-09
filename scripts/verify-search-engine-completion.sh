@@ -174,9 +174,10 @@ SELF="scripts/verify-search-engine-completion.sh"
 # enforce. Scripts are therefore scanned FAIL-CLOSED: every physical line that
 # carries a claim is reported, whatever emits it — echo, printf, a `cat`
 # heredoc, a variable expanded later, tee, a file write. The ONLY exemption is
-# the known banner rule-definition shape, `for claimed in '<literal>' ...; do`
-# immediately followed by `if echo "$BANNER" | grep -qF "$claimed"; then`,
-# which tests a banner for a claim rather than making one.
+# the complete known banner rule-definition shape, `for claimed in '<literal>'
+# ...; do`, `if echo "$BANNER" | grep -qF "$claimed"; then`, `fail "...$claimed"`,
+# `fi`, `done` and nothing else, which tests a banner for a claim rather than
+# making one.
 DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
   docs/ 2>/dev/null \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
@@ -193,21 +194,35 @@ SCRIPT_LOGICAL_COMMANDS_AWK='
 function emit(   k) { for (k = 1; k <= nraw; k++) print src ":" nums[k] ":" raws[k] }
 function emit_pending(   k) {
   for (k = 1; k <= npend; k++) print psrc ":" pnums[k] ":" praws[k]
-  npend = 0
+  npend = 0; pstate = 0
 }
 function hold(   k) {
-  for (k = 1; k <= nraw; k++) { pnums[k] = nums[k]; praws[k] = raws[k] }
-  npend = nraw; psrc = src
+  if (npend == 0) psrc = src
+  for (k = 1; k <= nraw; k++) { npend++; pnums[npend] = nums[k]; praws[npend] = raws[k] }
 }
+# The claim-bearing loop header is held, not dropped, until the WHOLE rule
+# definition has been validated: header, banner check, fail, fi, done, with
+# nothing else in the loop body. Any deviation releases the held lines.
 function flush() {
   if (nraw == 0) return
-  if (npend > 0) { if (buf ~ RULE_BODY_RE) npend = 0; else emit_pending() }
-  if (buf ~ RULE_HEAD_RE) hold(); else emit()
+  if (npend > 0) {
+    if (pstate == 1 && buf ~ RULE_BODY_RE) { hold(); pstate = 2; buf = ""; nraw = 0; return }
+    if (pstate == 2 && buf ~ RULE_FAIL_RE) { emit(); pstate = 3; buf = ""; nraw = 0; return }
+    if (pstate == 3 && buf ~ RULE_FI_RE) { emit(); pstate = 4; buf = ""; nraw = 0; return }
+    if (pstate == 4 && buf ~ RULE_DONE_RE) {
+      emit(); npend = 0; pstate = 0; buf = ""; nraw = 0; return
+    }
+    emit_pending()
+  }
+  if (buf ~ RULE_HEAD_RE) { hold(); pstate = 1 } else emit()
   buf = ""; nraw = 0
 }
 BEGIN {
   RULE_HEAD_RE = "^[ \t]*for[ \t]+claimed[ \t]+in([ \t]+(" sq "[^" sq "]*" sq "|\"[^\"]*\")+)+[ \t]*;[ \t]*do[ \t]*$"
   RULE_BODY_RE = "^[ \t]*if[ \t]+echo[ \t]+\"[$]BANNER\"[ \t]*[|][ \t]*grep[ \t]+-qF[ \t]+\"[$]claimed\"[ \t]*;[ \t]*then[ \t]*$"
+  RULE_FAIL_RE = "^[ \t]*fail[ \t]+\"[^\"$`\\\\]*[$]claimed\"[ \t]*$"
+  RULE_FI_RE = "^[ \t]*fi[ \t]*$"
+  RULE_DONE_RE = "^[ \t]*done[ \t]*$"
 }
 FNR == 1 { flush(); emit_pending(); q = ""; hd = "" }
 {
@@ -290,6 +305,17 @@ RULE_DEFINITION_PROBE="$(printf '%s\n' "for claimed in 'SEARCH PRODUCT ACCEPTED'
 RULE_LIST_EMITTED_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" '  echo "$claimed"' 'done')"
 [ -n "$(script_uat_claims - <<<"$RULE_LIST_EMITTED_PROBE")" ] \
   || fail "script acceptance-claim detector exempts a claim list whose loop emits the claim"
+
+RULE_CHECK_THEN_EMIT_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '  echo "$claimed"' '  fi' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_CHECK_THEN_EMIT_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a banner check whose loop body emits the claim"
+
+RULE_EMIT_AFTER_FI_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '    fail "banner claims: $claimed"' '  fi' \
+  '  echo "$claimed"' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_EMIT_AFTER_FI_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a rule definition whose loop emits the claim after the check"
 
 MULTILINE_PRINTF_PROBE="$(printf '%s\n' "printf '%s\\\\n' \\" '  "HUMAN UAT PASSED"')"
 [ -n "$(script_uat_claims - <<<"$MULTILINE_PRINTF_PROBE")" ] \
