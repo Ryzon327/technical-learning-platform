@@ -200,11 +200,87 @@ RULE_DEFINITION_PROBE="scripts/__probe__.sh:1:CLAIM='echo HUMAN UAT PASSED'"
 [[ ! "$RULE_DEFINITION_PROBE" =~ $SCRIPT_OUTPUT_CMD_RE ]] \
   || fail "script acceptance-claim detector misclassifies a quoted rule definition"
 
-SCRIPT_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
-  scripts/ 2>/dev/null \
-  | grep -vF "$SELF" \
-  | grep -E "$SCRIPT_OUTPUT_CMD_RE" \
-  | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
+# Scripts are judged by LOGICAL COMMAND, not by physical line. A claim and the
+# command that emits it may sit on different lines — a backslash-continued
+# `printf '%s\n' \` with the claim on the next line, or a quoted string that
+# spans a newline — and a per-line scan would see the claim with no output
+# command beside it and silently drop it. This joins continuation lines,
+# multi-line quoted strings and heredoc bodies into one record reported as
+# `file:start-line:command`, and strips `#` comments outside quotes so an
+# apostrophe in a comment cannot open a phantom string. A multi-line
+# `for claimed in '...' \` rule list still joins into a command with no output
+# command in it, so rule definitions stay excluded.
+SCRIPT_LOGICAL_COMMANDS_AWK='
+function flush() { if (buf != "") print src ":" start ":" buf; buf = "" }
+FNR == 1 { flush(); q = ""; hd = "" }
+{
+  line = $0
+  if (hd != "") {
+    buf = buf " " line
+    t = line
+    if (hdtab) sub(/^\t+/, "", t)
+    if (t == hd) { hd = ""; flush() }
+    next
+  }
+  if (buf == "") { start = FNR; src = FILENAME }
+  out = ""; cont = 0; n = length(line)
+  for (i = 1; i <= n; i++) {
+    c = substr(line, i, 1)
+    if (q == sq) { out = out c; if (c == sq) q = ""; continue }
+    if (c == "\\") {
+      if (i == n) { cont = 1; break }
+      out = out c substr(line, i + 1, 1); i++; continue
+    }
+    if (q == "\"") { out = out c; if (c == "\"") q = ""; continue }
+    if (c == sq || c == "\"") { q = c; out = out c; continue }
+    if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[[:space:];|&(]/)) break
+    out = out c
+  }
+  buf = (buf == "" ? out : buf " " out)
+  if (q != "" || cont) next
+  if (match(out, /<<-?[ \t]*/) && substr(out, RSTART - 1, 1) != "<" \
+      && substr(out, RSTART + RLENGTH, 1) != "<") {
+    hdtab = (substr(out, RSTART + 2, 1) == "-")
+    rest = substr(out, RSTART + RLENGTH)
+    gsub(/["\047]/, "", rest)
+    if (match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { hd = substr(rest, 1, RLENGTH); next }
+  }
+  flush()
+}
+END { flush() }'
+
+script_uat_claims() {
+  awk -v sq="'" "$SCRIPT_LOGICAL_COMMANDS_AWK" "$@" \
+    | grep -iE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
+    | grep -E "$SCRIPT_OUTPUT_CMD_RE" \
+    | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true
+}
+
+MULTILINE_PRINTF_PROBE="$(printf '%s\n' "printf '%s\\\\n' \\" '  "HUMAN UAT PASSED"')"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_PRINTF_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a backslash-continued printf claim"
+
+MULTILINE_ECHO_PROBE="$(printf '%s\n' 'echo "Search status:' 'HUMAN UAT PASSED"')"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_ECHO_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim inside a multi-line echo string"
+
+MULTILINE_ECHO_CONT_PROBE="$(printf '%s\n' 'echo \' "  'HUMAN UAT PASSED'")"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_ECHO_CONT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a backslash-continued echo claim"
+
+MULTILINE_RULE_PROBE="$(printf '%s\n' "for claimed in 'PRODUCTION READY' \\" \
+  "               'HUMAN UAT PASSED'; do" '  echo "$claimed"' 'done')"
+[ -z "$(script_uat_claims - <<<"$MULTILINE_RULE_PROBE")" ] \
+  || fail "script acceptance-claim detector misclassifies a multi-line rule definition"
+
+COMMENT_APOSTROPHE_PROBE="$(printf '%s\n' "# the gate's rule list" 'echo "checking"' \
+  "CLAIM='HUMAN UAT PASSED'")"
+[ -z "$(script_uat_claims - <<<"$COMMENT_APOSTROPHE_PROBE")" ] \
+  || fail "script acceptance-claim detector lets a comment apostrophe join unrelated lines"
+
+SCRIPT_UAT_FILES="$(find scripts -type f ! -path "$SELF" | LC_ALL=C sort)"
+# shellcheck disable=SC2086
+SCRIPT_UAT_CLAIMS="$(script_uat_claims $SCRIPT_UAT_FILES)"
 
 UAT_CLAIMS="$(printf '%s\n%s\n' "$DOC_UAT_CLAIMS" "$SCRIPT_UAT_CLAIMS" | sed '/^$/d')"
 [ -z "$UAT_CLAIMS" ] \
