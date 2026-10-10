@@ -873,12 +873,27 @@ of the runbook), which would be disposition **B** under
 
 ### 4.4 No rendered or browser accessibility proof — **OPEN, CARRIED FORWARD**
 
-`apps/web` has one jsdom test, `mission-instruction-focus.test.tsx`; `jsdom` is a
-Founder-authorized dev-only dependency. That test does not cover Search.
+`apps/web` has two jsdom tests; `jsdom` is a Founder-authorized dev-only
+dependency. `mission-instruction-focus.test.tsx` does not cover Search.
 `scripts/verify-wave7.sh` still prohibits `@testing-library/react` and
-`jest-axe`. No Search surface is exercised in a DOM. Ordered/unordered list semantics, headings, labels, the
-separately grouped note results, and the fallback and navigation states are all
-**source-structural** claims. Focus order, keyboard behaviour, screen-reader
+`jest-axe`.
+
+**SEARCH-INTERACTION-REPAIR-1** added `apps/web/src/search/curriculum-search-focus.test.tsx`,
+which mounts the real `CurriculumSearchView` in jsdom with its services mocked
+and reads `document.activeElement` and rendered text. It covers only: focus
+staying on a filter checkbox or Clear filters while a search loads (the controls
+are `aria-disabled`, not natively `disabled`, during the request); focus moving to
+the query input when the activated control is removed or disabled (fallback
+clear, Clear filters with nothing left to clear, the filter group in the
+unavailable state, the original-query action); and the absence of facet counts
+beside the original-query empty state. Real-key focus for the same transitions
+was captured in headless Chromium against the fixture harness (factory-local
+evidence, not committed). That is mechanical evidence about where focus lands,
+not about whether the movement is usable.
+
+Everything else is unchanged: ordered/unordered list semantics, headings,
+labels, the separately grouped note results, and the fallback and navigation
+states are **source-structural** claims. Focus visibility, screen-reader
 output, zoom/reflow and contrast are unobserved and belong to rendered review.
 
 ### 4.5 Search result destinations are not routed by the SPA — **OPEN, RECORDED SINCE BATCH 2**

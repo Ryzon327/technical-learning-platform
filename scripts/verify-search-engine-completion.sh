@@ -167,10 +167,188 @@ echo "PASS:  2. the Search dependency graph is acyclic and its decisions are rec
 # necessarily CONTAINS the phrases it forbids, and a scan that judged its own
 # search pattern would fail on the day it was written.
 SELF="scripts/verify-search-engine-completion.sh"
-UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
-  docs/ scripts/ 2>/dev/null \
-  | grep -vF "$SELF" \
+
+# Documentation is scanned as prose because any matching claim there is
+# learner/operator-visible repository truth. Verifier source is code, though:
+# verifier implementations must necessarily contain the forbidden phrases they
+# enforce. Scripts are therefore scanned FAIL-CLOSED: every physical line that
+# carries a claim is reported, whatever emits it — echo, printf, a `cat`
+# heredoc, a variable expanded later, tee, a file write. The ONLY exemption is
+# the complete known banner rule-definition shape, `for claimed in '<literal>'
+# ...; do`, `if echo "$BANNER" | grep -qF "$claimed"; then`, `fail "...$claimed"`,
+# `fi`, `done` and nothing else, which tests a banner for a claim rather than
+# making one.
+DOC_UAT_CLAIMS="$(grep -rniE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
+  docs/ 2>/dev/null \
   | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true)"
+
+# Recognising that rule definition needs LOGICAL commands, not physical lines:
+# the `for claimed in` list may be backslash-continued across lines. This joins
+# continuation lines, multi-line quoted strings and heredoc bodies into one
+# logical command, and strips `#` comments outside quotes so an apostrophe in a
+# comment cannot open a phantom string. It then reports every PHYSICAL line of
+# every logical command as `file:line:raw-line`, except the lines of an exempt
+# rule definition. Claim and denial matching then run per physical line, so a
+# denial word on one line of a heredoc cannot mask a claim on another.
+SCRIPT_LOGICAL_COMMANDS_AWK='
+function emit(   k) { for (k = 1; k <= nraw; k++) print src ":" nums[k] ":" raws[k] }
+function emit_pending(   k) {
+  for (k = 1; k <= npend; k++) print psrc ":" pnums[k] ":" praws[k]
+  npend = 0; pstate = 0
+}
+function hold(   k) {
+  if (npend == 0) psrc = src
+  for (k = 1; k <= nraw; k++) { npend++; pnums[npend] = nums[k]; praws[npend] = raws[k] }
+}
+# The claim-bearing loop header is held, not dropped, until the WHOLE rule
+# definition has been validated: header, banner check, fail, fi, done, with
+# nothing else in the loop body. Any deviation releases the held lines.
+function flush() {
+  if (nraw == 0) return
+  if (npend > 0) {
+    if (pstate == 1 && buf ~ RULE_BODY_RE) { hold(); pstate = 2; buf = ""; nraw = 0; return }
+    if (pstate == 2 && buf ~ RULE_FAIL_RE) { emit(); pstate = 3; buf = ""; nraw = 0; return }
+    if (pstate == 3 && buf ~ RULE_FI_RE) { emit(); pstate = 4; buf = ""; nraw = 0; return }
+    if (pstate == 4 && buf ~ RULE_DONE_RE) {
+      emit(); npend = 0; pstate = 0; buf = ""; nraw = 0; return
+    }
+    emit_pending()
+  }
+  if (buf ~ RULE_HEAD_RE) { hold(); pstate = 1 } else emit()
+  buf = ""; nraw = 0
+}
+BEGIN {
+  RULE_HEAD_RE = "^[ \t]*for[ \t]+claimed[ \t]+in([ \t]+(" sq "[^" sq "]*" sq "|\"[^\"]*\")+)+[ \t]*;[ \t]*do[ \t]*$"
+  RULE_BODY_RE = "^[ \t]*if[ \t]+echo[ \t]+\"[$]BANNER\"[ \t]*[|][ \t]*grep[ \t]+-qF[ \t]+\"[$]claimed\"[ \t]*;[ \t]*then[ \t]*$"
+  RULE_FAIL_RE = "^[ \t]*fail[ \t]+\"[^\"$`\\\\]*[$]claimed\"[ \t]*$"
+  RULE_FI_RE = "^[ \t]*fi[ \t]*$"
+  RULE_DONE_RE = "^[ \t]*done[ \t]*$"
+}
+FNR == 1 { flush(); emit_pending(); q = ""; hd = "" }
+{
+  line = $0
+  if (nraw == 0) src = FILENAME
+  nraw++; raws[nraw] = line; nums[nraw] = FNR
+  if (hd != "") {
+    buf = buf " " line
+    t = line
+    if (hdtab) sub(/^\t+/, "", t)
+    if (t == hd) { hd = ""; flush() }
+    next
+  }
+  out = ""; cont = 0; n = length(line)
+  for (i = 1; i <= n; i++) {
+    c = substr(line, i, 1)
+    if (q == sq) { out = out c; if (c == sq) q = ""; continue }
+    if (c == "\\") {
+      if (i == n) { cont = 1; break }
+      out = out c substr(line, i + 1, 1); i++; continue
+    }
+    if (q == "\"") { out = out c; if (c == "\"") q = ""; continue }
+    if (c == sq || c == "\"") { q = c; out = out c; continue }
+    if (c == "#" && (i == 1 || substr(line, i - 1, 1) ~ /[[:space:];|&(]/)) break
+    out = out c
+  }
+  buf = (buf == "" ? out : buf " " out)
+  if (q != "" || cont) next
+  if (match(out, /<<-?[ \t]*/) && substr(out, RSTART - 1, 1) != "<" \
+      && substr(out, RSTART + RLENGTH, 1) != "<") {
+    hdtab = (substr(out, RSTART + 2, 1) == "-")
+    rest = substr(out, RSTART + RLENGTH)
+    gsub(/["\047]/, "", rest)
+    if (match(rest, /^[A-Za-z_][A-Za-z0-9_]*/)) { hd = substr(rest, 1, RLENGTH); next }
+  }
+  flush()
+}
+END { flush(); emit_pending() }'
+
+script_uat_claims() {
+  awk -v sq="'" "$SCRIPT_LOGICAL_COMMANDS_AWK" "$@" \
+    | grep -iE 'human uat (has )?(passed|complete)|search product accepted|final product acceptance (is )?granted|mvp release ready' \
+    | grep -viE 'never|not |no |remains|unperformed|pending|until|before|must' || true
+}
+
+INLINE_OUTPUT_PROBE='if true; then echo "HUMAN UAT PASSED"; fi'
+[ -n "$(script_uat_claims - <<<"$INLINE_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses inline output commands"
+
+FUNCTION_OUTPUT_PROBE='report() { echo "HUMAN UAT PASSED"; }; report'
+[ -n "$(script_uat_claims - <<<"$FUNCTION_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses function-body output commands"
+
+BRACE_OUTPUT_PROBE='{ echo "HUMAN UAT PASSED"; }'
+[ -n "$(script_uat_claims - <<<"$BRACE_OUTPUT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses brace-group output commands"
+
+CAT_HEREDOC_PROBE="$(printf '%s\n' 'cat <<EOF' 'HUMAN UAT PASSED' 'EOF')"
+[ -n "$(script_uat_claims - <<<"$CAT_HEREDOC_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim emitted through a cat heredoc"
+
+QUOTED_HEREDOC_PROBE="$(printf '%s\n' "cat <<-'EOF'" '	Search is not deployed yet.' \
+  '	HUMAN UAT PASSED' '	EOF')"
+[ -n "$(script_uat_claims - <<<"$QUOTED_HEREDOC_PROBE")" ] \
+  || fail "script acceptance-claim detector lets a denial word on one heredoc line mask a claim on another"
+
+VARIABLE_CLAIM_PROBE="$(printf '%s\n' "STATUS='HUMAN UAT PASSED'" 'echo "$STATUS"')"
+[ -n "$(script_uat_claims - <<<"$VARIABLE_CLAIM_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim stored in a variable then emitted"
+
+TEE_CLAIM_PROBE="$(printf '%s\n' "tee status.txt <<< 'MVP release ready'")"
+[ -n "$(script_uat_claims - <<<"$TEE_CLAIM_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim emitted by a non-echo command"
+
+RULE_DEFINITION_PROBE="$(printf '%s\n' "for claimed in 'SEARCH PRODUCT ACCEPTED' 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '    fail "banner claims: $claimed"' '  fi' 'done')"
+[ -z "$(script_uat_claims - <<<"$RULE_DEFINITION_PROBE")" ] \
+  || fail "script acceptance-claim detector misclassifies a banner rule definition"
+
+RULE_LIST_EMITTED_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" '  echo "$claimed"' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_LIST_EMITTED_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a claim list whose loop emits the claim"
+
+RULE_CHECK_THEN_EMIT_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '  echo "$claimed"' '  fi' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_CHECK_THEN_EMIT_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a banner check whose loop body emits the claim"
+
+RULE_EMIT_AFTER_FI_PROBE="$(printf '%s\n' "for claimed in 'HUMAN UAT PASSED'; do" \
+  '  if echo "$BANNER" | grep -qF "$claimed"; then' '    fail "banner claims: $claimed"' '  fi' \
+  '  echo "$claimed"' 'done')"
+[ -n "$(script_uat_claims - <<<"$RULE_EMIT_AFTER_FI_PROBE")" ] \
+  || fail "script acceptance-claim detector exempts a rule definition whose loop emits the claim after the check"
+
+MULTILINE_PRINTF_PROBE="$(printf '%s\n' "printf '%s\\\\n' \\" '  "HUMAN UAT PASSED"')"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_PRINTF_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a backslash-continued printf claim"
+
+MULTILINE_ECHO_PROBE="$(printf '%s\n' 'echo "Search status:' 'HUMAN UAT PASSED"')"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_ECHO_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a claim inside a multi-line echo string"
+
+MULTILINE_ECHO_CONT_PROBE="$(printf '%s\n' 'echo \' "  'HUMAN UAT PASSED'")"
+[ -n "$(script_uat_claims - <<<"$MULTILINE_ECHO_CONT_PROBE")" ] \
+  || fail "script acceptance-claim detector misses a backslash-continued echo claim"
+
+MULTILINE_RULE_PROBE="$(printf '%s\n' "for claimed in 'PRODUCTION READY' 'HUMAN UAT '\"PASSED\" \\" \
+  "               'MVP RELEASE READY'; do" '  if echo "$BANNER" | grep -qF "$claimed"; then' \
+  '    fail "banner claims: $claimed"' '  fi' 'done')"
+[ -z "$(script_uat_claims - <<<"$MULTILINE_RULE_PROBE")" ] \
+  || fail "script acceptance-claim detector misclassifies a multi-line rule definition"
+
+# An apostrophe in a comment must not open a phantom string: if it did, the
+# comment would swallow the rule definition below it and the exemption would
+# no longer recognise it.
+COMMENT_APOSTROPHE_PROBE="$(printf '%s\n' "# the gate's rule list" \
+  "for claimed in 'HUMAN UAT PASSED'; do" '  if echo "$BANNER" | grep -qF "$claimed"; then' \
+  '    fail "banner claims: $claimed"' '  fi' 'done')"
+[ -z "$(script_uat_claims - <<<"$COMMENT_APOSTROPHE_PROBE")" ] \
+  || fail "script acceptance-claim detector lets a comment apostrophe join unrelated lines"
+
+SCRIPT_UAT_FILES="$(find scripts -type f ! -path "$SELF" | LC_ALL=C sort)"
+# shellcheck disable=SC2086
+SCRIPT_UAT_CLAIMS="$(script_uat_claims $SCRIPT_UAT_FILES)"
+
+UAT_CLAIMS="$(printf '%s\n%s\n' "$DOC_UAT_CLAIMS" "$SCRIPT_UAT_CLAIMS" | sed '/^$/d')"
 [ -z "$UAT_CLAIMS" ] \
   || fail "the repository claims a Human UAT or product acceptance that has not occurred:
 $UAT_CLAIMS"
