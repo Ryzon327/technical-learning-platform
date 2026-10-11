@@ -440,6 +440,90 @@ describe("WP-005 equivalence", () => {
       { value: "Virtual Local Area Network", matchKind: "alias" }
     ]);
   });
+
+  /**
+   * Review finding: "Virtual LANs?" produced Virtual LANs?, Virtual LANs, VLAN
+   * and Virtual LAN and hit the cap before Virtual Local Area Network. Every
+   * punctuated plural and possessive form of every expanded member of every
+   * three-member group must still carry every member of its group in full.
+   */
+  it("a punctuated plural or possessive expanded name still reaches every member", () => {
+    const fullGroups = groups.filter(
+      (group) => group.members.length === MAX_SEARCH_ALIAS_GROUP_MEMBERS
+    );
+    expect(fullGroups.length).toBeGreaterThan(0);
+    let checked = 0;
+
+    for (const group of fullGroups) {
+      for (const expanded of group.members.filter((member) => !isAcronymTerm(member))) {
+        for (const query of [
+          `${expanded}s?`,
+          `${expanded}'s?`,
+          `${expanded}’s!`,
+          `${expanded}s!`,
+          `${expanded}?`
+        ]) {
+          const variants = buildAliasAwareQueryVariants(query);
+          const values = variants.map((variant) => keyOf(variant.value));
+
+          expect(variants[0], query).toEqual({ value: query, matchKind: "exact" });
+          expect(variants.length).toBeLessThanOrEqual(MAX_CURRICULUM_QUERY_VARIANTS);
+          for (const member of group.members) {
+            expect(values, `${query} -> ${member}`).toContain(keyOf(member));
+            expect(
+              variants.some((variant) => variantOccursIn(member, variant)),
+              `${query} -> ${member}`
+            ).toBe(true);
+          }
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThanOrEqual(10);
+  });
+
+  it("gives the learner's dropped-ending slot to the member, keeping its match kind", () => {
+    expect(buildAliasAwareQueryVariants("Virtual LANs?")).toEqual([
+      { value: "Virtual LANs?", matchKind: "exact" },
+      { value: "Virtual LAN", matchKind: "normalized" },
+      { value: "VLAN", matchKind: "alias" },
+      { value: "Virtual Local Area Network", matchKind: "alias" }
+    ]);
+    expect(buildAliasAwareQueryVariants("Virtual Local Area Network's?")).toEqual([
+      { value: "Virtual Local Area Network's?", matchKind: "exact" },
+      { value: "Virtual Local Area Network", matchKind: "normalized" },
+      { value: "VLAN", matchKind: "alias" },
+      { value: "Virtual LAN", matchKind: "alias" }
+    ]);
+  });
+
+  it("nothing a replaced variant matched is lost", () => {
+    const variants = buildAliasAwareQueryVariants("Virtual LANs?");
+    for (const text of [
+      "Configure Virtual LANs on the switch.",
+      "One Virtual LAN per department.",
+      "A Virtual LAN's broadcast domain.",
+      "A Virtual Local Area Network separates traffic.",
+      "Tag each VLAN on the trunk."
+    ]) {
+      expect(variantsFoundIn(text, variants).length, text).toBeGreaterThan(0);
+    }
+  });
+
+  it("an expanded name that already fits keeps SEARCH-005A's variants unchanged", () => {
+    expect(buildAliasAwareQueryVariants("Virtual LANs")).toEqual([
+      { value: "Virtual LANs", matchKind: "exact" },
+      { value: "VLAN", matchKind: "alias" },
+      { value: "Virtual LAN", matchKind: "alias" },
+      { value: "Virtual Local Area Network", matchKind: "alias" }
+    ]);
+    expect(buildAliasAwareQueryVariants("Address Resolution Protocols?")).toEqual([
+      { value: "Address Resolution Protocols?", matchKind: "exact" },
+      { value: "Address Resolution Protocols", matchKind: "normalized" },
+      { value: "ARP", matchKind: "alias" },
+      { value: "Address Resolution Protocol", matchKind: "alias" }
+    ]);
+  });
 });
 
 describe("WP-005 alias data stays server-side data", () => {

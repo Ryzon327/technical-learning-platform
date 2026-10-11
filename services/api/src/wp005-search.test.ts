@@ -892,6 +892,52 @@ describe("criterion 8: every alias pair resolves both directions, end to end", (
 
     expect(checked).toBeGreaterThanOrEqual(12);
   });
+
+  /**
+   * Review finding: "Virtual LANs?" spent the whole variant cap before reaching
+   * Virtual Local Area Network. Every punctuated plural and possessive form of
+   * every expanded member of every three-member group must still find a step
+   * that names only another member — or only itself.
+   */
+  it("a punctuated plural or possessive expanded name finds every member", async () => {
+    const fullGroups = approvedSearchAliasGroups().filter(
+      (group) => group.members.length === 3
+    );
+    expect(fullGroups.length).toBeGreaterThan(0);
+    let checked = 0;
+
+    for (const group of fullGroups) {
+      for (const expanded of group.members.filter((member) => /\s/.test(member))) {
+        for (const from of [`${expanded}s?`, `${expanded}'s?`, `${expanded}’s!`, `${expanded}s!`]) {
+          for (const to of group.members) {
+            const course = node("fixture-course", "Fixture course");
+            const module = node("fixture-module", "Fixture module", { course_id: course.id });
+            const mission = node("fixture-mission", "Fixture mission", { module_id: module.id });
+            const world: World = {
+              learning_paths: [],
+              courses: [course],
+              learning_modules: [module],
+              missions: [mission],
+              competencies: [],
+              mission_steps: [
+                step(mission, 0, {
+                  type: "concept",
+                  paragraphs: [`This lesson mentions ${to} once.`]
+                })
+              ]
+            };
+
+            vi.resetModules();
+            const { results } = await search(world, { query: from });
+            expect(idsOf(results), `${from} -> ${to}`).toEqual(["fixture-mission"]);
+            checked += 1;
+          }
+        }
+      }
+    }
+
+    expect(checked).toBeGreaterThanOrEqual(24);
+  });
 });
 
 describe("ranking: title matches, then alias matches, then step-body matches", () => {

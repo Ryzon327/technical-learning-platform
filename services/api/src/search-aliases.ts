@@ -225,6 +225,16 @@ function groupWithMember(
  * acronym term ("VLANs" names VLAN): both would become the identical whole-word
  * pattern, so the member would spend a variant slot and match nothing new. That
  * keeps "VLANs?" from exhausting the cap before "Virtual Local Area Network".
+ *
+ * The same holds for an expanded name. "Virtual LANs?" gives SEARCH-005A's
+ * "Virtual LANs?" and "Virtual LANs", which with the three members would
+ * overflow the cap and drop "Virtual Local Area Network". When the members
+ * would not all fit, a variant other than the learner's original that CONTAINS
+ * a missing non-acronym member gives its slot to that member: "Virtual LANs"
+ * becomes "Virtual LAN". Every text the variant matched as a substring also
+ * contains the member, so nothing it found is lost, and the slot keeps the
+ * variant's own match kind, because the member is the learner's own term with
+ * its ending dropped, not an alias of it.
  */
 export function buildAliasAwareQueryVariants(
   query: string,
@@ -241,11 +251,33 @@ export function buildAliasAwareQueryVariants(
     const term = acronymTermOf(variant.value, groups);
     if (term) seen.add(memberKey(term));
   }
+  const missing: string[] = [];
   for (const member of group.members) {
-    if (variants.length >= MAX_CURRICULUM_QUERY_VARIANTS) break;
     const key = memberKey(member);
     if (seen.has(key)) continue;
     seen.add(key);
+    missing.push(member);
+  }
+
+  // Variant 1, the learner's original, is never displaced.
+  for (
+    let index = variants.length - 1;
+    index > 0 && variants.length + missing.length > MAX_CURRICULUM_QUERY_VARIANTS;
+    index -= 1
+  ) {
+    const variant = variants[index];
+    if (!variant || acronymTermOf(variant.value, groups)) continue;
+    const written = memberKey(variant.value);
+    const member = missing.find(
+      (entry) => !isAcronymTerm(entry) && written.includes(memberKey(entry))
+    );
+    if (!member) continue;
+    variants[index] = { value: member, matchKind: variant.matchKind };
+    missing.splice(missing.indexOf(member), 1);
+  }
+
+  for (const member of missing) {
+    if (variants.length >= MAX_CURRICULUM_QUERY_VARIANTS) break;
     variants.push({ value: member, matchKind: "alias" });
   }
   return variants;
