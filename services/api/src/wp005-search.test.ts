@@ -152,7 +152,8 @@ function database(world: World, options: { hostile?: boolean } = {}) {
     from: (table: keyof World) => {
       const record: ReadRecord = { table, select: "", eqs: [] };
       let narrowed: { column: string; values: unknown[] } | undefined;
-      let descending = false;
+      const orders: Array<{ column: string; descending: boolean }> = [];
+      let offset = 0;
       const builder: Record<string, unknown> = {};
       builder.select = (columns: string) => {
         record.select = columns;
@@ -170,9 +171,13 @@ function database(world: World, options: { hostile?: boolean } = {}) {
         narrowed = { column, values };
         return builder;
       };
-      builder.order = (_column: string, order?: { ascending?: boolean }) => {
-        descending = order?.ascending === false;
+      builder.order = (column: string, order?: { ascending?: boolean }) => {
+        orders.push({ column, descending: order?.ascending === false });
         return builder;
+      };
+      builder.range = (from: number, to: number) => {
+        offset = from;
+        return (builder.limit as (value: number) => unknown)(to - from + 1);
       };
       builder.limit = (value: number) => {
         record.limit = value;
@@ -202,11 +207,20 @@ function database(world: World, options: { hostile?: boolean } = {}) {
           const { column, values } = narrowed;
           rows = rows.filter((row) => values.includes(row[column]));
         }
-        if (descending) {
-          rows = [...rows].sort((a, b) => Number(b.version) - Number(a.version));
+        if (orders.length > 0) {
+          rows = [...rows].sort((a, b) => {
+            for (const { column, descending } of orders) {
+              const left = a[column] as string | number;
+              const right = b[column] as string | number;
+              if (left === right) continue;
+              const ascending = left < right ? -1 : 1;
+              return descending ? -ascending : ascending;
+            }
+            return 0;
+          });
         }
 
-        return Promise.resolve({ data: rows.slice(0, value), error: null });
+        return Promise.resolve({ data: rows.slice(offset, offset + value), error: null });
       };
       return builder;
     }
@@ -683,6 +697,98 @@ describe("version resolution for step matches", () => {
 
     // The current version no longer teaches it, so the stale step is not shown.
     expect(results.count).toBe(0);
+  });
+});
+
+describe("retrieval bounds never hide an eligible mission", () => {
+  function boundsWorld(
+    build: (module: Row) => { missions: Row[]; mission_steps: Row[] }
+  ): World {
+    const course = node("c", "Course");
+    const module = node("m", "Module", { course_id: course.id });
+    return {
+      learning_paths: [],
+      courses: [course],
+      learning_modules: [module],
+      competencies: [],
+      ...build(module)
+    };
+  }
+
+  const matchingSteps = (mission: Row, count: number) =>
+    Array.from({ length: count }, (_, position) =>
+      step(mission, position, { type: "concept", paragraphs: ["A host sends ARP here."] })
+    );
+
+  it("many matching steps in one mission do not crowd out another mission", async () => {
+    const world = boundsWorld((module) => {
+      const crowded = node("mission-crowded", "Crowded", { module_id: module.id });
+      const single = node("mission-single", "Single", { module_id: module.id });
+      return {
+        missions: [crowded, single],
+        mission_steps: [...matchingSteps(crowded, 8), ...matchingSteps(single, 1)]
+      };
+    });
+
+    const { results } = await search(world, { query: "ARP", limit: 2 });
+
+    expect(idsOf(results).sort()).toEqual(["mission-crowded", "mission-single"]);
+  });
+
+  it("matches in a stale version do not crowd out current content", async () => {
+    const world = boundsWorld((module) => {
+      const staleV1 = node("mission-stale", "Stale", { module_id: module.id, version: 1 });
+      const current = node("mission-current", "Current", { module_id: module.id });
+      const staleV2 = node("mission-stale", "Stale", { module_id: module.id, version: 2 });
+      return {
+        missions: [staleV1, current, staleV2],
+        mission_steps: [...matchingSteps(staleV1, 8), ...matchingSteps(current, 1)]
+      };
+    });
+
+    const { results } = await search(world, { query: "ARP", limit: 2 });
+
+    expect(idsOf(results)).toEqual(["mission-current"]);
+  });
+
+  it("selects the same missions whatever order rows arrive in beyond the cap", async () => {
+    const build = (reverse: boolean) =>
+      boundsWorld((module) => {
+        const missions = ["mission-1", "mission-2", "mission-3"].map((id) =>
+          node(id, id, { module_id: module.id })
+        );
+        const steps = missions.flatMap((mission) => matchingSteps(mission, 4));
+        return { missions, mission_steps: reverse ? steps.reverse() : steps };
+      });
+
+    const forward = await search(build(false), { query: "ARP", limit: 2 });
+    vi.resetModules();
+    const reversed = await search(build(true), { query: "ARP", limit: 2 });
+
+    expect(idsOf(forward.results)).toHaveLength(2);
+    expect(idsOf(reversed.results)).toEqual(idsOf(forward.results));
+  });
+
+  it("a mission with many versions does not starve another of its version", async () => {
+    const world = boundsWorld((module) => {
+      const versioned = Array.from({ length: 9 }, (_, index) =>
+        node("mission-versioned", "Versioned", { module_id: module.id, version: index + 1 })
+      );
+      const lone = node("mission-lone", "Lone", { module_id: module.id });
+      const latest = versioned[versioned.length - 1] as Row;
+      return {
+        missions: [...versioned, lone],
+        mission_steps: [...matchingSteps(latest, 1), ...matchingSteps(lone, 1)]
+      };
+    });
+
+    const { results } = await search(world, { query: "ARP" });
+
+    expect(idsOf(results).sort()).toEqual(["mission-lone", "mission-versioned"]);
+    for (const location of results.matchLocations ?? []) {
+      expect(location.foundIn).toBe("step");
+      expect(location.trail[0]).toEqual({ kind: "course", title: "Course" });
+    }
   });
 });
 

@@ -126,6 +126,14 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
         return builder;
       };
       builder.order = () => builder;
+      // The WP-005 context reads page with `range`; a page past the end is empty.
+      let offset = 0;
+      let pageSize: number | undefined;
+      builder.range = (from: number, to: number) => {
+        offset = from;
+        pageSize = to - from + 1;
+        return (builder.limit as (value: number) => unknown)(pageSize);
+      };
       builder.limit = (value: number) => {
         if (name === "mission_steps" || narrowed) {
           contextReads.push(name);
@@ -143,8 +151,10 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
                 (candidate as Record<string, unknown>)[narrowed.column]
               ))
         );
+        const page =
+          pageSize === undefined ? rows : rows.slice(offset, offset + pageSize);
         return Promise.resolve(
-          error ? { data: null, error } : { data: rows, error: null }
+          error ? { data: null, error } : { data: page, error: null }
         );
       };
       return builder;

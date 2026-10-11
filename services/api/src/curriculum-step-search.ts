@@ -54,7 +54,10 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *
  * Matching runs in PostgreSQL at query time: escaped `ILIKE` for phrases and a
  * whole-word `~*` pattern for acronyms, over the JSON text fields of published
- * steps, bounded by `limit * 4` rows. At the current content size (two courses,
+ * steps. Steps are read in deterministic pages of `limit * 4` rows until
+ * `limit` distinct missions have a match in their current published version,
+ * or the matches run out, so repeated or stale matches can never crowd out
+ * another mission. At the current content size (two courses,
  * a few hundred steps) a sequential scan is well inside the 500 ms budget, so
  * no index, extension or migration is added. If content grows by orders of
  * magnitude, a trigram or full-text index is the next step and would need its
@@ -178,6 +181,48 @@ export function stepLabelOf(payload: Record<string, unknown>, position: number):
 }
 
 /**
+ * The highest published version, with its published course context, of every
+ * requested mission.
+ *
+ * Every published version row of the requested missions is read, in
+ * deterministic pages, until the rows run out. No cap is shared across
+ * missions, so a mission with many versions can never crowd another out.
+ * Embedded resources are inner joins, so a mission whose module or course is
+ * not readable to this caller is not returned at all.
+ */
+async function readHighestPublishedMissions(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  stableIds: readonly string[]
+): Promise<Map<string, MissionRow>> {
+  const highest = new Map<string, MissionRow>();
+  const pageSize = stableIds.length * 4;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from("missions")
+      .select(
+        "stable_id,version,title,description,publication_state,updated_at,learning_modules!inner(courses!inner(stable_id,title,publication_state))"
+      )
+      .in("stable_id", stableIds)
+      .eq("publication_state", "published")
+      .order("stable_id", { ascending: true })
+      .order("version", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw unavailable();
+    const rows = (data ?? []) as unknown as MissionRow[];
+
+    for (const row of rows) {
+      if (row.publication_state !== "published") continue;
+      if (!stableIds.includes(row.stable_id)) continue;
+      const incumbent = highest.get(row.stable_id);
+      if (!incumbent || row.version > incumbent.version) highest.set(row.stable_id, row);
+    }
+
+    if (rows.length < pageSize) return highest;
+  }
+}
+
+/**
  * Finds published missions whose step text matches, and reads the published
  * course context of every mission involved.
  *
@@ -196,70 +241,86 @@ export async function searchPublishedStepBodies(
     patterns
   );
 
-  const { data: stepData, error: stepError } = await supabase
-    .from("mission_steps")
-    .select(
-      "stable_id,position,step_type,payload,missions!inner(stable_id,version,publication_state)"
-    )
-    .eq("missions.publication_state", "published")
-    .or(stepConditions)
-    .limit(limit * 4);
+  const highest = new Map<string, MissionRow>();
+  const resolved = new Set<string>();
+  const resolve = async (stableIds: readonly string[]) => {
+    const fresh = [...new Set(stableIds)].filter((id) => !resolved.has(id)).sort();
+    if (fresh.length === 0) return;
+    for (const id of fresh) resolved.add(id);
+    for (const [stableId, row] of await readHighestPublishedMissions(supabase, fresh)) {
+      highest.set(stableId, row);
+    }
+  };
+  const isCurrent = (hit: StepBodyHit): boolean => {
+    const row = highest.get(hit.missionStableId);
+    return (
+      row !== undefined &&
+      row.version === hit.missionVersion &&
+      row.learning_modules?.courses?.publication_state === "published"
+    );
+  };
 
-  if (stepError) throw unavailable();
-
-  // Re-check every row the database returned: published owner, a known step
-  // type, and a real match in a searchable field.
+  // Deterministic pages, bounded at the distinct-mission level: reading stops
+  // once `limit` missions have a match in their CURRENT published version, or
+  // when the matches run out. Many matching steps in one mission, or matches in
+  // a stale version, therefore cannot use up the budget of another mission.
+  const pageSize = limit * 4;
   const matched: StepBodyHit[] = [];
-  for (const row of (stepData ?? []) as unknown as StepRow[]) {
-    if (row.missions?.publication_state !== "published") continue;
-    if (!(MISSION_STEP_TYPES as readonly string[]).includes(row.step_type)) continue;
-    if (!row.payload || typeof row.payload !== "object") continue;
+  const eligible = new Set<string>();
+  for (let offset = 0; ; offset += pageSize) {
+    const { data: stepData, error: stepError } = await supabase
+      .from("mission_steps")
+      .select(
+        "stable_id,position,step_type,payload,missions!inner(stable_id,version,publication_state)"
+      )
+      .eq("missions.publication_state", "published")
+      .or(stepConditions)
+      .order("mission_id", { ascending: true })
+      .order("position", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
 
-    const text = stepSearchableText(row.payload);
-    if (!findFirstMatch(text, variants)) continue;
+    if (stepError) throw unavailable();
+    const rows = (stepData ?? []) as unknown as StepRow[];
 
-    matched.push({
-      missionStableId: String(row.missions.stable_id),
-      missionVersion: Number(row.missions.version),
-      stepStableId: String(row.stable_id),
-      position: Number(row.position),
-      stepLabel: stepLabelOf(row.payload, Number(row.position)),
-      text
-    });
+    // Re-check every row the database returned: published owner, a known step
+    // type, and a real match in a searchable field.
+    const pageHits: StepBodyHit[] = [];
+    for (const row of rows) {
+      if (row.missions?.publication_state !== "published") continue;
+      if (!(MISSION_STEP_TYPES as readonly string[]).includes(row.step_type)) continue;
+      if (!row.payload || typeof row.payload !== "object") continue;
+
+      const text = stepSearchableText(row.payload);
+      if (!findFirstMatch(text, variants)) continue;
+
+      pageHits.push({
+        missionStableId: String(row.missions.stable_id),
+        missionVersion: Number(row.missions.version),
+        stepStableId: String(row.stable_id),
+        position: Number(row.position),
+        stepLabel: stepLabelOf(row.payload, Number(row.position)),
+        text
+      });
+    }
+
+    await resolve(pageHits.map((hit) => hit.missionStableId));
+    for (const hit of pageHits) {
+      matched.push(hit);
+      if (isCurrent(hit)) eligible.add(hit.missionStableId);
+    }
+
+    if (eligible.size >= limit || rows.length < pageSize) break;
   }
 
-  const missionStableIds = [
-    ...new Set([...recordMissionStableIds, ...matched.map((hit) => hit.missionStableId)])
-  ].sort();
+  // The course context of every mission found by its own record, for the trail.
+  await resolve(recordMissionStableIds);
 
   const outcome: StepBodySearchOutcome = {
     candidates: [],
     hits: new Map(),
     missions: new Map()
   };
-  if (missionStableIds.length === 0) return outcome;
-
-  // The published course context, and the highest published version, of every
-  // mission involved. Embedded resources are inner joins, so a mission whose
-  // module or course is not readable to this caller is not returned at all.
-  const { data: missionData, error: missionError } = await supabase
-    .from("missions")
-    .select(
-      "stable_id,version,title,description,publication_state,updated_at,learning_modules!inner(courses!inner(stable_id,title,publication_state))"
-    )
-    .in("stable_id", missionStableIds)
-    .eq("publication_state", "published")
-    .order("version", { ascending: false })
-    .limit(missionStableIds.length * 4);
-
-  if (missionError) throw unavailable();
-
-  const highest = new Map<string, MissionRow>();
-  for (const row of (missionData ?? []) as unknown as MissionRow[]) {
-    if (row.publication_state !== "published") continue;
-    const incumbent = highest.get(row.stable_id);
-    if (!incumbent || row.version > incumbent.version) highest.set(row.stable_id, row);
-  }
 
   for (const [stableId, row] of highest) {
     const course = row.learning_modules?.courses;
