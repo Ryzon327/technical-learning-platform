@@ -73,6 +73,17 @@ function step(mission: Row, position: number, payload: Row): Row {
 }
 
 /**
+ * What PostgreSQL's `->>` returns for a non-string jsonb value: its jsonb text
+ * output. Arrays are written `["a", "b"]`, each string escaped as
+ * `escape_json` does (`\"`, `\\`, `\n`, `\t`, `\u0001` …), which for strings
+ * is exactly `JSON.stringify`.
+ */
+function jsonbText(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(jsonbText).join(", ")}]`;
+  return JSON.stringify(value);
+}
+
+/**
  * The stand-in database.
  *
  * `hostile` turns OFF both the modelled policies and every publication `eq`
@@ -98,7 +109,7 @@ function database(world: World, options: { hostile?: boolean } = {}) {
     if (column.startsWith("payload->>")) {
       const value = (row.payload as Row | undefined)?.[column.slice("payload->>".length)];
       if (value === undefined || value === null) return "";
-      return typeof value === "string" ? value : JSON.stringify(value);
+      return typeof value === "string" ? value : jsonbText(value);
     }
     const value = row[column];
     return typeof value === "string" ? value : "";
@@ -726,6 +737,101 @@ describe("version resolution for step matches", () => {
     const { results } = await search(world, { query: "quasarword" });
 
     // The current version no longer teaches it, so the stale step is not shown.
+    expect(results.count).toBe(0);
+  });
+});
+
+describe("step retrieval sees the decoded text the re-check matches", () => {
+  /**
+   * `payload->>paragraphs` is the array's JSON text, so the stand-in database
+   * matches against `jsonbText`: quotes, backslashes and control characters
+   * arrive escaped, and no field is whitespace-compacted. The re-check matches
+   * decoded, compacted text. Retrieval must never be the narrower of the two.
+   */
+  function oneStepWorld(payload: Row): World {
+    const course = node("c", "Course");
+    const module = node("m", "Module", { course_id: course.id });
+    const mission = node("mission-escaped", "Escaped", { module_id: module.id });
+    return {
+      learning_paths: [],
+      courses: [course],
+      learning_modules: [module],
+      missions: [mission],
+      competencies: [],
+      mission_steps: [step(mission, 0, { type: "concept", ...payload })]
+    };
+  }
+
+  const cases: Array<{ name: string; payload: Row; query: string; match: string }> = [
+    {
+      name: "a quoted phrase in a paragraph",
+      payload: {
+        paragraphs: [
+          "This is the habit worth taking away, and it costs nothing to apply: after any result, ask what else would have produced exactly the same thing. If the answer is \"quite a lot\", you have not learned as much as it feels like you have."
+        ]
+      },
+      query: 'answer is "quite a lot"',
+      match: 'answer is "quite a lot"'
+    },
+    {
+      name: "a backslash path in a paragraph",
+      payload: { paragraphs: ["Open C:\\Windows\\System32 and look around."] },
+      query: "C:\\Windows\\System32",
+      match: "C:\\Windows\\System32"
+    },
+    {
+      name: "a phrase across a newline and tab in a paragraph",
+      payload: { paragraphs: ["Each hop reads the\n\trouting   table before forwarding."] },
+      query: "reads the routing table",
+      match: "reads the routing table"
+    },
+    {
+      name: "a phrase across repeated spaces in a string field",
+      payload: { title: "Reading   the\nforwarding decision" },
+      query: "the forwarding decision",
+      match: "the forwarding decision"
+    },
+    {
+      name: "a phrase spanning two paragraphs",
+      payload: { paragraphs: ["The host checks the cache.", "Then it broadcasts."] },
+      query: "cache. Then it",
+      match: "cache. Then it"
+    },
+    {
+      name: "an acronym straight after a newline in a paragraph",
+      payload: { paragraphs: ["The host is stuck.\nARP resolves the neighbour."] },
+      query: "ARP",
+      match: "ARP"
+    }
+  ];
+
+  for (const { name, payload, query, match } of cases) {
+    it(`finds ${name}`, async () => {
+      const { results } = await search(oneStepWorld(payload), { query });
+
+      expect(idsOf(results)).toEqual(["mission-escaped"]);
+      expect(results.matchLocations?.[0]).toMatchObject({
+        foundIn: "step",
+        snippet: { match }
+      });
+    });
+  }
+
+  it("still never returns a step whose decoded text does not match", async () => {
+    const { results } = await search(
+      oneStepWorld({ paragraphs: ['The answer is "quite" and then a lot more.'] }),
+      { query: 'answer is "quite a lot"' }
+    );
+
+    expect(results.count).toBe(0);
+  });
+
+  it("an acronym after an escape is still whole-word in the re-check", async () => {
+    const { results } = await search(
+      oneStepWorld({ paragraphs: ["Keep it\nsharp."] }),
+      { query: "ARP" }
+    );
+
     expect(results.count).toBe(0);
   });
 });

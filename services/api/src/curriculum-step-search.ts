@@ -4,6 +4,7 @@ import {
   buildCurriculumMatchSnippet,
   compactCurriculumMatchText,
   decideFromAuthoritativeRead,
+  escapeCurriculumSearchPattern,
   type CurriculumMatchTrailEntry,
   type CurriculumQueryVariant,
   type CurriculumSearchCandidate,
@@ -12,8 +13,8 @@ import {
   type SearchPermissionedCandidate
 } from "@tlp/shared-types";
 import {
-  buildRetrievalConditions,
   findFirstMatch,
+  wordPatternFor,
   type RetrievalPattern
 } from "./search-aliases";
 import type { createUserScopedSupabaseClient } from "./supabase";
@@ -54,7 +55,9 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *
  * Matching runs in PostgreSQL at query time: escaped `ILIKE` for phrases and a
  * whole-word `~*` pattern for acronyms, over the JSON text fields of published
- * steps. Steps are read in deterministic pages of `limit * 4` rows until the
+ * steps. Those fields are raw, and an array field is its escaped JSON text, so
+ * the database is asked only for what must survive that form
+ * (`buildStepRetrievalConditions`) and the exact match is decided here. Steps are read in deterministic pages of `limit * 4` rows until the
  * matches run out, so repeated or stale matches can never crowd out another
  * mission, and no mission is dropped before the final stable-id ranking sees
  * it. At the current content size (two courses,
@@ -166,6 +169,65 @@ export function stepSearchableText(payload: Record<string, unknown>): string {
   return compactCurriculumMatchText(parts.join(" "));
 }
 
+/**
+ * Whitespace, and every character PostgreSQL writes as an escape when
+ * `payload->>field` returns an array as JSON text: the quote, the backslash
+ * and the control characters.
+ */
+const STEP_RETRIEVAL_BREAK = /[\s"\\\u0000-\u001f]+/;
+
+/**
+ * What PostgreSQL's whole-word `\y` can see in front of an acronym inside
+ * serialized JSON: a real word boundary, or the letter or digits ending an
+ * escape (`\n`, `\u0001`), which `stepSearchableText` decodes away.
+ */
+const SERIALIZED_WORD_PREFIXES = ["\\\\[bfnrt]", "\\\\u00[0-9a-fA-F][0-9a-fA-F]"];
+
+/**
+ * The part of a phrase the database is asked for.
+ *
+ * `stepSearchableText` matches against DECODED, whitespace-compacted text
+ * joined across fields, but `payload->>paragraphs` is the array's JSON text,
+ * with quotes, backslashes and control characters escaped, and no field is
+ * compacted. Only a run containing none of those characters is guaranteed to
+ * appear verbatim in the database's text whenever the phrase appears in the
+ * decoded text, so the longest such run is retrieved and the full phrase is
+ * re-checked here. A phrase with no such run retrieves every step carrying the
+ * field (`%%`), which is still re-checked.
+ */
+export function stepRetrievalFragment(value: string): string {
+  let longest = "";
+  for (const run of value.split(STEP_RETRIEVAL_BREAK)) {
+    if (run.length > longest.length) longest = run;
+  }
+  return longest;
+}
+
+/**
+ * The step-body `or` conditions. Never narrower than the re-check: every step
+ * whose decoded searchable text matches a variant satisfies at least one.
+ */
+export function buildStepRetrievalConditions(
+  patterns: readonly RetrievalPattern[],
+  variants: readonly CurriculumQueryVariant[]
+): string {
+  const columns = SEARCHABLE_STEP_TEXT_FIELDS.map((field) => `payload->>${field}`);
+  return patterns
+    .flatMap((pattern, index) => {
+      if (pattern.mode === "word") {
+        const word = wordPatternFor(pattern.term);
+        const unbounded = word.slice("\\y".length);
+        return [word, ...SERIALIZED_WORD_PREFIXES.map((prefix) => `${prefix}${unbounded}`)]
+          .flatMap((regex) => columns.map((column) => `${column}.imatch.${regex}`));
+      }
+      const fragment = escapeCurriculumSearchPattern(
+        stepRetrievalFragment(variants[index]?.value ?? "")
+      );
+      return columns.map((column) => `${column}.ilike.%${fragment}%`);
+    })
+    .join(",");
+}
+
 /** A learner-readable name for a step: its own title or label, else its number. */
 export function stepLabelOf(payload: Record<string, unknown>, position: number): string {
   for (const field of ["title", "label"]) {
@@ -236,10 +298,7 @@ export async function searchPublishedStepBodies(
   recordMissionStableIds: readonly string[],
   limit: number
 ): Promise<StepBodySearchOutcome> {
-  const stepConditions = buildRetrievalConditions(
-    SEARCHABLE_STEP_TEXT_FIELDS.map((field) => `payload->>${field}`),
-    patterns
-  );
+  const stepConditions = buildStepRetrievalConditions(patterns, variants);
 
   const highest = new Map<string, MissionRow>();
   const resolved = new Set<string>();
