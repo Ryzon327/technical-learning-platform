@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   assertDisposableLocalTestDatabase,
   createTestDatabasePsql
@@ -26,6 +26,18 @@ import {
   findFirstMatch,
   toRetrievalPattern
 } from "./search-aliases";
+import { searchCurriculum } from "./curriculum-search";
+import { createUserScopedSupabaseClient } from "./supabase";
+
+/**
+ * Founder direction G-006: `searchCurriculum` is run end to end here. Only the
+ * client FACTORY is replaced, by the learner-scoped psql client below, so every
+ * read it makes is a real function call under real RLS in real PostgreSQL.
+ */
+vi.mock("./supabase", () => ({
+  createUserScopedSupabaseClient: vi.fn(),
+  createServerSupabaseClient: vi.fn()
+}));
 
 /**
  * WP-005 / Founder direction G-001 — step-body search against REAL PostgreSQL.
@@ -58,6 +70,13 @@ import {
  * here through the service's own `searchPublishedCurriculumRecords` and called
  * directly as a learner. Its whole-word acronyms run as PostgreSQL's own `\y`
  * regular expressions; nothing in this file translates or imitates them.
+ *
+ * ## One concept, one order (Founder direction G-006)
+ *
+ * The whole `searchCurriculum` service runs against the database with only its
+ * client factory replaced by the learner-scoped client above, and every form
+ * of the ARP and VLAN alias groups must return the identical ordered results
+ * at limit 1, 2, 3 and the full list.
  *
  * ## Latency
  *
@@ -1094,6 +1113,94 @@ describe.skipIf(DATABASE_URL === "")("G-005: title and description search agains
     );
     expect(Number(rows)).toBeLessThanOrEqual(100);
   });
+});
+
+/* ------------------------------------------------------------------ *
+ * Founder direction G-006 — one concept, one order
+ * ------------------------------------------------------------------ */
+
+const G = `${RUN}-g-`;
+
+describe.skipIf(DATABASE_URL === "")("G-006: every form of an alias group returns the identical ordered results against real PostgreSQL", { timeout: 60_000 }, () => {
+  /**
+   * The reviewer's fixture, per group: an acronym-only and an expanded-name-only
+   * record in the title, and again in the description — four published
+   * courses, more than limit 1, 2 or 3 holds. The expanded-name record sorts
+   * first in stable-id order, so ranking the acronym form above the expanded
+   * one (or the reverse) would change the result at every limit.
+   */
+  beforeAll(() => {
+    const { fixture, course } = fixtureBuilder(G);
+    course("arp-1-expanded-title", "Address Resolution Protocol fundamentals", "published", "Start here.");
+    course("arp-2-acronym-title", "ARP fundamentals", "published", "Start here.");
+    course("arp-3-expanded-description", "Neighbour discovery", "published",
+      "The Address Resolution Protocol, step by step.");
+    course("arp-4-acronym-description", "Reading captures", "published", "Two ARP requests were sent.");
+    course("vlan-1-expanded-title", "Virtual Local Area Network basics", "published", "Start here.");
+    course("vlan-2-acronym-title", "VLAN basics", "published", "Start here.");
+    course("vlan-3-expanded-description", "Switch configuration", "published",
+      "A Virtual Local Area Network separates departments.");
+    course("vlan-4-acronym-description", "Trunk links", "published", "Carry each VLAN across one trunk link.");
+    insertFixture(fixture);
+  });
+
+  afterAll(() => removeFixtures());
+
+  /** The real service, every read through the learner-scoped client. */
+  async function searchAsLearner(query: string, limit?: number): Promise<string[]> {
+    const { client } = learnerClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => client as never);
+    const { results } = await searchCurriculum("g006-learner-token", {
+      query,
+      ...(limit === undefined ? {} : { limit })
+    });
+    return results.map((result) => result.sourceRecordStableId);
+  }
+
+  const groups: Array<{ name: string; forms: [string, string, ...string[]]; expected: string[] }> = [
+    {
+      name: "ARP",
+      forms: ["ARP", "Address Resolution Protocol", "arp", "ARPs", "ARP's"],
+      expected: [
+        `${G}arp-1-expanded-title`,
+        `${G}arp-2-acronym-title`,
+        `${G}arp-3-expanded-description`,
+        `${G}arp-4-acronym-description`
+      ]
+    },
+    {
+      name: "VLAN",
+      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?"],
+      expected: [
+        `${G}vlan-1-expanded-title`,
+        `${G}vlan-2-acronym-title`,
+        `${G}vlan-3-expanded-description`,
+        `${G}vlan-4-acronym-description`
+      ]
+    }
+  ];
+
+  for (const group of groups) {
+    const [acronym, expanded] = group.forms;
+    for (const limit of [1, 2, 3, undefined]) {
+      const label = limit === undefined ? "the full list" : `limit ${limit}`;
+      it(`${acronym} and ${expanded} return the identical ordered results at ${label}`, async () => {
+        const expected = limit === undefined ? group.expected : group.expected.slice(0, limit);
+        const fromAcronym = await searchAsLearner(acronym, limit);
+        const fromExpanded = await searchAsLearner(expanded, limit);
+
+        console.log(
+          `[WP-005 G-006] ${label}: ${acronym} -> [${fromAcronym.map((id) => id.slice(G.length)).join(", ")}]; ` +
+            `${expanded} -> [${fromExpanded.map((id) => id.slice(G.length)).join(", ")}]`
+        );
+        expect(fromAcronym).toEqual(expected);
+        expect(fromExpanded).toEqual(fromAcronym);
+        for (const form of group.forms.slice(2)) {
+          expect(await searchAsLearner(form, limit), form).toEqual(fromAcronym);
+        }
+      });
+    }
+  }
 });
 
 /* ------------------------------------------------------------------ *

@@ -1170,23 +1170,44 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     }
   });
 
-  it("H9: exact matches are tiered above alias matches", async () => {
-    const { results } = await search(adRows, { query: "AD" });
+  /**
+   * Founder direction G-006 supersedes "exact matches are tiered above alias
+   * matches" for an approved alias group: AD and Active Directory are one
+   * concept, so neither form's title match outranks the other's, the neutral
+   * order decides, and both queries return the identical order.
+   */
+  it("H9: AD and Active Directory title matches rank in the neutral order, identically for both forms", async () => {
+    for (const query of ["AD", "Active Directory"]) {
+      const { results } = await search(adRows, { query });
 
-    // Neutral order alone would put course.aa first; tiering must not let an
-    // alias match outrank an exact one.
-    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
-      "course.zz",
-      "course.aa"
-    ]);
+      expect(
+        results.results.map((entry) => entry.sourceRecordStableId),
+        query
+      ).toEqual(["course.aa", "course.zz"]);
+    }
   });
 
-  it("H10: tiering runs before the bound, so an exact match is not truncated", async () => {
-    const { results } = await search(adRows, { query: "AD", limit: 1 });
+  it("H10: ranking runs before the bound, so a title match is not truncated for a description match", async () => {
+    // course.a0 matches only in its description and sorts FIRST neutrally; a
+    // bound applied before ranking would return it.
+    const withDescription = {
+      courses: [
+        ...adRows.courses,
+        row({
+          stable_id: "course.a0",
+          title: "Domain services",
+          description: "Runs on Active Directory."
+        })
+      ]
+    };
+    for (const query of ["AD", "Active Directory"]) {
+      const { results } = await search(withDescription, { query, limit: 1 });
 
-    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
-      "course.zz"
-    ]);
+      expect(
+        results.results.map((entry) => entry.sourceRecordStableId),
+        query
+      ).toEqual(["course.aa"]);
+    }
   });
 
   it("H11: reports the adjustment without exposing internals", async () => {

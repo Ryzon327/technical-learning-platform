@@ -5,6 +5,7 @@ import type {
   CurriculumSearchContentType,
   CurriculumSearchFacetedResults,
   CurriculumQueryVariant,
+  CurriculumTitlePrecision,
   SearchDocument
 } from "@tlp/shared-types";
 import type { SearchPermissionedCandidate } from "@tlp/shared-types";
@@ -51,6 +52,7 @@ import {
 import {
   buildAliasAwareQueryVariants,
   classifyAliasAwareTitlePrecision,
+  findSearchAliasGroup,
   toRetrievalPattern,
   variantOccursIn,
   variantsFoundIn
@@ -116,6 +118,13 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * Founder direction G-005: titles and descriptions are matched in PostgreSQL
  * by the same rules as step bodies, through a SECURITY INVOKER function whose
  * arguments are plain values, never PostgREST filter syntax.
+ *
+ * Founder direction G-006 (superseding WP-005's "title/name matches above
+ * alias matches"): an acronym and its approved expansions are one concept. For
+ * a query in an approved alias group, ranking depends only on where a record
+ * matched — title, then description, then step body — never on which form
+ * matched, and ties keep the neutral order (content type, then stable id), so
+ * every form returns the identical ordered results at every limit.
  *
  * Each returned result carries where it matched — course, mission, step — with
  * a short snippet, in `matchLocations` beside the results, never inside a
@@ -319,6 +328,16 @@ export async function searchCurriculum(
     variants = [{ value: query, matchKind: "exact" }];
   }
 
+  // Founder direction G-006: whether the query is a member (or a plural or
+  // possessive form of a member) of an approved alias group. If the data
+  // cannot be read, ranking keeps SEARCH-008's rules.
+  let aliasGroupQuery = false;
+  try {
+    aliasGroupQuery = findSearchAliasGroup(query) !== undefined;
+  } catch {
+    aliasGroupQuery = false;
+  }
+
   const indexedAt = new Date().toISOString();
 
   const supabase = createUserScopedSupabaseClient(accessToken);
@@ -391,6 +410,16 @@ export async function searchCurriculum(
     // title precision, and is marked step-only: ranking places it after every
     // title, description and alias match, and after a typo recovery's record
     // matches, which share that last tier.
+    //
+    // Founder direction G-006: when the query names an approved alias group,
+    // every member is the learner's own concept. Every record match is given
+    // one match class, and a title match one title tier, so the order depends
+    // only on WHERE a record matched — title, then description, then step
+    // body — and ties keep SEARCH-002's neutral order (content type, then
+    // stable id). Every form of the group then returns the identical ordered
+    // results at every limit. A typo recovery pass keeps SEARCH-008's rules.
+    const oneConcept =
+      aliasGroupQuery && !passVariants.some((variant) => variant.matchKind === "typo");
     const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(
@@ -405,13 +434,19 @@ export async function searchCurriculum(
       const found = variantsFoundIn(recordText, passVariants);
       passClassified.push({
         document,
-        matchKind: classifyCurriculumMatch(recordText, found, (text, variant) =>
-          variantOccursIn(text, variant)
+        matchKind: classifyCurriculumMatch(
+          recordText,
+          oneConcept ? asOneConcept(found) : found,
+          (text, variant) => variantOccursIn(text, variant)
         ),
         titlePrecision:
           found.length === 0
             ? weakestTitlePrecision()
-            : classifyAliasAwareTitlePrecision(entry.title, found),
+            : oneConcept
+              ? variantsFoundIn(entry.title, passVariants).length > 0
+                ? ONE_CONCEPT_TITLE_PRECISION
+                : weakestTitlePrecision()
+              : classifyAliasAwareTitlePrecision(entry.title, found),
         stepOnly: found.length === 0,
         location: locateCurriculumMatch(entry, document, passVariants, steps)
       });
@@ -483,6 +518,20 @@ export async function searchCurriculum(
     ),
     classified
   );
+}
+
+/**
+ * Founder direction G-006: the title tier every title match of an alias-group
+ * query shares. Any tier above `description_only` would do; what matters is
+ * that it is the same for every form of the query.
+ */
+const ONE_CONCEPT_TITLE_PRECISION: CurriculumTitlePrecision = "title_token";
+
+/** Founder direction G-006: every found variant counts as the learner's own words. */
+function asOneConcept(
+  found: readonly CurriculumQueryVariant[]
+): CurriculumQueryVariant[] {
+  return found.map((variant) => ({ value: variant.value, matchKind: "exact" }));
 }
 
 /** A classified result with where it matched. Internal to this service. */

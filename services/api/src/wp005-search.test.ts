@@ -554,10 +554,10 @@ describe("ranking judges a match by the rule that found it", () => {
   });
 
   /**
-   * A course that names ARP in its plural or possessive form matches the
-   * learner's own query, so it must rank in the exact tier, above a course that
-   * only matched the spelled-out alias — even though the alias course sorts
-   * first neutrally.
+   * Founder direction G-006 supersedes "the acronym match ranks above the
+   * alias-only match": both courses match in their description, so neither
+   * form outranks the other and the neutral order decides — for the plural
+   * and possessive forms exactly as for ARP and the expanded name.
    */
   function pluralWorld(): World {
     const world = networkingWorld();
@@ -576,15 +576,20 @@ describe("ranking judges a match by the rule that found it", () => {
   }
 
   for (const query of ["ARPs", "ARP's"]) {
-    it(`${query} ranks the acronym match above the alias-only match`, async () => {
+    it(`${query} ranks two description matches in the neutral order, whichever form matched`, async () => {
       const { results } = await search(pluralWorld(), { query });
       const ids = idsOf(results);
 
       expect(ids).toContain("course-a-alias-only");
       expect(ids).toContain("course-b-acronym");
-      expect(ids.indexOf("course-b-acronym")).toBeLessThan(
-        ids.indexOf("course-a-alias-only")
+      expect(ids.indexOf("course-a-alias-only")).toBeLessThan(
+        ids.indexOf("course-b-acronym")
       );
+      for (const other of ["ARP", "Address Resolution Protocol"]) {
+        vi.resetModules();
+        const { results: same } = await search(pluralWorld(), { query: other });
+        expect(idsOf(same), `${query} vs ${other}`).toEqual(ids);
+      }
     });
   }
 });
@@ -1121,6 +1126,127 @@ describe("ranking: title matches, then alias matches, then step-body matches", (
     });
 
     expect(idsOf(results)).toEqual(["course-arp-fundamentals"]);
+  });
+});
+
+/**
+ * Founder direction G-006 (2026-10-11): an acronym and its approved expansions
+ * are one concept, so every form of an alias group returns the identical
+ * ordered results at every limit, ranked by where the match is — title, then
+ * description, then step body — with ties in the neutral order.
+ *
+ * Review finding (independent review 1 of 39b856b): "ARP fundamentals" and
+ * "Address Resolution Protocol fundamentals" with limit=1 returned different
+ * courses for ARP and Address Resolution Protocol. Here each form has a title
+ * match and a description match, and the expanded-name record sorts first
+ * neutrally, so the old acronym-first ranking would fail at every limit.
+ */
+describe("G-006: every form of an alias group returns the identical ordered results", () => {
+  function oneConceptWorld(): World {
+    const path = node("g006-path", "Fixture path");
+    const course = (stableId: string, title: string, description: string) =>
+      node(stableId, title, { learning_path_id: path.id, description });
+    const host = course("g006-host", "Fixture host course", "Hosts the missions.");
+    const module = node("g006-module", "Module", { course_id: host.id });
+    const arpStep = node("g006-mission-arp-step", "Listening on the wire", {
+      module_id: module.id
+    });
+    const vlanStep = node("g006-mission-vlan-step", "Separating departments", {
+      module_id: module.id
+    });
+
+    return {
+      learning_paths: [path],
+      courses: [
+        host,
+        course("g006-arp-1-expanded-title", "Address Resolution Protocol fundamentals", "Start here."),
+        course("g006-arp-2-acronym-title", "ARP fundamentals", "Start here."),
+        course("g006-arp-3-expanded-description", "Neighbour discovery", "The Address Resolution Protocol, step by step."),
+        course("g006-arp-4-acronym-description", "Reading captures", "Two ARP requests were sent."),
+        course("g006-vlan-1-expanded-title", "Virtual Local Area Network basics", "Start here."),
+        course("g006-vlan-2-acronym-title", "VLAN basics", "Start here."),
+        course("g006-vlan-3-expanded-description", "Switch configuration", "A Virtual Local Area Network separates departments."),
+        course("g006-vlan-4-acronym-description", "Trunk links", "Carry each VLAN across one trunk link.")
+      ],
+      learning_modules: [module],
+      missions: [arpStep, vlanStep],
+      competencies: [],
+      mission_steps: [
+        step(arpStep, 0, { type: "concept", paragraphs: ["The host sends an ARP request."] }),
+        step(vlanStep, 0, { type: "concept", paragraphs: ["Each VLAN is its own broadcast domain."] })
+      ]
+    };
+  }
+
+  const groups: Array<{ name: string; forms: string[]; expected: string[] }> = [
+    {
+      name: "ARP",
+      forms: ["ARP", "Address Resolution Protocol", "arp", "address resolution protocol", "ARPs", "ARP's", "ARP?"],
+      expected: [
+        "g006-arp-1-expanded-title",
+        "g006-arp-2-acronym-title",
+        "g006-arp-3-expanded-description",
+        "g006-arp-4-acronym-description",
+        "g006-mission-arp-step"
+      ]
+    },
+    {
+      name: "VLAN",
+      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?", "Virtual Local Area Network's"],
+      expected: [
+        "g006-vlan-1-expanded-title",
+        "g006-vlan-2-acronym-title",
+        "g006-vlan-3-expanded-description",
+        "g006-vlan-4-acronym-description",
+        "g006-mission-vlan-step"
+      ]
+    }
+  ];
+
+  for (const group of groups) {
+    for (const limit of [1, 2, 3, undefined]) {
+      it(`${group.name}: every form returns the identical ordered results at limit ${limit ?? "default (full list)"}`, async () => {
+        const expected = limit === undefined ? group.expected : group.expected.slice(0, limit);
+        for (const query of group.forms) {
+          vi.resetModules();
+          const { results } = await search(oneConceptWorld(), {
+            query,
+            ...(limit === undefined ? {} : { limit })
+          });
+          expect(idsOf(results), query).toEqual(expected);
+        }
+      });
+    }
+
+    it(`${group.name}: ranks by where the match is — title, description, then step body`, async () => {
+      const { results } = await search(oneConceptWorld(), { query: group.forms[0] as string });
+      expect(results.matchLocations?.map((location) => location.foundIn)).toEqual([
+        "title",
+        "title",
+        "description",
+        "description",
+        "step"
+      ]);
+    });
+  }
+
+  it("is deterministic whatever order the database returns rows in", async () => {
+    const reversed = (): World => {
+      const world = oneConceptWorld();
+      return {
+        ...world,
+        courses: [...world.courses].reverse(),
+        missions: [...world.missions].reverse(),
+        mission_steps: [...world.mission_steps].reverse()
+      };
+    };
+    for (const query of ["ARP", "Address Resolution Protocol", "VLAN", "Virtual Local Area Network"]) {
+      vi.resetModules();
+      const forward = await search(oneConceptWorld(), { query });
+      vi.resetModules();
+      const backward = await search(reversed(), { query });
+      expect(idsOf(backward.results), query).toEqual(idsOf(forward.results));
+    }
   });
 });
 
