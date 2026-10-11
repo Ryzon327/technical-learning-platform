@@ -11,7 +11,8 @@
 --                                         whitespace-compacted
 --   search_published_mission_steps(...)   one row per published mission whose
 --                                         CURRENT version has a matching step,
---                                         carrying the earliest such step
+--                                         naming the earliest such step, with a
+--                                         snippet of its learner-visible text
 --   published_mission_contexts(...)       the current published version, with
 --                                         its course, of named missions
 --
@@ -50,6 +51,17 @@
 -- `services/api/src/wp005-step-search-sql.test.ts` fails if the two lists
 -- diverge.
 --
+-- ## What is returned (Founder direction G-003)
+--
+-- Only what the search UI displays: mission, course and step identifiers and
+-- titles (the step's own `title` or `label`), the mission fields every search
+-- candidate already carries, and `step_snippet`, a short excerpt cut from the
+-- stored searchable text above around the earliest match. Never the step
+-- payload: no `expectedOutcome`, near-transfer answer, interaction parameter or
+-- any other withheld field ever leaves the function, whatever the caller
+-- searched for. `curriculum-step-search.db.test.ts` calls the function directly
+-- as an authenticated learner and fails if one does.
+--
 -- ## Matching rules
 --
 --   p_phrases    case-insensitive substring, by `strpos` on lower-cased text.
@@ -68,7 +80,8 @@
 -- from the IMMUTABLE `mission_step_searchable_text(payload)`, so it can never
 -- disagree with the payload it came from. A search call no longer decodes any
 -- JSON. It is a sequential scan of the current published steps that lower-cases
--- the stored text and runs `strpos` and the whole-word expression on it.
+-- the stored text and runs `strpos` and the whole-word expression on it. The
+-- snippet is cut only for the rows of the returned page.
 --
 -- Before this, every call rebuilt the text of every current step (about 1200
 -- in the latency fixture), and that alone took most of the 500 ms budget.
@@ -190,7 +203,9 @@ returns table (
     course_title text,
     step_stable_id text,
     step_position integer,
-    step_payload jsonb
+    step_title text,
+    step_label text,
+    step_snippet text
 )
 language sql
 stable
@@ -218,7 +233,10 @@ as $$
                s.id as step_id,
                s.stable_id as step_stable,
                s.position as step_pos,
-               s.payload as payload,
+               case when jsonb_typeof(s.payload -> 'title') = 'string'
+                    then s.payload ->> 'title' end as step_title,
+               case when jsonb_typeof(s.payload -> 'label') = 'string'
+                    then s.payload ->> 'label' end as step_label,
                s.searchable_text as body
         from public.current_published_missions() as cm
         join public.mission_steps as s on s.mission_id = cm.mission_id
@@ -236,13 +254,44 @@ as $$
                   where cand.body ~* w.pattern
               )
         order by cand.stable_id, cand.step_pos, cand.step_id
+    ),
+    paged as (
+        select mt.*
+        from matched as mt
+        order by mt.stable_id
+        limit least(greatest(coalesce(p_page_size, 50), 1), 100)
     )
-    select mt.stable_id, mt.version, mt.title, mt.description,
-           mt.publication_state, mt.updated_at, mt.course,
-           mt.step_stable, mt.step_pos, mt.payload
-    from matched as mt
-    order by mt.stable_id
-    limit least(greatest(coalesce(p_page_size, 50), 1), 100)
+    -- The snippet is cut from the stored learner-visible text around its
+    -- earliest match: 60 characters before and 100 after, with an ellipsis
+    -- where text was cut (CURRICULUM_MATCH_SNIPPET_BEFORE / _AFTER). chr(8230)
+    -- is the ellipsis.
+    select pg.stable_id, pg.version, pg.title, pg.description,
+           pg.publication_state, pg.updated_at, pg.course,
+           pg.step_stable, pg.step_pos, pg.step_title, pg.step_label,
+           case when win.from_at > 1 then chr(8230) else '' end
+               || substr(pg.body, win.from_at, win.to_at - win.from_at)
+               || case when win.to_at <= length(pg.body) then chr(8230) else '' end
+    from paged as pg
+    left join lateral (
+        select hit.at, hit.len
+        from (
+            select strpos(lower(pg.body), n.needle) as at, length(n.needle) as len
+            from needles as n
+            union all
+            select regexp_instr(pg.body, w.pattern, 1, 1, 0, 'i'),
+                   regexp_instr(pg.body, w.pattern, 1, 1, 1, 'i')
+                       - regexp_instr(pg.body, w.pattern, 1, 1, 0, 'i')
+            from words as w
+        ) as hit
+        where hit.at > 0
+        order by hit.at, hit.len desc
+        limit 1
+    ) as first_hit on true
+    cross join lateral (
+        select greatest(first_hit.at - 60, 1) as from_at,
+               first_hit.at + first_hit.len + 100 as to_at
+    ) as win
+    order by pg.stable_id
 $$;
 
 create or replace function public.published_mission_contexts(

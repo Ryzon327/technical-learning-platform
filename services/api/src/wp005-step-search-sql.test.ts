@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  CURRICULUM_MATCH_SNIPPET_AFTER,
+  CURRICULUM_MATCH_SNIPPET_BEFORE
+} from "@tlp/shared-types";
+import {
   MISSION_CONTEXT_FUNCTION,
   SEARCHABLE_STEP_TEXT_FIELDS,
   STEP_SEARCH_FUNCTION,
@@ -122,6 +126,45 @@ describe("the database searches exactly the service's learner-visible fields", (
     for (const field of UNSEARCHED_STEP_FIELDS) {
       expect(code).not.toContain(`'${field.toLowerCase()}'`);
     }
+  });
+
+  it("G-003: the step search returns names and a snippet, never the step payload", () => {
+    const body = definitions().get(STEP_SEARCH_FUNCTION) ?? "";
+    const returns = /returns table \(([\s\S]*?)\n\)/.exec(body)?.[1] ?? "";
+    const columns = returns
+      .split(",")
+      .map((column) => column.trim().split(/\s+/)[0])
+      .filter(Boolean);
+
+    expect(columns).toEqual([
+      "mission_stable_id",
+      "mission_version",
+      "mission_title",
+      "mission_description",
+      "mission_publication_state",
+      "mission_updated_at",
+      "course_title",
+      "step_stable_id",
+      "step_position",
+      "step_title",
+      "step_label",
+      "step_snippet"
+    ]);
+    expect(returns).not.toContain("jsonb");
+    // The payload is read only for the step's own title and label.
+    const payloadReads = [...body.matchAll(/s\.payload\s*(->>?)?\s*('[^']*')?/g)].map(
+      (match) => match[2] ?? "(whole payload)"
+    );
+    expect([...new Set(payloadReads)].sort()).toEqual(["'label'", "'title'"]);
+  });
+
+  it("G-003: the snippet window is the service's snippet window", () => {
+    const body = definitions().get(STEP_SEARCH_FUNCTION) ?? "";
+    expect(body).toContain(`greatest(first_hit.at - ${CURRICULUM_MATCH_SNIPPET_BEFORE}, 1)`);
+    expect(body).toContain(
+      `first_hit.at + first_hit.len + ${CURRICULUM_MATCH_SNIPPET_AFTER} as to_at`
+    );
+    expect(body).toContain("substr(pg.body, win.from_at, win.to_at - win.from_at)");
   });
 
   it("builds a regular expression only from letters-and-digits terms", () => {

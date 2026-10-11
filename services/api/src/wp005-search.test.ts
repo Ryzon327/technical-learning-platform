@@ -150,6 +150,28 @@ function database(world: World, options: DatabaseOptions = {}) {
       .filter((term) => /^[A-Za-z0-9]+$/.test(term))
       .some((term) => new RegExp(`\\b${term}s?\\b`, "i").test(body));
 
+  /** The function's snippet: 60 characters before the earliest match, 100 after. */
+  const snippetOf = (body: string, args: Record<string, unknown>): string | null => {
+    const hits: Array<{ at: number; length: number }> = [];
+    for (const phrase of (args.p_phrases as string[]) ?? []) {
+      const needle = phrase.trim().toLowerCase();
+      const at = needle === "" ? -1 : body.toLowerCase().indexOf(needle);
+      if (at >= 0) hits.push({ at, length: needle.length });
+    }
+    for (const term of ((args.p_acronyms as string[]) ?? []).filter((value) =>
+      /^[A-Za-z0-9]+$/.test(value)
+    )) {
+      const found = new RegExp(`\\b${term}s?\\b`, "i").exec(body);
+      if (found) hits.push({ at: found.index, length: found[0].length });
+    }
+    hits.sort((a, b) => a.at - b.at || b.length - a.length);
+    const first = hits[0];
+    if (!first) return null;
+    const from = Math.max(0, first.at - 60);
+    const to = first.at + first.length + 100;
+    return `${from > 0 ? "…" : ""}${body.slice(from, to)}${to < body.length ? "…" : ""}`;
+  };
+
   const rpcRows = (name: string, args: Record<string, unknown>): Row[] => {
     const after = options.ignoreCursor ? null : (args.p_after as string | null);
     const pageSize = Math.min(Math.max(Number(args.p_page_size ?? 50), 1), 100);
@@ -165,6 +187,9 @@ function database(world: World, options: DatabaseOptions = {}) {
           .sort((a, b) => Number(a.position) - Number(b.position))
           .find((entry) => stepMatches(stepSearchableText(entry.payload as Row), args));
         if (!step) continue;
+        const payload = step.payload as Row;
+        const text = (field: string) =>
+          typeof payload[field] === "string" ? payload[field] : null;
         rows.push({
           mission_stable_id: mission.stable_id,
           mission_version: mission.version,
@@ -175,7 +200,9 @@ function database(world: World, options: DatabaseOptions = {}) {
           course_title: course.title,
           step_stable_id: step.stable_id,
           step_position: step.position,
-          step_payload: step.payload
+          step_title: text("title"),
+          step_label: text("label"),
+          step_snippet: snippetOf(stepSearchableText(payload), args)
         });
       }
       return rows.slice(0, pageSize);

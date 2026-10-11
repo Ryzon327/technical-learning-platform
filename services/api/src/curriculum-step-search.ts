@@ -34,7 +34,9 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *                                    every step of each mission's CURRENT
  *                                    published version, and returns one row per
  *                                    matching mission: its earliest matching
- *                                    step, with the mission and course
+ *                                    step's id, title or label and a snippet
+ *                                    of its learner-visible text — never its
+ *                                    payload — with the mission and course
  *   published_mission_contexts       the current published version and course
  *                                    of missions found by their own record
  *
@@ -131,7 +133,9 @@ interface StepMatchRow {
   course_title: string | null;
   step_stable_id: string;
   step_position: number;
-  step_payload: Record<string, unknown> | null;
+  step_title: string | null;
+  step_label: string | null;
+  step_snippet: string | null;
 }
 
 interface MissionContextRow {
@@ -148,6 +152,11 @@ export interface StepBodyHit {
   stepStableId: string;
   position: number;
   stepLabel: string;
+  /**
+   * The database's short excerpt of the step's learner-visible text around
+   * its first match. The step payload itself is never returned (Founder
+   * direction G-003).
+   */
   text: string;
 }
 
@@ -217,9 +226,11 @@ export function buildStepSearchArguments(
 }
 
 /** A learner-readable name for a step: its own title or label, else its number. */
-export function stepLabelOf(payload: Record<string, unknown>, position: number): string {
-  for (const field of ["title", "label"]) {
-    const value = payload[field];
+export function stepLabelOf(
+  names: { title?: string | null; label?: string | null },
+  position: number
+): string {
+  for (const value of [names.title, names.label]) {
     if (typeof value === "string" && value.trim() !== "") {
       const compact = compactCurriculumMatchText(value);
       return compact.length > STEP_LABEL_MAX_LENGTH
@@ -288,11 +299,10 @@ export async function searchPublishedStepBodies(
   );
 
   // Re-check every row the database returned: a published mission with a
-  // published course, and a payload object. The first row per mission wins.
+  // published course. The first row per mission wins.
   for (const row of stepRows) {
     if (row.mission_publication_state !== "published") continue;
     if (typeof row.course_title !== "string") continue;
-    if (!row.step_payload || typeof row.step_payload !== "object") continue;
 
     const stableId = String(row.mission_stable_id);
     if (outcome.hits.has(stableId)) continue;
@@ -309,8 +319,8 @@ export async function searchPublishedStepBodies(
       missionVersion: Number(row.mission_version),
       stepStableId: String(row.step_stable_id),
       position,
-      stepLabel: stepLabelOf(row.step_payload, position),
-      text: stepSearchableText(row.step_payload)
+      stepLabel: stepLabelOf({ title: row.step_title, label: row.step_label }, position),
+      text: typeof row.step_snippet === "string" ? row.step_snippet : ""
     });
     outcome.candidates.push({
       // RLS returning the row IS the authorization; this only records it.
