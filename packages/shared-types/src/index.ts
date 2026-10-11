@@ -59,6 +59,7 @@ export * from "./search-freshness";
 export * from "./search-ranking";
 export * from "./search-fallback";
 export * from "./search-permission";
+export * from "./search-match-location";
 export * from "./assessment-evidence";
 export * from "./lab-evidence";
 export * from "./notes";

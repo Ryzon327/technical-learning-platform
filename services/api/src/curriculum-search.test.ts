@@ -53,52 +53,95 @@ function row(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Chainable stand-in returning per-table rows and recording the calls made. */
+/**
+ * Chainable stand-in returning per-table rows and recording the calls made.
+ *
+ * WP-005 added two reads beside the four record-source reads: published step
+ * bodies (`mission_steps`) and the published course context of missions (a
+ * `missions` read narrowed with `.in`). Those are recorded in `contextReads`,
+ * so `tables`, `eqCalls`, `orPatterns` and `limits` keep describing exactly the
+ * four record-source reads every SEARCH-002 to SEARCH-008 assertion below is
+ * about. `wp005-search.test.ts` asserts the step and context reads themselves.
+ */
 function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
   const tables: string[] = [];
   const eqCalls: Array<[string, unknown]> = [];
   const orPatterns: string[] = [];
   const limits: number[] = [];
+  const contextReads: string[] = [];
   let tokenSeen = "";
 
-  /** Undoes the LIKE escaping so the stand-in matches literal text. */
-  const literalTermsOf = (pattern: string): string[] =>
-    [...pattern.matchAll(/ilike\.%(.*?)%(?:,|$)/g)]
-      .map((match) => (match[1] ?? "").replace(/\\([\\%_])/g, "$1"))
-      .filter((term) => term !== "");
+  /** The value one condition column reads from a row. */
+  const fieldOf = (candidate: unknown, column: string): string => {
+    const record = candidate as Record<string, unknown>;
+    if (column.startsWith("payload->>")) {
+      const value = (record.payload as Record<string, unknown> | undefined)?.[
+        column.slice("payload->>".length)
+      ];
+      if (value === undefined || value === null) return "";
+      return typeof value === "string" ? value : JSON.stringify(value);
+    }
+    const value = record[column];
+    return typeof value === "string" ? value : "";
+  };
 
   /**
-   * Approximates ILIKE. Without this the stand-in returns rows regardless of
-   * the query, so a pass could never produce zero results and SEARCH-005B
-   * recovery could never be exercised.
+   * Approximates ILIKE and the whole-word `imatch` pattern. Without this the
+   * stand-in returns rows regardless of the query, so a pass could never
+   * produce zero results and SEARCH-005B recovery could never be exercised.
    */
-  const matchesPattern = (candidate: unknown, pattern: string): boolean => {
-    const record = candidate as { title?: string; description?: string };
-    const haystack = `${record.title ?? ""} ${record.description ?? ""}`.toLowerCase();
-    return literalTermsOf(pattern).some((term) =>
-      haystack.includes(term.toLowerCase())
-    );
+  const matchesCondition = (candidate: unknown, condition: string): boolean => {
+    const parsed = /^(.+?)\.(ilike|imatch)\.(.*)$/.exec(condition);
+    if (!parsed) return false;
+    const [, column = "", operator, value = ""] = parsed;
+    const haystack = fieldOf(candidate, column);
+    if (operator === "imatch") {
+      return new RegExp(value.replace(/\\y/g, "\\b"), "i").test(haystack);
+    }
+    // Undoes the LIKE escaping so the stand-in matches literal text.
+    const term = value.replace(/^%|%$/g, "").replace(/\\([\\%_])/g, "$1");
+    return term !== "" && haystack.toLowerCase().includes(term.toLowerCase());
   };
+
+  const matchesPattern = (candidate: unknown, pattern: string): boolean =>
+    pattern.split(",").some((condition) => matchesCondition(candidate, condition));
 
   const client = {
     from: (name: string) => {
-      tables.push(name);
       const builder: Record<string, unknown> = {};
-      let pattern = "";
+      let pattern: string | undefined;
+      let narrowed: { column: string; values: unknown[] } | undefined;
+      const builderEqs: Array<[string, unknown]> = [];
       builder.select = () => builder;
       builder.eq = (column: string, value: unknown) => {
-        eqCalls.push([column, value]);
+        builderEqs.push([column, value]);
         return builder;
       };
       builder.or = (value: string) => {
         pattern = value;
-        orPatterns.push(value);
         return builder;
       };
+      builder.in = (column: string, values: unknown[]) => {
+        narrowed = { column, values };
+        return builder;
+      };
+      builder.order = () => builder;
       builder.limit = (value: number) => {
-        limits.push(value);
-        const rows = (byTable[name] ?? []).filter((candidate) =>
-          matchesPattern(candidate, pattern)
+        if (name === "mission_steps" || narrowed) {
+          contextReads.push(name);
+        } else {
+          tables.push(name);
+          eqCalls.push(...builderEqs);
+          if (pattern !== undefined) orPatterns.push(pattern);
+          limits.push(value);
+        }
+        const rows = (byTable[name] ?? []).filter(
+          (candidate) =>
+            (pattern === undefined || matchesPattern(candidate, pattern)) &&
+            (!narrowed ||
+              narrowed.values.includes(
+                (candidate as Record<string, unknown>)[narrowed.column]
+              ))
         );
         return Promise.resolve(
           error ? { data: null, error } : { data: rows, error: null }
@@ -117,6 +160,7 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
     eqCalls,
     orPatterns,
     limits,
+    contextReads,
     token: () => tokenSeen
   };
 }
@@ -367,11 +411,24 @@ describe("E: executable search behaviour", () => {
     ]);
   });
 
+  /**
+   * NARROWED FOR WP-005, not weakened. `vlan` is now an approved acronym, so it
+   * expands; the exact two-column pattern is pinned on a plain term instead,
+   * and EVERY condition of the expanded read is still proven to name only the
+   * title or description column.
+   */
   it("E5: matches title and description only", async () => {
-    const { harness } = await search({});
+    const plain = await search({}, { query: "inspect" });
 
-    for (const pattern of harness.orPatterns) {
-      expect(pattern).toBe("title.ilike.%vlan%,description.ilike.%vlan%");
+    for (const pattern of plain.harness.orPatterns) {
+      expect(pattern).toBe("title.ilike.%inspect%,description.ilike.%inspect%");
+    }
+
+    const expanded = await search({});
+    for (const pattern of expanded.harness.orPatterns) {
+      for (const condition of pattern.split(",")) {
+        expect(condition).toMatch(/^(title|description)\.(ilike|imatch)\./);
+      }
     }
   });
 
@@ -477,10 +534,16 @@ describe("E: executable search behaviour", () => {
     expect(results.count).toBe(0);
   });
 
-  it("E15: the response carries exactly results, count and facets", async () => {
-    const { results } = await search({ courses: [row()] });
+  /** WP-005 adds `matchLocations` beside the results, and nothing else. */
+  it("E15: the response carries exactly results, count, facets and match locations", async () => {
+    const { results } = await search({ courses: [row()] }, { query: "inspect" });
 
-    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
+    expect(Object.keys(results).sort()).toEqual([
+      "count",
+      "facets",
+      "matchLocations",
+      "results"
+    ]);
   });
 
   it("E16: preserves the source text representation in the snippet", async () => {
@@ -919,20 +982,33 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     ]
   };
 
+  /**
+   * WP-005: `vlan` became an approved acronym and is no longer a query with no
+   * adjustment, so the plain-term case uses a word from the same row.
+   */
   it("H1: a query with no adjustment behaves exactly as SEARCH-002 did", async () => {
-    const { results, harness } = await search({ courses: [row()] });
+    const { results, harness } = await search(
+      { courses: [row()] },
+      { query: "inspect" }
+    );
 
     expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%vlan%,description.ilike.%vlan%"
+      "title.ilike.%inspect%,description.ilike.%inspect%"
     );
     expect(results).not.toHaveProperty("queryAdjustment");
   });
 
+  /**
+   * NARROWED FOR WP-005, not weakened. The acronym is now matched as a WHOLE
+   * WORD (`\y` boundaries, optional plural) instead of as the substring `%AD%`,
+   * which also matched "address" and "advanced". The canonical term is still
+   * added to the same single read.
+   */
   it("H2: an approved acronym adds its canonical term to the same read", async () => {
     const { harness } = await search({}, { query: "AD" });
 
     expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%AD%,description.ilike.%AD%," +
+      "title.imatch.\\yADs?\\y,description.imatch.\\yADs?\\y," +
         "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
     );
   });
@@ -974,11 +1050,18 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
    * The substring pathology this rule exists to prevent. A two-character alias
    * would match "administration", "advanced", "upload", "read" and "broadcast".
    */
-  it("H6: the canonical term never emits the short alias as a pattern", async () => {
+  /**
+   * NARROWED FOR WP-005, not weakened. WP-005 requires `AD` and `Active
+   * Directory` to return the same results, so the canonical term now DOES
+   * reach the short alias — but only through the approved whole-word pattern.
+   * The substring pathology this test exists to prevent is still forbidden.
+   */
+  it("H6: the canonical term never emits the short alias as a substring pattern", async () => {
     const { harness } = await search({}, { query: "Active Directory" });
 
     expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
+      "title.ilike.%Active Directory%,description.ilike.%Active Directory%," +
+        "title.imatch.\\yADs?\\y,description.imatch.\\yADs?\\y"
     );
     expect(harness.orPatterns[0]).not.toContain("%AD%");
   });
@@ -1058,9 +1141,11 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
   it("H13: the response carries results, count, facets and the adjustment", async () => {
     const { results } = await search(adRows, { query: "AD" });
 
+    // WP-005 adds `matchLocations`, beside the results and outside them.
     expect(Object.keys(results).sort()).toEqual([
       "count",
       "facets",
+      "matchLocations",
       "queryAdjustment",
       "results"
     ]);
@@ -1130,9 +1215,11 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
   });
 
   it("I1: does not run when the original query already has results", async () => {
+    // WP-005: `vlan` now carries an alias adjustment, so a plain word from the
+    // same row proves the absence of any adjustment.
     const { results, harness } = await search(
       { courses: [row()] },
-      { query: "vlan" }
+      { query: "inspect" }
     );
 
     // Exactly one pass: four source reads, not eight.
@@ -1520,7 +1607,16 @@ describe("J: SEARCH-008 ranking", () => {
       { query: "vlan" }
     );
 
-    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
+    // WP-005: `vlan` is an approved acronym (alias adjustment) and results now
+    // carry their match locations. Neither key carries a ranking internal,
+    // which the loop below still proves over the whole serialized response.
+    expect(Object.keys(results).sort()).toEqual([
+      "count",
+      "facets",
+      "matchLocations",
+      "queryAdjustment",
+      "results"
+    ]);
     for (const forbidden of [
       "ranking",
       "rankedBy",
