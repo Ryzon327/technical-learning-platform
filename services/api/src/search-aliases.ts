@@ -348,7 +348,15 @@ export function wordPatternFor(term: string): string {
   return `\\y${term}s?\\y`;
 }
 
-/** One PostgREST `or` condition per column per pattern. */
+/**
+ * One PostgREST `or` condition per column per pattern.
+ *
+ * Founder direction G-005: curriculum search no longer sends these. A
+ * whole-word `imatch` condition sent this way returned no row on the UAT
+ * project, so titles and descriptions are matched by the SECURITY INVOKER
+ * record-search function instead (`curriculum-record-search.ts`). Do not
+ * reintroduce this for retrieval.
+ */
 export function buildRetrievalConditions(
   columns: readonly string[],
   patterns: readonly RetrievalPattern[]

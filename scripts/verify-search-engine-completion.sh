@@ -481,10 +481,25 @@ grep -Fq 'escapeCurriculumSearchPattern(variant.value)' "$CS" \
 CS_ESCAPES="$(echo "$CS_CODE" | grep -c 'escapeCurriculumSearchPattern(' || true)"
 [ "$CS_ESCAPES" = "1" ] \
   || fail "escaping happens at $CS_ESCAPES sites; exactly one escaping path may exist"
-grep -Fq '.eq("publication_state", "published")' "$CS" \
-  || fail "the publication constraint was removed from curriculum retrieval"
-grep -Fq '.limit(limit * 4)' "$CS" \
+# MOVED FOR G-005, not weakened. Titles and descriptions are read through the
+# SECURITY INVOKER record-search function, so the publication constraint is
+# pinned where it now lives — stated for each of the four sources in the
+# function, and re-checked on every row the service receives — and the same
+# `limit * 4` bound is pinned as the argument and as the reader's stop.
+CRS="$API_SRC/curriculum-record-search.ts"
+G005_FLAT="$(sed 's/--.*$//' supabase/migrations/20261012000100_curriculum_record_search_function.sql | tr -s ' \n' ' ')"
+for source in "learning_paths as lp" "courses as c" "missions as m" "competencies as k"; do
+  table="${source%% as *}"
+  alias="${source##* as }"
+  echo "$G005_FLAT" | grep -Fq "from public.$table as $alias where p_source = '$table' and $alias.publication_state = 'published'" \
+    || fail "the publication constraint was removed from curriculum retrieval: $table"
+done
+grep -Fq 'if (row.publication_state !== "published") continue;' "$CRS" \
+  || fail "the record reader no longer re-checks publication on every row"
+grep -Fq 'limit * 4' "$CS" \
   || fail "the bounded candidate over-fetch is missing or became unbounded"
+grep -Fq 'while (rows.length < maxRows) {' "$CRS" \
+  || fail "the record reader no longer stops at the bounded over-fetch"
 
 # The neutral deterministic order must remain available as the lower tie-break.
 grep -Fq 'export function orderCurriculumSearchResults' "$CST" \
@@ -837,16 +852,21 @@ echo "PASS: 13. SEARCH-008 fallback stays honest, bounded and learner-driven"
 #     helper, and the publication constraint precedes the match.
 grep -Fq 'const supabase = createUserScopedSupabaseClient(accessToken);' "$CS" \
   || fail "the caller-scoped client is not created once in the search entry point"
-grep -Fq 'searchOneType(supabase, contentType, patterns, limit)' "$CS" \
+grep -Fq 'searchOneType(supabase, contentType, match, limit)' "$CS" \
   || fail "retrieval does not receive the caller's own client"
 READ_FLAT="$(echo "$CS_FLAT" | grep -o 'asyncfunctionsearchOneType.*construnAuthorizedPass' || true)"
 [ -n "$READ_FLAT" ] || fail "the retrieval helper is missing"
-R_PUBLISHED="$(echo "$READ_FLAT" | grep -bo '.eq("publication_state","published")' | head -1 | cut -d: -f1 || true)"
-R_MATCH="$(echo "$READ_FLAT" | grep -bo '.or(matchConditions)' | head -1 | cut -d: -f1 || true)"
-R_DECIDE="$(echo "$READ_FLAT" | grep -bo 'decideFromAuthoritativeRead(' | head -1 | cut -d: -f1 || true)"
-[ -n "$R_PUBLISHED" ] && [ -n "$R_MATCH" ] && [ -n "$R_DECIDE" ] \
+# MOVED FOR G-005, not weakened. The read is the record-search function, called
+# with the caller's own client; the permission decision still follows it. The
+# publication constraint now precedes the match INSIDE the function: the
+# published rows are selected first, and only those are matched.
+R_MATCH="$(echo "$READ_FLAT" | grep -boF 'searchPublishedCurriculumRecords(supabase,SEARCHABLE_TABLES[contentType],match,limit*4)' | head -1 | cut -d: -f1 || true)"
+R_DECIDE="$(echo "$READ_FLAT" | grep -boF 'decideFromAuthoritativeRead(' | head -1 | cut -d: -f1 || true)"
+G005_PUBLISHED="$(echo "$G005_FLAT" | grep -boF "k.publication_state = 'published'" | head -1 | cut -d: -f1 || true)"
+G005_MATCH="$(echo "$G005_FLAT" | grep -boF 'matched as (' | head -1 | cut -d: -f1 || true)"
+[ -n "$R_MATCH" ] && [ -n "$R_DECIDE" ] && [ -n "$G005_PUBLISHED" ] && [ -n "$G005_MATCH" ] \
   || fail "a required retrieval step is missing from the authorized read"
-[ "$R_PUBLISHED" -lt "$R_MATCH" ] \
+[ "$G005_PUBLISHED" -lt "$G005_MATCH" ] \
   || fail "the publication constraint no longer precedes the match"
 [ "$R_MATCH" -lt "$R_DECIDE" ] \
   || fail "the permission decision no longer follows the authoritative read"
@@ -981,11 +1001,34 @@ fi
 # migration is still refused. Founder direction G-002 adds exactly one table
 # change to it: `mission_steps.searchable_text`, the step's learner-visible
 # text generated from its payload, so it is not rebuilt on every search.
+#
+# A second exception, by name: Founder direction G-005 moved title and
+# description matching into one more read-only SECURITY INVOKER function. G-001's
+# file is applied to UAT and must not be edited, so this is a NEW migration. It
+# may define that function and its grant — no table change of any kind, index,
+# policy, persisted search state or privileged execution.
 G001_SEARCH_MIGRATION="supabase/migrations/20261011000100_curriculum_step_search_functions.sql"
+G005_SEARCH_MIGRATION="supabase/migrations/20261012000100_curriculum_record_search_function.sql"
 SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*rank*.sql \
   supabase/migrations/*facet*.sql supabase/migrations/*index*.sql 2>/dev/null \
-  | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
+  | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS" = "0" ] || fail "a Search-specific database migration exists"
+if [ -f "$G005_SEARCH_MIGRATION" ]; then
+  G005_CODE="$(sed 's/--.*$//' "$G005_SEARCH_MIGRATION" | tr '[:upper:]' '[:lower:]')"
+  if echo "$G005_CODE" | grep -qE 'security definer|alter table|create (unique )?index|create table|create materialized|create policy|drop policy|tsvector|to_tsquery|pg_trgm|create extension|service_role'; then
+    fail "the G-005 record-search migration does more than define one read-only function"
+  fi
+  G005_FUNCTIONS="$(echo "$G005_CODE" | grep -cE 'create or replace function' || true)"
+  [ "$G005_FUNCTIONS" = "1" ] \
+    || fail "the G-005 record-search migration may define exactly one function; found $G005_FUNCTIONS"
+  echo "$G005_CODE" | grep -qF 'security invoker' \
+    || fail "the G-005 record-search function is not SECURITY INVOKER"
+  echo "$G005_CODE" | grep -qF 'grant execute on function public.search_published_curriculum_records(text, text[], text[], text, integer) to authenticated;' \
+    || fail "the G-005 record-search function is not granted to authenticated"
+  G005_GRANTS="$(echo "$G005_CODE" | grep -cE '^grant ' || true)"
+  [ "$G005_GRANTS" = "1" ] \
+    || fail "the G-005 record-search migration may grant exactly one privilege; found $G005_GRANTS"
+fi
 if [ -f "$G001_SEARCH_MIGRATION" ]; then
   G001_CODE="$(sed 's/--.*$//' "$G001_SEARCH_MIGRATION" | tr '[:upper:]' '[:lower:]')"
   if echo "$G001_CODE" | grep -qE 'security definer|create (unique )?index|create table|create materialized|create policy|tsvector|to_tsquery|pg_trgm|create extension'; then

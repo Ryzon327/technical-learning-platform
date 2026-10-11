@@ -198,7 +198,9 @@ export function stepSearchableText(payload: Record<string, unknown>): string {
 }
 
 /**
- * The step-search function's matching arguments.
+ * The step-search function's matching arguments — and, since Founder direction
+ * G-005, the record-search function's too (`curriculum-record-search.ts`), so
+ * titles, descriptions and step bodies are matched by the same terms.
  *
  * `patterns` and `variants` are parallel. A whole-word pattern contributes its
  * validated acronym DATA member; every other variant contributes its own

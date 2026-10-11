@@ -40,17 +40,20 @@ import {
   weakestTitlePrecision
 } from "@tlp/shared-types";
 import {
+  searchPublishedCurriculumRecords,
+  type CurriculumRecordMatchArguments
+} from "./curriculum-record-search";
+import {
+  buildStepSearchArguments,
   locateCurriculumMatch,
   searchPublishedStepBodies
 } from "./curriculum-step-search";
 import {
   buildAliasAwareQueryVariants,
-  buildRetrievalConditions,
   classifyAliasAwareTitlePrecision,
   toRetrievalPattern,
   variantOccursIn,
-  variantsFoundIn,
-  type RetrievalPattern
+  variantsFoundIn
 } from "./search-aliases";
 import { createUserScopedSupabaseClient } from "./supabase";
 
@@ -73,8 +76,10 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * security decides visibility. Every curriculum table carries
  * `for select to authenticated using (publication_state = 'published')`, so
  * draft, review and retired curriculum is unreadable through this path — not
- * filtered out afterwards, but never returned. The `.eq("publication_state",
- * "published")` below is defence in depth, not the protection.
+ * filtered out afterwards, but never returned. The record-search function's
+ * own `publication_state = 'published'` (WP-005 / G-005,
+ * `curriculum-record-search.ts`) and the re-check of every returned row are
+ * defence in depth, not the protection.
  *
  * No service-role client. No caller-supplied user id. No notes or private
  * source of any kind.
@@ -107,7 +112,10 @@ import { createUserScopedSupabaseClient } from "./supabase";
  *
  * Approved acronym aliases come from a checked-in data file read on the server
  * (`search-aliases.ts`). An acronym matches as a whole word, so `ARP` never
- * matches "sharp"; everything else keeps SEARCH-002's escaped substring match.
+ * matches "sharp"; everything else keeps SEARCH-002's literal substring match.
+ * Founder direction G-005: titles and descriptions are matched in PostgreSQL
+ * by the same rules as step bodies, through a SECURITY INVOKER function whose
+ * arguments are plain values, never PostgREST filter syntax.
  *
  * Each returned result carries where it matched — course, mission, step — with
  * a short snippet, in `matchLocations` beside the results, never inside a
@@ -191,29 +199,27 @@ export function projectCurriculumDocument(
 async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
-  patterns: readonly RetrievalPattern[],
+  match: CurriculumRecordMatchArguments,
   limit: number
 ): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
   // SEARCH-005A: every approved variant is matched in ONE read, so broadening
   // the query never multiplies the number of source queries and never changes
-  // the bounded over-fetch. Each substring pattern arrives already escaped;
-  // WP-005 acronym patterns are whole-word and built from validated data only.
-  const matchConditions = buildRetrievalConditions(
-    ["title", "description"],
-    patterns
+  // the bounded over-fetch. WP-005 / G-005: the title and description are
+  // matched by a SECURITY INVOKER database function under the caller's own
+  // RLS, which states the publication requirement itself. Phrases are literal
+  // substrings and acronyms whole words built from validated data only; both
+  // reach PostgreSQL as arguments, never as filter syntax.
+  const read = await searchPublishedCurriculumRecords(
+    supabase,
+    SEARCHABLE_TABLES[contentType],
+    match,
+    limit * 4
   );
-
-  const { data, error } = await supabase
-    .from(SEARCHABLE_TABLES[contentType])
-    .select("stable_id,version,title,description,publication_state,updated_at")
-    .eq("publication_state", "published")
-    .or(matchConditions)
-    .limit(limit * 4);
 
   // A source that cannot be authorized fails closed. No diagnostic reason is
   // constructed here: nothing in this path could carry one to the learner, so
   // `internalReason` stays confined to the permission contract itself.
-  if (error) {
+  if (read.readFailed) {
     const decision = decideFromAuthoritativeRead({
       readFailed: true,
       found: false
@@ -221,7 +227,7 @@ async function searchOneType(
     if (!maySurface(decision)) throw unavailable();
   }
 
-  return ((data ?? []) as unknown as CurriculumRow[]).map((row) => ({
+  return (read.rows as CurriculumRow[]).map((row) => ({
     decision: decideFromAuthoritativeRead({ readFailed: false, found: true }),
     value: {
       contentType,
@@ -334,13 +340,15 @@ export async function searchCurriculum(
       toRetrievalPattern(variant, escapeCurriculumSearchPattern(variant.value))
     );
 
+    const match = buildStepSearchArguments(patterns, passVariants);
+
     const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
       [];
     for (const contentType of Object.keys(
       SEARCHABLE_TABLES
     ) as CurriculumSearchContentType[]) {
       permissioned.push(
-        ...(await searchOneType(supabase, contentType, patterns, limit))
+        ...(await searchOneType(supabase, contentType, match, limit))
       );
     }
 

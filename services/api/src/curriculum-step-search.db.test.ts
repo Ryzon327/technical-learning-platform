@@ -9,6 +9,11 @@ import {
   type CurriculumQueryVariant
 } from "@tlp/shared-types";
 import {
+  RECORD_SEARCH_FUNCTION,
+  searchPublishedCurriculumRecords,
+  type CurriculumRecordRow
+} from "./curriculum-record-search";
+import {
   MISSION_CONTEXT_FUNCTION,
   STEP_SEARCH_FUNCTION,
   STEP_SEARCH_PAGE_SIZE,
@@ -45,6 +50,14 @@ import {
  * client whose `rpc` does exactly that, and which can impose a PostgREST-style
  * `max-rows` cap on every response. The PostgREST HTTP layer itself is not in
  * the loop; for an `rpc` it only forwards named arguments and applies the cap.
+ *
+ * ## Titles and descriptions (Founder direction G-005)
+ *
+ * `search_published_curriculum_records` matches course, mission, competency
+ * and learning-path titles and descriptions by the same rules, and is driven
+ * here through the service's own `searchPublishedCurriculumRecords` and called
+ * directly as a learner. Its whole-word acronyms run as PostgreSQL's own `\y`
+ * regular expressions; nothing in this file translates or imitates them.
  *
  * ## Latency
  *
@@ -113,6 +126,13 @@ const SIGNATURES: Record<string, Record<string, string>> = {
   },
   [MISSION_CONTEXT_FUNCTION]: {
     p_stable_ids: "text[]",
+    p_after: "text",
+    p_page_size: "integer"
+  },
+  [RECORD_SEARCH_FUNCTION]: {
+    p_source: "text",
+    p_phrases: "text[]",
+    p_acronyms: "text[]",
     p_after: "text",
     p_page_size: "integer"
   }
@@ -187,6 +207,52 @@ async function searchSteps(
   return { outcome, calls, elapsedMs: performance.now() - started };
 }
 
+const RECORD_SOURCES = ["learning_paths", "courses", "missions", "competencies"] as const;
+
+/**
+ * Founder direction G-005: the service's own record reader, over all four
+ * sources, through the learner-scoped client, with the arguments
+ * `searchCurriculum` builds for the query. Real regular expressions, real
+ * policies; nothing here translates or imitates PostgreSQL matching.
+ */
+async function searchRecords(
+  query: string,
+  options: { maxRows?: number; overFetch?: number } = {}
+): Promise<{
+  bySource: Record<string, CurriculumRecordRow[]>;
+  calls: RpcCall[];
+  elapsedMs: number;
+}> {
+  const { variants, patterns } = variantsFor(query);
+  const match = buildStepSearchArguments(patterns, variants);
+  const { client, calls } = learnerClient(options);
+  const bySource: Record<string, CurriculumRecordRow[]> = {};
+  const started = performance.now();
+  for (const source of RECORD_SOURCES) {
+    const read = await searchPublishedCurriculumRecords(
+      client as never,
+      source,
+      match,
+      options.overFetch ?? 400
+    );
+    if (read.readFailed) throw new Error(`the ${source} record read failed`);
+    bySource[source] = read.rows;
+  }
+  return { bySource, calls, elapsedMs: performance.now() - started };
+}
+
+/** Our fixture's stable ids, per source, from one record search. */
+const oursBySource = (prefix: string, bySource: Record<string, CurriculumRecordRow[]>) =>
+  Object.fromEntries(
+    RECORD_SOURCES.map((source) => [
+      source,
+      (bySource[source] ?? [])
+        .map((row) => row.stable_id)
+        .filter((id) => id.startsWith(prefix))
+        .sort()
+    ])
+  );
+
 /* ------------------------------------------------------------------ *
  * Fixture — inserted as the database owner, removed afterwards
  * ------------------------------------------------------------------ */
@@ -199,6 +265,7 @@ interface Fixture {
   learning_modules: Row[];
   missions: Row[];
   mission_steps: Row[];
+  competencies: Row[];
 }
 
 function fixtureBuilder(prefix: string) {
@@ -207,7 +274,8 @@ function fixtureBuilder(prefix: string) {
     courses: [],
     learning_modules: [],
     missions: [],
-    mission_steps: []
+    mission_steps: [],
+    competencies: []
   };
   let position = 0;
   const pathId = randomUUID();
@@ -219,7 +287,7 @@ function fixtureBuilder(prefix: string) {
     publication_state: "published"
   });
 
-  const course = (key: string, title: string, state = "published") => {
+  const course = (key: string, title: string, state = "published", description?: string) => {
     const id = randomUUID();
     fixture.courses.push({
       id,
@@ -227,10 +295,25 @@ function fixtureBuilder(prefix: string) {
       version: 1,
       learning_path_id: pathId,
       title,
+      description: description ?? null,
       position: (position += 1),
       publication_state: state
     });
     return id;
+  };
+  const competency = (
+    key: string,
+    title: string,
+    extra: { state?: string; description?: string } = {}
+  ) => {
+    fixture.competencies.push({
+      id: randomUUID(),
+      stable_id: `${prefix}${key}`,
+      version: 1,
+      title,
+      description: extra.description ?? null,
+      publication_state: extra.state ?? "published"
+    });
   };
   const module = (courseId: string, key: string, state = "published") => {
     const id = randomUUID();
@@ -274,7 +357,7 @@ function fixtureBuilder(prefix: string) {
       payload
     });
   };
-  return { fixture, course, module, mission, step };
+  return { fixture, course, module, mission, step, competency };
 }
 
 function insertFixture(fixture: Fixture): void {
@@ -286,9 +369,9 @@ function insertFixture(fixture: Fixture): void {
       `insert into public.learning_paths (id, stable_id, version, title, publication_state)
          select x.id, x.stable_id, x.version, x.title, x.publication_state
          ${from("learning_paths", "id uuid, stable_id text, version integer, title text, publication_state text")};`,
-      `insert into public.courses (id, stable_id, version, learning_path_id, title, position, publication_state)
-         select x.id, x.stable_id, x.version, x.learning_path_id, x.title, x.position, x.publication_state
-         ${from("courses", "id uuid, stable_id text, version integer, learning_path_id uuid, title text, position integer, publication_state text")};`,
+      `insert into public.courses (id, stable_id, version, learning_path_id, title, description, position, publication_state)
+         select x.id, x.stable_id, x.version, x.learning_path_id, x.title, x.description, x.position, x.publication_state
+         ${from("courses", "id uuid, stable_id text, version integer, learning_path_id uuid, title text, description text, position integer, publication_state text")};`,
       `insert into public.learning_modules (id, stable_id, version, course_id, title, position, publication_state)
          select x.id, x.stable_id, x.version, x.course_id, x.title, x.position, x.publication_state
          ${from("learning_modules", "id uuid, stable_id text, version integer, course_id uuid, title text, position integer, publication_state text")};`,
@@ -297,14 +380,23 @@ function insertFixture(fixture: Fixture): void {
          ${from("missions", "id uuid, stable_id text, version integer, module_id uuid, title text, description text, position integer, publication_state text")};`,
       `insert into public.mission_steps (id, mission_id, stable_id, position, step_type, payload)
          select x.id, x.mission_id, x.stable_id, x.position, x.step_type, x.payload
-         ${from("mission_steps", "id uuid, mission_id uuid, stable_id text, position integer, step_type text, payload jsonb")};`
+         ${from("mission_steps", "id uuid, mission_id uuid, stable_id text, position integer, step_type text, payload jsonb")};`,
+      `insert into public.competencies (id, stable_id, version, title, description, publication_state)
+         select x.id, x.stable_id, x.version, x.title, x.description, x.publication_state
+         ${from("competencies", "id uuid, stable_id text, version integer, title text, description text, publication_state text")};`
     ].join("\n")
   );
 }
 
 function removeFixtures(): void {
   // Courses, modules, missions and steps all cascade from the path.
-  psql(`delete from public.learning_paths where stable_id like ${literal(`${RUN}-%`)};`);
+  // Competencies stand alone.
+  psql(
+    [
+      `delete from public.learning_paths where stable_id like ${literal(`${RUN}-%`)};`,
+      `delete from public.competencies where stable_id like ${literal(`${RUN}-%`)};`
+    ].join("\n")
+  );
 }
 
 const ours = (prefix: string, outcome: StepBodySearchOutcome) =>
@@ -747,6 +839,264 @@ describe.skipIf(DATABASE_URL === "")("step search against real PostgreSQL and RL
 });
 
 /* ------------------------------------------------------------------ *
+ * Founder direction G-005 — titles and descriptions in PostgreSQL
+ * ------------------------------------------------------------------ */
+
+const V = `${RUN}-v-`;
+
+describe.skipIf(DATABASE_URL === "")("G-005: title and description search against real PostgreSQL and RLS", { timeout: 60_000 }, () => {
+  beforeAll(() => {
+    const { fixture, course, module, mission, step, competency } = fixtureBuilder(V);
+
+    // The UAT shape: VLAN in a course title, a mission description and a
+    // competency title. None of these rows has a step that names VLAN.
+    const ros = course("router-on-a-stick", "VLANs and Router-on-a-Stick", "published",
+      "Segmentation for a small office.");
+    const trunks = module(ros, "trunks");
+    const tagging = mission(trunks, "tagging", "Tagging frames", {
+      description: "Carry each VLAN across one trunk link."
+    });
+    competency("vlan-design", "Design a VLAN plan", {
+      description: "Choose identifiers per department."
+    });
+
+    // Each expanded name alone, in a description.
+    course("virtual-lan", "Broadcast domains", "published",
+      "Each Virtual LAN is its own broadcast domain.");
+    course("full-name", "Switch configuration", "published",
+      "A Virtual Local Area Network separates departments.");
+
+    // ARP behaviour, and the substrings it must never match.
+    course("arp-course", "ARP fundamentals", "published", "Start here.");
+    mission(trunks, "resolution", "Resolving neighbours", {
+      description: "The Address Resolution Protocol in practice."
+    });
+    course("sharp", "Sharp troubleshooting habits", "published",
+      "Keep your diagnostic skills sharp; practise sharpshooting.");
+
+    // Unpublished: never returned, whatever matches.
+    course("draft-vlan", "VLAN drafts", "draft", "An unpublished VLAN course.");
+    competency("retired-vlan", "Retired VLAN skill", { state: "retired" });
+    mission(trunks, "draft-mission", "VLAN draft mission", { state: "draft" });
+
+    // Wildcards are literal.
+    course("literal", "Scoring 100% _x", "published");
+    course("wild", "Scoring 1000 xx", "published");
+
+    // A withheld step value under a matching mission: never reachable here.
+    step(tagging, 0, {
+      type: "prediction",
+      prompt: "What does the trunk carry?",
+      expectedOutcome: "Every vlanquartzword frame, tagged."
+    });
+
+    insertFixture(fixture);
+  });
+
+  afterAll(() => removeFixtures());
+
+  const vlanRows = {
+    learning_paths: [],
+    courses: [`${V}full-name`, `${V}router-on-a-stick`, `${V}virtual-lan`],
+    missions: [`${V}tagging`],
+    competencies: [`${V}vlan-design`]
+  };
+
+  for (const query of ["VLAN", "vlan", "Virtual LAN", "Virtual Local Area Network"]) {
+    it(`${query} returns the course, mission and competency whose title or description says VLAN`, async () => {
+      const { bySource } = await searchRecords(query);
+      const ours = oursBySource(V, bySource);
+
+      expect(ours.courses).toContain(`${V}router-on-a-stick`);
+      expect(ours.missions).toEqual([`${V}tagging`]);
+      expect(ours.competencies).toEqual([`${V}vlan-design`]);
+      // Every member of the group reaches every spelling of it.
+      expect(ours).toEqual(vlanRows);
+    });
+  }
+
+  // The open MEDIUM finding, against real PostgreSQL: punctuated plural and
+  // possessive forms keep every member, including the full expanded name.
+  for (const query of [
+    "VLANs?",
+    "VLAN's!",
+    "Virtual LANs?",
+    "Virtual LAN's?",
+    "Virtual LAN’s!",
+    "Virtual Local Area Networks?",
+    "Virtual Local Area Network's!"
+  ]) {
+    it(`${query} still finds every member, including the full expanded name`, async () => {
+      const { bySource } = await searchRecords(query);
+      expect(oursBySource(V, bySource)).toEqual(vlanRows);
+    });
+  }
+
+  it("segmentation still returns the Router-on-a-Stick course", async () => {
+    const { bySource } = await searchRecords("segmentation");
+    expect(oursBySource(V, bySource).courses).toEqual([`${V}router-on-a-stick`]);
+  });
+
+  it("ARP and Address Resolution Protocol return the same records, never sharp", async () => {
+    const acronym = oursBySource(V, (await searchRecords("ARP")).bySource);
+    const expanded = oursBySource(V, (await searchRecords("address resolution protocol")).bySource);
+    const lower = oursBySource(V, (await searchRecords("arp")).bySource);
+
+    expect(acronym.courses).toEqual([`${V}arp-course`]);
+    expect(acronym.missions).toEqual([`${V}resolution`]);
+    expect(expanded).toEqual(acronym);
+    expect(lower).toEqual(acronym);
+
+    const plural = oursBySource(V, (await searchRecords("ARPs")).bySource);
+    expect(plural.courses).not.toContain(`${V}sharp`);
+  });
+
+  it("sharp still does not match ARP", async () => {
+    const ours = oursBySource(V, (await searchRecords("sharp")).bySource);
+    expect(ours.courses).toEqual([`${V}sharp`]);
+    expect(ours.missions).toEqual([]);
+  });
+
+  it("an unpublished course, mission or competency is never returned", async () => {
+    const { bySource } = await searchRecords("VLAN");
+    const ids = Object.values(bySource).flat().map((row) => row.stable_id);
+    for (const hidden of [`${V}draft-vlan`, `${V}retired-vlan`, `${V}draft-mission`]) {
+      expect(ids).not.toContain(hidden);
+    }
+    expect(JSON.stringify(bySource)).not.toContain("unpublished VLAN course");
+  });
+
+  it("wildcard characters are literal", async () => {
+    const ours = oursBySource(V, (await searchRecords("100% _x")).bySource);
+    expect(ours.courses).toEqual([`${V}literal`]);
+  });
+
+  /** A direct RPC call as an authenticated learner, every column of every row. */
+  const callRecordSearchDirectly = (
+    source: string,
+    args: Record<string, unknown>
+  ): Array<Record<string, unknown>> =>
+    JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(
+          RECORD_SEARCH_FUNCTION,
+          { p_source: source, ...args }
+        )}) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+
+  it("G-003: the RPC, called directly by a learner, returns only the record's own display columns", () => {
+    for (const source of RECORD_SOURCES) {
+      const rows = callRecordSearchDirectly(source, { p_acronyms: ["VLAN"] }).filter((row) =>
+        String(row.stable_id).startsWith(V)
+      );
+      for (const row of rows) {
+        expect(Object.keys(row), source).toEqual([
+          "stable_id",
+          "version",
+          "title",
+          "description",
+          "publication_state",
+          "updated_at"
+        ]);
+        expect(row.publication_state).toBe("published");
+      }
+      const serialized = JSON.stringify(rows);
+      for (const key of ["payload", "expectedOutcome", "id", "searchable_text"]) {
+        expect(serialized, `${source}: ${key}`).not.toContain(`"${key}"`);
+      }
+      expect(serialized).not.toContain("vlanquartzword");
+    }
+  });
+
+  it("G-003: searching for a withheld step value finds no record, so it cannot reveal one exists", async () => {
+    for (const source of RECORD_SOURCES) {
+      expect(callRecordSearchDirectly(source, { p_phrases: ["vlanquartzword"] }), source).toEqual([]);
+    }
+    const { bySource } = await searchRecords("vlanquartzword");
+    expect(Object.values(bySource).flat()).toEqual([]);
+  });
+
+  it("an unknown source reads nothing", () => {
+    expect(callRecordSearchDirectly("mission_steps", { p_phrases: ["VLAN"] })).toEqual([]);
+    expect(callRecordSearchDirectly("learning_modules", { p_phrases: ["Module"] })).toEqual([]);
+  });
+
+  it("the function is SECURITY INVOKER and only authenticated may execute it", () => {
+    const row = JSON.parse(
+      psql(`select json_build_object(
+              'definer', p.prosecdef,
+              'authenticated', has_function_privilege('authenticated', p.oid, 'execute'),
+              'anon', has_function_privilege('anon', p.oid, 'execute'),
+              'service_role', has_function_privilege('service_role', p.oid, 'execute'))
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = '${RECORD_SEARCH_FUNCTION}';`)
+    ) as Record<string, boolean>;
+
+    expect(row).toEqual({ definer: false, authenticated: true, anon: false, service_role: false });
+    expect(() =>
+      asRole(
+        `select count(*) from ${functionCall(RECORD_SEARCH_FUNCTION, { p_source: "courses", p_acronyms: ["VLAN"] })};`,
+        "anon"
+      )
+    ).toThrow(/permission denied/);
+  });
+
+  it("row level security decides: a policy hiding courses from the learner hides every course match", () => {
+    // Rolled back, so nothing persists.
+    const output = psql(
+      [
+        "begin;",
+        `create policy wp005_hide_courses on public.courses as restrictive
+           for select to authenticated using (false);`,
+        "set local role authenticated;",
+        `select count(*) from ${functionCall(RECORD_SEARCH_FUNCTION, { p_source: "courses", p_acronyms: ["VLAN"] })};`,
+        "rollback;"
+      ].join("\n")
+    );
+    expect(output).toBe("0");
+
+    const visible = asRole(
+      `select count(*) from ${functionCall(RECORD_SEARCH_FUNCTION, { p_source: "courses", p_acronyms: ["VLAN"] })};`
+    );
+    expect(Number(visible)).toBeGreaterThan(0);
+  });
+
+  it("keyset pages under a server row cap return every match", async () => {
+    const uncapped = await searchRecords("VLAN");
+    const capped = await searchRecords("VLAN", { maxRows: 1 });
+
+    expect(oursBySource(V, capped.bySource)).toEqual(oursBySource(V, uncapped.bySource));
+    const coursePages = capped.calls.filter(
+      (call) => call.fn === RECORD_SEARCH_FUNCTION && call.args.p_source === "courses"
+    );
+    expect(coursePages.length).toBeGreaterThanOrEqual(3);
+    for (const call of capped.calls) expect(call.rows).toBeLessThanOrEqual(1);
+    expect(coursePages.at(-1)?.rows).toBe(0);
+  });
+
+  it("a record read stops at its bounded over-fetch", async () => {
+    const { bySource, calls } = await searchRecords("VLAN", { overFetch: 2 });
+    expect(bySource.courses).toHaveLength(2);
+    const coursePages = calls.filter(
+      (call) => call.fn === RECORD_SEARCH_FUNCTION && call.args.p_source === "courses"
+    );
+    expect(coursePages.map((call) => call.args.p_page_size)).toEqual([2]);
+  });
+
+  it("clamps an oversized page request instead of failing", () => {
+    const rows = asRole(
+      `select count(*) from ${functionCall(RECORD_SEARCH_FUNCTION, {
+        p_source: "courses",
+        p_phrases: ["e"],
+        p_page_size: 100000
+      })};`
+    );
+    expect(Number(rows)).toBeLessThanOrEqual(100);
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Pagination under a server row cap (review finding 1)
  * ------------------------------------------------------------------ */
 
@@ -884,5 +1234,49 @@ describe.skipIf(DATABASE_URL === "")("latency against real PostgreSQL", { timeou
 
     expect(Math.max(...executionMs)).toBeLessThan(LATENCY_BUDGET_MS);
     expect(Math.max(...endToEndMs)).toBeLessThan(LATENCY_BUDGET_MS);
+  });
+
+  /**
+   * Founder direction G-005: a search now also reads the four record sources
+   * through `search_published_curriculum_records`. Every database read one
+   * search makes — four record reads and the step read, with every page — is
+   * timed together, and must fit the same budget.
+   */
+  it(`answers every read of one search inside ${LATENCY_BUDGET_MS} ms, record sources included`, async () => {
+    const { variants, patterns } = variantsFor("ARP");
+    const args = {
+      ...buildStepSearchArguments(patterns, variants),
+      p_source: "missions",
+      p_after: null,
+      p_page_size: 100
+    };
+
+    const recordExecutionMs: number[] = [];
+    const allReadsMs: number[] = [];
+    for (let run = 0; run < 5; run += 1) {
+      const plan = JSON.parse(
+        asRole(`explain (analyze, format json) select * from ${functionCall(RECORD_SEARCH_FUNCTION, args)};`)
+      ) as Array<{ "Execution Time": number }>;
+      recordExecutionMs.push(plan[0]?.["Execution Time"] ?? Number.POSITIVE_INFINITY);
+
+      const started = performance.now();
+      const records = await searchRecords("ARP", { overFetch: 100 });
+      const steps = await searchSteps("ARP");
+      allReadsMs.push(performance.now() - started);
+
+      expect(oursBySource(L, records.bySource).missions).toEqual([]);
+      expect(ours(L, steps.outcome)).toHaveLength(LATENCY_MISSIONS);
+    }
+
+    const worst = (values: number[]) => Math.max(...values).toFixed(1);
+    console.log(
+      `[WP-005 latency] search_published_curriculum_records (missions) execution worst ${worst(recordExecutionMs)} ms over 5 runs ` +
+        `[${recordExecutionMs.map((value) => value.toFixed(1)).join(", ")}]; ` +
+        `every read of one search (4 record sources + step bodies, all pages, psql round trips included) worst ${worst(allReadsMs)} ms ` +
+        `[${allReadsMs.map((value) => value.toFixed(1)).join(", ")}]`
+    );
+
+    expect(Math.max(...recordExecutionMs)).toBeLessThan(LATENCY_BUDGET_MS);
+    expect(Math.max(...allReadsMs)).toBeLessThan(LATENCY_BUDGET_MS);
   });
 });

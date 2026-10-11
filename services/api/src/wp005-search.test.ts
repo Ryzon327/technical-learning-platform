@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CurriculumSearchInput } from "./curriculum-search";
+import { RECORD_SEARCH_PAGE_SIZE } from "./curriculum-record-search";
 import { STEP_SEARCH_PAGE_SIZE, stepSearchableText } from "./curriculum-step-search";
 import { approvedSearchAliasGroups } from "./search-aliases";
 
@@ -41,15 +42,13 @@ interface World {
 
 interface ReadRecord {
   table: string;
-  select: string;
-  eqs: Array<[string, unknown]>;
-  or?: string;
-  limit?: number;
   args?: Record<string, unknown>;
 }
 
 const STEP_RPC = "rpc:search_published_mission_steps";
 const CONTEXT_RPC = "rpc:published_mission_contexts";
+const RECORD_RPC = "rpc:search_published_curriculum_records";
+const RECORD_SOURCES = ["learning_paths", "courses", "missions", "competencies"];
 
 let sequence = 0;
 const nextId = () =>
@@ -98,10 +97,15 @@ interface DatabaseOptions {
 /**
  * The stand-in database.
  *
- * `hostile` turns OFF both the modelled policies and every publication `eq`
- * filter, which is what a broken policy plus a forgotten filter would look
- * like. Text matching still applies. It exists to prove the service's own
- * re-checks, not to describe real behaviour.
+ * `hostile` turns OFF both the modelled policies and every function's own
+ * publication requirement, which is what a broken policy plus a forgotten
+ * filter would look like. Text matching still applies. It exists to prove the
+ * service's own re-checks, not to describe real behaviour.
+ *
+ * Founder direction G-005: titles and descriptions are matched by the
+ * `search_published_curriculum_records` function
+ * (`20261012000100_curriculum_record_search_function.sql`), modelled here
+ * with the same rules as the step-search function.
  */
 function database(world: World, options: DatabaseOptions = {}) {
   const reads: ReadRecord[] = [];
@@ -116,18 +120,6 @@ function database(world: World, options: DatabaseOptions = {}) {
   const fieldOf = (row: Row, column: string): string => {
     const value = row[column];
     return typeof value === "string" ? value : "";
-  };
-
-  const matches = (row: Row, condition: string): boolean => {
-    const parsed = /^(.+?)\.(ilike|imatch)\.(.*)$/.exec(condition);
-    if (!parsed) throw new Error(`unparseable condition: ${condition}`);
-    const [, column = "", operator, value = ""] = parsed;
-    const haystack = fieldOf(row, column);
-    if (operator === "imatch") {
-      return new RegExp(value.replace(/\\y/g, "\\b"), "i").test(haystack);
-    }
-    const term = value.replace(/^%|%$/g, "").replace(/\\([\\%_])/g, "$1");
-    return haystack.toLowerCase().includes(term.toLowerCase());
   };
 
   /** `current_published_missions()`: highest version with a published module and course. */
@@ -180,6 +172,38 @@ function database(world: World, options: DatabaseOptions = {}) {
   const rpcRows = (name: string, args: Record<string, unknown>): Row[] => {
     const after = options.ignoreCursor ? null : (args.p_after as string | null);
     const pageSize = Math.min(Math.max(Number(args.p_page_size ?? 50), 1), 100);
+
+    // G-005 `search_published_curriculum_records`: the title or the
+    // description of one source, one row per stable id at its highest
+    // matching version, in stable-id order.
+    if (name === "search_published_curriculum_records") {
+      const source = String(args.p_source);
+      if (!RECORD_SOURCES.includes(source)) throw new Error(`unknown source: ${source}`);
+      const highest = new Map<string, Row>();
+      for (const row of world[source as keyof World]) {
+        if (!visible(row)) continue;
+        if (!["title", "description"].some((field) => stepMatches(fieldOf(row, field), args))) {
+          continue;
+        }
+        const incumbent = highest.get(String(row.stable_id));
+        if (!incumbent || Number(row.version) > Number(incumbent.version)) {
+          highest.set(String(row.stable_id), row);
+        }
+      }
+      return [...highest.values()]
+        .sort((a, b) => (String(a.stable_id) < String(b.stable_id) ? -1 : 1))
+        .filter((row) => after === null || String(row.stable_id) > after)
+        .slice(0, pageSize)
+        .map((row) => ({
+          stable_id: row.stable_id,
+          version: row.version,
+          title: row.title,
+          description: row.description,
+          publication_state: row.publication_state,
+          updated_at: row.updated_at
+        }));
+    }
+
     const missions = currentMissions().filter(
       ({ mission }) => after === null || String(mission.stable_id) > after
     );
@@ -231,7 +255,7 @@ function database(world: World, options: DatabaseOptions = {}) {
 
   const client = {
     rpc: (name: string, args: Record<string, unknown>) => {
-      reads.push({ table: `rpc:${name}`, select: "", eqs: [], args });
+      reads.push({ table: `rpc:${name}`, args });
       const missing = options.missingData;
       if (
         missing?.fn === name &&
@@ -240,79 +264,9 @@ function database(world: World, options: DatabaseOptions = {}) {
         return Promise.resolve({ data: missing.data, error: null });
       }
       return Promise.resolve({ data: cap(rpcRows(name, args)), error: null });
-    },
-    from: (table: keyof World) => {
-      const record: ReadRecord = { table, select: "", eqs: [] };
-      let narrowed: { column: string; values: unknown[] } | undefined;
-      const orders: Array<{ column: string; descending: boolean }> = [];
-      let offset = 0;
-      const builder: Record<string, unknown> = {};
-      builder.select = (columns: string) => {
-        record.select = columns;
-        return builder;
-      };
-      builder.eq = (column: string, value: unknown) => {
-        record.eqs.push([column, value]);
-        return builder;
-      };
-      builder.or = (value: string) => {
-        record.or = value;
-        return builder;
-      };
-      builder.in = (column: string, values: unknown[]) => {
-        narrowed = { column, values };
-        return builder;
-      };
-      builder.order = (column: string, order?: { ascending?: boolean }) => {
-        orders.push({ column, descending: order?.ascending === false });
-        return builder;
-      };
-      builder.range = (from: number, to: number) => {
-        offset = from;
-        return (builder.limit as (value: number) => unknown)(to - from + 1);
-      };
-      builder.limit = (value: number) => {
-        record.limit = value;
-        reads.push(record);
-
-        let rows = world[table].filter((row) => visible(row));
-
-        if (!hostile) {
-          rows = rows.filter((row) =>
-            record.eqs.every(([column, expected]) => {
-              if (column.includes(".")) {
-                const [parent = "", child = ""] = column.split(".");
-                return (row[parent] as Row | undefined)?.[child] === expected;
-              }
-              return row[column] === expected;
-            })
-          );
-        }
-        if (record.or) {
-          const conditions = record.or.split(",");
-          rows = rows.filter((row) => conditions.some((c) => matches(row, c)));
-        }
-        if (narrowed) {
-          const { column, values } = narrowed;
-          rows = rows.filter((row) => values.includes(row[column]));
-        }
-        if (orders.length > 0) {
-          rows = [...rows].sort((a, b) => {
-            for (const { column, descending } of orders) {
-              const left = a[column] as string | number;
-              const right = b[column] as string | number;
-              if (left === right) continue;
-              const ascending = left < right ? -1 : 1;
-              return descending ? -ascending : ascending;
-            }
-            return 0;
-          });
-        }
-
-        return Promise.resolve({ data: rows.slice(offset, offset + value), error: null });
-      };
-      return builder;
     }
+    // No `from`: since G-005 every search read is a database function, so a
+    // direct table read would fail here.
   };
 
   let tokenSeen = "";
@@ -460,8 +414,8 @@ describe("criterion 2: arp gives the same results as ARP", () => {
     const lower = await search(world, { query: "arp" });
 
     expect(idsOf(lower.results)).toEqual(idsOf(upper.results));
-    expect(lower.db.reads.map((read) => [read.or, read.args])).toEqual(
-      upper.db.reads.map((read) => [read.or, read.args])
+    expect(lower.db.reads.map((read) => [read.table, read.args])).toEqual(
+      upper.db.reads.map((read) => [read.table, read.args])
     );
   });
 });
@@ -504,11 +458,10 @@ describe("criterion 3: sharp does not return ARP results", () => {
       expect(idsOf(results)).not.toContain("course-sharpshooting");
       expect(idsOf(results)).not.toContain("course-sharps-edge");
       expect(idsOf(results)).not.toContain("course-sharp-habits");
-      for (const read of db.reads) {
-        expect(read.or ?? "").not.toMatch(/ilike\.%ARP/i);
-      }
-      // The step-search function receives the acronym as a whole word only.
-      for (const read of db.reads.filter((entry) => entry.table === STEP_RPC)) {
+      // Both search functions receive the acronym as a whole word only.
+      const searches = db.reads.filter((entry) => [STEP_RPC, RECORD_RPC].includes(entry.table));
+      expect(searches.filter((entry) => entry.table === RECORD_RPC).length).toBeGreaterThanOrEqual(4);
+      for (const read of searches) {
         expect(read.args?.p_acronyms).toEqual(["ARP"]);
         expect(read.args?.p_phrases).not.toContainEqual(expect.stringMatching(/^arp/i));
       }
@@ -554,10 +507,9 @@ describe("criterion 3: sharp does not return ARP results", () => {
       expect(idsOf(results)).not.toContain("course-sharp-question");
       expect(idsOf(results)).not.toContain("course-sharp-habits");
       expect(idsOf(results)).not.toContain("nf-fixture-step-sharp");
-      for (const read of db.reads) {
-        expect(read.or ?? "").not.toMatch(/ilike\.%ARP/i);
-      }
-      for (const read of db.reads.filter((entry) => entry.table === STEP_RPC)) {
+      const searches = db.reads.filter((entry) => [STEP_RPC, RECORD_RPC].includes(entry.table));
+      expect(searches.filter((entry) => entry.table === RECORD_RPC).length).toBeGreaterThanOrEqual(4);
+      for (const read of searches) {
         expect(read.args?.p_acronyms).toEqual(["ARP"]);
         expect(read.args?.p_phrases).not.toContainEqual(expect.stringMatching(/^arp/i));
       }
@@ -738,14 +690,61 @@ describe("criterion 5: text from an unpublished step is never returned", () => {
     const functionReads = db.reads.filter((read) => read.table.startsWith("rpc:"));
     expect(functionReads.map((read) => read.table)).toContain(STEP_RPC);
     for (const read of functionReads) {
-      expect([STEP_RPC, CONTEXT_RPC]).toContain(read.table);
-      expect(read.args?.p_page_size).toBe(STEP_SEARCH_PAGE_SIZE);
+      expect([STEP_RPC, CONTEXT_RPC, RECORD_RPC]).toContain(read.table);
+      if (read.table === RECORD_RPC) {
+        // G-005: the record function states the publication requirement itself
+        // (see `wp005-step-search-sql.test.ts`); its page is bounded.
+        expect(RECORD_SOURCES).toContain(read.args?.p_source);
+        expect(read.args?.p_page_size).toBeGreaterThan(0);
+        expect(read.args?.p_page_size).toBeLessThanOrEqual(RECORD_SEARCH_PAGE_SIZE);
+      } else {
+        expect(read.args?.p_page_size).toBe(STEP_SEARCH_PAGE_SIZE);
+      }
     }
+    expect(
+      functionReads
+        .filter((read) => read.table === RECORD_RPC && read.args?.p_after === null)
+        .map((read) => read.args?.p_source)
+    ).toEqual(RECORD_SOURCES);
 
-    for (const read of db.reads.filter((entry) => !entry.table.startsWith("rpc:"))) {
-      expect(read.eqs).toContainEqual(["publication_state", "published"]);
-      expect(read.limit).toBeGreaterThan(0);
+    // Every read is one of the three search functions; nothing reads a table.
+    expect(db.reads.filter((entry) => !entry.table.startsWith("rpc:"))).toEqual([]);
+  });
+
+  it("even a database returning unpublished records cannot surface them", async () => {
+    const world = networkingWorld();
+    world.courses.push(
+      node("course-draft-wordfinch", "Wordfinch drafts", {
+        learning_path_id: (world.learning_paths[0] as Row).id,
+        publication_state: "draft"
+      })
+    );
+    world.competencies.push(
+      node("comp-retired-wordfinch", "Retired wordfinch", { publication_state: "retired" })
+    );
+
+    const modelled = await search(world, { query: "wordfinch" });
+    vi.resetModules();
+    const { results } = await search(world, { query: "wordfinch" }, { hostile: true });
+
+    expect(modelled.results.count).toBe(0);
+    expect(results.count).toBe(0);
+    expect(JSON.stringify(results)).not.toContain("wordfinch");
+  });
+
+  it("the record search path has no service-role client, writes nothing and reads no table", () => {
+    const source = readFileSync(
+      new URL("./curriculum-record-search.ts", import.meta.url),
+      "utf8"
+    );
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+    expect(code).not.toContain("createServerSupabaseClient");
+    for (const write of [".insert(", ".update(", ".upsert(", ".delete(", ".from("]) {
+      expect(code).not.toContain(write);
     }
+    expect(code.match(/\.rpc\(/g)).toHaveLength(1);
+    expect(code).toContain('RECORD_SEARCH_FUNCTION = "search_published_curriculum_records"');
   });
 
   it("the step search path has no service-role client and writes nothing", () => {
@@ -802,6 +801,68 @@ describe("criterion 7: AD and Active Directory still return the same results", (
     const { results } = await search(networkingWorld(), { query: "AD" });
 
     expect(idsOf(results)).not.toContain("course-advanced-addressing");
+  });
+});
+
+/**
+ * Founder direction G-005: on UAT, VLAN and vlan returned nothing although
+ * course, mission and competency titles say VLAN. Record titles and
+ * descriptions are now matched by a database function; real PostgreSQL is
+ * `curriculum-step-search.db.test.ts`. This pins the service end to end.
+ */
+describe("G-005: an acronym or its expanded names find titles and descriptions", () => {
+  function vlanWorld(): World {
+    const path = node("it-foundations", "IT and Cybersecurity Foundations");
+    const course = node("course-router-on-a-stick", "VLANs and Router-on-a-Stick", {
+      learning_path_id: path.id,
+      description: "Segmentation for a small office."
+    });
+    const module = node("ros-mod1", "Trunks", { course_id: course.id });
+    const mission = node("ros-m1-tagging", "Tagging frames", {
+      module_id: module.id,
+      description: "Carry each VLAN across one trunk link."
+    });
+    const sharp = node("course-sharp-habits", "Sharp troubleshooting habits", {
+      learning_path_id: path.id,
+      description: "Keep your diagnostic skills sharp."
+    });
+    return {
+      learning_paths: [path],
+      courses: [course, sharp],
+      learning_modules: [module],
+      missions: [mission],
+      competencies: [
+        node("comp-vlan-design", "Design a VLAN plan", {
+          description: "Choose identifiers per department."
+        })
+      ],
+      mission_steps: []
+    };
+  }
+
+  const expected = ["comp-vlan-design", "course-router-on-a-stick", "ros-m1-tagging"];
+
+  for (const query of ["VLAN", "vlan", "VLANs", "Virtual LAN", "Virtual Local Area Network"]) {
+    it(`${query} returns the course, mission and competency that name VLAN`, async () => {
+      const { results, db } = await search(vlanWorld(), { query });
+
+      expect(idsOf(results).sort()).toEqual(expected);
+      for (const read of db.reads.filter((entry) => entry.table === RECORD_RPC)) {
+        expect(read.args?.p_acronyms).toEqual(["VLAN"]);
+      }
+    });
+  }
+
+  it("segmentation still returns the Router-on-a-Stick course", async () => {
+    const { results } = await search(vlanWorld(), { query: "segmentation" });
+
+    expect(idsOf(results)).toEqual(["course-router-on-a-stick"]);
+  });
+
+  it("ARP still never returns sharp", async () => {
+    const { results } = await search(vlanWorld(), { query: "ARP" });
+
+    expect(idsOf(results)).toEqual([]);
   });
 });
 
@@ -1357,6 +1418,29 @@ describe("a server row cap never ends a function read early", () => {
     expect(contextPages.length).toBeGreaterThan(2);
     expect(stepPages[0]?.args?.p_after).toBeNull();
     expect(stepPages[1]?.args?.p_after).toBe("mission-step-1");
+
+    // G-005: the record read pages on past the cap the same way.
+    const missionRecordPages = db.reads.filter(
+      (read) => read.table === RECORD_RPC && read.args?.p_source === "missions"
+    );
+    expect(missionRecordPages.length).toBeGreaterThan(2);
+    expect(missionRecordPages[0]?.args?.p_after).toBeNull();
+    expect(missionRecordPages[1]?.args?.p_after).toBe("mission-title-1");
+  });
+
+  it("a record read stops at its bounded over-fetch, never before", async () => {
+    const { db } = await search(cappedWorld(), { query: "ARP", limit: 1 }, { maxRows: 2 });
+
+    // limit 1 reads at most 4 matching missions by their own record: two
+    // capped pages of two, and no third page.
+    const missionRecordPages = db.reads.filter(
+      (read) => read.table === RECORD_RPC && read.args?.p_source === "missions"
+    );
+    expect(missionRecordPages.map((read) => read.args?.p_page_size)).toEqual([4, 2]);
+    expect(missionRecordPages.map((read) => read.args?.p_after)).toEqual([
+      null,
+      "mission-title-1"
+    ]);
   });
 
   it("returns the same results capped and uncapped", async () => {
@@ -1380,7 +1464,11 @@ describe("a server row cap never ends a function read early", () => {
    * matches; on a later page it returned partial results as complete.
    */
   describe("a response with no rows array fails closed", () => {
-    const functions = ["search_published_mission_steps", "published_mission_contexts"];
+    const functions = [
+      "search_published_mission_steps",
+      "published_mission_contexts",
+      "search_published_curriculum_records"
+    ];
     for (const fn of functions) {
       for (const page of [0, 1]) {
         for (const data of [null, undefined, { rows: [] }, "[]"]) {

@@ -1,9 +1,14 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   CURRICULUM_MATCH_SNIPPET_AFTER,
   CURRICULUM_MATCH_SNIPPET_BEFORE
 } from "@tlp/shared-types";
+import {
+  RECORD_SEARCH_FUNCTION,
+  RECORD_SEARCH_PAGE_SIZE
+} from "./curriculum-record-search";
 import {
   MISSION_CONTEXT_FUNCTION,
   SEARCHABLE_STEP_TEXT_FIELDS,
@@ -27,6 +32,10 @@ const MIGRATION = new URL(
 );
 
 const sql = readFileSync(MIGRATION, "utf8");
+
+/** Founder direction G-005: this migration is applied to UAT and never edited. */
+const UAT_APPLIED_STEP_SEARCH_SHA256 =
+  "6e7926e0e9ff9e263e8f9902e17cd7fa7601940e4837371d82ba4b0952809621";
 const code = sql
   .split("\n")
   .map((line) => line.replace(/--.*$/, ""))
@@ -216,5 +225,131 @@ describe("execution is for authenticated learners only", () => {
       .filter((match) => /\bservice_role\b/.test(match[2] ?? ""))
       .map((match) => match[1]);
     expect(serviceRoleGrants).toEqual(["mission_step_searchable_text"]);
+  });
+});
+
+/**
+ * Founder direction G-005 — the record-search migration's contract, read from
+ * its source. A NEW migration: `20261011000100` is applied to UAT and is not
+ * edited. Real behaviour is proven in `curriculum-step-search.db.test.ts`.
+ */
+describe("G-005: the record-search function is read-only, runs as the caller and matches like step search", () => {
+  const recordSql = readFileSync(
+    new URL(
+      "../../../supabase/migrations/20261012000100_curriculum_record_search_function.sql",
+      import.meta.url
+    ),
+    "utf8"
+  );
+  const recordCode = recordSql
+    .split("\n")
+    .map((line) => line.replace(/--.*$/, ""))
+    .join("\n")
+    .toLowerCase();
+  const definition =
+    /create or replace function public\.search_published_curriculum_records\(([\s\S]*?)\n\$\$;/.exec(
+      recordCode
+    )?.[0] ?? "";
+
+  it("defines exactly one function, the one the service calls", () => {
+    expect([...recordCode.matchAll(/create or replace function public\.(\w+)\(/g)].map((m) => m[1])).toEqual([
+      RECORD_SEARCH_FUNCTION
+    ]);
+    expect(definition).not.toBe("");
+  });
+
+  it("is SECURITY INVOKER, stable and pins its search_path", () => {
+    expect(definition).toContain("security invoker");
+    expect(definition).toMatch(/\nstable\n/);
+    expect(definition).toContain("set search_path = pg_catalog, public");
+  });
+
+  it("contains no write, table change, index, policy or privileged role change", () => {
+    for (const forbidden of [
+      "security definer",
+      "alter table",
+      "update public.",
+      "delete from",
+      "truncate",
+      "create table",
+      "create index",
+      "create extension",
+      "create policy",
+      "drop policy",
+      "set role",
+      "bypassrls",
+      "mission_steps"
+    ]) {
+      expect(recordCode).not.toContain(forbidden);
+    }
+    expect(recordCode.match(/insert into/g)).toHaveLength(1);
+    expect(recordCode).toContain("insert into public.platform_schema_version");
+  });
+
+  it("states the publication requirement for every source it reads", () => {
+    const flat = definition.replace(/\s+/g, " ");
+    for (const [table, alias] of [
+      ["learning_paths", "lp"],
+      ["courses", "c"],
+      ["missions", "m"],
+      ["competencies", "k"]
+    ]) {
+      expect(flat).toContain(
+        `from public.${table} as ${alias} where p_source = '${table}' and ${alias}.publication_state = 'published'`
+      );
+    }
+    expect(flat.match(/from public\.\w+/g)).toHaveLength(4);
+  });
+
+  it("matches with the step-search rules: strpos phrases and letters-and-digits whole words", () => {
+    const step = definitions().get(STEP_SEARCH_FUNCTION) ?? "";
+    for (const shared of [
+      "select lower(btrim(phrase.value)) as needle",
+      "where btrim(phrase.value) <> ''",
+      "select '\\y' || acronym.value || 's?\\y' as pattern",
+      "where acronym.value ~ '^[a-za-z0-9]+$'"
+    ]) {
+      expect(step).toContain(shared);
+      expect(definition).toContain(shared);
+    }
+    expect(definition).not.toMatch(/\blike\b|\bilike\b|similar to/);
+  });
+
+  it("returns only the columns the search result already carries", () => {
+    const returns = /returns table \(([\s\S]*?)\n\)/.exec(definition)?.[1] ?? "";
+    const columns = returns
+      .split(",")
+      .map((column) => column.trim().split(/\s+/)[0])
+      .filter(Boolean);
+    expect(columns).toEqual([
+      "stable_id",
+      "version",
+      "title",
+      "description",
+      "publication_state",
+      "updated_at"
+    ]);
+  });
+
+  it("pages by keyset on the stable id with a fixed cap", () => {
+    expect(definition).toContain("where (p_after is null or r.record_id > p_after)");
+    expect(definition).toMatch(/order by mt\.record_id\n/);
+    expect(definition).toContain("limit least(greatest(coalesce(p_page_size, 50), 1), 100)");
+    expect(RECORD_SEARCH_PAGE_SIZE).toBe(100);
+  });
+
+  it("revokes from PUBLIC and anon and grants authenticated alone", () => {
+    expect(recordCode).toContain(
+      `revoke all on function public.${RECORD_SEARCH_FUNCTION}(text, text[], text[], text, integer) from public, anon;`
+    );
+    expect(recordCode).toContain(
+      `grant execute on function public.${RECORD_SEARCH_FUNCTION}(text, text[], text[], text, integer) to authenticated;`
+    );
+    expect(recordCode.match(/grant /g)).toHaveLength(1);
+  });
+
+  it("leaves the migration already applied to UAT exactly as it was", () => {
+    // Pinned by its checksum at review head c6ecb86.
+    expect(createHash("sha256").update(sql).digest("hex")).toBe(UAT_APPLIED_STEP_SEARCH_SHA256);
   });
 });
