@@ -244,7 +244,8 @@ export function stepLabelOf(
 /**
  * Every row of one keyset-paged function, in stable-id order.
  *
- * Reads until a page comes back empty. A short page is NOT treated as the end,
+ * Reads until a page comes back as an empty array; a response that is not an
+ * array is refused. A short page is NOT treated as the end,
  * because a server row cap can shorten any page. A page that fails to advance
  * the cursor is refused rather than looped on. Ordering itself is the
  * database's collation order, so it is never re-compared here.
@@ -262,8 +263,10 @@ async function readAllPages<Row extends { mission_stable_id: string }>(
       p_after: after,
       p_page_size: STEP_SEARCH_PAGE_SIZE
     });
-    if (error) throw unavailable();
-    const page = (data ?? []) as unknown as Row[];
+    // Missing or malformed data is never read as an empty page: that would end
+    // the read and report partial (or no) matches as complete.
+    if (error || !Array.isArray(data)) throw unavailable();
+    const page = data as unknown as Row[];
     if (page.length === 0) return rows;
 
     const last = String(page[page.length - 1]?.mission_stable_id ?? "");

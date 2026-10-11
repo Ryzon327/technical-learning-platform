@@ -88,6 +88,11 @@ interface DatabaseOptions {
   maxRows?: number;
   /** Ignores `p_after`, as a broken server would. */
   ignoreCursor?: boolean;
+  /**
+   * Answers the Nth (0-based) call of the named function with `data` and no
+   * error, as a broken server might, instead of a page of rows.
+   */
+  missingData?: { fn: string; page: number; data: unknown };
 }
 
 /**
@@ -227,6 +232,13 @@ function database(world: World, options: DatabaseOptions = {}) {
   const client = {
     rpc: (name: string, args: Record<string, unknown>) => {
       reads.push({ table: `rpc:${name}`, select: "", eqs: [], args });
+      const missing = options.missingData;
+      if (
+        missing?.fn === name &&
+        reads.filter((read) => read.table === `rpc:${name}`).length - 1 === missing.page
+      ) {
+        return Promise.resolve({ data: missing.data, error: null });
+      }
       return Promise.resolve({ data: cap(rpcRows(name, args)), error: null });
     },
     from: (table: keyof World) => {
@@ -1314,6 +1326,30 @@ describe("a server row cap never ends a function read early", () => {
     await expect(
       search(cappedWorld(), { query: "ARP" }, { maxRows: 2, ignoreCursor: true })
     ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+  });
+
+  /**
+   * Review finding: a response with no error and no data was read as an empty
+   * page — the end of the read. On the first page that reported no step
+   * matches; on a later page it returned partial results as complete.
+   */
+  describe("a response with no rows array fails closed", () => {
+    const functions = ["search_published_mission_steps", "published_mission_contexts"];
+    for (const fn of functions) {
+      for (const page of [0, 1]) {
+        for (const data of [null, undefined, { rows: [] }, "[]"]) {
+          it(`${fn}, page ${page}, data ${JSON.stringify(data) ?? "undefined"}`, async () => {
+            await expect(
+              search(
+                cappedWorld(),
+                { query: "ARP", limit: 50 },
+                { maxRows: 2, missingData: { fn, page, data } }
+              )
+            ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+          });
+        }
+      }
+    }
   });
 });
 
