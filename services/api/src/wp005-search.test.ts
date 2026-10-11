@@ -390,6 +390,36 @@ describe("criterion 3: sharp does not return ARP results", () => {
 
     expect(idsOf(results)).not.toContain("course-sharp-habits");
   });
+
+  function embeddedWorld(): World {
+    const world = networkingWorld();
+    const path = world.learning_paths[0] as Row;
+    world.courses.push(
+      node("course-sharpshooting", "Sharpshooting drills", {
+        learning_path_id: path.id,
+        description: "Practise sharpshooting."
+      }),
+      node("course-sharps-edge", "The sharp's edge", {
+        learning_path_id: path.id,
+        description: "Keep a sharp's edge on your skills."
+      })
+    );
+    return world;
+  }
+
+  for (const query of ["ARPs", "ARP's", "ARP’s"]) {
+    it(`${query} finds the ARP lesson and never an embedded substring`, async () => {
+      const { results, db } = await search(embeddedWorld(), { query });
+
+      expect(idsOf(results)).toContain("nf-m4-the-prefix-and-the-decision");
+      expect(idsOf(results)).not.toContain("course-sharpshooting");
+      expect(idsOf(results)).not.toContain("course-sharps-edge");
+      expect(idsOf(results)).not.toContain("course-sharp-habits");
+      for (const read of db.reads) {
+        expect(read.or ?? "").not.toMatch(/ilike\.%ARP/i);
+      }
+    });
+  }
 });
 
 describe("criterion 4: a term only in a step body returns that step's mission", () => {
@@ -767,6 +797,29 @@ describe("retrieval bounds never hide an eligible mission", () => {
 
     expect(idsOf(forward.results)).toHaveLength(2);
     expect(idsOf(reversed.results)).toEqual(idsOf(forward.results));
+  });
+
+  it("keeps the stable-id order when row ids oppose it across a page boundary", async () => {
+    const world = boundsWorld((module) => {
+      // Created first, so their row ids sort BEFORE mission-a's.
+      const missionZ = node("mission-z", "Zulu", { module_id: module.id });
+      const missionY = node("mission-y", "Yankee", { module_id: module.id });
+      const missionA = node("mission-a", "Alpha", { module_id: module.id });
+      return {
+        missions: [missionZ, missionY, missionA],
+        // limit 2 means pages of 8: Z and Y fill the whole first page.
+        mission_steps: [
+          ...matchingSteps(missionZ, 4),
+          ...matchingSteps(missionY, 4),
+          ...matchingSteps(missionA, 1)
+        ]
+      };
+    });
+
+    const { results, db } = await search(world, { query: "ARP", limit: 2 });
+
+    expect(idsOf(results)).toEqual(["mission-a", "mission-y"]);
+    expect(db.reads.filter((read) => read.table === "mission_steps").length).toBeGreaterThan(1);
   });
 
   it("a mission with many versions does not starve another of its version", async () => {

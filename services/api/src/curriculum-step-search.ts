@@ -54,10 +54,10 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *
  * Matching runs in PostgreSQL at query time: escaped `ILIKE` for phrases and a
  * whole-word `~*` pattern for acronyms, over the JSON text fields of published
- * steps. Steps are read in deterministic pages of `limit * 4` rows until
- * `limit` distinct missions have a match in their current published version,
- * or the matches run out, so repeated or stale matches can never crowd out
- * another mission. At the current content size (two courses,
+ * steps. Steps are read in deterministic pages of `limit * 4` rows until the
+ * matches run out, so repeated or stale matches can never crowd out another
+ * mission, and no mission is dropped before the final stable-id ranking sees
+ * it. At the current content size (two courses,
  * a few hundred steps) a sequential scan is well inside the 500 ms budget, so
  * no index, extension or migration is added. If content grows by orders of
  * magnitude, a trigram or full-text index is the next step and would need its
@@ -251,22 +251,13 @@ export async function searchPublishedStepBodies(
       highest.set(stableId, row);
     }
   };
-  const isCurrent = (hit: StepBodyHit): boolean => {
-    const row = highest.get(hit.missionStableId);
-    return (
-      row !== undefined &&
-      row.version === hit.missionVersion &&
-      row.learning_modules?.courses?.publication_state === "published"
-    );
-  };
-
-  // Deterministic pages, bounded at the distinct-mission level: reading stops
-  // once `limit` missions have a match in their CURRENT published version, or
-  // when the matches run out. Many matching steps in one mission, or matches in
-  // a stale version, therefore cannot use up the budget of another mission.
+  // Deterministic pages, read until the matches run out. Pages are ordered by
+  // mission row id, which is not the stable-id order the final ranking uses,
+  // so stopping early could drop a mission that ranks ahead of those already
+  // read. Reading every match means many matching steps in one mission, or
+  // matches in a stale version, can never crowd out another mission.
   const pageSize = limit * 4;
   const matched: StepBodyHit[] = [];
-  const eligible = new Set<string>();
   for (let offset = 0; ; offset += pageSize) {
     const { data: stepData, error: stepError } = await supabase
       .from("mission_steps")
@@ -305,12 +296,9 @@ export async function searchPublishedStepBodies(
     }
 
     await resolve(pageHits.map((hit) => hit.missionStableId));
-    for (const hit of pageHits) {
-      matched.push(hit);
-      if (isCurrent(hit)) eligible.add(hit.missionStableId);
-    }
+    matched.push(...pageHits);
 
-    if (eligible.size >= limit || rows.length < pageSize) break;
+    if (rows.length < pageSize) break;
   }
 
   // The course context of every mission found by its own record, for the trail.

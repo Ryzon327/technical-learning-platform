@@ -234,6 +234,19 @@ describe("WP-005 matching rules", () => {
     expect(acronymTermOf("sharp")).toBeUndefined();
   });
 
+  it("a plural or possessive acronym variant is matched as a whole word too", () => {
+    for (const value of ["ARPs", "ARP's", "ARP’s"]) {
+      const variant = { value, matchKind: "exact" as const };
+      expect(toRetrievalPattern(variant, value)).toEqual({ mode: "word", term: "ARP" });
+      expect(findVariantMatch("Practise sharpshooting.", variant)).toBeUndefined();
+      expect(findVariantMatch("Keep a sharp's edge.", variant)).toBeUndefined();
+      expect(findVariantMatch("Two ARPs were sent.", variant)).toBeDefined();
+      expect(findVariantMatch("ARP's reply arrived.", variant)).toBeDefined();
+    }
+    // Lower-case endings are not recognised as the acronym, as in group lookup.
+    expect(acronymTermOf("ads")).toBeUndefined();
+  });
+
   it("builds one condition per column per pattern", () => {
     expect(
       buildRetrievalConditions(

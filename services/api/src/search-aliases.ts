@@ -242,16 +242,27 @@ export function buildAliasAwareQueryVariants(
 /**
  * The acronym data member a variant value names, if it names one.
  *
+ * Recognises the same plural and possessive forms `findSearchAliasGroup`
+ * accepts ("ARPs", "ARP's"), under the same rule: the ending is dropped only
+ * when what remains is still WRITTEN as an acronym. Such a variant then matches
+ * as a whole word too, so "ARPs" can never match "sharpshooting".
+ *
  * Returns the DATA spelling, which is what any pattern is built from.
  */
 export function acronymTermOf(
   value: string,
   groups: readonly SearchAliasGroup[] = approvedSearchAliasGroups()
 ): string | undefined {
-  const key = memberKey(value);
-  for (const group of groups) {
-    for (const member of group.members) {
-      if (memberKey(member) === key && isAcronymTerm(member)) return member;
+  const written = value.replace(/\s+/g, " ").trim();
+  const forms = [written, written.replace(/['’]s$/, ""), written.replace(/s$/, "")];
+  for (const form of forms) {
+    if (form === "") continue;
+    if (form !== written && !isAcronymTerm(form)) continue;
+    const key = memberKey(form);
+    for (const group of groups) {
+      for (const member of group.members) {
+        if (memberKey(member) === key && isAcronymTerm(member)) return member;
+      }
     }
   }
   return undefined;
