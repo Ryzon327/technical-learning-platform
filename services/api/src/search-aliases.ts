@@ -220,6 +220,11 @@ function groupWithMember(
  * The retrieval variants for a query: SEARCH-005A's variants first, unchanged,
  * then every other member of the query's alias group, in data order, under the
  * same cap and the same case-insensitive de-duplication.
+ *
+ * A member is also skipped when an existing variant already names the same
+ * acronym term ("VLANs" names VLAN): both would become the identical whole-word
+ * pattern, so the member would spend a variant slot and match nothing new. That
+ * keeps "VLANs?" from exhausting the cap before "Virtual Local Area Network".
  */
 export function buildAliasAwareQueryVariants(
   query: string,
@@ -232,6 +237,10 @@ export function buildAliasAwareQueryVariants(
   if (!group) return variants;
 
   const seen = new Set(variants.map((variant) => memberKey(variant.value)));
+  for (const variant of variants) {
+    const term = acronymTermOf(variant.value, groups);
+    if (term) seen.add(memberKey(term));
+  }
   for (const member of group.members) {
     if (variants.length >= MAX_CURRICULUM_QUERY_VARIANTS) break;
     const key = memberKey(member);

@@ -361,6 +361,45 @@ describe("WP-005 equivalence", () => {
     }
     expect(pairs).toBeGreaterThan(groups.length * 2);
   });
+
+  /**
+   * Review finding: "VLANs?" produced VLANs?, VLANs, VLAN and Virtual LAN and
+   * hit the cap before Virtual Local Area Network. "VLANs" and "VLAN" are the
+   * same whole-word pattern, so the member no longer spends a slot.
+   */
+  it("a punctuated plural or possessive acronym still reaches every member", () => {
+    const fullGroups = groups.filter(
+      (group) => group.members.length === MAX_SEARCH_ALIAS_GROUP_MEMBERS
+    );
+    expect(fullGroups.length).toBeGreaterThan(0);
+
+    for (const group of fullGroups) {
+      for (const acronym of group.members.filter(isAcronymTerm)) {
+        for (const query of [`${acronym}s?`, `${acronym}'s?`, `${acronym}’s!`, `${acronym}s!`]) {
+          const variants = buildAliasAwareQueryVariants(query);
+
+          expect(variants[0]).toEqual({ value: query, matchKind: "exact" });
+          expect(variants[1]?.matchKind).toBe("normalized");
+          expect(variants.length).toBeLessThanOrEqual(MAX_CURRICULUM_QUERY_VARIANTS);
+          for (const member of group.members) {
+            expect(
+              variants.some((variant) => variantOccursIn(member, variant)),
+              `${query} -> ${member}`
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("names the acronym once, through the learner's own form", () => {
+    expect(buildAliasAwareQueryVariants("VLANs?")).toEqual([
+      { value: "VLANs?", matchKind: "exact" },
+      { value: "VLANs", matchKind: "normalized" },
+      { value: "Virtual LAN", matchKind: "alias" },
+      { value: "Virtual Local Area Network", matchKind: "alias" }
+    ]);
+  });
 });
 
 describe("WP-005 alias data stays server-side data", () => {
