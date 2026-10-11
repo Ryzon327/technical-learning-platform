@@ -486,6 +486,13 @@ CS_ESCAPES="$(echo "$CS_CODE" | grep -c 'escapeCurriculumSearchPattern(' || true
 # pinned where it now lives — stated for each of the four sources in the
 # function, and re-checked on every row the service receives — and the same
 # `limit * 4` bound is pinned as the argument and as the reader's stop.
+#
+# DEC-073 review finding: for an alias-group query the read no longer STOPS
+# at the first `limit * 4` rows in stable-id order, because that cut a title
+# match off behind earlier description matches before ranking. It is still
+# bounded: every page asks for at most `limit * 4` rows, and only the best
+# `limit * 4` by match location are ever held. Every other read still stops
+# at the bound.
 CRS="$API_SRC/curriculum-record-search.ts"
 G005_FLAT="$(sed 's/--.*$//' supabase/migrations/20261012000100_curriculum_record_search_function.sql | tr -s ' \n' ' ')"
 for source in "learning_paths as lp" "courses as c" "missions as m" "competencies as k"; do
@@ -498,8 +505,12 @@ grep -Fq 'if (row.publication_state !== "published") continue;' "$CRS" \
   || fail "the record reader no longer re-checks publication on every row"
 grep -Fq 'limit * 4' "$CS" \
   || fail "the bounded candidate over-fetch is missing or became unbounded"
-grep -Fq 'while (rows.length < maxRows) {' "$CRS" \
+grep -Fq 'while (rankOf || held.length < maxRows) {' "$CRS" \
   || fail "the record reader no longer stops at the bounded over-fetch"
+grep -Fq 'p_page_size: Math.min(rankOf ? maxRows : maxRows - held.length, RECORD_SEARCH_PAGE_SIZE)' "$CRS" \
+  || fail "a record page is no longer bounded by the over-fetch"
+grep -Fq 'held = held.sort(byRankThenStableId).slice(0, maxRows);' "$CRS" \
+  || fail "the ranked record read no longer holds only the bounded over-fetch"
 
 # The neutral deterministic order must remain available as the lower tie-break.
 grep -Fq 'export function orderCurriculumSearchResults' "$CST" \
@@ -852,7 +863,7 @@ echo "PASS: 13. SEARCH-008 fallback stays honest, bounded and learner-driven"
 #     helper, and the publication constraint precedes the match.
 grep -Fq 'const supabase = createUserScopedSupabaseClient(accessToken);' "$CS" \
   || fail "the caller-scoped client is not created once in the search entry point"
-grep -Fq 'searchOneType(supabase, contentType, match, limit)' "$CS" \
+grep -Fq 'searchOneType(supabase, contentType, match, limit, rankOf)' "$CS" \
   || fail "retrieval does not receive the caller's own client"
 READ_FLAT="$(echo "$CS_FLAT" | grep -o 'asyncfunctionsearchOneType.*construnAuthorizedPass' || true)"
 [ -n "$READ_FLAT" ] || fail "the retrieval helper is missing"
@@ -860,7 +871,7 @@ READ_FLAT="$(echo "$CS_FLAT" | grep -o 'asyncfunctionsearchOneType.*construnAuth
 # with the caller's own client; the permission decision still follows it. The
 # publication constraint now precedes the match INSIDE the function: the
 # published rows are selected first, and only those are matched.
-R_MATCH="$(echo "$READ_FLAT" | grep -boF 'searchPublishedCurriculumRecords(supabase,SEARCHABLE_TABLES[contentType],match,limit*4)' | head -1 | cut -d: -f1 || true)"
+R_MATCH="$(echo "$READ_FLAT" | grep -boF 'searchPublishedCurriculumRecords(supabase,SEARCHABLE_TABLES[contentType],match,limit*4,rankOf)' | head -1 | cut -d: -f1 || true)"
 R_DECIDE="$(echo "$READ_FLAT" | grep -boF 'decideFromAuthoritativeRead(' | head -1 | cut -d: -f1 || true)"
 G005_PUBLISHED="$(echo "$G005_FLAT" | grep -boF "k.publication_state = 'published'" | head -1 | cut -d: -f1 || true)"
 G005_MATCH="$(echo "$G005_FLAT" | grep -boF 'matched as (' | head -1 | cut -d: -f1 || true)"

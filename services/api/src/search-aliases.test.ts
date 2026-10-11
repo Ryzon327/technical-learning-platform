@@ -249,8 +249,28 @@ describe("WP-005 matching rules", () => {
       expect(findVariantMatch("Two ARPs were sent.", variant)).toBeDefined();
       expect(findVariantMatch("ARP's reply arrived.", variant)).toBeDefined();
     }
-    // Lower-case endings are not recognised as the acronym, as in group lookup.
-    expect(acronymTermOf("ads")).toBeUndefined();
+    expect(acronymTermOf("sharps")).toBeUndefined();
+    expect(acronymTermOf("sharp's")).toBeUndefined();
+  });
+
+  /**
+   * Review finding: "arps", "arp's" and "ARPS" were left as substrings, so
+   * "arps" matched "sharpshooting" and missed every ARP lesson. DEC-073: the
+   * acronym in any case, plural or possessive, is the same whole word.
+   */
+  it("a plural or possessive acronym in any case is matched as a whole word", () => {
+    for (const value of ["arps", "ARPS", "Arps", "aRpS", "arp's", "ARP'S", "Arp’s", "arps?", "ARP'S!"]) {
+      const variant = { value, matchKind: "exact" as const };
+      expect(acronymTermOf(value), value).toBe("ARP");
+      expect(toRetrievalPattern(variant, value), value).toEqual({ mode: "word", term: "ARP" });
+      for (const text of ["Practise sharpshooting.", "Keep the sharps safe.", "A sharp's edge."]) {
+        expect(findVariantMatch(text, variant), `${value} in ${text}`).toBeUndefined();
+      }
+      expect(findVariantMatch("The request is called ARP.", variant), value).toBeDefined();
+      expect(findVariantMatch("Two ARPs were sent.", variant), value).toBeDefined();
+    }
+    expect(acronymTermOf("vlans")).toBe("VLAN");
+    expect(acronymTermOf("VLANS")).toBe("VLAN");
   });
 
   /**
@@ -276,7 +296,7 @@ describe("WP-005 matching rules", () => {
     }
     // Punctuation never turns a non-member into an acronym.
     expect(acronymTermOf("sharp?")).toBeUndefined();
-    expect(acronymTermOf("ads?")).toBeUndefined();
+    expect(acronymTermOf("sharps?")).toBeUndefined();
   });
 
   it("classification never credits a punctuated acronym query for a substring", () => {
@@ -356,10 +376,44 @@ describe("WP-005 equivalence", () => {
     expect(findSearchAliasGroup("default gateways")?.members).toContain("gateway");
   });
 
+  it("resolves a plural or possessive to its group whatever the capitalization", () => {
+    for (const query of ["arps", "ARPS", "Arps", "arp's", "ARP'S", "arp’s", "arps?", "Arp's!"]) {
+      expect(findSearchAliasGroup(query)?.members, query).toContain("ARP");
+    }
+    for (const query of ["vlans", "VLANS", "vlan's", "virtual lans", "VIRTUAL LAN'S"]) {
+      expect(findSearchAliasGroup(query)?.members, query).toContain("VLAN");
+    }
+  });
+
+  it("every form of an acronym member resolves to its group, in any case", () => {
+    for (const group of groups) {
+      for (const acronym of group.members.filter(isAcronymTerm)) {
+        for (const form of [
+          `${acronym.toLowerCase()}s`,
+          `${acronym.toUpperCase()}S`,
+          `${acronym.toLowerCase()}'s`,
+          `${acronym.toUpperCase()}'S`
+        ]) {
+          expect(findSearchAliasGroup(form), form).toBe(group);
+          expect(acronymTermOf(form), form).toBe(acronym);
+        }
+      }
+    }
+  });
+
   it("does not widen a word that merely resembles an acronym", () => {
     expect(findSearchAliasGroup("sharp")).toBeUndefined();
-    expect(findSearchAliasGroup("ads")).toBeUndefined();
+    expect(findSearchAliasGroup("sharps")).toBeUndefined();
+    expect(findSearchAliasGroup("sharp's")).toBeUndefined();
     expect(findSearchAliasGroup("ARP cache")).toBeUndefined();
+    expect(findSearchAliasGroup("arps cache")).toBeUndefined();
+  });
+
+  it("a lower-case plural acronym query carries the whole group", () => {
+    expect(buildAliasAwareQueryVariants("arps")).toEqual([
+      { value: "arps", matchKind: "exact" },
+      { value: "Address Resolution Protocol", matchKind: "alias" }
+    ]);
   });
 
   it("keeps the learner's query first and adds the other members", () => {

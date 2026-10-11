@@ -42,7 +42,8 @@ import {
 } from "@tlp/shared-types";
 import {
   searchPublishedCurriculumRecords,
-  type CurriculumRecordMatchArguments
+  type CurriculumRecordMatchArguments,
+  type CurriculumRecordRank
 } from "./curriculum-record-search";
 import {
   buildStepSearchArguments,
@@ -209,7 +210,8 @@ async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
   match: CurriculumRecordMatchArguments,
-  limit: number
+  limit: number,
+  rankOf: CurriculumRecordRank | undefined
 ): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
   // SEARCH-005A: every approved variant is matched in ONE read, so broadening
   // the query never multiplies the number of source queries and never changes
@@ -218,11 +220,16 @@ async function searchOneType(
   // RLS, which states the publication requirement itself. Phrases are literal
   // substrings and acronyms whole words built from validated data only; both
   // reach PostgreSQL as arguments, never as filter syntax.
+  //
+  // DEC-073: for an alias-group query the over-fetch holds the best rows by
+  // match location, never merely the first by stable id, so a title match can
+  // never be cut off by earlier description matches.
   const read = await searchPublishedCurriculumRecords(
     supabase,
     SEARCHABLE_TABLES[contentType],
     match,
-    limit * 4
+    limit * 4,
+    rankOf
   );
 
   // A source that cannot be authorized fails closed. No diagnostic reason is
@@ -361,13 +368,37 @@ export async function searchCurriculum(
 
     const match = buildStepSearchArguments(patterns, passVariants);
 
+    // Founder direction G-006: when the query names an approved alias group,
+    // every member is the learner's own concept. Every record match is given
+    // one match class, and a title match one title tier, so the order depends
+    // only on WHERE a record matched — title, then description, then step
+    // body — and ties keep SEARCH-002's neutral order (content type, then
+    // stable id). Every form of the group then returns the identical ordered
+    // results at every limit. A typo recovery pass keeps SEARCH-008's rules.
+    const oneConcept =
+      aliasGroupQuery && !passVariants.some((variant) => variant.matchKind === "typo");
+
+    // DEC-073: the bounded read of an alias-group query holds its rows in the
+    // same match-location tiers ranking uses — title, then description — so
+    // description matches that sort earlier by stable id can never crowd a
+    // title match out of the over-fetch. This locates the match only; it is
+    // not classification, which still runs once, after authorization, below.
+    const rankOf: CurriculumRecordRank | undefined = oneConcept
+      ? (row) =>
+          variantsFoundIn(row.title, passVariants).length > 0
+            ? [0]
+            : variantsFoundIn(`${row.title} ${row.description ?? ""}`, passVariants).length > 0
+              ? [1]
+              : [2]
+      : undefined;
+
     const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
       [];
     for (const contentType of Object.keys(
       SEARCHABLE_TABLES
     ) as CurriculumSearchContentType[]) {
       permissioned.push(
-        ...(await searchOneType(supabase, contentType, match, limit))
+        ...(await searchOneType(supabase, contentType, match, limit, rankOf))
       );
     }
 
@@ -409,17 +440,8 @@ export async function searchCurriculum(
     // text, so it is given the last match tier and, explicitly, the weakest
     // title precision, and is marked step-only: ranking places it after every
     // title, description and alias match, and after a typo recovery's record
-    // matches, which share that last tier.
-    //
-    // Founder direction G-006: when the query names an approved alias group,
-    // every member is the learner's own concept. Every record match is given
-    // one match class, and a title match one title tier, so the order depends
-    // only on WHERE a record matched — title, then description, then step
-    // body — and ties keep SEARCH-002's neutral order (content type, then
-    // stable id). Every form of the group then returns the identical ordered
-    // results at every limit. A typo recovery pass keeps SEARCH-008's rules.
-    const oneConcept =
-      aliasGroupQuery && !passVariants.some((variant) => variant.matchKind === "typo");
+    // matches, which share that last tier. Founder direction G-006 applies
+    // through `oneConcept` above.
     const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(

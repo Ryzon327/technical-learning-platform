@@ -24,6 +24,15 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  * an empty page, or once `maxRows` rows are held: the bounded over-fetch
  * SEARCH-002 has always applied per source.
  *
+ * ## Ranked retention
+ *
+ * Stable-id order is not the learner's order. When the caller passes `rankOf`,
+ * the read goes on to the empty page, in pages of at most `maxRows`, and HOLDS
+ * the `maxRows` best rows by that rank, then by stable id — so a title match
+ * whose stable id sorts after many description matches is never cut off before
+ * ranking. The bound still caps every page and what is held, never what is
+ * ranked.
+ *
  * ## Published-only, twice
  *
  * Called through the caller's own RLS-scoped client, so the published-only
@@ -61,8 +70,15 @@ export type CurriculumRecordSearchOutcome =
 const failed: CurriculumRecordSearchOutcome = { readFailed: true, rows: [] };
 
 /**
+ * A row's place in the caller's order: compared index by index, lower first.
+ * Ties fall to the stable id.
+ */
+export type CurriculumRecordRank = (row: CurriculumRecordRow) => readonly number[];
+
+/**
  * Up to `maxRows` published rows of one source whose title or description
- * matches, in stable-id order.
+ * matches: in stable-id order, or, with `rankOf`, the best `maxRows` of EVERY
+ * match in rank order.
  *
  * A response with an error, or without a rows array, fails the whole read: it
  * is never taken for an empty page. A page that fails to advance the keyset is
@@ -72,17 +88,18 @@ export async function searchPublishedCurriculumRecords(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   source: string,
   match: CurriculumRecordMatchArguments,
-  maxRows: number
+  maxRows: number,
+  rankOf?: CurriculumRecordRank
 ): Promise<CurriculumRecordSearchOutcome> {
-  const rows: CurriculumRecordRow[] = [];
+  let held: Array<{ row: CurriculumRecordRow; rank: readonly number[] }> = [];
   let after: string | null = null;
-  while (rows.length < maxRows) {
+  while (rankOf || held.length < maxRows) {
     const { data, error } = await supabase.rpc(RECORD_SEARCH_FUNCTION, {
       p_source: source,
       p_phrases: match.p_phrases,
       p_acronyms: match.p_acronyms,
       p_after: after,
-      p_page_size: Math.min(maxRows - rows.length, RECORD_SEARCH_PAGE_SIZE)
+      p_page_size: Math.min(rankOf ? maxRows : maxRows - held.length, RECORD_SEARCH_PAGE_SIZE)
     });
     if (error || !Array.isArray(data)) return failed;
     const page = data as unknown as CurriculumRecordRow[];
@@ -92,9 +109,23 @@ export async function searchPublishedCurriculumRecords(
     if (last === "" || last === after) return failed;
     for (const row of page) {
       if (row.publication_state !== "published") continue;
-      if (rows.length < maxRows) rows.push(row);
+      if (rankOf) held.push({ row, rank: rankOf(row) });
+      else if (held.length < maxRows) held.push({ row, rank: [] });
     }
+    if (rankOf) held = held.sort(byRankThenStableId).slice(0, maxRows);
     after = last;
   }
-  return { readFailed: false, rows };
+  return { readFailed: false, rows: held.map((entry) => entry.row) };
+}
+
+function byRankThenStableId(
+  a: { row: CurriculumRecordRow; rank: readonly number[] },
+  b: { row: CurriculumRecordRow; rank: readonly number[] }
+): number {
+  const length = Math.max(a.rank.length, b.rank.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (a.rank[index] ?? 0) - (b.rank[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return a.row.stable_id.localeCompare(b.row.stable_id);
 }

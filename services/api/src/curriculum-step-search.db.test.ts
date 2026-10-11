@@ -968,6 +968,12 @@ describe.skipIf(DATABASE_URL === "")("G-005: title and description search agains
 
     const plural = oursBySource(V, (await searchRecords("ARPs")).bySource);
     expect(plural.courses).not.toContain(`${V}sharp`);
+
+    // Review finding: a lower-case or all-capitals plural or possessive is the
+    // same concept, matched as a whole word — never "sharpshooting".
+    for (const query of ["arps", "ARPS", "Arps", "arp's", "ARP'S", "arps?"]) {
+      expect(oursBySource(V, (await searchRecords(query)).bySource), query).toEqual(acronym);
+    }
   });
 
   it("sharp still does not match ARP", async () => {
@@ -1160,7 +1166,7 @@ describe.skipIf(DATABASE_URL === "")("G-006: every form of an alias group return
   const groups: Array<{ name: string; forms: [string, string, ...string[]]; expected: string[] }> = [
     {
       name: "ARP",
-      forms: ["ARP", "Address Resolution Protocol", "arp", "ARPs", "ARP's"],
+      forms: ["ARP", "Address Resolution Protocol", "arp", "ARPs", "ARP's", "arps", "ARPS", "arp's"],
       expected: [
         `${G}arp-1-expanded-title`,
         `${G}arp-2-acronym-title`,
@@ -1170,7 +1176,7 @@ describe.skipIf(DATABASE_URL === "")("G-006: every form of an alias group return
     },
     {
       name: "VLAN",
-      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?"],
+      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?", "vlans", "VLANS"],
       expected: [
         `${G}vlan-1-expanded-title`,
         `${G}vlan-2-acronym-title`,
@@ -1200,6 +1206,67 @@ describe.skipIf(DATABASE_URL === "")("G-006: every form of an alias group return
         }
       });
     }
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * DEC-073 — the bounded over-fetch keeps the ranked order
+ * ------------------------------------------------------------------ */
+
+const T = `${RUN}-t-`;
+
+describe.skipIf(DATABASE_URL === "")("DEC-073: a small limit returns the head of the full ranked list against real PostgreSQL", { timeout: 60_000 }, () => {
+  /**
+   * The reviewer's fixture: five courses that match ARP only in their
+   * descriptions sort BEFORE the one course whose title says ARP, so a read
+   * that held only the first `limit * 4` rows by stable id lost the title
+   * match at limit 1. Two words that merely contain "arp" must never match.
+   */
+  beforeAll(() => {
+    const { fixture, course } = fixtureBuilder(T);
+    course("arp-1-description", "Reading captures", "published", "Two ARP requests were sent.");
+    course("arp-2-description", "Neighbour discovery", "published",
+      "The Address Resolution Protocol, step by step.");
+    course("arp-3-description", "Host tables", "published", "Each host keeps arp replies.");
+    course("arp-4-description", "Switch flooding", "published", "Broadcast ARPs reach every port.");
+    course("arp-5-description", "Cache timers", "published", "An ARP's entry ages out.");
+    course("arp-6-title", "ARP in practice", "published", "Start here.");
+    course("arp-7-sharp", "Sharpshooting drills", "published", "Keep the sharps and harps apart.");
+    insertFixture(fixture);
+  });
+
+  afterAll(() => removeFixtures());
+
+  async function searchAsLearner(query: string, limit?: number): Promise<string[]> {
+    const { client } = learnerClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => client as never);
+    const { results } = await searchCurriculum("dec073-learner-token", {
+      query,
+      ...(limit === undefined ? {} : { limit })
+    });
+    return results.map((result) => result.sourceRecordStableId);
+  }
+
+  const expected = [
+    `${T}arp-6-title`,
+    `${T}arp-1-description`,
+    `${T}arp-2-description`,
+    `${T}arp-3-description`,
+    `${T}arp-4-description`,
+    `${T}arp-5-description`
+  ];
+
+  for (const query of ["ARP", "Address Resolution Protocol", "arp", "arps", "ARPS", "arp's", "ARP'S"]) {
+    it(`${query}: every limit returns the head of the full ranked list, title match first`, async () => {
+      const full = await searchAsLearner(query);
+      expect(full, query).toEqual(expected);
+      expect(full).not.toContain(`${T}arp-7-sharp`);
+      for (const limit of [1, 2, 3, 5]) {
+        expect(await searchAsLearner(query, limit), `${query} at limit ${limit}`).toEqual(
+          full.slice(0, limit)
+        );
+      }
+    });
   }
 });
 

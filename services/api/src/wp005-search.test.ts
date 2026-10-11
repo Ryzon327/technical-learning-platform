@@ -1181,7 +1181,7 @@ describe("G-006: every form of an alias group returns the identical ordered resu
   const groups: Array<{ name: string; forms: string[]; expected: string[] }> = [
     {
       name: "ARP",
-      forms: ["ARP", "Address Resolution Protocol", "arp", "address resolution protocol", "ARPs", "ARP's", "ARP?"],
+      forms: ["ARP", "Address Resolution Protocol", "arp", "address resolution protocol", "ARPs", "ARP's", "ARP?", "arps", "ARPS", "arp's", "ARP'S"],
       expected: [
         "g006-arp-1-expanded-title",
         "g006-arp-2-acronym-title",
@@ -1192,7 +1192,7 @@ describe("G-006: every form of an alias group returns the identical ordered resu
     },
     {
       name: "VLAN",
-      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?", "Virtual Local Area Network's"],
+      forms: ["VLAN", "Virtual Local Area Network", "vlan", "Virtual LAN", "VLANs?", "Virtual Local Area Network's", "vlans", "VLANS"],
       expected: [
         "g006-vlan-1-expanded-title",
         "g006-vlan-2-acronym-title",
@@ -1246,6 +1246,64 @@ describe("G-006: every form of an alias group returns the identical ordered resu
       vi.resetModules();
       const backward = await search(reversed(), { query });
       expect(idsOf(backward.results), query).toEqual(idsOf(forward.results));
+    }
+  });
+});
+
+/**
+ * Review findings on DEC-073: a small limit must return the head of the full
+ * ranked list even when more than `limit * 4` description matches sort before
+ * a title match, and a plural or possessive in any case is the same concept.
+ */
+describe("DEC-073: the bounded over-fetch and every capitalization keep the ranked order", () => {
+  function cutoffWorld(): World {
+    const path = node("t-path", "Fixture path");
+    const course = (stableId: string, title: string, description: string) =>
+      node(stableId, title, { learning_path_id: path.id, description });
+    return {
+      learning_paths: [path],
+      courses: [
+        course("t-arp-1-description", "Reading captures", "Two ARP requests were sent."),
+        course("t-arp-2-description", "Neighbour discovery", "The Address Resolution Protocol, step by step."),
+        course("t-arp-3-description", "Host tables", "Each host keeps arp replies."),
+        course("t-arp-4-description", "Switch flooding", "Broadcast ARPs reach every port."),
+        course("t-arp-5-description", "Cache timers", "An ARP's entry ages out."),
+        course("t-arp-6-title", "ARP in practice", "Start here."),
+        course("t-arp-7-sharp", "Sharpshooting drills", "Keep the sharps and harps apart.")
+      ],
+      learning_modules: [],
+      missions: [],
+      competencies: [],
+      mission_steps: []
+    };
+  }
+
+  const expected = [
+    "t-arp-6-title",
+    "t-arp-1-description",
+    "t-arp-2-description",
+    "t-arp-3-description",
+    "t-arp-4-description",
+    "t-arp-5-description"
+  ];
+
+  for (const query of ["ARP", "Address Resolution Protocol", "arp", "arps", "ARPS", "arp's", "ARP'S"]) {
+    it(`${query}: every limit returns the head of the full ranked list, title match first`, async () => {
+      const full = await search(cutoffWorld(), { query });
+      expect(idsOf(full.results), query).toEqual(expected);
+      for (const limit of [1, 2, 3, 5]) {
+        vi.resetModules();
+        const { results } = await search(cutoffWorld(), { query, limit });
+        expect(idsOf(results), `${query} at limit ${limit}`).toEqual(expected.slice(0, limit));
+      }
+    });
+  }
+
+  it("a lower-case or all-capitals plural never matches an embedded substring", async () => {
+    for (const query of ["arps", "ARPS", "arp's"]) {
+      vi.resetModules();
+      const { results } = await search(cutoffWorld(), { query });
+      expect(idsOf(results), query).not.toContain("t-arp-7-sharp");
     }
   });
 });
@@ -1554,18 +1612,20 @@ describe("a server row cap never ends a function read early", () => {
     expect(missionRecordPages[1]?.args?.p_after).toBe("mission-title-1");
   });
 
-  it("a record read stops at its bounded over-fetch, never before", async () => {
+  it("a record read pages on to the end, so the bounded over-fetch is chosen by rank", async () => {
     const { db } = await search(cappedWorld(), { query: "ARP", limit: 1 }, { maxRows: 2 });
 
-    // limit 1 reads at most 4 matching missions by their own record: two
-    // capped pages of two, and no third page.
+    // DEC-073 review finding: stopping after the first 4 rows by stable id
+    // could cut off a better-ranked row. Every matching mission is read, in
+    // capped pages of two, until the empty page; only the best 4 are held.
     const missionRecordPages = db.reads.filter(
       (read) => read.table === RECORD_RPC && read.args?.p_source === "missions"
     );
-    expect(missionRecordPages.map((read) => read.args?.p_page_size)).toEqual([4, 2]);
     expect(missionRecordPages.map((read) => read.args?.p_after)).toEqual([
       null,
-      "mission-title-1"
+      "mission-title-1",
+      "mission-title-3",
+      "mission-title-4"
     ]);
   });
 

@@ -181,7 +181,8 @@ export function approvedSearchAliasGroups(): readonly SearchAliasGroup[] {
  * The group whose member IS the whole query, if any.
  *
  * Tolerates terminal punctuation, case, and one trailing plural or possessive,
- * so "arp", "ARP?", "ARPs" and "ARP's" all resolve to the ARP group.
+ * so "arp", "ARP?", "ARPs", "arps", "ARPS", "ARP's" and "arp's" all resolve to
+ * the ARP group.
  */
 export function findSearchAliasGroup(
   query: string,
@@ -190,21 +191,24 @@ export function findSearchAliasGroup(
   const written = normalizeTerminalPunctuation(query).replace(/\s+/g, " ").trim();
   if (written === "") return undefined;
 
-  const exact = groupWithMember(memberKey(written), groups);
-  if (exact) return exact;
-
-  // A trailing plural or possessive is dropped only when what remains is still
-  // recognisably the same term: an acronym still WRITTEN in capitals ("ARPs",
-  // "ARP's"), or a member that is not an acronym ("default gateways"). That
-  // keeps an everyday word such as "ads" from resolving to the acronym AD.
-  for (const stripped of [written.replace(/['’]s$/, ""), written.replace(/s$/, "")]) {
-    if (stripped === written || stripped === "") continue;
-    const group = groupWithMember(memberKey(stripped), groups);
-    if (!group) continue;
-    const member = group.members.find((entry) => memberKey(entry) === memberKey(stripped));
-    if (member && (!isAcronymTerm(member) || isAcronymTerm(stripped))) return group;
+  // DEC-073: the acronym in any case, and its plural and possessive forms, are
+  // one concept. What remains after the ending is matched against the DATA
+  // members, ignoring how the learner capitalised it.
+  for (const form of supportedForms(written)) {
+    const group = groupWithMember(memberKey(form), groups);
+    if (group) return group;
   }
   return undefined;
+}
+
+/**
+ * The query as written, then without one trailing possessive, then without
+ * one trailing plural — each ending in any case.
+ */
+function supportedForms(written: string): string[] {
+  return [written, written.replace(/['’]s$/i, ""), written.replace(/s$/i, "")].filter(
+    (form, index) => form !== "" && (index === 0 || form !== written)
+  );
 }
 
 function groupWithMember(
@@ -287,9 +291,9 @@ export function buildAliasAwareQueryVariants(
  * The acronym data member a variant value names, if it names one.
  *
  * Recognises the same plural and possessive forms `findSearchAliasGroup`
- * accepts ("ARPs", "ARP's"), under the same rule: the ending is dropped only
- * when what remains is still WRITTEN as an acronym. Such a variant then matches
- * as a whole word too, so "ARPs" can never match "sharpshooting".
+ * accepts ("ARPs", "arps", "ARPS", "ARP's", "arp's"), in any case, against the
+ * DATA members. Such a variant then matches as a whole word too, so "arps" can
+ * never match "sharpshooting".
  *
  * Terminal punctuation is ignored exactly as `findSearchAliasGroup` ignores it,
  * so the learner's own "ARP?" is a whole-word ARP too and never the substring
@@ -302,10 +306,7 @@ export function acronymTermOf(
   groups: readonly SearchAliasGroup[] = approvedSearchAliasGroups()
 ): string | undefined {
   const written = normalizeTerminalPunctuation(value).replace(/\s+/g, " ").trim();
-  const forms = [written, written.replace(/['’]s$/, ""), written.replace(/s$/, "")];
-  for (const form of forms) {
-    if (form === "") continue;
-    if (form !== written && !isAcronymTerm(form)) continue;
+  for (const form of supportedForms(written)) {
     const key = memberKey(form);
     for (const group of groups) {
       for (const member of group.members) {

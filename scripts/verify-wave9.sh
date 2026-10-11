@@ -367,12 +367,18 @@ grep -Fq 'normalizeCurriculumSearchLimit(input.limit)' "$CS_SERVICE" \
 # MOVED FOR G-005, not weakened. The read is the record-search function, so
 # the same `limit * 4` bound is pinned as the argument the service passes, and
 # the reader is pinned to stop at it.
+# DEC-073 review finding: an alias-group query's read pages on to the end so a
+# title match is never cut off behind earlier description matches, but every
+# page asks for at most the bound and only the best `limit * 4` rows by match
+# location are held. Every other read still stops at the bound.
 grep -Fq 'limit * 4' "$CS_SERVICE" \
   || fail "the candidate over-fetch is missing or no longer bounded"
-grep -Fq 'while (rows.length < maxRows) {' services/api/src/curriculum-record-search.ts \
+grep -Fq 'while (rankOf || held.length < maxRows) {' services/api/src/curriculum-record-search.ts \
   || fail "the record reader no longer stops at the bounded over-fetch"
-grep -Fq 'p_page_size: Math.min(maxRows - rows.length, RECORD_SEARCH_PAGE_SIZE)' services/api/src/curriculum-record-search.ts \
+grep -Fq 'p_page_size: Math.min(rankOf ? maxRows : maxRows - held.length, RECORD_SEARCH_PAGE_SIZE)' services/api/src/curriculum-record-search.ts \
   || fail "the record reader may ask for more rows than the over-fetch allows"
+grep -Fq 'held = held.sort(byRankThenStableId).slice(0, maxRows);' services/api/src/curriculum-record-search.ts \
+  || fail "the ranked record read may hold more rows than the over-fetch allows"
 # NARROWED FOR SEARCH-005A, then for SEARCH-008. The bound is unchanged; the
 # function applying it moved twice, because match-class tiering and then title
 # precision must run between neutral ordering and the limit slice, or an exact
@@ -406,7 +412,7 @@ ESCAPE_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'escapeCurriculumSearchPattern
 # LIKE pattern at all, so no learner character can act as a wildcard.
 echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq 'constmatch=buildStepSearchArguments(patterns,passVariants);' \
   || fail "the matcher no longer consumes the approved variant patterns"
-echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq 'searchOneType(supabase,contentType,match,limit)' \
+echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq 'searchOneType(supabase,contentType,match,limit,rankOf)' \
   || fail "the record read no longer receives the approved variant patterns"
 if sed 's/--.*$//' "$G005_SEARCH_MIGRATION" | grep -qiE '\b(i?like|similar to)\b'; then
   fail "the record-search function matches with a LIKE pattern"
