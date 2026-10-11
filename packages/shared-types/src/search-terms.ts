@@ -382,6 +382,13 @@ export interface ClassifiedSearchDocument {
    * ranking classifies the title itself with the substring rule.
    */
   titlePrecision?: CurriculumTitlePrecision;
+  /**
+   * WP-005: true when the record was found only through a mission step body and
+   * none of its own text matched. Ranking places it after every record match,
+   * whatever match class it was given, so a step-only match can never tie with
+   * a record match in the last class (a SEARCH-005B recovery's `typo`).
+   */
+  stepOnly?: boolean;
 }
 
 /**

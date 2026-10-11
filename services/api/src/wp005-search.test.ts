@@ -785,6 +785,52 @@ describe("criterion 8: every alias pair resolves both directions, end to end", (
 
     expect(checked).toBeGreaterThan(groups.length * 2 - 1);
   });
+
+  /**
+   * Review finding: "VLANs?" spent the whole variant cap before reaching
+   * Virtual Local Area Network. Every punctuated plural and possessive form of
+   * every acronym in every three-member group must still find a step that
+   * names only another member.
+   */
+  it("a punctuated plural or possessive acronym finds every other member", async () => {
+    const fullGroups = approvedSearchAliasGroups().filter(
+      (group) => group.members.length === 3
+    );
+    expect(fullGroups.length).toBeGreaterThan(0);
+    let checked = 0;
+
+    for (const group of fullGroups) {
+      for (const acronym of group.members.filter((member) => !/\s/.test(member))) {
+        for (const from of [`${acronym}s?`, `${acronym}'s?`, `${acronym}’s!`, `${acronym}s!`]) {
+          for (const to of group.members) {
+            const course = node("fixture-course", "Fixture course");
+            const module = node("fixture-module", "Fixture module", { course_id: course.id });
+            const mission = node("fixture-mission", "Fixture mission", { module_id: module.id });
+            const world: World = {
+              learning_paths: [],
+              courses: [course],
+              learning_modules: [module],
+              missions: [mission],
+              competencies: [],
+              mission_steps: [
+                step(mission, 0, {
+                  type: "concept",
+                  paragraphs: [`This lesson mentions ${to} once.`]
+                })
+              ]
+            };
+
+            vi.resetModules();
+            const { results } = await search(world, { query: from });
+            expect(idsOf(results), `${from} -> ${to}`).toEqual(["fixture-mission"]);
+            checked += 1;
+          }
+        }
+      }
+    }
+
+    expect(checked).toBeGreaterThanOrEqual(12);
+  });
 });
 
 describe("ranking: title matches, then alias matches, then step-body matches", () => {
@@ -844,6 +890,49 @@ describe("ranking: title matches, then alias matches, then step-body matches", (
 
     expect(idsOf(results)).toEqual(["course-arp-fundamentals", "nf-mission-protocol"]);
     expect(results.matchLocations).toHaveLength(2);
+  });
+
+  /**
+   * Review finding: in a typo recovery a description match and a step-only
+   * match were both `typo` and `description_only`, so the stable-id order put
+   * the step-only mission first and the limit dropped the description match.
+   */
+  function recoveryWorld(): World {
+    const course = node("networking-foundations", "Networking Foundations");
+    const module = node("nf-mod", "Module", { course_id: course.id });
+    const stepOnly = node("nf-mission-a-step-only", "Alpha", { module_id: module.id });
+    const described = node("nf-mission-z-described", "Zulu", {
+      module_id: module.id,
+      description: "Covers kubectl in depth."
+    });
+    return {
+      learning_paths: [],
+      courses: [course],
+      learning_modules: [module],
+      missions: [stepOnly, described],
+      competencies: [],
+      mission_steps: [
+        step(stepOnly, 0, { type: "concept", paragraphs: ["Run kubectl get pods."] })
+      ]
+    };
+  }
+
+  it("a typo recovery ranks a description match before a step-only match", async () => {
+    const { results } = await search(recoveryWorld(), { query: "kubctl" });
+
+    expect(results.queryAdjustment?.adjustmentKind).toBe("typo");
+    expect(idsOf(results)).toEqual(["nf-mission-z-described", "nf-mission-a-step-only"]);
+    expect(results.matchLocations?.map((location) => location.foundIn)).toEqual([
+      "description",
+      "step"
+    ]);
+  });
+
+  it("a typo recovery never truncates a description match for a step-only match", async () => {
+    const { results } = await search(recoveryWorld(), { query: "kubctl", limit: 1 });
+
+    expect(results.queryAdjustment?.adjustmentKind).toBe("typo");
+    expect(idsOf(results)).toEqual(["nf-mission-z-described"]);
   });
 
   it("facets still count exactly the returned results, step matches included", async () => {

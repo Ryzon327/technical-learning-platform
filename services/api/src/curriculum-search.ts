@@ -380,8 +380,9 @@ export async function searchCurriculum(
     // and a plural or possessive query is classified by the rule that found
     // it. A mission found only through its steps matches none of its own
     // text, so it is given the last match tier and, explicitly, the weakest
-    // title precision, and ranks after every title, description and alias
-    // match.
+    // title precision, and is marked step-only: ranking places it after every
+    // title, description and alias match, and after a typo recovery's record
+    // matches, which share that last tier.
     const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(
@@ -403,6 +404,7 @@ export async function searchCurriculum(
           found.length === 0
             ? weakestTitlePrecision()
             : classifyAliasAwareTitlePrecision(entry.title, found),
+        stepOnly: found.length === 0,
         location: locateCurriculumMatch(entry, document, passVariants, steps)
       });
     }

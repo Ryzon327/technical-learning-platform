@@ -264,10 +264,20 @@ export function buildRankedCurriculumSearchResults(
     classified.map((entry) => entry.document)
   );
 
+  // WP-005: a step-only match sits in a band of its own after every match
+  // class, so it ranks after every record match — including a typo-recovered
+  // description match, which shares the last match class with it.
+  const stepOnly = new Set<string>();
+  for (const entry of classified) {
+    if (entry.stepOnly) stepOnly.add(entry.document.documentId);
+  }
+
   const matchTierOf = (document: SearchDocument): number =>
-    CURRICULUM_MATCH_KINDS.indexOf(
-      kindOf.get(document.documentId) ?? weakestMatchKind()
-    );
+    stepOnly.has(document.documentId)
+      ? CURRICULUM_MATCH_KINDS.length
+      : CURRICULUM_MATCH_KINDS.indexOf(
+          kindOf.get(document.documentId) ?? weakestMatchKind()
+        );
 
   // A precision the caller already classified under its own retrieval rules is
   // used as given, so ranking never re-judges a title by a looser rule than the
