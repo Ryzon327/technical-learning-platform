@@ -392,6 +392,57 @@ describe("ranking happens before the requested limit is applied", () => {
   });
 });
 
+describe("WP-005 — a step-only match ranks after every record match", () => {
+  /**
+   * In a typo recovery a description match and a step-only match share the
+   * last match class and the weakest precision. The step-only one sorts first
+   * neutrally, so without its own band it would win the only slot.
+   */
+  it("keeps a recovered description match ahead of a step-only match at the limit", () => {
+    const ranked = buildRankedCurriculumSearchResults(
+      [
+        {
+          document: doc({ contentType: "mission", stableId: "a", title: "Step only" }),
+          matchKind: "typo",
+          titlePrecision: "description_only",
+          stepOnly: true
+        },
+        {
+          document: doc({ contentType: "mission", stableId: "z", title: "Description match" }),
+          matchKind: "typo",
+          titlePrecision: "description_only"
+        }
+      ],
+      [{ value: "kubectl", matchKind: "typo" }],
+      1
+    );
+
+    expect(titles(ranked)).toEqual(["Description match"]);
+  });
+
+  it("places a step-only match after a record match of every class", () => {
+    const ranked = buildRankedCurriculumSearchResults(
+      [
+        {
+          document: doc({ contentType: "learning_path", stableId: "a", title: "Step only" }),
+          matchKind: "exact",
+          titlePrecision: "whole_title",
+          stepOnly: true
+        },
+        {
+          document: doc({ contentType: "competency", stableId: "z", title: "Recovered" }),
+          matchKind: "typo",
+          titlePrecision: "description_only"
+        }
+      ],
+      exactVariant("Step only"),
+      10
+    );
+
+    expect(titles(ranked)).toEqual(["Recovered", "Step only"]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Technical tokens
 // ---------------------------------------------------------------------------

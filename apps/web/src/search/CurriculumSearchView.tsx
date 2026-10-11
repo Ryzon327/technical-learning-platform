@@ -4,6 +4,8 @@ import {
   buildCurriculumFallbackGuidance,
   buildCurriculumSearchSnippet,
   describeCurriculumContentType,
+  describeCurriculumMatchFoundIn,
+  describeCurriculumMatchTrail,
   describeCurriculumFallbackHeading,
   describeCurriculumNavigationEmpty,
   describeCurriculumNavigationHeading,
@@ -28,6 +30,7 @@ import {
   validateCurriculumSearchQuery,
   type CurriculumNavigationEntry,
   type CurriculumSearchContentType,
+  type CurriculumSearchMatchLocation,
   type NoteSearchResult,
   type SearchDocument,
   type SearchFallbackReason
@@ -175,7 +178,13 @@ function CurriculumNavigationPanel({
   );
 }
 
-function SearchResult({ result }: { result: SearchDocument }) {
+function SearchResult({
+  result,
+  location
+}: {
+  result: SearchDocument;
+  location?: CurriculumSearchMatchLocation;
+}) {
   const headingId = `result-${result.documentId}-title`;
 
   return (
@@ -184,8 +193,27 @@ function SearchResult({ result }: { result: SearchDocument }) {
       <p className="eyebrow">{describeCurriculumContentType(result.contentType)}</p>
       <h3 id={headingId}>{result.title}</h3>
 
-      {result.searchableText && (
-        <p>{buildCurriculumSearchSnippet(result.searchableText, "")}</p>
+      {/* WP-005 — where the match was found, as words: the course → mission →
+          step trail, then a short snippet in which the matched words sit in a
+          <mark> element. The server located the match; nothing is matched
+          here. Without a location the original snippet is shown unchanged. */}
+      {location && (
+        <p>
+          {describeCurriculumMatchFoundIn(location.foundIn)}:{" "}
+          {describeCurriculumMatchTrail(location.trail)}
+        </p>
+      )}
+
+      {location?.snippet ? (
+        <p>
+          {location.snippet.before}
+          <mark>{location.snippet.match}</mark>
+          {location.snippet.after}
+        </p>
+      ) : (
+        result.searchableText && (
+          <p>{buildCurriculumSearchSnippet(result.searchableText, "")}</p>
+        )
       )}
 
       <p>
@@ -446,7 +474,8 @@ export function CurriculumSearchView() {
       <p className="eyebrow">Search Engine</p>
       <h2 id="curriculum-search-title">Search curriculum</h2>
       <p>
-        Find published learning content by title or description. Technical terms
+        Find published learning content by title, description or lesson text.
+        An acronym and its full name find the same lessons. Technical terms
         such as <code>kubectl</code> or <code>show vlan brief</code> are matched
         exactly as you type them.
       </p>
@@ -597,7 +626,13 @@ export function CurriculumSearchView() {
           {/* ORDERED, because after SEARCH-008 the sequence carries meaning. */}
           <ol aria-labelledby="curriculum-results-heading">
             {results.results.map((result) => (
-              <SearchResult key={result.documentId} result={result} />
+              <SearchResult
+                key={result.documentId}
+                result={result}
+                location={results.matchLocations?.find(
+                  (entry) => entry.documentId === result.documentId
+                )}
+              />
             ))}
           </ol>
         </section>

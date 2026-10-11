@@ -53,58 +53,100 @@ function row(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Chainable stand-in returning per-table rows and recording the calls made. */
+/** What one record-source read asked the database to match. */
+interface RecordMatch {
+  p_phrases: string[];
+  p_acronyms: string[];
+}
+
+/**
+ * Stand-in database returning per-table rows and recording the calls made.
+ *
+ * Founder direction G-005: each of the four record sources is read through
+ * the SECURITY INVOKER function `search_published_curriculum_records`
+ * (`curriculum-record-search.ts`), one keyset-paged read per source. The
+ * stand-in models that function: phrases as case-insensitive substrings and
+ * acronyms as whole words, of the title or the description, one row per
+ * stable id at its highest matching version, in stable-id order. It applies
+ * NO publication rule of its own, so the service's own re-check is what keeps
+ * a non-published row out. Real PostgreSQL behaviour is proven in
+ * `curriculum-step-search.db.test.ts`.
+ *
+ * `tables`, `matches` and `limits` record the FIRST page of each source read
+ * (its source, its match arguments and its page size), so they keep
+ * describing exactly the four record-source reads every SEARCH-002 to
+ * SEARCH-008 assertion below is about; `recordCalls` records every page.
+ * WP-005's step and context reads are recorded in `contextReads`, and
+ * `wp005-search.test.ts` asserts them.
+ */
 function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
   const tables: string[] = [];
-  const eqCalls: Array<[string, unknown]> = [];
-  const orPatterns: string[] = [];
+  const matches: RecordMatch[] = [];
   const limits: number[] = [];
+  const recordCalls: Array<Record<string, unknown>> = [];
+  const contextReads: string[] = [];
   let tokenSeen = "";
 
-  /** Undoes the LIKE escaping so the stand-in matches literal text. */
-  const literalTermsOf = (pattern: string): string[] =>
-    [...pattern.matchAll(/ilike\.%(.*?)%(?:,|$)/g)]
-      .map((match) => (match[1] ?? "").replace(/\\([\\%_])/g, "$1"))
-      .filter((term) => term !== "");
+  const textOf = (value: unknown): string => (typeof value === "string" ? value : "");
 
   /**
-   * Approximates ILIKE. Without this the stand-in returns rows regardless of
-   * the query, so a pass could never produce zero results and SEARCH-005B
-   * recovery could never be exercised.
+   * Whether a row's title or description matches. Without this the stand-in
+   * returns rows regardless of the query, so a pass could never produce zero
+   * results and SEARCH-005B recovery could never be exercised.
    */
-  const matchesPattern = (candidate: unknown, pattern: string): boolean => {
-    const record = candidate as { title?: string; description?: string };
-    const haystack = `${record.title ?? ""} ${record.description ?? ""}`.toLowerCase();
-    return literalTermsOf(pattern).some((term) =>
-      haystack.includes(term.toLowerCase())
+  const rowMatches = (candidate: Record<string, unknown>, args: Record<string, unknown>) =>
+    [textOf(candidate.title), textOf(candidate.description)].some(
+      (field) =>
+        ((args.p_phrases as string[]) ?? []).some(
+          (phrase) =>
+            phrase.trim() !== "" &&
+            field.toLowerCase().includes(phrase.trim().toLowerCase())
+        ) ||
+        ((args.p_acronyms as string[]) ?? [])
+          .filter((term) => /^[A-Za-z0-9]+$/.test(term))
+          .some((term) => new RegExp(`\\b${term}s?\\b`, "i").test(field))
     );
+
+  const recordPage = (args: Record<string, unknown>): unknown[] => {
+    const highest = new Map<string, Record<string, unknown>>();
+    for (const candidate of (byTable[String(args.p_source)] ?? []) as Array<
+      Record<string, unknown>
+    >) {
+      if (!rowMatches(candidate, args)) continue;
+      const stableId = String(candidate.stable_id);
+      const incumbent = highest.get(stableId);
+      if (!incumbent || Number(candidate.version) > Number(incumbent.version)) {
+        highest.set(stableId, candidate);
+      }
+    }
+    const after = args.p_after as string | null;
+    const pageSize = Math.min(Math.max(Number(args.p_page_size ?? 50), 1), 100);
+    return [...highest.values()]
+      .sort((a, b) => (String(a.stable_id) < String(b.stable_id) ? -1 : 1))
+      .filter((candidate) => after === null || String(candidate.stable_id) > after)
+      .slice(0, pageSize);
   };
 
   const client = {
-    from: (name: string) => {
-      tables.push(name);
-      const builder: Record<string, unknown> = {};
-      let pattern = "";
-      builder.select = () => builder;
-      builder.eq = (column: string, value: unknown) => {
-        eqCalls.push([column, value]);
-        return builder;
-      };
-      builder.or = (value: string) => {
-        pattern = value;
-        orPatterns.push(value);
-        return builder;
-      };
-      builder.limit = (value: number) => {
-        limits.push(value);
-        const rows = (byTable[name] ?? []).filter((candidate) =>
-          matchesPattern(candidate, pattern)
-        );
+    rpc: (name: string, args: Record<string, unknown> = {}) => {
+      if (name === "search_published_curriculum_records") {
+        recordCalls.push(args);
+        if (args.p_after === null) {
+          tables.push(String(args.p_source));
+          matches.push({
+            p_phrases: args.p_phrases as string[],
+            p_acronyms: args.p_acronyms as string[]
+          });
+          limits.push(Number(args.p_page_size));
+        }
         return Promise.resolve(
-          error ? { data: null, error } : { data: rows, error: null }
+          error ? { data: null, error } : { data: recordPage(args), error: null }
         );
-      };
-      return builder;
+      }
+      // WP-005 step-body search and mission context (`curriculum-step-search.ts`);
+      // this stand-in has no steps to match.
+      contextReads.push(name);
+      return Promise.resolve(error ? { data: null, error } : { data: [], error: null });
     }
   };
 
@@ -114,12 +156,24 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
       return client;
     },
     tables,
-    eqCalls,
-    orPatterns,
+    matches,
     limits,
+    recordCalls,
+    contextReads,
     token: () => tokenSeen
   };
 }
+
+/** The G-005 record-search migration, for the statements the service relies on. */
+const recordSearchMigration = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20261012000100_curriculum_record_search_function.sql",
+    import.meta.url
+  ),
+  "utf8"
+)
+  .replace(/--.*$/gm, "")
+  .replace(/\s+/g, " ");
 
 async function search(
   byTable: Record<string, unknown[]>,
@@ -356,30 +410,100 @@ describe("E: executable search behaviour", () => {
     ]);
   });
 
+  /**
+   * MOVED FOR G-005, not weakened. The publication constraint is no longer a
+   * PostgREST `.eq` on a table read: the record-search function states it for
+   * every source, and the service re-checks every row it returns. Both halves
+   * are proven here, and no read carries a caller-chosen publication input.
+   */
   it("E4: constrains every read to published rows", async () => {
-    const { harness } = await search({});
+    const { results, harness } = await search({
+      courses: [
+        row(),
+        row({ stable_id: "course.draft", publication_state: "draft" }),
+        row({ stable_id: "course.retired", publication_state: "retired" })
+      ]
+    });
 
-    expect(harness.eqCalls).toEqual([
-      ["publication_state", "published"],
-      ["publication_state", "published"],
-      ["publication_state", "published"],
-      ["publication_state", "published"]
+    expect(harness.recordCalls.length).toBeGreaterThanOrEqual(4);
+    for (const call of harness.recordCalls) {
+      expect(Object.keys(call).sort()).toEqual([
+        "p_acronyms",
+        "p_after",
+        "p_page_size",
+        "p_phrases",
+        "p_source"
+      ]);
+    }
+    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
+      "course.networking"
     ]);
-  });
-
-  it("E5: matches title and description only", async () => {
-    const { harness } = await search({});
-
-    for (const pattern of harness.orPatterns) {
-      expect(pattern).toBe("title.ilike.%vlan%,description.ilike.%vlan%");
+    for (const [table, alias] of [
+      ["learning_paths", "lp"],
+      ["courses", "c"],
+      ["missions", "m"],
+      ["competencies", "k"]
+    ]) {
+      expect(recordSearchMigration).toContain(
+        `from public.${table} as ${alias} where p_source = '${table}' and ${alias}.publication_state = 'published'`
+      );
     }
   });
 
-  it("E6: escapes wildcard characters before matching", async () => {
-    const { harness } = await search({}, { query: "100% _x" });
+  /**
+   * NARROWED FOR WP-005, not weakened. `vlan` is now an approved acronym, so it
+   * expands; the exact match arguments are pinned on a plain term instead.
+   * MOVED FOR G-005: the read is a database function, so what it matches is
+   * proven in its SQL — the title and the description, separately, and no
+   * other column.
+   */
+  it("E5: matches title and description only", async () => {
+    const plain = await search({}, { query: "inspect" });
 
-    expect(harness.orPatterns[0]).toContain("100\\%");
-    expect(harness.orPatterns[0]).toContain("\\_x");
+    expect(plain.harness.matches).toHaveLength(4);
+    for (const match of plain.harness.matches) {
+      expect(match).toEqual({ p_phrases: ["inspect"], p_acronyms: [] });
+    }
+
+    for (const condition of [
+      "strpos(lower(r.record_title), n.needle) > 0",
+      "strpos(lower(coalesce(r.record_description, '')), n.needle) > 0",
+      "r.record_title ~* w.pattern",
+      "coalesce(r.record_description, '') ~* w.pattern"
+    ]) {
+      expect(recordSearchMigration).toContain(condition);
+    }
+    const matched = recordSearchMigration.slice(
+      recordSearchMigration.indexOf("matched as ("),
+      recordSearchMigration.indexOf("select mt.record_id")
+    );
+    expect(
+      [...new Set(matched.match(/r\.record_[a-z_]+/g))].sort()
+    ).toEqual(["r.record_description", "r.record_id", "r.record_title", "r.record_version"]);
+  });
+
+  /**
+   * MOVED FOR G-005. Phrases are matched by `strpos`, which has no wildcard,
+   * so `%` and `_` reach the database as the learner typed them and match
+   * only themselves. Proven against real PostgreSQL in
+   * `curriculum-step-search.db.test.ts`.
+   */
+  it("E6: escapes wildcard characters before matching", async () => {
+    const { results, harness } = await search(
+      {
+        courses: [
+          row({ stable_id: "course.literal", title: "Scoring 100% _x" }),
+          row({ stable_id: "course.wild", title: "Scoring 1000 xx" })
+        ]
+      },
+      { query: "100% _x" }
+    );
+
+    expect(harness.matches[0]?.p_phrases).toEqual(["100% _x"]);
+    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
+      "course.literal"
+    ]);
+    expect(recordSearchMigration).not.toMatch(/\blike\b|\bilike\b/i);
   });
 
   it("E7: bounds the candidate over-fetch and the returned results", async () => {
@@ -477,10 +601,16 @@ describe("E: executable search behaviour", () => {
     expect(results.count).toBe(0);
   });
 
-  it("E15: the response carries exactly results, count and facets", async () => {
-    const { results } = await search({ courses: [row()] });
+  /** WP-005 adds `matchLocations` beside the results, and nothing else. */
+  it("E15: the response carries exactly results, count, facets and match locations", async () => {
+    const { results } = await search({ courses: [row()] }, { query: "inspect" });
 
-    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
+    expect(Object.keys(results).sort()).toEqual([
+      "count",
+      "facets",
+      "matchLocations",
+      "results"
+    ]);
   });
 
   it("E16: preserves the source text representation in the snippet", async () => {
@@ -672,9 +802,9 @@ describe("F: SEARCH-004 content-type filtering", () => {
     const unfiltered = await search(everyType);
 
     expect(filtered.harness.tables).toEqual(unfiltered.harness.tables);
-    expect(filtered.harness.eqCalls).toEqual(unfiltered.harness.eqCalls);
+    expect(filtered.harness.recordCalls).toEqual(unfiltered.harness.recordCalls);
     expect(filtered.harness.limits).toEqual(unfiltered.harness.limits);
-    expect(filtered.harness.orPatterns).toEqual(unfiltered.harness.orPatterns);
+    expect(filtered.harness.matches).toEqual(unfiltered.harness.matches);
   });
 
   it("F12: filtering never reorders the surviving results", async () => {
@@ -919,21 +1049,36 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     ]
   };
 
+  /**
+   * WP-005: `vlan` became an approved acronym and is no longer a query with no
+   * adjustment, so the plain-term case uses a word from the same row.
+   */
   it("H1: a query with no adjustment behaves exactly as SEARCH-002 did", async () => {
-    const { results, harness } = await search({ courses: [row()] });
-
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%vlan%,description.ilike.%vlan%"
+    const { results, harness } = await search(
+      { courses: [row()] },
+      { query: "inspect" }
     );
+
+    expect(harness.matches[0]).toEqual({ p_phrases: ["inspect"], p_acronyms: [] });
     expect(results).not.toHaveProperty("queryAdjustment");
   });
 
+  /**
+   * NARROWED FOR WP-005, not weakened. The acronym is now matched as a WHOLE
+   * WORD (`\y` boundaries, optional plural) instead of as the substring `%AD%`,
+   * which also matched "address" and "advanced". The canonical term is still
+   * added to the same single read. G-005: both reach the database function as
+   * arguments, the acronym as a whole word and never as a phrase.
+   */
   it("H2: an approved acronym adds its canonical term to the same read", async () => {
     const { harness } = await search({}, { query: "AD" });
 
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%AD%,description.ilike.%AD%," +
-        "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
+    expect(harness.matches[0]).toEqual({
+      p_phrases: ["Active Directory"],
+      p_acronyms: ["AD"]
+    });
+    expect(recordSearchMigration).toContain(
+      "select '\\y' || acronym.value || 's?\\y' as pattern"
     );
   });
 
@@ -948,23 +1093,36 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     expect(expanded.harness.tables).toEqual(plain.harness.tables);
     expect(expanded.harness.tables).toHaveLength(4);
     expect(expanded.harness.limits).toEqual([20, 20, 20, 20]);
-    expect(expanded.harness.eqCalls).toEqual(plain.harness.eqCalls);
+    expect(expanded.harness.recordCalls).toHaveLength(plain.harness.recordCalls.length);
   });
 
+  /** MOVED FOR G-005: see E6. Every variant reaches `strpos` literally. */
   it("H4: every variant is escaped before matching", async () => {
-    const { harness } = await search({}, { query: "100% _x" });
+    const { results, harness } = await search(
+      {
+        courses: [
+          row({ stable_id: "course.literal", title: "Scoring 100% _x" }),
+          row({ stable_id: "course.wild", title: "Scoring 1000 xx" })
+        ]
+      },
+      { query: "100% _x" }
+    );
 
-    expect(harness.orPatterns[0]).toContain("100\\%");
-    expect(harness.orPatterns[0]).toContain("\\_x");
+    for (const match of harness.matches) {
+      expect(match.p_phrases).toEqual(["100% _x"]);
+    }
+    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
+      "course.literal"
+    ]);
   });
 
   it("H5: a trailing question mark adds a normalized variant", async () => {
     const { harness, results } = await search({}, { query: "kubectl?" });
 
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%kubectl?%,description.ilike.%kubectl?%," +
-        "title.ilike.%kubectl%,description.ilike.%kubectl%"
-    );
+    expect(harness.matches[0]).toEqual({
+      p_phrases: ["kubectl?", "kubectl"],
+      p_acronyms: []
+    });
     expect(results.queryAdjustment).toMatchObject({
       adjustmentKind: "normalized"
     });
@@ -974,20 +1132,28 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
    * The substring pathology this rule exists to prevent. A two-character alias
    * would match "administration", "advanced", "upload", "read" and "broadcast".
    */
-  it("H6: the canonical term never emits the short alias as a pattern", async () => {
+  /**
+   * NARROWED FOR WP-005, not weakened. WP-005 requires `AD` and `Active
+   * Directory` to return the same results, so the canonical term now DOES
+   * reach the short alias — but only through the approved whole-word pattern.
+   * The substring pathology this test exists to prevent is still forbidden.
+   */
+  it("H6: the canonical term never emits the short alias as a substring pattern", async () => {
     const { harness } = await search({}, { query: "Active Directory" });
 
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%Active Directory%,description.ilike.%Active Directory%"
-    );
-    expect(harness.orPatterns[0]).not.toContain("%AD%");
+    expect(harness.matches[0]).toEqual({
+      p_phrases: ["Active Directory"],
+      p_acronyms: ["AD"]
+    });
+    expect(harness.matches[0]?.p_phrases).not.toContain("AD");
   });
 
   it("H7: a protected technical token never triggers the acronym", async () => {
     for (const query of ["Get-ADUser", "ADD", "upload"]) {
       const { harness } = await search({}, { query });
 
-      expect(harness.orPatterns[0]).not.toContain("Active Directory");
+      expect(harness.matches[0]?.p_phrases).not.toContain("Active Directory");
+      expect(harness.matches[0]?.p_acronyms).toEqual([]);
     }
   });
 
@@ -1000,27 +1166,48 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     ]) {
       const { harness } = await search({}, { query });
 
-      expect(harness.orPatterns[0]).toContain(`title.ilike.%${query}%`);
+      expect(harness.matches[0]?.p_phrases[0]).toBe(query);
     }
   });
 
-  it("H9: exact matches are tiered above alias matches", async () => {
-    const { results } = await search(adRows, { query: "AD" });
+  /**
+   * Founder direction G-006 supersedes "exact matches are tiered above alias
+   * matches" for an approved alias group: AD and Active Directory are one
+   * concept, so neither form's title match outranks the other's, the neutral
+   * order decides, and both queries return the identical order.
+   */
+  it("H9: AD and Active Directory title matches rank in the neutral order, identically for both forms", async () => {
+    for (const query of ["AD", "Active Directory"]) {
+      const { results } = await search(adRows, { query });
 
-    // Neutral order alone would put course.aa first; tiering must not let an
-    // alias match outrank an exact one.
-    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
-      "course.zz",
-      "course.aa"
-    ]);
+      expect(
+        results.results.map((entry) => entry.sourceRecordStableId),
+        query
+      ).toEqual(["course.aa", "course.zz"]);
+    }
   });
 
-  it("H10: tiering runs before the bound, so an exact match is not truncated", async () => {
-    const { results } = await search(adRows, { query: "AD", limit: 1 });
+  it("H10: ranking runs before the bound, so a title match is not truncated for a description match", async () => {
+    // course.a0 matches only in its description and sorts FIRST neutrally; a
+    // bound applied before ranking would return it.
+    const withDescription = {
+      courses: [
+        ...adRows.courses,
+        row({
+          stable_id: "course.a0",
+          title: "Domain services",
+          description: "Runs on Active Directory."
+        })
+      ]
+    };
+    for (const query of ["AD", "Active Directory"]) {
+      const { results } = await search(withDescription, { query, limit: 1 });
 
-    expect(results.results.map((entry) => entry.sourceRecordStableId)).toEqual([
-      "course.zz"
-    ]);
+      expect(
+        results.results.map((entry) => entry.sourceRecordStableId),
+        query
+      ).toEqual(["course.aa"]);
+    }
   });
 
   it("H11: reports the adjustment without exposing internals", async () => {
@@ -1058,9 +1245,11 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
   it("H13: the response carries results, count, facets and the adjustment", async () => {
     const { results } = await search(adRows, { query: "AD" });
 
+    // WP-005 adds `matchLocations`, beside the results and outside them.
     expect(Object.keys(results).sort()).toEqual([
       "count",
       "facets",
+      "matchLocations",
       "queryAdjustment",
       "results"
     ]);
@@ -1098,15 +1287,21 @@ describe("H: SEARCH-005A query normalization and aliases", () => {
     const expanded = await search(adRows, { query: "AD" });
 
     expect(expanded.harness.tables).toEqual(plain.harness.tables);
-    expect(expanded.harness.eqCalls).toEqual(plain.harness.eqCalls);
+    for (const call of [...plain.harness.recordCalls, ...expanded.harness.recordCalls]) {
+      expect(Object.keys(call).sort()).toEqual([
+        "p_acronyms",
+        "p_after",
+        "p_page_size",
+        "p_phrases",
+        "p_source"
+      ]);
+    }
   });
 
   it("H17: no SEARCH-005B typo behaviour reaches the source", async () => {
     const { harness } = await search({}, { query: "kubctl" });
 
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%kubctl%,description.ilike.%kubctl%"
-    );
+    expect(harness.matches[0]).toEqual({ p_phrases: ["kubctl"], p_acronyms: [] });
   });
 });
 
@@ -1130,9 +1325,11 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
   });
 
   it("I1: does not run when the original query already has results", async () => {
+    // WP-005: `vlan` now carries an alias adjustment, so a plain word from the
+    // same row proves the absence of any adjustment.
     const { results, harness } = await search(
       { courses: [row()] },
-      { query: "vlan" }
+      { query: "inspect" }
     );
 
     // Exactly one pass: four source reads, not eight.
@@ -1158,7 +1355,7 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
 
     expect(results.count).toBe(1);
     expect(harness.tables).toHaveLength(4);
-    expect(harness.orPatterns).toHaveLength(4);
+    expect(harness.matches).toHaveLength(4);
     expect(results).not.toHaveProperty("queryAdjustment");
   });
 
@@ -1180,12 +1377,8 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
       { query: "kubctl" }
     );
 
-    expect(harness.orPatterns[0]).toBe(
-      "title.ilike.%kubctl%,description.ilike.%kubctl%"
-    );
-    expect(harness.orPatterns[4]).toBe(
-      "title.ilike.%kubectl%,description.ilike.%kubectl%"
-    );
+    expect(harness.matches[0]).toEqual({ p_phrases: ["kubctl"], p_acronyms: [] });
+    expect(harness.matches[4]).toEqual({ p_phrases: ["kubectl"], p_acronyms: [] });
   });
 
   it("I5: at most one recovery pass occurs", async () => {
@@ -1278,11 +1471,38 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
       { query: "kubctl" }
     );
 
-    // Published-only enforced on all eight reads, not just the first four.
-    expect(harness.eqCalls).toHaveLength(8);
-    for (const call of harness.eqCalls) {
-      expect(call).toEqual(["publication_state", "published"]);
+    // Published-only enforced on all eight reads, not just the first four: every
+    // read goes through the same record-search function (whose SQL states the
+    // publication requirement, E4) with the same arguments and nothing else.
+    expect(harness.tables).toHaveLength(8);
+    expect(harness.tables.slice(4)).toEqual(harness.tables.slice(0, 4));
+    for (const call of harness.recordCalls) {
+      expect(Object.keys(call).sort()).toEqual([
+        "p_acronyms",
+        "p_after",
+        "p_page_size",
+        "p_phrases",
+        "p_source"
+      ]);
     }
+  });
+
+  it("I11b: the recovery pass still drops a non-published row", async () => {
+    const { results } = await search(
+      {
+        courses: [
+          row({
+            stable_id: "course.k8s-draft",
+            title: "kubectl drafts",
+            publication_state: "draft"
+          })
+        ]
+      },
+      { query: "kubctl" }
+    );
+
+    expect(results.count).toBe(0);
+    expect(JSON.stringify(results)).not.toContain("course.k8s-draft");
   });
 
   it("I12: the recovery pass keeps the bounded over-fetch", async () => {
@@ -1374,7 +1594,7 @@ describe("I: SEARCH-005B bounded typo recovery", () => {
     expect(first.results.queryAdjustment).toEqual(
       second.results.queryAdjustment
     );
-    expect(first.harness.orPatterns).toEqual(second.harness.orPatterns);
+    expect(first.harness.matches).toEqual(second.harness.matches);
   });
 });
 
@@ -1520,7 +1740,16 @@ describe("J: SEARCH-008 ranking", () => {
       { query: "vlan" }
     );
 
-    expect(Object.keys(results).sort()).toEqual(["count", "facets", "results"]);
+    // WP-005: `vlan` is an approved acronym (alias adjustment) and results now
+    // carry their match locations. Neither key carries a ranking internal,
+    // which the loop below still proves over the whole serialized response.
+    expect(Object.keys(results).sort()).toEqual([
+      "count",
+      "facets",
+      "matchLocations",
+      "queryAdjustment",
+      "results"
+    ]);
     for (const forbidden of [
       "ranking",
       "rankedBy",

@@ -1,12 +1,14 @@
 import type {
   CurriculumAdjustedSearchResults,
+  CurriculumLocatedSearchResults,
   CurriculumSearchContentType,
   CurriculumSearchFacetedResults
 } from "@tlp/shared-types";
 import { apiRequest } from "../lib/api-client";
 
 export type CurriculumSearchResponse = CurriculumSearchFacetedResults &
-  CurriculumAdjustedSearchResults;
+  CurriculumAdjustedSearchResults &
+  CurriculumLocatedSearchResults;
 
 /**
  * SEARCH-002 — curriculum search feature service.

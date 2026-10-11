@@ -126,7 +126,7 @@ export const SEARCH_RANKING_FORBIDDEN_SIGNALS: readonly string[] = [
  * Read from the vocabulary rather than restated, so extending the array cannot
  * silently leave an unclassifiable result ranked first.
  */
-function weakestTitlePrecision(): CurriculumTitlePrecision {
+export function weakestTitlePrecision(): CurriculumTitlePrecision {
   return CURRICULUM_TITLE_PRECISIONS[
     CURRICULUM_TITLE_PRECISIONS.length - 1
   ] as CurriculumTitlePrecision;
@@ -264,14 +264,35 @@ export function buildRankedCurriculumSearchResults(
     classified.map((entry) => entry.document)
   );
 
+  // WP-005: a step-only match sits in a band of its own after every match
+  // class, so it ranks after every record match — including a typo-recovered
+  // description match, which shares the last match class with it.
+  const stepOnly = new Set<string>();
+  for (const entry of classified) {
+    if (entry.stepOnly) stepOnly.add(entry.document.documentId);
+  }
+
   const matchTierOf = (document: SearchDocument): number =>
-    CURRICULUM_MATCH_KINDS.indexOf(
-      kindOf.get(document.documentId) ?? weakestMatchKind()
-    );
+    stepOnly.has(document.documentId)
+      ? CURRICULUM_MATCH_KINDS.length
+      : CURRICULUM_MATCH_KINDS.indexOf(
+          kindOf.get(document.documentId) ?? weakestMatchKind()
+        );
+
+  // A precision the caller already classified under its own retrieval rules is
+  // used as given, so ranking never re-judges a title by a looser rule than the
+  // one that found the record.
+  const precisionOf = new Map<string, CurriculumTitlePrecision>();
+  for (const entry of classified) {
+    if (entry.titlePrecision !== undefined) {
+      precisionOf.set(entry.document.documentId, entry.titlePrecision);
+    }
+  }
 
   const titleTierOf = (document: SearchDocument): number =>
     CURRICULUM_TITLE_PRECISIONS.indexOf(
-      classifyCurriculumTitlePrecision(document.title, variants)
+      precisionOf.get(document.documentId) ??
+        classifyCurriculumTitlePrecision(document.title, variants)
     );
 
   const ranked = [...neutral].sort((a, b) => {

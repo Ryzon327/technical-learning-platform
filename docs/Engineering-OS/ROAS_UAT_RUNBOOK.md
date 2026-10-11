@@ -72,15 +72,17 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 **Verify afterwards**, and note one result that looks wrong but is not.
 
-The repository now carries **44** source migrations, of which **38** are applied
-to the development/UAT project. The column you compare against depends on how
-far you have pushed — these are expectations for a target state, not a claim
-about what is deployed.
+The repository now carries **46** source migrations, of which **38** were
+recorded as applied to the development/UAT project when this runbook was last
+reconciled; Founder direction G-005 records that the WP-005 step-search
+migration `20261011000100` has since been applied to UAT. The column you
+compare against depends on how far you have pushed — these are expectations for
+a target state, not a claim about what is deployed.
 
-| Check | After the 39 this runbook needs | After all 44 source migrations |
+| Check | After the 39 this runbook needs | After all 46 source migrations |
 |---|---|---|
-| `supabase migration list` | **39** applied | **44** applied |
-| `select count(*) from public.platform_schema_version;` | **38** | **43** |
+| `supabase migration list` | **39** applied | **46** applied |
+| `select count(*) from public.platform_schema_version;` | **38** | **45** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** | **62** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** | **66** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** | **0** |
@@ -96,6 +98,12 @@ about what is deployed.
 > `missions.description`, which is the transition fallback CURR-010 section
 > 13.4 permits, and no curriculum asset has ever been authored. Applying them
 > remains a separate Founder action.
+>
+> **The two WP-005 search migrations are not required for this runbook either.**
+> `20261011000100` (G-001/G-002) adds the step-search functions and the stored
+> `mission_steps.searchable_text` column; `20261012000100` (G-005) adds the
+> title-and-description search function. Each adds one schema-version row and
+> no table or policy. Curriculum search needs both.
 >
 > **Authoring mission STEPS is a different matter, and needs the last three.**
 > `20260831000100` creates the table, `20260902000100` grants the authoring

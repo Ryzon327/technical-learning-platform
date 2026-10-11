@@ -17,6 +17,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    # WP-005 / Founder direction G-001: a disposable PostgreSQL for the
+    # real-database integration tests. It exists only for this job, holds only
+    # fixture data, and is never a Supabase project. Trust authentication keeps
+    # any credential, even a throwaway one, out of the repository.
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: tlp_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tlp_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - name: Checkout
         # Full history: the attribution and change-detection steps below need to
@@ -47,6 +65,36 @@ jobs:
 
       - name: Test suite
         run: npm test
+
+      - name: Install PostgreSQL client
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Prepare disposable test database
+        # The platform shim, then every migration unchanged, each in its own
+        # transaction. The script refuses anything but a local database
+        # explicitly marked disposable.
+        env:
+          TLP_TEST_DATABASE_URL: postgres://postgres@localhost:5432/tlp_test
+          TLP_TEST_DATABASE_DISPOSABLE: "1"
+        run: bash scripts/test-db-apply-migrations.sh
+
+      - name: Real-database integration tests
+        # Learner-scoped (SET ROLE authenticated, as PostgREST does) step-body
+        # search against the real functions, policies and grants, including
+        # the 500 ms latency measurement. TLP_REQUIRE_TEST_DATABASE makes a
+        # missing database a failure rather than a skip.
+        working-directory: services/api
+        env:
+          TLP_TEST_DATABASE_URL: postgres://postgres@localhost:5432/tlp_test
+          TLP_REQUIRE_TEST_DATABASE: "1"
+          TLP_TEST_DATABASE_DISPOSABLE: "1"
+        run: npx vitest run src/curriculum-step-search.db.test.ts
 
       - name: Production build
         run: npm run build

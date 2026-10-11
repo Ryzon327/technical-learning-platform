@@ -5,14 +5,18 @@ import type {
   CurriculumSearchContentType,
   CurriculumSearchFacetedResults,
   CurriculumQueryVariant,
+  CurriculumTitlePrecision,
   SearchDocument
 } from "@tlp/shared-types";
 import type { SearchPermissionedCandidate } from "@tlp/shared-types";
+import type {
+  CurriculumLocatedSearchResults,
+  CurriculumSearchMatchLocation
+} from "@tlp/shared-types";
 import {
   AppError,
   applyCurriculumSearchFilter,
   buildCurriculumQueryAdjustment,
-  buildCurriculumQueryVariants,
   buildCurriculumTypoRecovery,
   buildCurriculumSearchFilter,
   buildCurriculumSearchSnippet,
@@ -31,9 +35,29 @@ import {
   surfaceAuthorized,
   validateCurriculumSearchContentTypeFilter,
   validateCurriculumSearchQuery,
+  withCurriculumMatchLocations,
   withCurriculumQueryAdjustment,
-  withCurriculumSearchFacets
+  withCurriculumSearchFacets,
+  weakestTitlePrecision
 } from "@tlp/shared-types";
+import {
+  searchPublishedCurriculumRecords,
+  type CurriculumRecordMatchArguments,
+  type CurriculumRecordRank
+} from "./curriculum-record-search";
+import {
+  buildStepSearchArguments,
+  locateCurriculumMatch,
+  searchPublishedStepBodies
+} from "./curriculum-step-search";
+import {
+  buildAliasAwareQueryVariants,
+  classifyAliasAwareTitlePrecision,
+  findSearchAliasGroup,
+  toRetrievalPattern,
+  variantOccursIn,
+  variantsFoundIn
+} from "./search-aliases";
 import { createUserScopedSupabaseClient } from "./supabase";
 
 /**
@@ -55,8 +79,10 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * security decides visibility. Every curriculum table carries
  * `for select to authenticated using (publication_state = 'published')`, so
  * draft, review and retired curriculum is unreadable through this path — not
- * filtered out afterwards, but never returned. The `.eq("publication_state",
- * "published")` below is defence in depth, not the protection.
+ * filtered out afterwards, but never returned. The record-search function's
+ * own `publication_state = 'published'` (WP-005 / G-005,
+ * `curriculum-record-search.ts`) and the re-check of every returned row are
+ * defence in depth, not the protection.
  *
  * No service-role client. No caller-supplied user id. No notes or private
  * source of any kind.
@@ -78,6 +104,32 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * version resolution, on the final result set — so a filter can only ever
  * remove a result the caller was already entitled to see, and a facet can only
  * ever count one. Nothing about a withheld candidate is reachable from either.
+ *
+ * ## WP-005 step bodies, acronym aliases and match locations
+ *
+ * The bodies of PUBLISHED mission steps are searched as well, through the same
+ * caller-scoped client (`curriculum-step-search.ts`). A step match surfaces its
+ * mission as one more candidate, so it passes through exactly the same
+ * surfacing, version resolution, filtering, classification and ranking as
+ * every other candidate, and a mission matched only in its steps ranks last.
+ *
+ * Approved acronym aliases come from a checked-in data file read on the server
+ * (`search-aliases.ts`). An acronym matches as a whole word, so `ARP` never
+ * matches "sharp"; everything else keeps SEARCH-002's literal substring match.
+ * Founder direction G-005: titles and descriptions are matched in PostgreSQL
+ * by the same rules as step bodies, through a SECURITY INVOKER function whose
+ * arguments are plain values, never PostgREST filter syntax.
+ *
+ * Founder direction G-006 (superseding WP-005's "title/name matches above
+ * alias matches"): an acronym and its approved expansions are one concept. For
+ * a query in an approved alias group, ranking depends only on where a record
+ * matched — title, then description, then step body — never on which form
+ * matched, and ties keep the neutral order (content type, then stable id), so
+ * every form returns the identical ordered results at every limit.
+ *
+ * Each returned result carries where it matched — course, mission, step — with
+ * a short snippet, in `matchLocations` beside the results, never inside a
+ * Search Document (DEC-046).
  *
  * ## Privacy
  *
@@ -157,30 +209,33 @@ export function projectCurriculumDocument(
 async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
-  patterns: readonly string[],
-  limit: number
+  match: CurriculumRecordMatchArguments,
+  limit: number,
+  rankOf: CurriculumRecordRank | undefined
 ): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
   // SEARCH-005A: every approved variant is matched in ONE read, so broadening
   // the query never multiplies the number of source queries and never changes
-  // the bounded over-fetch. Each pattern arrives already escaped.
-  const matchConditions = patterns
-    .flatMap((pattern) => [
-      `title.ilike.%${pattern}%`,
-      `description.ilike.%${pattern}%`
-    ])
-    .join(",");
-
-  const { data, error } = await supabase
-    .from(SEARCHABLE_TABLES[contentType])
-    .select("stable_id,version,title,description,publication_state,updated_at")
-    .eq("publication_state", "published")
-    .or(matchConditions)
-    .limit(limit * 4);
+  // the bounded over-fetch. WP-005 / G-005: the title and description are
+  // matched by a SECURITY INVOKER database function under the caller's own
+  // RLS, which states the publication requirement itself. Phrases are literal
+  // substrings and acronyms whole words built from validated data only; both
+  // reach PostgreSQL as arguments, never as filter syntax.
+  //
+  // DEC-073: for an alias-group query the over-fetch holds the best rows by
+  // match location, never merely the first by stable id, so a title match can
+  // never be cut off by earlier description matches.
+  const read = await searchPublishedCurriculumRecords(
+    supabase,
+    SEARCHABLE_TABLES[contentType],
+    match,
+    limit * 4,
+    rankOf
+  );
 
   // A source that cannot be authorized fails closed. No diagnostic reason is
   // constructed here: nothing in this path could carry one to the learner, so
   // `internalReason` stays confined to the permission contract itself.
-  if (error) {
+  if (read.readFailed) {
     const decision = decideFromAuthoritativeRead({
       readFailed: true,
       found: false
@@ -188,7 +243,7 @@ async function searchOneType(
     if (!maySurface(decision)) throw unavailable();
   }
 
-  return ((data ?? []) as unknown as CurriculumRow[]).map((row) => ({
+  return (read.rows as CurriculumRow[]).map((row) => ({
     decision: decideFromAuthoritativeRead({ readFailed: false, found: true }),
     value: {
       contentType,
@@ -219,7 +274,11 @@ export interface CurriculumSearchInput {
 export async function searchCurriculum(
   accessToken: string,
   input: CurriculumSearchInput
-): Promise<CurriculumSearchFacetedResults & CurriculumAdjustedSearchResults> {
+): Promise<
+  CurriculumSearchFacetedResults &
+    CurriculumAdjustedSearchResults &
+    CurriculumLocatedSearchResults
+> {
   if (typeof accessToken !== "string" || accessToken.trim() === "") {
     throw new AppError({
       code: "UNAUTHORIZED",
@@ -264,7 +323,9 @@ export async function searchCurriculum(
     | ReturnType<typeof buildCurriculumQueryAdjustment>
     | undefined;
   try {
-    variants = buildCurriculumQueryVariants(query);
+    // WP-005: SEARCH-005A's variants, then the other members of the query's
+    // approved alias group, under the same cap.
+    variants = buildAliasAwareQueryVariants(query);
     adjustment = buildCurriculumQueryAdjustment(query, variants);
   } catch {
     variants = [{ value: query, matchKind: "exact" }];
@@ -272,6 +333,16 @@ export async function searchCurriculum(
   }
   if (variants.length === 0) {
     variants = [{ value: query, matchKind: "exact" }];
+  }
+
+  // Founder direction G-006: whether the query is a member (or a plural or
+  // possessive form of a member) of an approved alias group. If the data
+  // cannot be read, ranking keeps SEARCH-008's rules.
+  let aliasGroupQuery = false;
+  try {
+    aliasGroupQuery = findSearchAliasGroup(query) !== undefined;
+  } catch {
+    aliasGroupQuery = false;
   }
 
   const indexedAt = new Date().toISOString();
@@ -290,10 +361,36 @@ export async function searchCurriculum(
    */
   const runAuthorizedPass = async (
     passVariants: readonly CurriculumQueryVariant[]
-  ): Promise<ClassifiedSearchDocument[]> => {
+  ): Promise<LocatedSearchDocument[]> => {
     const patterns = passVariants.map((variant) =>
-      escapeCurriculumSearchPattern(variant.value)
+      toRetrievalPattern(variant, escapeCurriculumSearchPattern(variant.value))
     );
+
+    const match = buildStepSearchArguments(patterns, passVariants);
+
+    // Founder direction G-006: when the query names an approved alias group,
+    // every member is the learner's own concept. Every record match is given
+    // one match class, and a title match one title tier, so the order depends
+    // only on WHERE a record matched — title, then description, then step
+    // body — and ties keep SEARCH-002's neutral order (content type, then
+    // stable id). Every form of the group then returns the identical ordered
+    // results at every limit. A typo recovery pass keeps SEARCH-008's rules.
+    const oneConcept =
+      aliasGroupQuery && !passVariants.some((variant) => variant.matchKind === "typo");
+
+    // DEC-073: the bounded read of an alias-group query holds its rows in the
+    // same match-location tiers ranking uses — title, then description — so
+    // description matches that sort earlier by stable id can never crowd a
+    // title match out of the over-fetch. This locates the match only; it is
+    // not classification, which still runs once, after authorization, below.
+    const rankOf: CurriculumRecordRank | undefined = oneConcept
+      ? (row) =>
+          variantsFoundIn(row.title, passVariants).length > 0
+            ? [0]
+            : variantsFoundIn(`${row.title} ${row.description ?? ""}`, passVariants).length > 0
+              ? [1]
+              : [2]
+      : undefined;
 
     const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
       [];
@@ -301,9 +398,24 @@ export async function searchCurriculum(
       SEARCHABLE_TABLES
     ) as CurriculumSearchContentType[]) {
       permissioned.push(
-        ...(await searchOneType(supabase, contentType, patterns, limit))
+        ...(await searchOneType(supabase, contentType, match, limit, rankOf))
       );
     }
+
+    // WP-005: published step bodies, through the SAME client and the same
+    // variants, matched by a SECURITY INVOKER database function that runs
+    // under the caller's own RLS. A matching step contributes its mission as one more candidate,
+    // which the steps below surface, resolve and filter like any other. The
+    // same read also supplies the course of every mission, for the trail.
+    const steps = await searchPublishedStepBodies(
+      supabase,
+      patterns,
+      passVariants,
+      permissioned
+        .filter((entry) => entry.value.contentType === "mission")
+        .map((entry) => entry.value.stableId)
+    );
+    permissioned.push(...steps.candidates);
 
     // SEARCH-003: only an explicit authorized decision may surface. Anything
     // else is dropped silently — no placeholder, no marker, no count.
@@ -319,7 +431,18 @@ export async function searchCurriculum(
 
     // Match classification runs only on text the caller is already entitled to
     // see, so no unauthorized candidate can influence a tier.
-    const passClassified: ClassifiedSearchDocument[] = [];
+    //
+    // WP-005: the match class and the title precision are both judged under the
+    // same whole-word or substring rule the database applied, so an acronym
+    // can never earn precision from an embedded substring ("sharp" for ARP),
+    // and a plural or possessive query is classified by the rule that found
+    // it. A mission found only through its steps matches none of its own
+    // text, so it is given the last match tier and, explicitly, the weakest
+    // title precision, and is marked step-only: ranking places it after every
+    // title, description and alias match, and after a typo recovery's record
+    // matches, which share that last tier. Founder direction G-006 applies
+    // through `oneConcept` above.
+    const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(
         entry.contentType,
@@ -329,12 +452,25 @@ export async function searchCurriculum(
       );
       if (!document) continue;
 
+      const recordText = `${entry.title} ${entry.description ?? ""}`;
+      const found = variantsFoundIn(recordText, passVariants);
       passClassified.push({
         document,
         matchKind: classifyCurriculumMatch(
-          `${entry.title} ${entry.description ?? ""}`,
-          passVariants
-        )
+          recordText,
+          oneConcept ? asOneConcept(found) : found,
+          (text, variant) => variantOccursIn(text, variant)
+        ),
+        titlePrecision:
+          found.length === 0
+            ? weakestTitlePrecision()
+            : oneConcept
+              ? variantsFoundIn(entry.title, passVariants).length > 0
+                ? ONE_CONCEPT_TITLE_PRECISION
+                : weakestTitlePrecision()
+              : classifyAliasAwareTitlePrecision(entry.title, found),
+        stepOnly: found.length === 0,
+        location: locateCurriculumMatch(entry, document, passVariants, steps)
       });
     }
 
@@ -392,11 +528,35 @@ export async function searchCurriculum(
   // filtering: a withheld record is not in its input and cannot influence an
   // order, a tie-break or a count. Facets are still computed from the final
   // bounded result set, so the SEARCH-004 count guarantee is unchanged. The
-  // adjustment is attached last and omitted when nothing meaningful changed.
-  return withCurriculumQueryAdjustment(
-    withCurriculumSearchFacets(
-      buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)
+  // adjustment is attached outside the facet computation and omitted when
+  // nothing meaningful changed. WP-005 locations are attached outermost, and
+  // only for the documents actually returned.
+  return withCurriculumMatchLocations(
+    withCurriculumQueryAdjustment(
+      withCurriculumSearchFacets(
+        buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)
+      ),
+      adjustment
     ),
-    adjustment
+    classified
   );
+}
+
+/**
+ * Founder direction G-006: the title tier every title match of an alias-group
+ * query shares. Any tier above `description_only` would do; what matters is
+ * that it is the same for every form of the query.
+ */
+const ONE_CONCEPT_TITLE_PRECISION: CurriculumTitlePrecision = "title_token";
+
+/** Founder direction G-006: every found variant counts as the learner's own words. */
+function asOneConcept(
+  found: readonly CurriculumQueryVariant[]
+): CurriculumQueryVariant[] {
+  return found.map((variant) => ({ value: variant.value, matchKind: "exact" }));
+}
+
+/** A classified result with where it matched. Internal to this service. */
+interface LocatedSearchDocument extends ClassifiedSearchDocument {
+  location: CurriculumSearchMatchLocation;
 }

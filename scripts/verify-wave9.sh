@@ -29,6 +29,18 @@ SEARCH_SERVICE_TESTS="services/api/src/search-document.test.ts"
 SEARCH_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_1_SEARCH_DOCUMENT_AND_INDEX_MODEL.md"
 SERVER="services/api/src/server.ts"
 
+# Founder direction G-001 (WP-005 repair) moved step-body matching and
+# pagination into read-only SECURITY INVOKER functions. That one migration
+# belongs to no SEARCH-001..008 batch, so the per-batch "added no migration"
+# counts below exclude it by exact name; the engine completion gate checks what
+# it may contain.
+G001_SEARCH_MIGRATION="supabase/migrations/20261011000100_curriculum_step_search_functions.sql"
+# Founder direction G-005 moved title and description matching into one more
+# read-only SECURITY INVOKER function, in a NEW migration (G001's is applied to
+# UAT and is not edited). Excluded by exact name for the same reason; the
+# engine completion gate checks what it may contain.
+G005_SEARCH_MIGRATION="supabase/migrations/20261012000100_curriculum_record_search_function.sql"
+
 fail() { echo "FAIL: $1"; exit 1; }
 code_of() { grep -vE '^\s*(//|\*|/\*)' "$1" || true; }
 # Code with double-quoted string literals removed.
@@ -90,7 +102,7 @@ fi
 # `|| true` is load-bearing: under `set -euo pipefail` an `ls` with no match
 # fails the pipeline, the assignment fails, and every check below is skipped
 # silently. That defect class was fixed 18 times in verify-wave8.sh.
-SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS" = "0" ] || fail "SEARCH-001 must add no migration; found $SEARCH_MIGRATIONS"
 if grep -rqiE 'tsvector|to_tsquery|pg_trgm' supabase/migrations/ 2>/dev/null; then
   fail "SEARCH-001 must not introduce full-text search infrastructure"
@@ -290,8 +302,20 @@ for forbidden in userId user_id studentId actorId; do
     fail "a caller-supplied identity reached curriculum search: $forbidden"
   fi
 done
-echo "$CS_SERVICE_CODE" | grep -Fq '.eq("publication_state", "published")' \
-  || fail "curriculum search does not constrain reads to published rows"
+# MOVED FOR G-005, not weakened. The read is the record-search function, which
+# states the constraint for each of the four sources; the reader re-checks
+# every row it receives.
+G005_FLAT="$(sed 's/--.*$//' "$G005_SEARCH_MIGRATION" | tr -s ' \n' ' ')"
+for source in "learning_paths as lp" "courses as c" "missions as m" "competencies as k"; do
+  table="${source%% as *}"
+  alias="${source##* as }"
+  echo "$G005_FLAT" | grep -Fq "from public.$table as $alias where p_source = '$table' and $alias.publication_state = 'published'" \
+    || fail "curriculum search does not constrain reads to published rows: $table"
+done
+grep -Fq 'if (row.publication_state !== "published") continue;' services/api/src/curriculum-record-search.ts \
+  || fail "curriculum search does not re-check that every row is published"
+echo "$CS_SERVICE_CODE" | grep -Fq 'searchPublishedCurriculumRecords(' \
+  || fail "curriculum search does not read through the published-only record function"
 
 echo "PASS: curriculum search is caller-scoped and published-only"
 
@@ -322,7 +346,7 @@ fi
 if echo "$CS_SERVICE_CODE" | grep -qiE 'setinterval|cron|queue|worker|cache'; then
   fail "curriculum search must not introduce a pipeline or cache"
 fi
-SEARCH_MIGRATIONS_NOW="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS_NOW="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS_NOW" = "0" ] || fail "SEARCH-002 must add no migration"
 
 echo "PASS: curriculum search owns no storage and writes no Curriculum truth"
@@ -340,8 +364,21 @@ grep -Fq 'normalizeCurriculumSearchLimit(input.limit)' "$CS_SERVICE" \
   || fail "the service does not bound the result limit"
 # The candidate over-fetch exists so version collapse cannot starve results.
 # It must remain bounded and must never become unbounded.
-grep -Fq '.limit(limit * 4)' "$CS_SERVICE" \
+# MOVED FOR G-005, not weakened. The read is the record-search function, so
+# the same `limit * 4` bound is pinned as the argument the service passes, and
+# the reader is pinned to stop at it.
+# DEC-073 review finding: an alias-group query's read pages on to the end so a
+# title match is never cut off behind earlier description matches, but every
+# page asks for at most the bound and only the best `limit * 4` rows by match
+# location are held. Every other read still stops at the bound.
+grep -Fq 'limit * 4' "$CS_SERVICE" \
   || fail "the candidate over-fetch is missing or no longer bounded"
+grep -Fq 'while (rankOf || held.length < maxRows) {' services/api/src/curriculum-record-search.ts \
+  || fail "the record reader no longer stops at the bounded over-fetch"
+grep -Fq 'p_page_size: Math.min(rankOf ? maxRows : maxRows - held.length, RECORD_SEARCH_PAGE_SIZE)' services/api/src/curriculum-record-search.ts \
+  || fail "the record reader may ask for more rows than the over-fetch allows"
+grep -Fq 'held = held.sort(byRankThenStableId).slice(0, maxRows);' services/api/src/curriculum-record-search.ts \
+  || fail "the ranked record read may hold more rows than the over-fetch allows"
 # NARROWED FOR SEARCH-005A, then for SEARCH-008. The bound is unchanged; the
 # function applying it moved twice, because match-class tiering and then title
 # precision must run between neutral ordering and the limit slice, or an exact
@@ -369,8 +406,17 @@ grep -Fq 'escapeCurriculumSearchPattern(variant.value)' "$CS_SERVICE" \
 ESCAPE_CALLS="$(echo "$CS_SERVICE_CODE" | grep -c 'escapeCurriculumSearchPattern(' || true)"
 [ "$ESCAPE_CALLS" = "1" ] \
   || fail "escaping happens at $ESCAPE_CALLS call sites; exactly one escaping path may exist"
-echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq '.or(matchConditions)' \
-  || fail "the matcher no longer consumes the escaped variant patterns"
+# MOVED FOR G-005, not weakened. The matcher is now the record-search
+# function. It consumes the approved variants through the one argument
+# builder the step search also uses, and matches phrases by position with no
+# LIKE pattern at all, so no learner character can act as a wildcard.
+echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq 'constmatch=buildStepSearchArguments(patterns,passVariants);' \
+  || fail "the matcher no longer consumes the approved variant patterns"
+echo "$CS_SERVICE_CODE" | tr -d ' \n' | grep -Fq 'searchOneType(supabase,contentType,match,limit,rankOf)' \
+  || fail "the record read no longer receives the approved variant patterns"
+if sed 's/--.*$//' "$G005_SEARCH_MIGRATION" | grep -qiE '\b(i?like|similar to)\b'; then
+  fail "the record-search function matches with a LIKE pattern"
+fi
 if echo "$CS_SERVICE_CODE" | grep -qE '\.or\(`[^`]*\$\{query\}'; then
   fail "an unescaped raw query reaches the ILIKE matcher"
 fi
@@ -845,7 +891,7 @@ if echo "$SF_TYPES_BARE" | grep -qiE 'openai|anthropic|ollama|embedding'; then
   fail "an AI dependency entered the filter model"
 fi
 # No migration and no dependency.
-SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS_AFTER" = "0" ] || fail "SEARCH-004 must add no migration"
 FILTER_MIGRATIONS="$(ls supabase/migrations/*facet*.sql supabase/migrations/*filter*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$FILTER_MIGRATIONS" = "0" ] || fail "SEARCH-004 must add no filter or facet migration"
@@ -1505,7 +1551,7 @@ fi
 if grep -rqiE 'tsvector|to_tsquery|pg_trgm|create materialized view' supabase/migrations/ 2>/dev/null; then
   fail "a full-text or materialized search index entered the migrations"
 fi
-FRESHNESS_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*index*.sql supabase/migrations/*freshness*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+FRESHNESS_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*index*.sql supabase/migrations/*freshness*.sql 2>/dev/null | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$FRESHNESS_MIGRATIONS" = "0" ] || fail "SEARCH-007 must add no migration"
 # No worker, queue, scheduler, cron or trigger.
 if echo "$FR_TYPES_BARE$FR_SERVICE_BARE" | grep -qiE 'setInterval|setTimeout|cron|queue|worker|scheduler|schedule\(|webhook'; then
@@ -1948,7 +1994,7 @@ fi
 echo "PASS: ranked results are ordered markup with a text explanation and no internals"
 
 # --- 73. SEARCH-008 adds no migration, dependency, provider or AI -----------
-SEARCH_008_MIGRATIONS="$(ls supabase/migrations/*rank*.sql supabase/migrations/*fallback*.sql supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_008_MIGRATIONS="$(ls supabase/migrations/*rank*.sql supabase/migrations/*fallback*.sql supabase/migrations/*search*.sql 2>/dev/null | grep -vxF -e "$G001_SEARCH_MIGRATION" -e "$G005_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_008_MIGRATIONS" = "0" ] || fail "SEARCH-008 must add no migration"
 for forbidden in elasticsearch opensearch algolia meilisearch redis \
                  pinecone weaviate qdrant openai anthropic ollama; do
