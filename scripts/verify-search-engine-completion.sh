@@ -976,9 +976,11 @@ fi
 #
 # One exception, by name: Founder direction G-001 (WP-005 repair) moved
 # step-body matching and pagination into read-only SECURITY INVOKER functions.
-# That file may add functions and their grants only — no table, index, policy,
+# That file may add functions and their grants — no table, index, policy,
 # persisted search state or privileged execution — and every other Search
-# migration is still refused.
+# migration is still refused. Founder direction G-002 adds exactly one table
+# change to it: `mission_steps.searchable_text`, the step's learner-visible
+# text generated from its payload, so it is not rebuilt on every search.
 G001_SEARCH_MIGRATION="supabase/migrations/20261011000100_curriculum_step_search_functions.sql"
 SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*rank*.sql \
   supabase/migrations/*facet*.sql supabase/migrations/*index*.sql 2>/dev/null \
@@ -986,9 +988,14 @@ SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*ra
 [ "$SEARCH_MIGRATIONS" = "0" ] || fail "a Search-specific database migration exists"
 if [ -f "$G001_SEARCH_MIGRATION" ]; then
   G001_CODE="$(sed 's/--.*$//' "$G001_SEARCH_MIGRATION" | tr '[:upper:]' '[:lower:]')"
-  if echo "$G001_CODE" | grep -qE 'security definer|create (unique )?index|create table|create materialized|create policy|alter table|tsvector|to_tsquery|pg_trgm|create extension'; then
+  if echo "$G001_CODE" | grep -qE 'security definer|create (unique )?index|create table|create materialized|create policy|tsvector|to_tsquery|pg_trgm|create extension'; then
     fail "the G-001 step-search migration does more than define read-only functions"
   fi
+  G002_ALTERS="$(echo "$G001_CODE" | grep -cE 'alter table' || true)"
+  [ "$G002_ALTERS" = "1" ] \
+    || fail "the G-001 step-search migration may alter exactly one table (G-002); found $G002_ALTERS"
+  echo "$G001_CODE" | tr -s ' \n' ' ' | grep -qF 'alter table public.mission_steps add column searchable_text text generated always as (public.mission_step_searchable_text(payload)) stored;' \
+    || fail "the G-001 step-search migration's only table change must be the generated mission_steps.searchable_text"
   echo "$G001_CODE" | grep -qF 'security invoker' \
     || fail "the G-001 step-search functions are not SECURITY INVOKER"
 fi

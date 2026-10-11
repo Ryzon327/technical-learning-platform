@@ -42,7 +42,8 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  * is "after the last stable id received", and reading stops only at an empty
  * page. A page shortened by any server row cap (PostgREST `max-rows`) therefore
  * never ends the read early and never skips a mission. The page size asked for
- * is fixed and small (`STEP_SEARCH_PAGE_SIZE`), not derived from the request.
+ * is fixed at the functions' cap (`STEP_SEARCH_PAGE_SIZE`), not derived from
+ * the request.
  *
  * ## Published-only, twice
  *
@@ -66,9 +67,11 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *
  * ## Performance approach
  *
- * A sequential scan over the current published steps inside PostgreSQL; see
- * the migration. `curriculum-step-search.db.test.ts` measures it against a real
- * database in CI. No index or extension is added.
+ * A sequential scan over the current published steps inside PostgreSQL,
+ * matching each step's searchable text as stored once per write in the
+ * generated column `mission_steps.searchable_text` (Founder direction G-002);
+ * see the migration. `curriculum-step-search.db.test.ts` measures it against a
+ * real database in CI. No index or extension is added.
  *
  * Learner queries are never persisted or written anywhere. No AI.
  */
@@ -109,11 +112,12 @@ export const STEP_SEARCH_FUNCTION = "search_published_mission_steps";
 export const MISSION_CONTEXT_FUNCTION = "published_mission_contexts";
 
 /**
- * Rows asked for per page. The functions cap a page at 100; Supabase's default
- * PostgREST `max-rows` is 1000. Keyset paging stays correct under any smaller
- * cap, which only costs extra pages.
+ * Rows asked for per page: the functions' own cap of 100, so no read takes
+ * more round trips than the database requires (Founder direction G-002).
+ * Supabase's default PostgREST `max-rows` is 1000. Keyset paging stays correct
+ * under any smaller cap, which only costs extra pages.
  */
-export const STEP_SEARCH_PAGE_SIZE = 50;
+export const STEP_SEARCH_PAGE_SIZE = 100;
 
 const STEP_LABEL_MAX_LENGTH = 80;
 

@@ -15,6 +15,9 @@
 --   published_mission_contexts(...)       the current published version, with
 --                                         its course, of named missions
 --
+-- and `mission_steps.searchable_text`, the first function's result stored per
+-- step (see Performance).
+--
 -- Before this, the API pulled raw step rows over PostgREST, matched an
 -- approximation of the text there, re-checked it in TypeScript, and resolved
 -- each mission's highest published version with offset pages whose size grew
@@ -58,20 +61,39 @@
 --                expression syntax. The API passes validated alias DATA members
 --                here, never learner text.
 --
--- ## Performance
+-- ## Performance (Founder direction G-002)
 --
--- A sequential scan of the current published steps, computing each step's
--- searchable text once per call. At today's size (two courses, a few hundred
--- steps) this is well inside the 500 ms budget, which
--- `services/api/src/curriculum-step-search.db.test.ts` measures against a real
--- PostgreSQL in CI over a fixture larger than today's content. A trigram or
--- full-text index is the next step only if content grows by orders of
--- magnitude, and would be its own migration.
+-- Each step's searchable text is computed ONCE, when the step is written, and
+-- stored in `mission_steps.searchable_text`: a STORED generated column built
+-- from the IMMUTABLE `mission_step_searchable_text(payload)`, so it can never
+-- disagree with the payload it came from. A search call no longer decodes any
+-- JSON. It is a sequential scan of the current published steps that lower-cases
+-- the stored text and runs `strpos` and the whole-word expression on it.
+--
+-- Before this, every call rebuilt the text of every current step (about 1200
+-- in the latency fixture), and that alone took most of the 500 ms budget.
+-- `services/api/src/curriculum-step-search.db.test.ts` measures the function
+-- and the service end to end against a real PostgreSQL in CI, over a fixture
+-- larger than today's content, and prints the observed times.
+--
+-- No index is added. Phrases are matched with `strpos`, which no index serves,
+-- and a trigram index was not added without a measured speedup to justify it.
 --
 -- ## Scope
 --
--- Functions and their EXECUTE grants only. No table, column, index, policy or
--- RLS change, and no data change. Nothing writes.
+-- The functions and their EXECUTE grants, and one generated column on
+-- `public.mission_steps`. No new table, index, policy or RLS change; no grant
+-- is widened. The column is derived only from the learner-visible fields
+-- above, never an answer-bearing one, and every existing policy on
+-- `mission_steps` governs it. Nothing writes data; adding the column only
+-- computes it for the existing rows.
+--
+-- Writing a step now evaluates `mission_step_searchable_text`, so the writer's
+-- role needs EXECUTE on it. On Supabase, `authenticated` and `service_role`
+-- (the curriculum writer) hold it through the platform's default function
+-- privileges, which the revoke below leaves in place; only PUBLIC and anon
+-- lose it. Changing that function's text rules later needs a migration that
+-- also recomputes the column.
 
 create or replace function public.mission_step_searchable_text(p_payload jsonb)
 returns text
@@ -112,6 +134,12 @@ as $$
         where jsonb_typeof(items.value) = 'string'
     ) as parts
 $$;
+
+-- Founder direction G-002: the searchable text, computed once per write rather
+-- than once per search.
+alter table public.mission_steps
+    add column searchable_text text
+    generated always as (public.mission_step_searchable_text(payload)) stored;
 
 -- The current published version of every mission the caller can read, with
 -- its published course. "Current" is the highest published version whose
@@ -190,7 +218,7 @@ as $$
                s.stable_id as step_stable,
                s.position as step_pos,
                s.payload as payload,
-               public.mission_step_searchable_text(s.payload) as body
+               s.searchable_text as body
         from public.current_published_missions() as cm
         join public.mission_steps as s on s.mission_id = cm.mission_id
         where p_after is null or cm.mission_stable_id > p_after

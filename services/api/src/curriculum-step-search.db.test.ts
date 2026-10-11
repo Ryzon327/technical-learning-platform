@@ -479,6 +479,52 @@ describe.skipIf(DATABASE_URL === "")("step search against real PostgreSQL and RL
     expect(Number(visible)).toBeGreaterThan(0);
   });
 
+  it("G-002: each step's searchable text is stored once, generated from its payload", () => {
+    const column = psql(
+      `select attgenerated from pg_attribute
+        where attrelid = 'public.mission_steps'::regclass and attname = 'searchable_text';`
+    );
+    expect(column).toBe("s");
+
+    // The stored text is exactly what the function makes of every payload.
+    const disagreeing = psql(
+      `select count(*) from public.mission_steps
+        where searchable_text is distinct from public.mission_step_searchable_text(payload);`
+    );
+    expect(disagreeing).toBe("0");
+
+    // An answer-bearing field never reaches it.
+    const answers = psql(
+      `select count(*) from public.mission_steps s join public.missions m on m.id = s.mission_id
+        where m.stable_id = ${literal(`${B}m4-the-prefix`)}
+          and s.searchable_text ilike '%obsidianlynx%';`
+    );
+    expect(answers).toBe("0");
+  });
+
+  it("G-002: rewriting a step's payload is searchable at once, and its old text is gone", () => {
+    const claims = JSON.stringify({ sub: LEARNER_ID, role: "authenticated" }).replace(/'/g, "''");
+    // Rolled back, so nothing persists.
+    const output = psql(
+      [
+        "begin;",
+        `update public.mission_steps as s
+            set payload = jsonb_build_object('type', 'concept', 'paragraphs', jsonb_build_array('Now it says kelpieword.'))
+           from public.missions as m
+          where m.id = s.mission_id and m.stable_id = ${literal(`${B}m4-the-prefix`)} and s.position = 1;`,
+        "set local role authenticated;",
+        `set local "request.jwt.claims" to '${claims}';`,
+        ...["kelpieword", "frobnicator"].map(
+          (word) =>
+            `select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: [word] })}
+              where mission_stable_id = ${literal(`${B}m4-the-prefix`)};`
+        ),
+        "rollback;"
+      ].join("\n")
+    );
+    expect(output.split("\n")).toEqual(["1", "0"]);
+  });
+
   it("only the current published version is searched", async () => {
     expect(ours(B, (await searchSteps("quasarword")).outcome)).toEqual([]);
 
@@ -648,8 +694,10 @@ describe.skipIf(DATABASE_URL === "")("latency against real PostgreSQL", { timeou
       ) as Array<{ "Execution Time": number }>;
       executionMs.push(plan[0]?.["Execution Time"] ?? Number.POSITIVE_INFINITY);
 
-      const { outcome, elapsedMs } = await searchSteps("ARP");
+      const { outcome, calls, elapsedMs } = await searchSteps("ARP");
       expect(ours(L, outcome)).toHaveLength(LATENCY_MISSIONS);
+      // G-002: one full page and the empty page that ends the keyset read.
+      expect(calls.map((call) => call.fn)).toEqual([STEP_SEARCH_FUNCTION, STEP_SEARCH_FUNCTION]);
       endToEndMs.push(elapsedMs);
     }
 

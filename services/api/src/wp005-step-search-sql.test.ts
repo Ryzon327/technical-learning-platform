@@ -61,7 +61,7 @@ describe("the step-search functions are read-only and run as the caller", () => 
     });
   }
 
-  it("contains no write, DDL beyond the functions, or privileged role change", () => {
+  it("contains no write, DDL beyond the functions and the stored text, or privileged role change", () => {
     for (const forbidden of [
       "security definer",
       "insert into public.mission",
@@ -69,7 +69,9 @@ describe("the step-search functions are read-only and run as the caller", () => 
       "update public.",
       "delete from",
       "truncate",
-      "alter table",
+      "create table",
+      "create index",
+      "create extension",
       "create policy",
       "drop policy",
       "set role",
@@ -80,6 +82,20 @@ describe("the step-search functions are read-only and run as the caller", () => 
     // The only insert is the schema-version marker every migration records.
     expect(code.match(/insert into/g)).toHaveLength(1);
     expect(code).toContain("insert into public.platform_schema_version");
+  });
+
+  it("G-002: the only table change is the generated searchable text, stored once per step", () => {
+    expect(code.match(/alter table/g)).toHaveLength(1);
+    expect(code.replace(/\s+/g, " ")).toContain(
+      "alter table public.mission_steps add column searchable_text text " +
+        "generated always as (public.mission_step_searchable_text(payload)) stored;"
+    );
+  });
+
+  it("G-002: the search matches the stored text and never rebuilds it per call", () => {
+    const body = definitions().get(STEP_SEARCH_FUNCTION) ?? "";
+    expect(body).toContain("s.searchable_text as body");
+    expect(body).not.toContain("mission_step_searchable_text");
   });
 
   it("states the publication requirement on every curriculum table it reads", () => {
@@ -125,8 +141,9 @@ describe("pages are keyset pages with a fixed cap", () => {
       expect(definition).toMatch(/order by \w+\.(mission_)?stable_id\n/);
       expect(definition).toContain("limit least(greatest(coalesce(p_page_size, 50), 1), 100)");
     }
-    expect(STEP_SEARCH_PAGE_SIZE).toBeGreaterThan(0);
-    expect(STEP_SEARCH_PAGE_SIZE).toBeLessThanOrEqual(100);
+    // G-002: the service asks for the full cap, so no read takes more pages
+    // than the database requires.
+    expect(STEP_SEARCH_PAGE_SIZE).toBe(100);
   });
 });
 
