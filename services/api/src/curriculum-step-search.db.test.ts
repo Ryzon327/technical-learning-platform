@@ -525,6 +525,48 @@ describe.skipIf(DATABASE_URL === "")("step search against real PostgreSQL and RL
     expect(output.split("\n")).toEqual(["1", "0"]);
   });
 
+  it("the curriculum writer may execute the stored-text function, and no search function", () => {
+    const rows = JSON.parse(
+      psql(`select json_object_agg(p.proname, has_function_privilege('service_role', p.oid, 'execute'))
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in ('mission_step_searchable_text', 'current_published_missions',
+                                '${STEP_SEARCH_FUNCTION}', '${MISSION_CONTEXT_FUNCTION}');`)
+    ) as Record<string, boolean>;
+
+    expect(rows).toEqual({
+      mission_step_searchable_text: true,
+      current_published_missions: false,
+      [STEP_SEARCH_FUNCTION]: false,
+      [MISSION_CONTEXT_FUNCTION]: false
+    });
+  });
+
+  it("the curriculum writer inserts and rewrites step payloads, and the stored text follows", () => {
+    // As the authoring path writes: SET ROLE service_role. Rolled back, so
+    // nothing persists.
+    const mission = literal(`${B}m4-the-prefix`);
+    const output = psql(
+      [
+        "begin;",
+        "set local role service_role;",
+        `insert into public.mission_steps (mission_id, stable_id, position, step_type, payload)
+           select m.id, 'writer-step', 90, 'concept',
+                  jsonb_build_object('type', 'concept', 'paragraphs', jsonb_build_array('Written by the  writer.'))
+             from public.missions as m
+            where m.stable_id = ${mission}
+          returning searchable_text;`,
+        `update public.mission_steps as s
+            set payload = jsonb_build_object('type', 'concept', 'paragraphs', jsonb_build_array('Rewritten by the writer.'))
+           from public.missions as m
+          where m.id = s.mission_id and m.stable_id = ${mission} and s.stable_id = 'writer-step'
+          returning s.searchable_text;`,
+        "rollback;"
+      ].join("\n")
+    );
+    expect(output.split("\n")).toEqual(["Written by the writer.", "Rewritten by the writer."]);
+  });
+
   it("only the current published version is searched", async () => {
     expect(ours(B, (await searchSteps("quasarword")).outcome)).toEqual([]);
 

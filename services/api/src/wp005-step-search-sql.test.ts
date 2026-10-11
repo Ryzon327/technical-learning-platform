@@ -157,6 +157,21 @@ describe("execution is for authenticated learners only", () => {
         new RegExp(`grant execute on function public\\.${name}\\([^)]*\\) to authenticated;`)
       );
     }
-    expect(code).not.toMatch(/grant execute on function [^;]*\b(anon|public|service_role)\s*;/);
+    expect(code).not.toMatch(/grant execute on function [^;]*\b(anon|public)\s*;/);
+  });
+
+  it("grants the curriculum writer the stored-text function only, never the search functions", () => {
+    // Writing a step evaluates the generated searchable_text column, so
+    // service_role needs EXECUTE on exactly that function — granted explicitly,
+    // not inherited from hosted platform defaults.
+    expect(code).toContain(
+      "grant execute on function public.mission_step_searchable_text(jsonb) to service_role;"
+    );
+    const serviceRoleGrants = [
+      ...code.matchAll(/grant execute on function public\.(\w+)\([^)]*\) to ([^;]*);/g)
+    ]
+      .filter((match) => /\bservice_role\b/.test(match[2] ?? ""))
+      .map((match) => match[1]);
+    expect(serviceRoleGrants).toEqual(["mission_step_searchable_text"]);
   });
 });

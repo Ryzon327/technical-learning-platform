@@ -89,11 +89,12 @@
 -- computes it for the existing rows.
 --
 -- Writing a step now evaluates `mission_step_searchable_text`, so the writer's
--- role needs EXECUTE on it. On Supabase, `authenticated` and `service_role`
--- (the curriculum writer) hold it through the platform's default function
--- privileges, which the revoke below leaves in place; only PUBLIC and anon
--- lose it. Changing that function's text rules later needs a migration that
--- also recomputes the column.
+-- role needs EXECUTE on it. The grants below give it explicitly to
+-- `service_role` (the curriculum writer, per the service-role privilege
+-- contract) as well as `authenticated`, rather than relying on hosted platform
+-- default privileges. `service_role` gets that one function only, never the
+-- learner search functions. Changing that function's text rules later needs a
+-- migration that also recomputes the column.
 
 create or replace function public.mission_step_searchable_text(p_payload jsonb)
 returns text
@@ -276,6 +277,9 @@ revoke all on function public.search_published_mission_steps(text[], text[], tex
 revoke all on function public.published_mission_contexts(text[], text, integer) from public, anon;
 
 grant execute on function public.mission_step_searchable_text(jsonb) to authenticated;
+-- The searchable_text column evaluates this on every step insert and payload
+-- update, so the curriculum writer must be able to execute it.
+grant execute on function public.mission_step_searchable_text(jsonb) to service_role;
 grant execute on function public.current_published_missions() to authenticated;
 grant execute on function public.search_published_mission_steps(text[], text[], text, integer) to authenticated;
 grant execute on function public.published_mission_contexts(text[], text, integer) to authenticated;
