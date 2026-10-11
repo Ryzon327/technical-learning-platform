@@ -3987,6 +3987,199 @@ Claude implements approved work and does not redefine the product.
 
 ---
 
+# Convergence Decisions — WP-003 Review
+
+The four entries below record the Founder's convergence decisions of
+2026-10-09, taken in review of WP-003 (its report,
+`reports/WP-003-tlp-lovable-comparison.md`, is not held in this repository) and
+recorded by WP-005 on 2026-10-10. Each supersedes nothing. Where an entry
+touches wording elsewhere in the repository, the relationship is stated in the
+entry rather than reconciled silently.
+
+---
+
+## DEC-069
+
+**Category**
+
+Architecture
+
+**Title**
+
+The Canonical Repository Is the Single Source of Truth; Lovable Is a Design Sandbox
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-10
+
+**Source**
+
+Founder decision, WP-003 review
+
+**Decision**
+
+The canonical repository is the single source of truth. Lovable
+(`learning-foundation`) is a design sandbox and is never synced into the
+canonical repository.
+
+**Supersedes**
+
+Nothing.
+
+**Impact**
+
+`PLATFORM_BLUEPRINT.md` §17.5 lists "Lovable development" as a stage of the
+development progression. This decision does not edit the Blueprint; whether
+that wording should be reconciled with this decision is flagged for
+Founder/architect direction rather than changed here.
+
+**Related Documents**
+
+WP-003 report (not held in this repository) · `docs/Project/PLATFORM_BLUEPRINT.md`
+§17.5 · `docs/Project/DECISION_LEDGER.md` DEC-008, DEC-028
+
+---
+
+## DEC-070
+
+**Category**
+
+Architecture
+
+**Title**
+
+Keep the Canonical Stack; Port Lovable's Design, Not Its Framework
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-10
+
+**Source**
+
+Founder decision, WP-003 review
+
+**Decision**
+
+The canonical stack is kept. What is taken from Lovable is its design, not its
+framework, code or dependencies.
+
+**Supersedes**
+
+Nothing.
+
+**Impact**
+
+Design-port work packages port design only. No Lovable framework, code or
+dependency enters the canonical repository by this decision.
+
+**Related Documents**
+
+WP-003 report (not held in this repository) · `docs/Project/DECISION_LEDGER.md`
+DEC-069
+
+---
+
+## DEC-071
+
+**Category**
+
+Product / Search
+
+**Title**
+
+Search Alias Data Is Seeded from Lovable's Acronym Groups and Reviewed in Three Steps
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-10
+
+**Source**
+
+Founder decision, WP-003 review
+
+**Decision**
+
+The search alias data is seeded from Lovable's 14 acronym groups and expanded
+to cover the acronyms in course content. Claude proposes the data, Codex
+reviews it, and the Founder spot-checks it.
+
+**Supersedes**
+
+Nothing. The existing AD / Active Directory alias (SEARCH-005 §2) is preserved
+in the data set.
+
+**Impact**
+
+WP-005 implements the proposal as a checked-in data file,
+`services/api/data/search-acronym-aliases.json`, which records its review
+state. Codex review and the Founder spot-check are recorded there as pending
+until they occur.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-046 ·
+`docs/Feature-Registry/Search-Engine/SEARCH-005_TECHNICAL_QUERY_NORMALIZATION_AND_TYPO_TOLERANCE.md` ·
+`services/api/data/search-acronym-aliases.json`
+
+---
+
+## DEC-072
+
+**Category**
+
+Product / Curriculum
+
+**Title**
+
+DHCP Content Is a Later Content Work Package
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-10
+
+**Source**
+
+Founder decision, WP-003 review
+
+**Decision**
+
+No lesson currently covers DHCP. DHCP content is delivered by a later content
+work package, not by search work.
+
+**Supersedes**
+
+Nothing.
+
+**Impact**
+
+Until that work package exists, searching for DHCP returns the existing
+empty-results state with the published-curriculum list. Curriculum authorship
+is unchanged: substantive learner-facing curriculum remains authored as the
+Authority Model records.
+
+**Related Documents**
+
+WP-003 report (not held in this repository) · `docs/Project/PLATFORM_BLUEPRINT.md`
+§12 · `CLAUDE.md` Authority Model
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

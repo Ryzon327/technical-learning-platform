@@ -8,11 +8,14 @@ import type {
   SearchDocument
 } from "@tlp/shared-types";
 import type { SearchPermissionedCandidate } from "@tlp/shared-types";
+import type {
+  CurriculumLocatedSearchResults,
+  CurriculumSearchMatchLocation
+} from "@tlp/shared-types";
 import {
   AppError,
   applyCurriculumSearchFilter,
   buildCurriculumQueryAdjustment,
-  buildCurriculumQueryVariants,
   buildCurriculumTypoRecovery,
   buildCurriculumSearchFilter,
   buildCurriculumSearchSnippet,
@@ -31,9 +34,21 @@ import {
   surfaceAuthorized,
   validateCurriculumSearchContentTypeFilter,
   validateCurriculumSearchQuery,
+  withCurriculumMatchLocations,
   withCurriculumQueryAdjustment,
   withCurriculumSearchFacets
 } from "@tlp/shared-types";
+import {
+  locateCurriculumMatch,
+  searchPublishedStepBodies
+} from "./curriculum-step-search";
+import {
+  buildAliasAwareQueryVariants,
+  buildRetrievalConditions,
+  toRetrievalPattern,
+  variantsFoundIn,
+  type RetrievalPattern
+} from "./search-aliases";
 import { createUserScopedSupabaseClient } from "./supabase";
 
 /**
@@ -78,6 +93,22 @@ import { createUserScopedSupabaseClient } from "./supabase";
  * version resolution, on the final result set — so a filter can only ever
  * remove a result the caller was already entitled to see, and a facet can only
  * ever count one. Nothing about a withheld candidate is reachable from either.
+ *
+ * ## WP-005 step bodies, acronym aliases and match locations
+ *
+ * The bodies of PUBLISHED mission steps are searched as well, through the same
+ * caller-scoped client (`curriculum-step-search.ts`). A step match surfaces its
+ * mission as one more candidate, so it passes through exactly the same
+ * surfacing, version resolution, filtering, classification and ranking as
+ * every other candidate, and a mission matched only in its steps ranks last.
+ *
+ * Approved acronym aliases come from a checked-in data file read on the server
+ * (`search-aliases.ts`). An acronym matches as a whole word, so `ARP` never
+ * matches "sharp"; everything else keeps SEARCH-002's escaped substring match.
+ *
+ * Each returned result carries where it matched — course, mission, step — with
+ * a short snippet, in `matchLocations` beside the results, never inside a
+ * Search Document (DEC-046).
  *
  * ## Privacy
  *
@@ -157,18 +188,17 @@ export function projectCurriculumDocument(
 async function searchOneType(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   contentType: CurriculumSearchContentType,
-  patterns: readonly string[],
+  patterns: readonly RetrievalPattern[],
   limit: number
 ): Promise<SearchPermissionedCandidate<CurriculumSearchCandidate>[]> {
   // SEARCH-005A: every approved variant is matched in ONE read, so broadening
   // the query never multiplies the number of source queries and never changes
-  // the bounded over-fetch. Each pattern arrives already escaped.
-  const matchConditions = patterns
-    .flatMap((pattern) => [
-      `title.ilike.%${pattern}%`,
-      `description.ilike.%${pattern}%`
-    ])
-    .join(",");
+  // the bounded over-fetch. Each substring pattern arrives already escaped;
+  // WP-005 acronym patterns are whole-word and built from validated data only.
+  const matchConditions = buildRetrievalConditions(
+    ["title", "description"],
+    patterns
+  );
 
   const { data, error } = await supabase
     .from(SEARCHABLE_TABLES[contentType])
@@ -219,7 +249,11 @@ export interface CurriculumSearchInput {
 export async function searchCurriculum(
   accessToken: string,
   input: CurriculumSearchInput
-): Promise<CurriculumSearchFacetedResults & CurriculumAdjustedSearchResults> {
+): Promise<
+  CurriculumSearchFacetedResults &
+    CurriculumAdjustedSearchResults &
+    CurriculumLocatedSearchResults
+> {
   if (typeof accessToken !== "string" || accessToken.trim() === "") {
     throw new AppError({
       code: "UNAUTHORIZED",
@@ -264,7 +298,9 @@ export async function searchCurriculum(
     | ReturnType<typeof buildCurriculumQueryAdjustment>
     | undefined;
   try {
-    variants = buildCurriculumQueryVariants(query);
+    // WP-005: SEARCH-005A's variants, then the other members of the query's
+    // approved alias group, under the same cap.
+    variants = buildAliasAwareQueryVariants(query);
     adjustment = buildCurriculumQueryAdjustment(query, variants);
   } catch {
     variants = [{ value: query, matchKind: "exact" }];
@@ -290,9 +326,9 @@ export async function searchCurriculum(
    */
   const runAuthorizedPass = async (
     passVariants: readonly CurriculumQueryVariant[]
-  ): Promise<ClassifiedSearchDocument[]> => {
+  ): Promise<LocatedSearchDocument[]> => {
     const patterns = passVariants.map((variant) =>
-      escapeCurriculumSearchPattern(variant.value)
+      toRetrievalPattern(variant, escapeCurriculumSearchPattern(variant.value))
     );
 
     const permissioned: SearchPermissionedCandidate<CurriculumSearchCandidate>[] =
@@ -304,6 +340,21 @@ export async function searchCurriculum(
         ...(await searchOneType(supabase, contentType, patterns, limit))
       );
     }
+
+    // WP-005: published step bodies, through the SAME client and the same
+    // patterns. A matching step contributes its mission as one more candidate,
+    // which the steps below surface, resolve and filter like any other. The
+    // same read also supplies the course of every mission, for the trail.
+    const steps = await searchPublishedStepBodies(
+      supabase,
+      patterns,
+      passVariants,
+      permissioned
+        .filter((entry) => entry.value.contentType === "mission")
+        .map((entry) => entry.value.stableId),
+      limit
+    );
+    permissioned.push(...steps.candidates);
 
     // SEARCH-003: only an explicit authorized decision may surface. Anything
     // else is dropped silently — no placeholder, no marker, no count.
@@ -319,7 +370,13 @@ export async function searchCurriculum(
 
     // Match classification runs only on text the caller is already entitled to
     // see, so no unauthorized candidate can influence a tier.
-    const passClassified: ClassifiedSearchDocument[] = [];
+    //
+    // WP-005: only the variants that genuinely occur in the record's own text,
+    // under the same whole-word or substring rule the database applied, are
+    // offered to the classifier. A mission found only through its steps has
+    // none, so it falls to the last tier and ranks after every title,
+    // description and alias match.
+    const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(
         entry.contentType,
@@ -329,12 +386,14 @@ export async function searchCurriculum(
       );
       if (!document) continue;
 
+      const recordText = `${entry.title} ${entry.description ?? ""}`;
       passClassified.push({
         document,
         matchKind: classifyCurriculumMatch(
-          `${entry.title} ${entry.description ?? ""}`,
-          passVariants
-        )
+          recordText,
+          variantsFoundIn(recordText, passVariants)
+        ),
+        location: locateCurriculumMatch(entry, document, passVariants, steps)
       });
     }
 
@@ -392,11 +451,21 @@ export async function searchCurriculum(
   // filtering: a withheld record is not in its input and cannot influence an
   // order, a tie-break or a count. Facets are still computed from the final
   // bounded result set, so the SEARCH-004 count guarantee is unchanged. The
-  // adjustment is attached last and omitted when nothing meaningful changed.
-  return withCurriculumQueryAdjustment(
-    withCurriculumSearchFacets(
-      buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)
+  // adjustment is attached outside the facet computation and omitted when
+  // nothing meaningful changed. WP-005 locations are attached outermost, and
+  // only for the documents actually returned.
+  return withCurriculumMatchLocations(
+    withCurriculumQueryAdjustment(
+      withCurriculumSearchFacets(
+        buildRankedCurriculumSearchResults(classified, effectiveVariants, limit)
+      ),
+      adjustment
     ),
-    adjustment
+    classified
   );
+}
+
+/** A classified result with where it matched. Internal to this service. */
+interface LocatedSearchDocument extends ClassifiedSearchDocument {
+  location: CurriculumSearchMatchLocation;
 }

@@ -880,8 +880,13 @@ done
 echo "$PIPE_FLAT" \
   | grep -Fq 'withCurriculumSearchFacets(buildRankedCurriculumSearchResults(classified,effectiveVariants,limit))' \
   || fail "facets are not computed directly from the ranked, bounded result set"
+# NARROWED FOR WP-005, not weakened. Match locations are attached OUTERMOST,
+# from the returned documents only, so the whole return composition is now
+# pinned exactly: facets still wrap the bounding builder directly, the
+# adjustment is still attached outside the facet computation, and nothing may
+# sit between them.
 echo "$PIPE_FLAT" \
-  | grep -Fq 'returnwithCurriculumQueryAdjustment(withCurriculumSearchFacets(' \
+  | grep -Fq 'returnwithCurriculumMatchLocations(withCurriculumQueryAdjustment(withCurriculumSearchFacets(buildRankedCurriculumSearchResults(classified,effectiveVariants,limit)),adjustment),classified);' \
   || fail "the query adjustment is no longer attached outside the facet computation"
 grep -Fq 'const bounded = ranked.slice(0, limit);' "$RK" \
   || fail "the requested limit is no longer applied after ranking"
