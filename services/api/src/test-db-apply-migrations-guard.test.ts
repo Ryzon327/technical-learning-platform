@@ -37,7 +37,7 @@ function run(url: string, extraEnv: Record<string, string> = {}) {
     TLP_TEST_DATABASE_DISPOSABLE: "1",
     ...extraEnv
   };
-  for (const name of ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"]) {
+  for (const name of ["PGHOST", "PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"]) {
     if (!(name in extraEnv)) delete env[name];
   }
   return spawnSync("bash", [SCRIPT], { env, encoding: "utf8" });
@@ -80,6 +80,7 @@ describe("test-db-apply-migrations.sh destination guard", () => {
   });
 
   it.each([
+    ["PGHOST", "remote.example"],
     ["PGHOSTADDR", "203.0.113.7"],
     ["PGSERVICE", "prod"],
     ["PGSERVICEFILE", "/tmp/pg_service.conf"]

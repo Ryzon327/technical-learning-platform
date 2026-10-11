@@ -1,6 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  assertDisposableLocalTestDatabase,
+  createTestDatabasePsql
+} from "../test-support/test-db-psql";
 import {
   escapeCurriculumSearchPattern,
   type CurriculumQueryVariant
@@ -27,7 +30,10 @@ import {
  * `supabase/migrations` applied unchanged (`scripts/test-db-apply-migrations.sh`).
  * CI provides it and runs this file with `TLP_REQUIRE_TEST_DATABASE=1`, so a
  * missing database fails there. Anywhere else, with no `TLP_TEST_DATABASE_URL`,
- * the database suites skip.
+ * the database suites skip. With one, nothing connects unless the shared guard
+ * `scripts/test-db-guard.sh` accepts it: a single localhost URL with no query
+ * parameters, `TLP_TEST_DATABASE_DISPOSABLE=1`, and no libpq environment
+ * override pointing anywhere else (Founder direction G-003).
  *
  * ## The learner-scoped path
  *
@@ -58,22 +64,23 @@ const LEARNER_ID = randomUUID();
 it("has a disposable test database whenever one is required", () => {
   if (!REQUIRE_DATABASE) return;
   expect(DATABASE_URL, "TLP_TEST_DATABASE_URL").not.toBe("");
-  expect(["localhost", "127.0.0.1"]).toContain(new URL(DATABASE_URL).hostname);
+  expect(() => assertDisposableLocalTestDatabase(process.env)).not.toThrow();
 });
 
 /* ------------------------------------------------------------------ *
  * psql access — the only database client, with no new dependency
  * ------------------------------------------------------------------ */
 
+let guardedPsql: ((script: string) => string) | undefined;
+
+/**
+ * Founder direction G-003: the shared guard (`scripts/test-db-guard.sh`)
+ * approves the URL, the disposable marker and the libpq environment before the
+ * first connection, or every database test fails without connecting.
+ */
 function psql(script: string): string {
-  if (!["localhost", "127.0.0.1"].includes(new URL(DATABASE_URL).hostname)) {
-    throw new Error("Refusing a test database that is not on localhost");
-  }
-  return execFileSync(
-    "psql",
-    [DATABASE_URL, "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1"],
-    { input: script, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }
-  ).trim();
+  guardedPsql ??= createTestDatabasePsql(process.env);
+  return guardedPsql(script);
 }
 
 /** A dollar-quoted literal whose tag cannot occur in the text. */
@@ -378,10 +385,133 @@ describe.skipIf(DATABASE_URL === "")("step search against real PostgreSQL and RL
       ]
     });
 
+    // Founder direction G-003: every withheld field carries a unique value, and
+    // each step has its own unique learner-visible word to match.
+    const withheld = mission(addresses, "withheld", "Withheld fields");
+    step(withheld, 0, {
+      type: "prediction",
+      prompt: "Predict what the cobaltheron host does next.",
+      options: [{ id: "a", text: "It waits." }],
+      expectedOutcome: "It sends a ravenquartz request."
+    });
+    step(withheld, 1, {
+      type: "near_transfer",
+      title: "Try the lanternmoth network",
+      framing: "A new network, the same reasoning.",
+      questions: [
+        {
+          questionStableId: "q1",
+          type: "single_choice",
+          prompt: "Which host answers?",
+          options: [{ id: "a", text: "The router" }],
+          correctOptionIds: ["a"],
+          explanation: "Because the glimmerfjord host owns that address."
+        }
+      ]
+    });
+    step(withheld, 2, {
+      type: "interaction",
+      interactionStableId: "withheld-interaction",
+      interactionType: "packet_journey",
+      sourceKind: "authored",
+      supportLevel: "guided",
+      textEquivalent: "The thistlecomet frame crosses the switch.",
+      parameters: { stages: [{ decision: "forward the emberwhistle frame" }] }
+    });
+
     insertFixture(fixture);
   });
 
   afterAll(() => removeFixtures());
+
+  /** A direct RPC call as an authenticated learner, every column of every row. */
+  const callStepSearchDirectly = (word: string): Array<Record<string, unknown>> =>
+    JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(
+          STEP_SEARCH_FUNCTION,
+          { p_phrases: [word] }
+        )}) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+
+  const WITHHELD_VALUES = ["ravenquartz", "glimmerfjord", "emberwhistle"];
+  const WITHHELD_KEYS = [
+    "payload",
+    "expectedOutcome",
+    "questions",
+    "correctOptionIds",
+    "explanation",
+    "parameters",
+    "decision"
+  ];
+
+  it("G-003: the RPC, called directly by a learner, returns names and a snippet — no withheld field or value", () => {
+    const visible: Array<[string, string, string]> = [
+      ["cobaltheron", "s01", "Predict what the cobaltheron host does next."],
+      ["lanternmoth", "s02", "Try the lanternmoth network A new network, the same reasoning."],
+      ["thistlecomet", "s03", "The thistlecomet frame crosses the switch."]
+    ];
+    for (const [word, stepStableId, snippet] of visible) {
+      const rows = callStepSearchDirectly(word);
+      const serialized = JSON.stringify(rows);
+
+      expect(rows, word).toHaveLength(1);
+      expect(Object.keys(rows[0] ?? {}), word).toEqual([
+        "mission_stable_id",
+        "mission_version",
+        "mission_title",
+        "mission_description",
+        "mission_publication_state",
+        "mission_updated_at",
+        "course_title",
+        "step_stable_id",
+        "step_position",
+        "step_title",
+        "step_label",
+        "step_snippet"
+      ]);
+      expect(rows[0]).toMatchObject({ mission_stable_id: `${B}withheld`, step_stable_id: stepStableId });
+      expect(rows[0]?.step_snippet, word).toBe(snippet);
+      for (const value of WITHHELD_VALUES) expect(serialized, `${word}: ${value}`).not.toContain(value);
+      for (const key of WITHHELD_KEYS) expect(serialized, `${word}: ${key}`).not.toContain(`"${key}"`);
+      // Visible-but-unsearched question and option text is not returned either.
+      for (const text of ["Which host answers?", "The router", "It waits."]) {
+        expect(serialized, `${word}: ${text}`).not.toContain(text);
+      }
+    }
+  });
+
+  it("G-003: searching for a withheld answer or parameter finds nothing, so it cannot reveal one exists", async () => {
+    for (const value of WITHHELD_VALUES) {
+      expect(callStepSearchDirectly(value), value).toEqual([]);
+      expect(ours(B, (await searchSteps(value)).outcome), value).toEqual([]);
+    }
+  });
+
+  it("G-003: a snippet is a short window of the step's text around the match", () => {
+    const rows = callStepSearchDirectly("frobnicator");
+    expect(rows[0]?.step_snippet).toBe(
+      "The frobnicator is a placeholder word that appears only in this step."
+    );
+
+    // Long text is cut 60 characters before and 100 after the match.
+    const filler = "x".repeat(200);
+    const output = psql(
+      [
+        "begin;",
+        `update public.mission_steps as s
+            set payload = jsonb_build_object('type', 'concept',
+                  'paragraphs', jsonb_build_array(${literal(`${filler} wombatquill ${filler}`)}::text))
+           from public.missions as m
+          where m.id = s.mission_id and m.stable_id = ${literal(`${B}m4-the-prefix`)} and s.position = 1;`,
+        "set local role authenticated;",
+        `select step_snippet from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: ["wombatquill"] })};`,
+        "rollback;"
+      ].join("\n")
+    );
+    expect(output).toBe(`…${"x".repeat(59)} wombatquill ${"x".repeat(99)}…`);
+  });
 
   it("the functions are SECURITY INVOKER and only authenticated may execute them", () => {
     const rows = JSON.parse(
