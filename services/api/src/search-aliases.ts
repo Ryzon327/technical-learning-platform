@@ -259,13 +259,17 @@ export function buildAliasAwareQueryVariants(
  * when what remains is still WRITTEN as an acronym. Such a variant then matches
  * as a whole word too, so "ARPs" can never match "sharpshooting".
  *
+ * Terminal punctuation is ignored exactly as `findSearchAliasGroup` ignores it,
+ * so the learner's own "ARP?" is a whole-word ARP too and never the substring
+ * "ARP?", which "Keep your skills sharp?" contains.
+ *
  * Returns the DATA spelling, which is what any pattern is built from.
  */
 export function acronymTermOf(
   value: string,
   groups: readonly SearchAliasGroup[] = approvedSearchAliasGroups()
 ): string | undefined {
-  const written = value.replace(/\s+/g, " ").trim();
+  const written = normalizeTerminalPunctuation(value).replace(/\s+/g, " ").trim();
   const forms = [written, written.replace(/['’]s$/, ""), written.replace(/s$/, "")];
   for (const form of forms) {
     if (form === "") continue;

@@ -502,6 +502,55 @@ describe("criterion 3: sharp does not return ARP results", () => {
       }
     });
   }
+
+  /**
+   * Review finding: "ARP?" kept the substring pattern "%ARP?%" beside its
+   * whole-word pattern, so "Keep your skills sharp?" was found — in a record
+   * and, through the phrase "ARP?", in a step body.
+   */
+  function punctuatedWorld(): World {
+    const world = networkingWorld();
+    const path = world.learning_paths[0] as Row;
+    const module = world.learning_modules[0] as Row;
+    world.courses.push(
+      node("course-sharp-question", "Sharp questions", {
+        learning_path_id: path.id,
+        description: "Keep your skills sharp? Stay sharp: always. Are the sharps? Is the sharp's? edge kept? Keep the sharp’s! edge."
+      })
+    );
+    const stepSharp = node("nf-fixture-step-sharp", "Honing", {
+      module_id: module.id,
+      description: "Practise reading captures."
+    });
+    world.missions.push(stepSharp);
+    world.mission_steps.push(
+      step(stepSharp, 0, {
+        type: "concept",
+        paragraphs: [
+          "Keep your skills sharp? Stay sharp: always. Are the sharps? Is the sharp's? edge kept? Keep the sharp’s! edge."
+        ]
+      })
+    );
+    return world;
+  }
+
+  for (const query of ["ARP?", "ARP:", "ARPs?", "ARP's?", "ARP’s!"]) {
+    it(`${query} finds the ARP lesson and never a punctuated substring`, async () => {
+      const { results, db } = await search(punctuatedWorld(), { query });
+
+      expect(idsOf(results)).toContain("nf-m4-the-prefix-and-the-decision");
+      expect(idsOf(results)).not.toContain("course-sharp-question");
+      expect(idsOf(results)).not.toContain("course-sharp-habits");
+      expect(idsOf(results)).not.toContain("nf-fixture-step-sharp");
+      for (const read of db.reads) {
+        expect(read.or ?? "").not.toMatch(/ilike\.%ARP/i);
+      }
+      for (const read of db.reads.filter((entry) => entry.table === STEP_RPC)) {
+        expect(read.args?.p_acronyms).toEqual(["ARP"]);
+        expect(read.args?.p_phrases).not.toContainEqual(expect.stringMatching(/^arp/i));
+      }
+    });
+  }
 });
 
 describe("ranking judges a match by the rule that found it", () => {

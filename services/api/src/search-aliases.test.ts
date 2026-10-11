@@ -19,6 +19,7 @@ import {
   loadSearchAliasDataSet,
   toRetrievalPattern,
   validateSearchAliasDataSet,
+  variantsFoundIn,
   wordPatternFor
 } from "./search-aliases";
 
@@ -250,6 +251,45 @@ describe("WP-005 matching rules", () => {
     }
     // Lower-case endings are not recognised as the acronym, as in group lookup.
     expect(acronymTermOf("ads")).toBeUndefined();
+  });
+
+  /**
+   * Review finding: "ARP?" stayed the substring "%ARP?%", which "Keep your
+   * skills sharp?" contains. Terminal punctuation is ignored before the
+   * acronym is recognised, exactly as group lookup ignores it.
+   */
+  it("a punctuated acronym variant is matched as a whole word too", () => {
+    const cases: Array<[string, string]> = [
+      ["ARP?", "Keep your skills sharp?"],
+      ["ARP,", "Keep your skills sharp, always."],
+      ["ARP!", "Keep your skills sharp!"],
+      ["ARPs?", "Are the sharps? Keep them."],
+      ["ARP's?", "Is the sharp's? edge kept?"],
+      ["ARP’s!", "Keep the sharp’s! edge."]
+    ];
+    for (const [value, text] of cases) {
+      const variant = { value, matchKind: "exact" as const };
+      expect(acronymTermOf(value), value).toBe("ARP");
+      expect(toRetrievalPattern(variant, value), value).toEqual({ mode: "word", term: "ARP" });
+      expect(findVariantMatch(text, variant), `${value} in ${text}`).toBeUndefined();
+      expect(findVariantMatch("The request is called ARP.", variant), value).toBeDefined();
+    }
+    // Punctuation never turns a non-member into an acronym.
+    expect(acronymTermOf("sharp?")).toBeUndefined();
+    expect(acronymTermOf("ads?")).toBeUndefined();
+  });
+
+  it("classification never credits a punctuated acronym query for a substring", () => {
+    for (const query of ["ARP?", "ARPs?", "ARP's?", "ARP’s!"]) {
+      const variants = buildAliasAwareQueryVariants(query);
+      for (const title of ["Keep your skills sharp?", "Are the sharps?", "The sharp's? edge"]) {
+        expect(classifyAliasAwareTitlePrecision(title, variants), `${query} / ${title}`).toBe(
+          "description_only"
+        );
+        expect(variantsFoundIn(title, variants), `${query} / ${title}`).toEqual([]);
+      }
+      expect(classifyAliasAwareTitlePrecision("ARP basics", variants)).toBe("title_token");
+    }
   });
 
   it("title precision never credits an acronym for an embedded substring", () => {
