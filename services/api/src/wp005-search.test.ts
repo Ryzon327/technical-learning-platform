@@ -477,6 +477,78 @@ describe("criterion 3: sharp does not return ARP results", () => {
   }
 });
 
+describe("ranking judges a match by the rule that found it", () => {
+  /**
+   * Two missions matched ONLY through their steps. The one whose title embeds
+   * "arp" ("Sharp skills") sorts LATER neutrally, so if ranking credited that
+   * substring as title precision it would jump ahead.
+   */
+  function stepOnlyWorld(): World {
+    const world = networkingWorld();
+    const module = world.learning_modules[0] as Row;
+    const plain = node("nf-fixture-a-plain", "Listening on the wire", {
+      module_id: module.id,
+      description: "Watch what a host sends."
+    });
+    const sharp = node("nf-fixture-z-sharp", "Sharp skills", {
+      module_id: module.id,
+      description: "Practise reading captures."
+    });
+    world.missions.push(plain, sharp);
+    world.mission_steps.push(
+      step(plain, 0, { type: "concept", paragraphs: ["The host sends an ARP request."] }),
+      step(sharp, 0, { type: "concept", paragraphs: ["An ARP reply comes back."] })
+    );
+    return world;
+  }
+
+  it("a step-only match under a title embedding the acronym keeps the stable order", async () => {
+    const { results } = await search(stepOnlyWorld(), { query: "ARP" });
+    const ids = idsOf(results);
+
+    expect(ids).toContain("nf-fixture-a-plain");
+    expect(ids).toContain("nf-fixture-z-sharp");
+    expect(ids.indexOf("nf-fixture-a-plain")).toBeLessThan(
+      ids.indexOf("nf-fixture-z-sharp")
+    );
+  });
+
+  /**
+   * A course that names ARP in its plural or possessive form matches the
+   * learner's own query, so it must rank in the exact tier, above a course that
+   * only matched the spelled-out alias — even though the alias course sorts
+   * first neutrally.
+   */
+  function pluralWorld(): World {
+    const world = networkingWorld();
+    const path = world.learning_paths[0] as Row;
+    world.courses.push(
+      node("course-a-alias-only", "Neighbour discovery", {
+        learning_path_id: path.id,
+        description: "The Address Resolution Protocol, step by step."
+      }),
+      node("course-b-acronym", "Reading captures", {
+        learning_path_id: path.id,
+        description: "Two ARP requests were sent."
+      })
+    );
+    return world;
+  }
+
+  for (const query of ["ARPs", "ARP's"]) {
+    it(`${query} ranks the acronym match above the alias-only match`, async () => {
+      const { results } = await search(pluralWorld(), { query });
+      const ids = idsOf(results);
+
+      expect(ids).toContain("course-a-alias-only");
+      expect(ids).toContain("course-b-acronym");
+      expect(ids.indexOf("course-b-acronym")).toBeLessThan(
+        ids.indexOf("course-a-alias-only")
+      );
+    });
+  }
+});
+
 describe("criterion 4: a term only in a step body returns that step's mission", () => {
   it("returns the mission with a snippet containing the term", async () => {
     const { results } = await search(networkingWorld(), { query: "frobnicator" });

@@ -1,12 +1,17 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { MAX_CURRICULUM_QUERY_VARIANTS } from "@tlp/shared-types";
+import {
+  MAX_CURRICULUM_QUERY_VARIANTS,
+  classifyCurriculumMatch
+} from "@tlp/shared-types";
 import {
   MAX_SEARCH_ALIAS_GROUP_MEMBERS,
   acronymTermOf,
   approvedSearchAliasGroups,
   buildAliasAwareQueryVariants,
   buildRetrievalConditions,
+  classifyAliasAwareTitlePrecision,
+  variantOccursIn,
   findFirstMatch,
   findSearchAliasGroup,
   findVariantMatch,
@@ -245,6 +250,45 @@ describe("WP-005 matching rules", () => {
     }
     // Lower-case endings are not recognised as the acronym, as in group lookup.
     expect(acronymTermOf("ads")).toBeUndefined();
+  });
+
+  it("title precision never credits an acronym for an embedded substring", () => {
+    const variants = buildAliasAwareQueryVariants("ARP");
+
+    expect(classifyAliasAwareTitlePrecision("Sharp skills", variants)).toBe(
+      "description_only"
+    );
+    expect(classifyAliasAwareTitlePrecision("Sharpshooting drills", variants)).toBe(
+      "description_only"
+    );
+    expect(classifyAliasAwareTitlePrecision("ARP", variants)).toBe("whole_title");
+    expect(classifyAliasAwareTitlePrecision("ARP basics", variants)).toBe("title_token");
+    expect(
+      classifyAliasAwareTitlePrecision("About the Address Resolution Protocol", variants)
+    ).toBe("title_token");
+  });
+
+  it("title precision credits a plural or possessive acronym query as a word", () => {
+    for (const query of ["ARPs", "ARP's"]) {
+      const variants = buildAliasAwareQueryVariants(query);
+      expect(classifyAliasAwareTitlePrecision("ARP basics", variants)).toBe("title_token");
+      expect(classifyAliasAwareTitlePrecision("Sharp skills", variants)).toBe(
+        "description_only"
+      );
+    }
+  });
+
+  it("match classification uses the retrieval rule, not a substring", () => {
+    for (const query of ["ARPs", "ARP's"]) {
+      const variants = buildAliasAwareQueryVariants(query);
+      expect(
+        classifyCurriculumMatch("Two ARP requests were sent.", variants, (text, variant) =>
+          variantOccursIn(text, variant)
+        )
+      ).toBe("exact");
+    }
+    const arp = buildAliasAwareQueryVariants("ARP");
+    expect(variantOccursIn("Sharp skills", arp[0]!)).toBe(false);
   });
 
   it("builds one condition per column per pattern", () => {

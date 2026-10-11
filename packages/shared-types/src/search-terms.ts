@@ -3,6 +3,7 @@ import {
   type CurriculumSearchResults
 } from "./curriculum-search";
 import type { SearchDocument } from "./search-document";
+import type { CurriculumTitlePrecision } from "./search-ranking";
 
 /**
  * SEARCH-005A — Technical Query Normalization and Curated Aliases.
@@ -347,17 +348,25 @@ export function buildCurriculumQueryVariants(
  *
  * Runs on results that are already authorized, already permission-checked and
  * already version-resolved. It reads only text the caller may already see.
+ *
+ * `occursIn` decides whether one variant appears in the text. It defaults to
+ * the case-insensitive substring rule; a caller whose retrieval applies a
+ * different rule (WP-005's whole-word acronyms) passes that same rule here, so
+ * classification never judges a record by a looser or stricter test than the
+ * one that found it.
  */
 export function classifyCurriculumMatch(
   text: string,
-  variants: readonly CurriculumQueryVariant[]
+  variants: readonly CurriculumQueryVariant[],
+  occursIn: (text: string, variant: CurriculumQueryVariant) => boolean = (
+    haystack,
+    variant
+  ) => haystack.toLowerCase().includes(variant.value.toLowerCase())
 ): CurriculumMatchKind {
-  const haystack = text.toLowerCase();
-
   for (const kind of CURRICULUM_MATCH_KINDS) {
     for (const variant of variants) {
       if (variant.matchKind !== kind) continue;
-      if (haystack.includes(variant.value.toLowerCase())) return kind;
+      if (occursIn(text, variant)) return kind;
     }
   }
 
@@ -367,6 +376,12 @@ export function classifyCurriculumMatch(
 export interface ClassifiedSearchDocument {
   document: SearchDocument;
   matchKind: CurriculumMatchKind;
+  /**
+   * SEARCH-008 title precision, when the caller has already classified it
+   * under its own retrieval rules. Ranking uses it as given; when absent,
+   * ranking classifies the title itself with the substring rule.
+   */
+  titlePrecision?: CurriculumTitlePrecision;
 }
 
 /**

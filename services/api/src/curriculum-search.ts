@@ -36,7 +36,8 @@ import {
   validateCurriculumSearchQuery,
   withCurriculumMatchLocations,
   withCurriculumQueryAdjustment,
-  withCurriculumSearchFacets
+  withCurriculumSearchFacets,
+  weakestTitlePrecision
 } from "@tlp/shared-types";
 import {
   locateCurriculumMatch,
@@ -45,7 +46,9 @@ import {
 import {
   buildAliasAwareQueryVariants,
   buildRetrievalConditions,
+  classifyAliasAwareTitlePrecision,
   toRetrievalPattern,
+  variantOccursIn,
   variantsFoundIn,
   type RetrievalPattern
 } from "./search-aliases";
@@ -371,11 +374,14 @@ export async function searchCurriculum(
     // Match classification runs only on text the caller is already entitled to
     // see, so no unauthorized candidate can influence a tier.
     //
-    // WP-005: only the variants that genuinely occur in the record's own text,
-    // under the same whole-word or substring rule the database applied, are
-    // offered to the classifier. A mission found only through its steps has
-    // none, so it falls to the last tier and ranks after every title,
-    // description and alias match.
+    // WP-005: the match class and the title precision are both judged under the
+    // same whole-word or substring rule the database applied, so an acronym
+    // can never earn precision from an embedded substring ("sharp" for ARP),
+    // and a plural or possessive query is classified by the rule that found
+    // it. A mission found only through its steps matches none of its own
+    // text, so it is given the last match tier and, explicitly, the weakest
+    // title precision, and ranks after every title, description and alias
+    // match.
     const passClassified: LocatedSearchDocument[] = [];
     for (const entry of filtered) {
       const document = projectCurriculumDocument(
@@ -387,12 +393,16 @@ export async function searchCurriculum(
       if (!document) continue;
 
       const recordText = `${entry.title} ${entry.description ?? ""}`;
+      const found = variantsFoundIn(recordText, passVariants);
       passClassified.push({
         document,
-        matchKind: classifyCurriculumMatch(
-          recordText,
-          variantsFoundIn(recordText, passVariants)
+        matchKind: classifyCurriculumMatch(recordText, found, (text, variant) =>
+          variantOccursIn(text, variant)
         ),
+        titlePrecision:
+          found.length === 0
+            ? weakestTitlePrecision()
+            : classifyAliasAwareTitlePrecision(entry.title, found),
         location: locateCurriculumMatch(entry, document, passVariants, steps)
       });
     }

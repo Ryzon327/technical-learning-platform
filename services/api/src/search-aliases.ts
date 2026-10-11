@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
 import {
+  CURRICULUM_TITLE_PRECISIONS,
   MAX_CURRICULUM_QUERY_VARIANTS,
   buildCurriculumQueryVariants,
+  classifyCurriculumTitlePrecision,
   normalizeTerminalPunctuation,
-  type CurriculumQueryVariant
+  type CurriculumQueryVariant,
+  type CurriculumTitlePrecision
 } from "@tlp/shared-types";
 
 /**
@@ -340,6 +343,52 @@ export function findVariantMatch(
   if (needle === "") return undefined;
   const start = text.toLowerCase().indexOf(needle);
   return start < 0 ? undefined : { start, length: needle.length };
+}
+
+/** Whether one variant occurs in `text`, under its retrieval rule. */
+export function variantOccursIn(
+  text: string,
+  variant: CurriculumQueryVariant,
+  groups: readonly SearchAliasGroup[] = approvedSearchAliasGroups()
+): boolean {
+  return findVariantMatch(text, variant, groups) !== undefined;
+}
+
+/**
+ * SEARCH-008 title precision under the same rules retrieval used.
+ *
+ * A substring variant keeps SEARCH-008's own classifier unchanged. An acronym
+ * variant is judged only by its whole-word match: the whole title, or a token
+ * within it — never a substring, so "Sharp skills" carries no precision at all
+ * for ARP. A title no variant matches is `description_only`, the weakest.
+ */
+export function classifyAliasAwareTitlePrecision(
+  title: string,
+  variants: readonly CurriculumQueryVariant[],
+  groups: readonly SearchAliasGroup[] = approvedSearchAliasGroups()
+): CurriculumTitlePrecision {
+  const normalizedTitle = title.replace(/\s+/g, " ").trim();
+  const substringVariants = variants.filter(
+    (variant) => !acronymTermOf(variant.value, groups)
+  );
+
+  let best = classifyCurriculumTitlePrecision(normalizedTitle, substringVariants);
+  for (const variant of variants) {
+    if (!acronymTermOf(variant.value, groups)) continue;
+    const found = findVariantMatch(normalizedTitle, variant, groups);
+    if (!found) continue;
+    const precision: CurriculumTitlePrecision =
+      found.start === 0 && found.length === normalizedTitle.length
+        ? "whole_title"
+        : "title_token";
+    if (
+      CURRICULUM_TITLE_PRECISIONS.indexOf(precision) <
+      CURRICULUM_TITLE_PRECISIONS.indexOf(best)
+    ) {
+      best = precision;
+    }
+  }
+  return best;
 }
 
 /** The variants that actually occur in `text`, in their original order. */
