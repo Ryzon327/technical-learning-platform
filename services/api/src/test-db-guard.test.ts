@@ -148,6 +148,27 @@ describe("the real-database tests run the shared guard before psql", () => {
     expect(psqlRan()).toBe(false);
   });
 
+  /**
+   * Founder direction G-004: CI run 38159148871 failed because the
+   * "Real-database integration tests" step did not declare its throwaway
+   * database. Every CI step that reaches the guard must set the marker itself.
+   */
+  it.each(["Prepare disposable test database", "Real-database integration tests"])(
+    "CI step %j declares TLP_TEST_DATABASE_DISPOSABLE=\"1\" for the guard",
+    (stepName) => {
+      const workflow = readFileSync(
+        fileURLToPath(new URL("../../../.github/workflows/ci.yml", import.meta.url)),
+        "utf8"
+      );
+      const start = workflow.indexOf(`- name: ${stepName}\n`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const next = workflow.indexOf("- name: ", start + 1);
+      const step = workflow.slice(start, next === -1 ? undefined : next);
+      expect(step).toMatch(/\n\s+env:\n/);
+      expect(step).toMatch(/\n\s+TLP_TEST_DATABASE_DISPOSABLE: "1"\n/);
+    }
+  );
+
   it("connects with the environment the guard approved, whatever changes afterwards", () => {
     const env = environment(LOCAL_URL);
     const psql = createTestDatabasePsql(env);

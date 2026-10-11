@@ -93,6 +93,7 @@ jobs:
         env:
           TLP_TEST_DATABASE_URL: postgres://postgres@localhost:5432/tlp_test
           TLP_REQUIRE_TEST_DATABASE: "1"
+          TLP_TEST_DATABASE_DISPOSABLE: "1"
         run: npx vitest run src/curriculum-step-search.db.test.ts
 
       - name: Production build
