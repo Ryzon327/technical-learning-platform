@@ -342,7 +342,8 @@ export async function searchCurriculum(
     }
 
     // WP-005: published step bodies, through the SAME client and the same
-    // patterns. A matching step contributes its mission as one more candidate,
+    // variants, matched by a SECURITY INVOKER database function that runs
+    // under the caller's own RLS. A matching step contributes its mission as one more candidate,
     // which the steps below surface, resolve and filter like any other. The
     // same read also supplies the course of every mission, for the trail.
     const steps = await searchPublishedStepBodies(
@@ -351,8 +352,7 @@ export async function searchCurriculum(
       passVariants,
       permissioned
         .filter((entry) => entry.value.contentType === "mission")
-        .map((entry) => entry.value.stableId),
-      limit
+        .map((entry) => entry.value.stableId)
     );
     permissioned.push(...steps.candidates);
 

@@ -29,6 +29,13 @@ SEARCH_SERVICE_TESTS="services/api/src/search-document.test.ts"
 SEARCH_DOC="docs/Engineering-OS/BUILD_WAVE_9_BATCH_1_SEARCH_DOCUMENT_AND_INDEX_MODEL.md"
 SERVER="services/api/src/server.ts"
 
+# Founder direction G-001 (WP-005 repair) moved step-body matching and
+# pagination into read-only SECURITY INVOKER functions. That one migration
+# belongs to no SEARCH-001..008 batch, so the per-batch "added no migration"
+# counts below exclude it by exact name; the engine completion gate checks what
+# it may contain.
+G001_SEARCH_MIGRATION="supabase/migrations/20261011000100_curriculum_step_search_functions.sql"
+
 fail() { echo "FAIL: $1"; exit 1; }
 code_of() { grep -vE '^\s*(//|\*|/\*)' "$1" || true; }
 # Code with double-quoted string literals removed.
@@ -90,7 +97,7 @@ fi
 # `|| true` is load-bearing: under `set -euo pipefail` an `ls` with no match
 # fails the pipeline, the assignment fails, and every check below is skipped
 # silently. That defect class was fixed 18 times in verify-wave8.sh.
-SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS" = "0" ] || fail "SEARCH-001 must add no migration; found $SEARCH_MIGRATIONS"
 if grep -rqiE 'tsvector|to_tsquery|pg_trgm' supabase/migrations/ 2>/dev/null; then
   fail "SEARCH-001 must not introduce full-text search infrastructure"
@@ -322,7 +329,7 @@ fi
 if echo "$CS_SERVICE_CODE" | grep -qiE 'setinterval|cron|queue|worker|cache'; then
   fail "curriculum search must not introduce a pipeline or cache"
 fi
-SEARCH_MIGRATIONS_NOW="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS_NOW="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS_NOW" = "0" ] || fail "SEARCH-002 must add no migration"
 
 echo "PASS: curriculum search owns no storage and writes no Curriculum truth"
@@ -845,7 +852,7 @@ if echo "$SF_TYPES_BARE" | grep -qiE 'openai|anthropic|ollama|embedding'; then
   fail "an AI dependency entered the filter model"
 fi
 # No migration and no dependency.
-SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_MIGRATIONS_AFTER="$(ls supabase/migrations/*search*.sql 2>/dev/null | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS_AFTER" = "0" ] || fail "SEARCH-004 must add no migration"
 FILTER_MIGRATIONS="$(ls supabase/migrations/*facet*.sql supabase/migrations/*filter*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
 [ "$FILTER_MIGRATIONS" = "0" ] || fail "SEARCH-004 must add no filter or facet migration"
@@ -1505,7 +1512,7 @@ fi
 if grep -rqiE 'tsvector|to_tsquery|pg_trgm|create materialized view' supabase/migrations/ 2>/dev/null; then
   fail "a full-text or materialized search index entered the migrations"
 fi
-FRESHNESS_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*index*.sql supabase/migrations/*freshness*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+FRESHNESS_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*index*.sql supabase/migrations/*freshness*.sql 2>/dev/null | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$FRESHNESS_MIGRATIONS" = "0" ] || fail "SEARCH-007 must add no migration"
 # No worker, queue, scheduler, cron or trigger.
 if echo "$FR_TYPES_BARE$FR_SERVICE_BARE" | grep -qiE 'setInterval|setTimeout|cron|queue|worker|scheduler|schedule\(|webhook'; then
@@ -1948,7 +1955,7 @@ fi
 echo "PASS: ranked results are ordered markup with a text explanation and no internals"
 
 # --- 73. SEARCH-008 adds no migration, dependency, provider or AI -----------
-SEARCH_008_MIGRATIONS="$(ls supabase/migrations/*rank*.sql supabase/migrations/*fallback*.sql supabase/migrations/*search*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+SEARCH_008_MIGRATIONS="$(ls supabase/migrations/*rank*.sql supabase/migrations/*fallback*.sql supabase/migrations/*search*.sql 2>/dev/null | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_008_MIGRATIONS" = "0" ] || fail "SEARCH-008 must add no migration"
 for forbidden in elasticsearch opensearch algolia meilisearch redis \
                  pinecone weaviate qdrant openai anthropic ollama; do

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CurriculumSearchInput } from "./curriculum-search";
+import { STEP_SEARCH_PAGE_SIZE, stepSearchableText } from "./curriculum-step-search";
 import { approvedSearchAliasGroups } from "./search-aliases";
 
 /**
@@ -9,14 +10,16 @@ import { approvedSearchAliasGroups } from "./search-aliases";
  * The client factory is mocked with a stand-in database that MODELS the
  * published-only row level security the migrations declare: every curriculum
  * node is readable only when published, and a `mission_steps` row only when its
- * owning mission is published (`20260831000100_mission_steps.sql`). Embedded
- * resources follow the same policies and behave as inner joins.
+ * owning mission is published (`20260831000100_mission_steps.sql`). The two
+ * step-search database functions
+ * (`20261011000100_curriculum_step_search_functions.sql`) are modelled with the
+ * same visibility, keyset pages and, optionally, a PostgREST-style server row
+ * cap (`maxRows`).
  *
- * NOT proven here: live PostgreSQL behaviour. The repository still has no live
- * PostgreSQL/RLS harness, so every published-only claim below is a query-level
- * and policy-model claim, not a live-RLS claim. The `imatch` whole-word
- * pattern is approximated with JavaScript's `\b`, which agrees with
- * PostgreSQL's `\y` for the ASCII text used here.
+ * NOT proven here: live PostgreSQL behaviour. That is
+ * `curriculum-step-search.db.test.ts`, which runs the real functions under the
+ * real policies against PostgreSQL with every migration applied, in CI. The
+ * whole-word pattern is approximated here with JavaScript's `\b`.
  */
 vi.mock("./supabase", () => ({
   createUserScopedSupabaseClient: vi.fn(),
@@ -42,7 +45,11 @@ interface ReadRecord {
   eqs: Array<[string, unknown]>;
   or?: string;
   limit?: number;
+  args?: Record<string, unknown>;
 }
+
+const STEP_RPC = "rpc:search_published_mission_steps";
+const CONTEXT_RPC = "rpc:published_mission_contexts";
 
 let sequence = 0;
 const nextId = () =>
@@ -72,15 +79,15 @@ function step(mission: Row, position: number, payload: Row): Row {
   };
 }
 
-/**
- * What PostgreSQL's `->>` returns for a non-string jsonb value: its jsonb text
- * output. Arrays are written `["a", "b"]`, each string escaped as
- * `escape_json` does (`\"`, `\\`, `\n`, `\t`, `\u0001` …), which for strings
- * is exactly `JSON.stringify`.
- */
-function jsonbText(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(jsonbText).join(", ")}]`;
-  return JSON.stringify(value);
+interface DatabaseOptions {
+  hostile?: boolean;
+  /**
+   * A PostgREST `max-rows` cap on function responses: no step-search or
+   * mission-context page carries more rows than this, whatever was asked for.
+   */
+  maxRows?: number;
+  /** Ignores `p_after`, as a broken server would. */
+  ignoreCursor?: boolean;
 }
 
 /**
@@ -91,26 +98,17 @@ function jsonbText(value: unknown): string {
  * like. Text matching still applies. It exists to prove the service's own
  * re-checks, not to describe real behaviour.
  */
-function database(world: World, options: { hostile?: boolean } = {}) {
+function database(world: World, options: DatabaseOptions = {}) {
   const reads: ReadRecord[] = [];
   const hostile = options.hostile ?? false;
+  const cap = (rows: Row[]) =>
+    options.maxRows === undefined ? rows : rows.slice(0, options.maxRows);
   const published = (row: Row | undefined) =>
     row !== undefined && (hostile || row.publication_state === "published");
 
-  const visible = (table: keyof World, row: Row): boolean => {
-    if (hostile) return true;
-    if (table === "mission_steps") {
-      return published(world.missions.find((mission) => mission.id === row.mission_id));
-    }
-    return published(row);
-  };
+  const visible = (row: Row): boolean => hostile || published(row);
 
   const fieldOf = (row: Row, column: string): string => {
-    if (column.startsWith("payload->>")) {
-      const value = (row.payload as Row | undefined)?.[column.slice("payload->>".length)];
-      if (value === undefined || value === null) return "";
-      return typeof value === "string" ? value : jsonbText(value);
-    }
     const value = row[column];
     return typeof value === "string" ? value : "";
   };
@@ -127,39 +125,83 @@ function database(world: World, options: { hostile?: boolean } = {}) {
     return haystack.toLowerCase().includes(term.toLowerCase());
   };
 
-  const embed = (table: keyof World, select: string, row: Row): Row | undefined => {
-    let result: Row = { ...row };
-    if (table === "mission_steps" && select.includes("missions!inner(")) {
-      const mission = world.missions.find((entry) => entry.id === row.mission_id);
-      if (!published(mission) || !mission) return undefined;
-      result = {
-        ...result,
-        missions: {
-          stable_id: mission.stable_id,
-          version: mission.version,
-          publication_state: mission.publication_state
-        }
-      };
-    }
-    if (table === "missions" && select.includes("learning_modules!inner(")) {
-      const module = world.learning_modules.find((entry) => entry.id === row.module_id);
+  /** `current_published_missions()`: highest version with a published module and course. */
+  const currentMissions = () => {
+    const current = new Map<string, { mission: Row; course: Row }>();
+    for (const mission of world.missions) {
+      const module = world.learning_modules.find((entry) => entry.id === mission.module_id);
       const course = world.courses.find((entry) => entry.id === module?.course_id);
-      if (!published(module) || !published(course) || !course) return undefined;
-      result = {
-        ...result,
-        learning_modules: {
-          courses: {
-            stable_id: course.stable_id,
-            title: course.title,
-            publication_state: course.publication_state
-          }
-        }
-      };
+      if (!published(mission) || !published(module) || !published(course) || !course) continue;
+      const incumbent = current.get(String(mission.stable_id));
+      if (!incumbent || Number(mission.version) > Number(incumbent.mission.version)) {
+        current.set(String(mission.stable_id), { mission, course });
+      }
     }
-    return result;
+    return [...current.values()].sort((a, b) =>
+      String(a.mission.stable_id) < String(b.mission.stable_id) ? -1 : 1
+    );
+  };
+
+  const stepMatches = (body: string, args: Record<string, unknown>): boolean =>
+    ((args.p_phrases as string[]) ?? []).some((phrase) =>
+      body.toLowerCase().includes(phrase.trim().toLowerCase())
+    ) ||
+    ((args.p_acronyms as string[]) ?? [])
+      .filter((term) => /^[A-Za-z0-9]+$/.test(term))
+      .some((term) => new RegExp(`\\b${term}s?\\b`, "i").test(body));
+
+  const rpcRows = (name: string, args: Record<string, unknown>): Row[] => {
+    const after = options.ignoreCursor ? null : (args.p_after as string | null);
+    const pageSize = Math.min(Math.max(Number(args.p_page_size ?? 50), 1), 100);
+    const missions = currentMissions().filter(
+      ({ mission }) => after === null || String(mission.stable_id) > after
+    );
+
+    if (name === "search_published_mission_steps") {
+      const rows: Row[] = [];
+      for (const { mission, course } of missions) {
+        const step = world.mission_steps
+          .filter((entry) => entry.mission_id === mission.id)
+          .sort((a, b) => Number(a.position) - Number(b.position))
+          .find((entry) => stepMatches(stepSearchableText(entry.payload as Row), args));
+        if (!step) continue;
+        rows.push({
+          mission_stable_id: mission.stable_id,
+          mission_version: mission.version,
+          mission_title: mission.title,
+          mission_description: mission.description,
+          mission_publication_state: mission.publication_state,
+          mission_updated_at: mission.updated_at,
+          course_title: course.title,
+          step_stable_id: step.stable_id,
+          step_position: step.position,
+          step_payload: step.payload
+        });
+      }
+      return rows.slice(0, pageSize);
+    }
+
+    if (name === "published_mission_contexts") {
+      const wanted = (args.p_stable_ids as string[]) ?? [];
+      return missions
+        .filter(({ mission }) => wanted.includes(String(mission.stable_id)))
+        .map(({ mission, course }) => ({
+          mission_stable_id: mission.stable_id,
+          mission_version: mission.version,
+          mission_title: mission.title,
+          course_title: course.title
+        }))
+        .slice(0, pageSize);
+    }
+
+    throw new Error(`unexpected database function: ${name}`);
   };
 
   const client = {
+    rpc: (name: string, args: Record<string, unknown>) => {
+      reads.push({ table: `rpc:${name}`, select: "", eqs: [], args });
+      return Promise.resolve({ data: cap(rpcRows(name, args)), error: null });
+    },
     from: (table: keyof World) => {
       const record: ReadRecord = { table, select: "", eqs: [] };
       let narrowed: { column: string; values: unknown[] } | undefined;
@@ -194,10 +236,7 @@ function database(world: World, options: { hostile?: boolean } = {}) {
         record.limit = value;
         reads.push(record);
 
-        let rows = world[table]
-          .filter((row) => visible(table, row))
-          .map((row) => embed(table, record.select, row))
-          .filter((row): row is Row => row !== undefined);
+        let rows = world[table].filter((row) => visible(row));
 
         if (!hostile) {
           rows = rows.filter((row) =>
@@ -251,7 +290,7 @@ function database(world: World, options: { hostile?: boolean } = {}) {
 async function search(
   world: World,
   input: CurriculumSearchInput,
-  options: { hostile?: boolean } = {}
+  options: DatabaseOptions = {}
 ) {
   const { createUserScopedSupabaseClient } = await import("./supabase");
   const db = database(world, options);
@@ -382,8 +421,8 @@ describe("criterion 2: arp gives the same results as ARP", () => {
     const lower = await search(world, { query: "arp" });
 
     expect(idsOf(lower.results)).toEqual(idsOf(upper.results));
-    expect(lower.db.reads.map((read) => read.or)).toEqual(
-      upper.db.reads.map((read) => read.or)
+    expect(lower.db.reads.map((read) => [read.or, read.args])).toEqual(
+      upper.db.reads.map((read) => [read.or, read.args])
     );
   });
 });
@@ -428,6 +467,11 @@ describe("criterion 3: sharp does not return ARP results", () => {
       expect(idsOf(results)).not.toContain("course-sharp-habits");
       for (const read of db.reads) {
         expect(read.or ?? "").not.toMatch(/ilike\.%ARP/i);
+      }
+      // The step-search function receives the acronym as a whole word only.
+      for (const read of db.reads.filter((entry) => entry.table === STEP_RPC)) {
+        expect(read.args?.p_acronyms).toEqual(["ARP"]);
+        expect(read.args?.p_phrases).not.toContainEqual(expect.stringMatching(/^arp/i));
       }
     });
   }
@@ -518,26 +562,28 @@ describe("criterion 5: text from an unpublished step is never returned", () => {
 
     expect(results.count).toBe(0);
     expect(JSON.stringify(results)).not.toContain("obsidianlynx");
-    const stepRead = db.reads.find((read) => read.table === "mission_steps");
-    expect(stepRead?.or).not.toContain("expectedOutcome");
-    expect(stepRead?.or).not.toContain("questions");
+    const stepRead = db.reads.find((read) => read.table === STEP_RPC);
+    expect(Object.keys(stepRead?.args ?? {}).sort()).toEqual([
+      "p_acronyms",
+      "p_after",
+      "p_page_size",
+      "p_phrases"
+    ]);
   });
 
   it("every read states the publication requirement and uses the caller's token", async () => {
     const { db } = await search(networkingWorld(), { query: "ARP" });
 
     expect(db.token()).toBe(ACCESS_TOKEN);
-    const stepRead = db.reads.find((read) => read.table === "mission_steps");
-    expect(stepRead?.eqs).toContainEqual(["missions.publication_state", "published"]);
-    expect(stepRead?.select).toContain("missions!inner(");
-    for (const condition of stepRead?.or?.split(",") ?? []) {
-      expect(condition).toMatch(/^payload->>[A-Za-z]+\.(ilike|imatch)\./);
+    const functionReads = db.reads.filter((read) => read.table.startsWith("rpc:"));
+    expect(functionReads.map((read) => read.table)).toContain(STEP_RPC);
+    for (const read of functionReads) {
+      expect([STEP_RPC, CONTEXT_RPC]).toContain(read.table);
+      expect(read.args?.p_page_size).toBe(STEP_SEARCH_PAGE_SIZE);
     }
 
-    for (const read of db.reads.filter((entry) => entry.table !== "mission_steps")) {
+    for (const read of db.reads.filter((entry) => !entry.table.startsWith("rpc:"))) {
       expect(read.eqs).toContainEqual(["publication_state", "published"]);
-    }
-    for (const read of db.reads) {
       expect(read.limit).toBeGreaterThan(0);
     }
   });
@@ -550,9 +596,14 @@ describe("criterion 5: text from an unpublished step is never returned", () => {
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
     expect(code).not.toContain("createServerSupabaseClient");
-    for (const write of [".insert(", ".update(", ".upsert(", ".delete(", ".rpc("]) {
+    for (const write of [".insert(", ".update(", ".upsert(", ".delete(", ".from("]) {
       expect(code).not.toContain(write);
     }
+    // One call site, reached only with the two read-only search functions,
+    // whose SQL `wp005-step-search-sql.test.ts` checks.
+    expect(code.match(/\.rpc\(/g)).toHaveLength(1);
+    expect(code).toContain('STEP_SEARCH_FUNCTION = "search_published_mission_steps"');
+    expect(code).toContain('MISSION_CONTEXT_FUNCTION = "published_mission_contexts"');
   });
 });
 
@@ -743,10 +794,9 @@ describe("version resolution for step matches", () => {
 
 describe("step retrieval sees the decoded text the re-check matches", () => {
   /**
-   * `payload->>paragraphs` is the array's JSON text, so the stand-in database
-   * matches against `jsonbText`: quotes, backslashes and control characters
-   * arrive escaped, and no field is whitespace-compacted. The re-check matches
-   * decoded, compacted text. Retrieval must never be the narrower of the two.
+   * The database function matches decoded, whitespace-compacted text, never a
+   * field's escaped JSON. These cases run against real PostgreSQL in
+   * `curriculum-step-search.db.test.ts`; here they pin the service's handling.
    */
   function oneStepWorld(payload: Row): World {
     const course = node("c", "Course");
@@ -913,7 +963,6 @@ describe("retrieval bounds never hide an eligible mission", () => {
       const missionA = node("mission-a", "Alpha", { module_id: module.id });
       return {
         missions: [missionZ, missionY, missionA],
-        // limit 2 means pages of 8: Z and Y fill the whole first page.
         mission_steps: [
           ...matchingSteps(missionZ, 4),
           ...matchingSteps(missionY, 4),
@@ -922,10 +971,11 @@ describe("retrieval bounds never hide an eligible mission", () => {
       };
     });
 
-    const { results, db } = await search(world, { query: "ARP", limit: 2 });
+    // A server cap of one row per response forces a page per mission.
+    const { results, db } = await search(world, { query: "ARP", limit: 2 }, { maxRows: 1 });
 
     expect(idsOf(results)).toEqual(["mission-a", "mission-y"]);
-    expect(db.reads.filter((read) => read.table === "mission_steps").length).toBeGreaterThan(1);
+    expect(db.reads.filter((read) => read.table === STEP_RPC).length).toBeGreaterThan(1);
   });
 
   it("a mission with many versions does not starve another of its version", async () => {
@@ -951,12 +1001,90 @@ describe("retrieval bounds never hide an eligible mission", () => {
   });
 });
 
+describe("a server row cap never ends a function read early", () => {
+  /**
+   * Review finding: offset pages sized `stableIds.length * 4` treated a page a
+   * server shortened as the last one, so later missions lost their version and
+   * course context and their step matches were dropped. Keyset pages read on
+   * until an empty page, so any cap only adds pages.
+   */
+  function cappedWorld(): World {
+    const course = node("c", "Capped course");
+    const module = node("m", "Module", { course_id: course.id });
+    const missions: Row[] = [];
+    const steps: Row[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const stableId = `mission-step-${index}`;
+      // Three published versions each; only the current one teaches ARP.
+      const versions = [1, 2, 3].map((version) =>
+        node(stableId, `Step mission ${index}`, { module_id: module.id, version })
+      );
+      missions.push(...versions);
+      steps.push(
+        step(versions[0] as Row, 0, { type: "concept", paragraphs: ["Ordinary prose."] }),
+        step(versions[2] as Row, 0, { type: "concept", paragraphs: ["A host sends ARP here."] })
+      );
+    }
+    for (let index = 0; index < 5; index += 1) {
+      for (const version of [1, 2]) {
+        missions.push(
+          node(`mission-title-${index}`, `ARP by title ${index}`, {
+            module_id: module.id,
+            version
+          })
+        );
+      }
+    }
+    return {
+      learning_paths: [],
+      courses: [course],
+      learning_modules: [module],
+      missions,
+      competencies: [],
+      mission_steps: steps
+    };
+  }
+
+  it("finds every step match and every mission's course when responses are capped", async () => {
+    const { results, db } = await search(cappedWorld(), { query: "ARP", limit: 50 }, { maxRows: 2 });
+
+    const ids = idsOf(results);
+    for (let index = 0; index < 6; index += 1) expect(ids).toContain(`mission-step-${index}`);
+    for (let index = 0; index < 5; index += 1) expect(ids).toContain(`mission-title-${index}`);
+    for (const location of results.matchLocations ?? []) {
+      expect(location.trail[0]).toEqual({ kind: "course", title: "Capped course" });
+    }
+    // More than one page of each, and every page after the first is keyed on
+    // the last stable id already received.
+    const stepPages = db.reads.filter((read) => read.table === STEP_RPC);
+    const contextPages = db.reads.filter((read) => read.table === CONTEXT_RPC);
+    expect(stepPages.length).toBeGreaterThan(2);
+    expect(contextPages.length).toBeGreaterThan(2);
+    expect(stepPages[0]?.args?.p_after).toBeNull();
+    expect(stepPages[1]?.args?.p_after).toBe("mission-step-1");
+  });
+
+  it("returns the same results capped and uncapped", async () => {
+    const uncapped = await search(cappedWorld(), { query: "ARP", limit: 50 });
+    vi.resetModules();
+    const capped = await search(cappedWorld(), { query: "ARP", limit: 50 }, { maxRows: 1 });
+
+    expect(idsOf(capped.results)).toEqual(idsOf(uncapped.results));
+    expect(capped.results.matchLocations).toEqual(uncapped.results.matchLocations);
+  });
+
+  it("a server that ignores the cursor fails closed instead of looping", async () => {
+    await expect(
+      search(cappedWorld(), { query: "ARP" }, { maxRows: 2, ignoreCursor: true })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+  });
+});
+
 describe("performance: the service's own work stays well inside 500 ms", () => {
   /**
-   * In-process only. This measures the service's matching, resolution,
-   * ranking and location work over a fixture larger than today's content. It
-   * does NOT measure PostgreSQL; the local-stack timing needs a running
-   * database and is recorded as not observed.
+   * In-process only. This measures the service's resolution, ranking and
+   * location work over a fixture larger than today's content. It does NOT
+   * measure PostgreSQL; `curriculum-step-search.db.test.ts` does, in CI.
    */
   it("searches 800 published steps in under 500 ms", async () => {
     const course = node("c", "Course");

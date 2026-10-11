@@ -973,9 +973,25 @@ if echo "$ABSENCE_SCAN" | grep -qiE 'tsvector|to_tsquery|pg_trgm|materialized vi
 fi
 
 # No Search migration, and the migration set is unchanged in count.
+#
+# One exception, by name: Founder direction G-001 (WP-005 repair) moved
+# step-body matching and pagination into read-only SECURITY INVOKER functions.
+# That file may add functions and their grants only — no table, index, policy,
+# persisted search state or privileged execution — and every other Search
+# migration is still refused.
+G001_SEARCH_MIGRATION="supabase/migrations/20261011000100_curriculum_step_search_functions.sql"
 SEARCH_MIGRATIONS="$(ls supabase/migrations/*search*.sql supabase/migrations/*rank*.sql \
-  supabase/migrations/*facet*.sql supabase/migrations/*index*.sql 2>/dev/null | wc -l | tr -d ' ' || true)"
+  supabase/migrations/*facet*.sql supabase/migrations/*index*.sql 2>/dev/null \
+  | grep -vxF "$G001_SEARCH_MIGRATION" | wc -l | tr -d ' ' || true)"
 [ "$SEARCH_MIGRATIONS" = "0" ] || fail "a Search-specific database migration exists"
+if [ -f "$G001_SEARCH_MIGRATION" ]; then
+  G001_CODE="$(sed 's/--.*$//' "$G001_SEARCH_MIGRATION" | tr '[:upper:]' '[:lower:]')"
+  if echo "$G001_CODE" | grep -qE 'security definer|create (unique )?index|create table|create materialized|create policy|alter table|tsvector|to_tsquery|pg_trgm|create extension'; then
+    fail "the G-001 step-search migration does more than define read-only functions"
+  fi
+  echo "$G001_CODE" | grep -qF 'security invoker' \
+    || fail "the G-001 step-search functions are not SECURITY INVOKER"
+fi
 
 # No dependency was added for Search.
 for forbidden in elasticsearch opensearch algolia meilisearch redis \

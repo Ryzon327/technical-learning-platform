@@ -1,10 +1,8 @@
 import {
   AppError,
-  MISSION_STEP_TYPES,
   buildCurriculumMatchSnippet,
   compactCurriculumMatchText,
   decideFromAuthoritativeRead,
-  escapeCurriculumSearchPattern,
   type CurriculumMatchTrailEntry,
   type CurriculumQueryVariant,
   type CurriculumSearchCandidate,
@@ -12,11 +10,7 @@ import {
   type SearchDocument,
   type SearchPermissionedCandidate
 } from "@tlp/shared-types";
-import {
-  findFirstMatch,
-  wordPatternFor,
-  type RetrievalPattern
-} from "./search-aliases";
+import { findFirstMatch, type RetrievalPattern } from "./search-aliases";
 import type { createUserScopedSupabaseClient } from "./supabase";
 
 /**
@@ -31,15 +25,34 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  * questions and their authored answers, interaction parameters — are listed in
  * `UNSEARCHED_STEP_FIELDS` and never reach a pattern or a snippet.
  *
+ * ## Matching and pagination live in PostgreSQL (Founder direction G-001)
+ *
+ * `supabase/migrations/20261011000100_curriculum_step_search_functions.sql`
+ * defines two read-only, SECURITY INVOKER functions:
+ *
+ *   search_published_mission_steps   matches the decoded searchable text of
+ *                                    every step of each mission's CURRENT
+ *                                    published version, and returns one row per
+ *                                    matching mission: its earliest matching
+ *                                    step, with the mission and course
+ *   published_mission_contexts       the current published version and course
+ *                                    of missions found by their own record
+ *
+ * Both return rows in mission stable-id order and page by KEYSET: the next page
+ * is "after the last stable id received", and reading stops only at an empty
+ * page. A page shortened by any server row cap (PostgREST `max-rows`) therefore
+ * never ends the read early and never skips a mission. The page size asked for
+ * is fixed and small (`STEP_SEARCH_PAGE_SIZE`), not derived from the request.
+ *
  * ## Published-only, twice
  *
- * Reads go through the caller's own RLS-scoped client, handed in by
- * `searchCurriculum`. `mission_steps` is readable only when its owning mission
- * is published (DEC-054), and every curriculum node is readable only when
- * published. On top of that, each query states the publication requirement,
- * and every returned row is re-checked here: a step whose mission is not
- * published, or whose mission is not the highest published version, is
- * dropped. No service-role client exists on this path.
+ * The functions are called through the caller's own RLS-scoped client, handed
+ * in by `searchCurriculum`, and run with the caller's role, so the published-
+ * only policies on every curriculum table and on `mission_steps` decide what
+ * they can see. Each also states the publication requirement itself. Every
+ * returned row is then re-checked here: a row whose mission is not published,
+ * or that names no published course, is dropped. No service-role client exists
+ * on this path.
  *
  * ## What a step match becomes
  *
@@ -53,18 +66,9 @@ import type { createUserScopedSupabaseClient } from "./supabase";
  *
  * ## Performance approach
  *
- * Matching runs in PostgreSQL at query time: escaped `ILIKE` for phrases and a
- * whole-word `~*` pattern for acronyms, over the JSON text fields of published
- * steps. Those fields are raw, and an array field is its escaped JSON text, so
- * the database is asked only for what must survive that form
- * (`buildStepRetrievalConditions`) and the exact match is decided here. Steps are read in deterministic pages of `limit * 4` rows until the
- * matches run out, so repeated or stale matches can never crowd out another
- * mission, and no mission is dropped before the final stable-id ranking sees
- * it. At the current content size (two courses,
- * a few hundred steps) a sequential scan is well inside the 500 ms budget, so
- * no index, extension or migration is added. If content grows by orders of
- * magnitude, a trigram or full-text index is the next step and would need its
- * own approved migration.
+ * A sequential scan over the current published steps inside PostgreSQL; see
+ * the migration. `curriculum-step-search.db.test.ts` measures it against a real
+ * database in CI. No index or extension is added.
  *
  * Learner queries are never persisted or written anywhere. No AI.
  */
@@ -100,26 +104,37 @@ export const UNSEARCHED_STEP_FIELDS = [
   "uri"
 ] as const;
 
+/** The read-only database functions this module calls, and nothing else. */
+export const STEP_SEARCH_FUNCTION = "search_published_mission_steps";
+export const MISSION_CONTEXT_FUNCTION = "published_mission_contexts";
+
+/**
+ * Rows asked for per page. The functions cap a page at 100; Supabase's default
+ * PostgREST `max-rows` is 1000. Keyset paging stays correct under any smaller
+ * cap, which only costs extra pages.
+ */
+export const STEP_SEARCH_PAGE_SIZE = 50;
+
 const STEP_LABEL_MAX_LENGTH = 80;
 
-interface StepRow {
-  stable_id: string;
-  position: number;
-  step_type: string;
-  payload: Record<string, unknown> | null;
-  missions: { stable_id: string; version: number; publication_state: string } | null;
+interface StepMatchRow {
+  mission_stable_id: string;
+  mission_version: number;
+  mission_title: string;
+  mission_description: string | null;
+  mission_publication_state: string;
+  mission_updated_at: string;
+  course_title: string | null;
+  step_stable_id: string;
+  step_position: number;
+  step_payload: Record<string, unknown> | null;
 }
 
-interface MissionRow {
-  stable_id: string;
-  version: number;
-  title: string;
-  description: string | null;
-  publication_state: string;
-  updated_at: string;
-  learning_modules: {
-    courses: { stable_id: string; title: string; publication_state: string } | null;
-  } | null;
+interface MissionContextRow {
+  mission_stable_id: string;
+  mission_version: number;
+  mission_title: string;
+  course_title: string | null;
 }
 
 /** One published step that matched, ready to be shown as a location. */
@@ -170,62 +185,31 @@ export function stepSearchableText(payload: Record<string, unknown>): string {
 }
 
 /**
- * Whitespace, and every character PostgreSQL writes as an escape when
- * `payload->>field` returns an array as JSON text: the quote, the backslash
- * and the control characters.
- */
-const STEP_RETRIEVAL_BREAK = /[\s"\\\u0000-\u001f]+/;
-
-/**
- * What PostgreSQL's whole-word `\y` can see in front of an acronym inside
- * serialized JSON: a real word boundary, or the letter or digits ending an
- * escape (`\n`, `\u0001`), which `stepSearchableText` decodes away.
- */
-const SERIALIZED_WORD_PREFIXES = ["\\\\[bfnrt]", "\\\\u00[0-9a-fA-F][0-9a-fA-F]"];
-
-/**
- * The part of a phrase the database is asked for.
+ * The step-search function's matching arguments.
  *
- * `stepSearchableText` matches against DECODED, whitespace-compacted text
- * joined across fields, but `payload->>paragraphs` is the array's JSON text,
- * with quotes, backslashes and control characters escaped, and no field is
- * compacted. Only a run containing none of those characters is guaranteed to
- * appear verbatim in the database's text whenever the phrase appears in the
- * decoded text, so the longest such run is retrieved and the full phrase is
- * re-checked here. A phrase with no such run retrieves every step carrying the
- * field (`%%`), which is still re-checked.
+ * `patterns` and `variants` are parallel. A whole-word pattern contributes its
+ * validated acronym DATA member; every other variant contributes its own
+ * trimmed, unescaped text, which the function matches as a plain substring.
  */
-export function stepRetrievalFragment(value: string): string {
-  let longest = "";
-  for (const run of value.split(STEP_RETRIEVAL_BREAK)) {
-    if (run.length > longest.length) longest = run;
-  }
-  return longest;
-}
-
-/**
- * The step-body `or` conditions. Never narrower than the re-check: every step
- * whose decoded searchable text matches a variant satisfies at least one.
- */
-export function buildStepRetrievalConditions(
+export function buildStepSearchArguments(
   patterns: readonly RetrievalPattern[],
   variants: readonly CurriculumQueryVariant[]
-): string {
-  const columns = SEARCHABLE_STEP_TEXT_FIELDS.map((field) => `payload->>${field}`);
-  return patterns
-    .flatMap((pattern, index) => {
-      if (pattern.mode === "word") {
-        const word = wordPatternFor(pattern.term);
-        const unbounded = word.slice("\\y".length);
-        return [word, ...SERIALIZED_WORD_PREFIXES.map((prefix) => `${prefix}${unbounded}`)]
-          .flatMap((regex) => columns.map((column) => `${column}.imatch.${regex}`));
-      }
-      const fragment = escapeCurriculumSearchPattern(
-        stepRetrievalFragment(variants[index]?.value ?? "")
-      );
-      return columns.map((column) => `${column}.ilike.%${fragment}%`);
-    })
-    .join(",");
+): { p_phrases: string[]; p_acronyms: string[] } {
+  const phrases: string[] = [];
+  const acronyms: string[] = [];
+  patterns.forEach((pattern, index) => {
+    if (pattern.mode === "word") {
+      if (!acronyms.includes(pattern.term)) acronyms.push(pattern.term);
+      return;
+    }
+    // Matching is case-insensitive, so phrases differing only in case are one.
+    const value = variants[index]?.value.trim() ?? "";
+    const key = value.toLowerCase();
+    if (value !== "" && !phrases.some((phrase) => phrase.toLowerCase() === key)) {
+      phrases.push(value);
+    }
+  });
+  return { p_phrases: phrases, p_acronyms: acronyms };
 }
 
 /** A learner-readable name for a step: its own title or label, else its number. */
@@ -243,44 +227,34 @@ export function stepLabelOf(payload: Record<string, unknown>, position: number):
 }
 
 /**
- * The highest published version, with its published course context, of every
- * requested mission.
+ * Every row of one keyset-paged function, in stable-id order.
  *
- * Every published version row of the requested missions is read, in
- * deterministic pages, until the rows run out. No cap is shared across
- * missions, so a mission with many versions can never crowd another out.
- * Embedded resources are inner joins, so a mission whose module or course is
- * not readable to this caller is not returned at all.
+ * Reads until a page comes back empty. A short page is NOT treated as the end,
+ * because a server row cap can shorten any page. A page that fails to advance
+ * the cursor is refused rather than looped on. Ordering itself is the
+ * database's collation order, so it is never re-compared here.
  */
-async function readHighestPublishedMissions(
+async function readAllPages<Row extends { mission_stable_id: string }>(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
-  stableIds: readonly string[]
-): Promise<Map<string, MissionRow>> {
-  const highest = new Map<string, MissionRow>();
-  const pageSize = stableIds.length * 4;
-  for (let offset = 0; ; offset += pageSize) {
-    const { data, error } = await supabase
-      .from("missions")
-      .select(
-        "stable_id,version,title,description,publication_state,updated_at,learning_modules!inner(courses!inner(stable_id,title,publication_state))"
-      )
-      .in("stable_id", stableIds)
-      .eq("publication_state", "published")
-      .order("stable_id", { ascending: true })
-      .order("version", { ascending: false })
-      .range(offset, offset + pageSize - 1);
-
+  fn: string,
+  args: Record<string, unknown>
+): Promise<Row[]> {
+  const rows: Row[] = [];
+  let after: string | null = null;
+  for (;;) {
+    const { data, error } = await supabase.rpc(fn, {
+      ...args,
+      p_after: after,
+      p_page_size: STEP_SEARCH_PAGE_SIZE
+    });
     if (error) throw unavailable();
-    const rows = (data ?? []) as unknown as MissionRow[];
+    const page = (data ?? []) as unknown as Row[];
+    if (page.length === 0) return rows;
 
-    for (const row of rows) {
-      if (row.publication_state !== "published") continue;
-      if (!stableIds.includes(row.stable_id)) continue;
-      const incumbent = highest.get(row.stable_id);
-      if (!incumbent || row.version > incumbent.version) highest.set(row.stable_id, row);
-    }
-
-    if (rows.length < pageSize) return highest;
+    const last = String(page[page.length - 1]?.mission_stable_id ?? "");
+    if (last === "" || last === after) throw unavailable();
+    rows.push(...page);
+    after = last;
   }
 }
 
@@ -289,124 +263,86 @@ async function readHighestPublishedMissions(
  * course context of every mission involved.
  *
  * `patterns` and `variants` are parallel: the same approved variants, as the
- * database will match them and as this module re-checks them.
+ * database matches them and as the snippet locates them.
  */
 export async function searchPublishedStepBodies(
   supabase: ReturnType<typeof createUserScopedSupabaseClient>,
   patterns: readonly RetrievalPattern[],
   variants: readonly CurriculumQueryVariant[],
-  recordMissionStableIds: readonly string[],
-  limit: number
+  recordMissionStableIds: readonly string[]
 ): Promise<StepBodySearchOutcome> {
-  const stepConditions = buildStepRetrievalConditions(patterns, variants);
-
-  const highest = new Map<string, MissionRow>();
-  const resolved = new Set<string>();
-  const resolve = async (stableIds: readonly string[]) => {
-    const fresh = [...new Set(stableIds)].filter((id) => !resolved.has(id)).sort();
-    if (fresh.length === 0) return;
-    for (const id of fresh) resolved.add(id);
-    for (const [stableId, row] of await readHighestPublishedMissions(supabase, fresh)) {
-      highest.set(stableId, row);
-    }
-  };
-  // Deterministic pages, read until the matches run out. Pages are ordered by
-  // mission row id, which is not the stable-id order the final ranking uses,
-  // so stopping early could drop a mission that ranks ahead of those already
-  // read. Reading every match means many matching steps in one mission, or
-  // matches in a stale version, can never crowd out another mission.
-  const pageSize = limit * 4;
-  const matched: StepBodyHit[] = [];
-  for (let offset = 0; ; offset += pageSize) {
-    const { data: stepData, error: stepError } = await supabase
-      .from("mission_steps")
-      .select(
-        "stable_id,position,step_type,payload,missions!inner(stable_id,version,publication_state)"
-      )
-      .eq("missions.publication_state", "published")
-      .or(stepConditions)
-      .order("mission_id", { ascending: true })
-      .order("position", { ascending: true })
-      .order("id", { ascending: true })
-      .range(offset, offset + pageSize - 1);
-
-    if (stepError) throw unavailable();
-    const rows = (stepData ?? []) as unknown as StepRow[];
-
-    // Re-check every row the database returned: published owner, a known step
-    // type, and a real match in a searchable field.
-    const pageHits: StepBodyHit[] = [];
-    for (const row of rows) {
-      if (row.missions?.publication_state !== "published") continue;
-      if (!(MISSION_STEP_TYPES as readonly string[]).includes(row.step_type)) continue;
-      if (!row.payload || typeof row.payload !== "object") continue;
-
-      const text = stepSearchableText(row.payload);
-      if (!findFirstMatch(text, variants)) continue;
-
-      pageHits.push({
-        missionStableId: String(row.missions.stable_id),
-        missionVersion: Number(row.missions.version),
-        stepStableId: String(row.stable_id),
-        position: Number(row.position),
-        stepLabel: stepLabelOf(row.payload, Number(row.position)),
-        text
-      });
-    }
-
-    await resolve(pageHits.map((hit) => hit.missionStableId));
-    matched.push(...pageHits);
-
-    if (rows.length < pageSize) break;
-  }
-
-  // The course context of every mission found by its own record, for the trail.
-  await resolve(recordMissionStableIds);
-
   const outcome: StepBodySearchOutcome = {
     candidates: [],
     hits: new Map(),
     missions: new Map()
   };
 
-  for (const [stableId, row] of highest) {
-    const course = row.learning_modules?.courses;
+  const stepRows = await readAllPages<StepMatchRow>(
+    supabase,
+    STEP_SEARCH_FUNCTION,
+    buildStepSearchArguments(patterns, variants)
+  );
+
+  // Re-check every row the database returned: a published mission with a
+  // published course, and a payload object. The first row per mission wins.
+  for (const row of stepRows) {
+    if (row.mission_publication_state !== "published") continue;
+    if (typeof row.course_title !== "string") continue;
+    if (!row.step_payload || typeof row.step_payload !== "object") continue;
+
+    const stableId = String(row.mission_stable_id);
+    if (outcome.hits.has(stableId)) continue;
+
+    const position = Number(row.step_position);
     outcome.missions.set(stableId, {
       stableId,
-      version: Number(row.version),
-      title: String(row.title),
-      ...(course && course.publication_state === "published"
-        ? { courseTitle: String(course.title) }
-        : {})
+      version: Number(row.mission_version),
+      title: String(row.mission_title),
+      courseTitle: row.course_title
     });
-  }
-
-  // Deterministic: the earliest matching step of the CURRENT published version.
-  matched.sort(
-    (a, b) =>
-      a.missionStableId.localeCompare(b.missionStableId) || a.position - b.position
-  );
-  for (const hit of matched) {
-    const row = highest.get(hit.missionStableId);
-    const course = row?.learning_modules?.courses;
-    if (!row || row.version !== hit.missionVersion) continue;
-    if (!course || course.publication_state !== "published") continue;
-    if (outcome.hits.has(hit.missionStableId)) continue;
-
-    outcome.hits.set(hit.missionStableId, hit);
+    outcome.hits.set(stableId, {
+      missionStableId: stableId,
+      missionVersion: Number(row.mission_version),
+      stepStableId: String(row.step_stable_id),
+      position,
+      stepLabel: stepLabelOf(row.step_payload, position),
+      text: stepSearchableText(row.step_payload)
+    });
     outcome.candidates.push({
       // RLS returning the row IS the authorization; this only records it.
       decision: decideFromAuthoritativeRead({ readFailed: false, found: true }),
       value: {
         contentType: "mission",
-        stableId: row.stable_id,
-        version: Number(row.version),
-        title: String(row.title),
-        ...(row.description ? { description: row.description } : {}),
-        publicationState: row.publication_state,
-        updatedAt: row.updated_at
+        stableId,
+        version: Number(row.mission_version),
+        title: String(row.mission_title),
+        ...(row.mission_description ? { description: row.mission_description } : {}),
+        publicationState: row.mission_publication_state,
+        updatedAt: row.mission_updated_at
       }
     });
+  }
+
+  // The course context of every mission found by its own record, for the trail.
+  const unresolved = [...new Set(recordMissionStableIds)]
+    .filter((stableId) => !outcome.missions.has(stableId))
+    .sort();
+  if (unresolved.length > 0) {
+    const contextRows = await readAllPages<MissionContextRow>(
+      supabase,
+      MISSION_CONTEXT_FUNCTION,
+      { p_stable_ids: unresolved }
+    );
+    for (const row of contextRows) {
+      const stableId = String(row.mission_stable_id);
+      if (!unresolved.includes(stableId) || outcome.missions.has(stableId)) continue;
+      outcome.missions.set(stableId, {
+        stableId,
+        version: Number(row.mission_version),
+        title: String(row.mission_title),
+        ...(typeof row.course_title === "string" ? { courseTitle: row.course_title } : {})
+      });
+    }
   }
 
   return outcome;

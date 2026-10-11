@@ -57,8 +57,8 @@ function row(overrides: Record<string, unknown> = {}) {
  * Chainable stand-in returning per-table rows and recording the calls made.
  *
  * WP-005 added two reads beside the four record-source reads: published step
- * bodies (`mission_steps`) and the published course context of missions (a
- * `missions` read narrowed with `.in`). Those are recorded in `contextReads`,
+ * bodies and the published course context of missions, both database
+ * functions called with `rpc`. Those are recorded in `contextReads`,
  * so `tables`, `eqCalls`, `orPatterns` and `limits` keep describing exactly the
  * four record-source reads every SEARCH-002 to SEARCH-008 assertion below is
  * about. `wp005-search.test.ts` asserts the step and context reads themselves.
@@ -107,6 +107,12 @@ function clientReturning(byTable: Record<string, unknown[]>, error?: unknown) {
     pattern.split(",").some((condition) => matchesCondition(candidate, condition));
 
   const client = {
+    // WP-005 step-body search and mission context are database functions
+    // (`curriculum-step-search.ts`); this stand-in has no steps to match.
+    rpc: (name: string) => {
+      contextReads.push(name);
+      return Promise.resolve(error ? { data: null, error } : { data: [], error: null });
+    },
     from: (name: string) => {
       const builder: Record<string, unknown> = {};
       let pattern: string | undefined;
