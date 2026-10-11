@@ -90,3 +90,25 @@ describe("criterion 10: the Decision Ledger carries the four convergence decisio
     expect(ledger).not.toMatch(/\*\*Status\*\*\n\nSuperseded/);
   });
 });
+
+describe("Founder direction G-006: the Decision Ledger records the one-concept ranking decision", () => {
+  it("DEC-073 is a new entry after DEC-072, recording the decision and what it supersedes", () => {
+    const body = entry("DEC-073");
+
+    expect(body, "DEC-073 is missing").not.toBe("");
+    expect(ledger.indexOf("## DEC-073\n")).toBeGreaterThan(ledger.indexOf("## DEC-072\n"));
+    expect(ledger.indexOf("## DEC-073\n")).toBeLessThan(ledger.indexOf("# Future Decisions"));
+    expect(ledger.split("## DEC-073\n")).toHaveLength(2);
+    expect(field(body, "Date")).toBe("2026-10-11");
+    expect(field(body, "Source")).toMatch(/^Founder decision 2026-10-11/);
+    expect(field(body, "Status")).toBe("Approved");
+
+    const prose = body.replace(/\s+/g, " ");
+    expect(prose).toContain("An acronym and its approved expansions are one concept.");
+    expect(prose).toContain("identical ordered results at every limit");
+    expect(prose).toContain("never by which form of the concept matched");
+    expect(prose).toContain(
+      'The WP-005 work-package ranking requirement "title/name matches above alias matches above step-body matches; ties stable"'
+    );
+  });
+});

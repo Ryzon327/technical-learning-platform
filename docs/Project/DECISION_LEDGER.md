@@ -4180,6 +4180,62 @@ WP-003 report (not held in this repository) · `docs/Project/PLATFORM_BLUEPRINT.
 
 ---
 
+## DEC-073
+
+**Category**
+
+Product / Search
+
+**Title**
+
+An Acronym and Its Approved Expansions Are One Concept: Identical Ordered Search Results
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-11
+
+**Source**
+
+Founder decision 2026-10-11 (Founder direction G-006, PR #69 repair)
+
+**Decision**
+
+An acronym and its approved expansions are one concept. Every query in an
+approved alias group — the acronym in any case, every expanded name, and their
+plural and possessive forms (for example ARP, arp, Address Resolution Protocol,
+ARPs, ARP's) — returns the identical ordered results at every limit. Results
+are ranked by where the match is (title/name, then description, then step
+body), never by which form of the concept matched. Ties break
+deterministically: curriculum order (content type), then stable id.
+
+**Supersedes**
+
+The WP-005 work-package ranking requirement "title/name matches above alias
+matches above step-body matches; ties stable", for queries in an approved alias
+group. No earlier Decision Ledger entry is changed.
+
+**Impact**
+
+`services/api/src/curriculum-search.ts` gives every record match of an
+alias-group query one match class and every title match one title tier, so the
+existing SEARCH-008 comparator orders those results by match location and then
+by SEARCH-002's neutral order. Queries outside the alias data set keep the
+SEARCH-005 / SEARCH-008 ranking unchanged. Real-database tests prove ARP and
+Address Resolution Protocol, and VLAN and Virtual Local Area Network, return the
+identical ordered results at limit 1, 2, 3 and the full list.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-046, DEC-071 ·
+`services/api/data/search-acronym-aliases.json` ·
+`services/api/src/curriculum-step-search.db.test.ts`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.
