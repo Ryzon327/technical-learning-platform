@@ -1,0 +1,89 @@
+{
+  "dataSet": "tlp-search-acronym-aliases",
+  "version": 1,
+  "description": "WP-005 reviewed alias data for curriculum search. One group per entry; every member of a group is equivalent to every other member, in both directions. Loaded server-side only by services/api/src/search-aliases.ts. Extending the set is a data change: add a group or a member here, and the data-driven tests check the whole file.",
+  "review": {
+    "proposedBy": "Claude Code, WP-005",
+    "proposedOn": "2026-10-10",
+    "codexReview": "pending",
+    "founderSpotCheck": "pending"
+  },
+  "groups": [
+    {
+      "members": ["ARP", "Address Resolution Protocol"],
+      "source": "WP-005 Appendix A seed group 1"
+    },
+    {
+      "members": ["IP", "Internet Protocol"],
+      "source": "WP-005 Appendix A seed group 2"
+    },
+    {
+      "members": ["MAC", "Media Access Control"],
+      "source": "WP-005 Appendix A seed group 3"
+    },
+    {
+      "members": ["DNS", "Domain Name System"],
+      "source": "WP-005 Appendix A seed group 4"
+    },
+    {
+      "members": ["DHCP", "Dynamic Host Configuration Protocol"],
+      "source": "WP-005 Appendix A seed group 5"
+    },
+    {
+      "members": ["TCP", "Transmission Control Protocol"],
+      "source": "WP-005 Appendix A seed group 6"
+    },
+    {
+      "members": ["UDP", "User Datagram Protocol"],
+      "source": "WP-005 Appendix A seed group 7"
+    },
+    {
+      "members": ["ICMP", "Internet Control Message Protocol"],
+      "source": "WP-005 Appendix A seed group 8"
+    },
+    {
+      "members": ["NAT", "Network Address Translation"],
+      "source": "WP-005 Appendix A seed group 9"
+    },
+    {
+      "members": ["CIDR", "Classless Inter-Domain Routing"],
+      "source": "WP-005 Appendix A seed group 10"
+    },
+    {
+      "members": ["VLAN", "Virtual LAN", "Virtual Local Area Network"],
+      "source": "WP-005 Appendix A seed group 11"
+    },
+    {
+      "members": ["LAN", "Local Area Network"],
+      "source": "WP-005 Appendix A seed group 12"
+    },
+    {
+      "members": ["WAN", "Wide Area Network"],
+      "source": "WP-005 Appendix A seed group 13"
+    },
+    {
+      "members": ["default gateway", "gateway"],
+      "source": "WP-005 Appendix A seed group 14 (a term pair, not an acronym)"
+    },
+    {
+      "members": ["AD", "Active Directory"],
+      "source": "Existing alias, preserved: SEARCH-005 section 2 \"AD / Active Directory\""
+    },
+    {
+      "members": ["PC", "personal computer"],
+      "source": "Course content acronym (Networking Foundations, Router-on-a-Stick); expansion proposed in WP-005"
+    },
+    {
+      "members": ["IPv4", "Internet Protocol version 4"],
+      "source": "Course content acronym (Networking Foundations, Router-on-a-Stick); expansion proposed in WP-005"
+    },
+    {
+      "members": ["IEEE", "Institute of Electrical and Electronics Engineers"],
+      "source": "Course content acronym (Router-on-a-Stick); expansion proposed in WP-005"
+    },
+    {
+      "members": ["ID", "identifier"],
+      "source": "Course content acronym (Router-on-a-Stick, \"VLAN IDs\"); expansion proposed in WP-005"
+    }
+  ]
+}
