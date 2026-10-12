@@ -3,10 +3,10 @@ import {
   type TopologyLayout
 } from "./topology-layout";
 import {
-  isNearTransferAnswerCorrect,
+  MISSION_VERSION_UNAVAILABLE_REASON,
   type LearnerMissionStep,
   type LearnerNearTransferStep,
-  type NearTransferQuestion,
+  type NearTransferCheckResult,
   type NearTransferTopology,
   type ObservationModel
 } from "@tlp/shared-types";
@@ -41,12 +41,35 @@ export interface NearTransferState {
    * for the previous one, which is the crowded screen this activity avoids.
    */
   readonly acknowledged: readonly string[];
+  /**
+   * The server's verdict and feedback for each committed question (WP-008).
+   *
+   * The lesson payload carries no answers (DEC-074), so this is the only
+   * place a verdict or an explanation can come from — never the answer — and
+   * it is filled only by `commitAnswer` — after the learner has chosen.
+   */
+  readonly results: Readonly<Record<string, NearTransferCheckResult>>;
+  /** The question whose answer is with the server right now, or null. */
+  readonly checking: string | null;
+  /** The question whose last check failed to reach a verdict, or null. */
+  readonly checkFailed: string | null;
+  /**
+   * G-009 — the question whose check was refused because the mission version
+   * this lesson was served at is no longer published, or null. Distinct from
+   * `checkFailed`: resubmitting can never succeed, so the learner is offered a
+   * reload rather than a retry.
+   */
+  readonly versionUnavailable: string | null;
 }
 
 export const INITIAL_NEAR_TRANSFER_STATE: NearTransferState = {
   selection: {},
   committed: [],
-  acknowledged: []
+  acknowledged: [],
+  results: {},
+  checking: null,
+  checkFailed: null,
+  versionUnavailable: null
 };
 
 /**
@@ -55,7 +78,8 @@ export const INITIAL_NEAR_TRANSFER_STATE: NearTransferState = {
  * A single-choice question replaces the selection; a multiple-choice one adds
  * or removes. A committed question is frozen — the learner has been told the
  * answer, so changing the selection afterwards would let them rewrite history
- * against feedback they have already read.
+ * against feedback they have already read. So is one being checked: the
+ * verdict on its way back is about the selection that was sent.
  */
 export function toggleOption(
   state: NearTransferState,
@@ -63,6 +87,7 @@ export function toggleOption(
   optionId: string
 ): NearTransferState {
   if (state.committed.includes(question.questionStableId)) return state;
+  if (state.checking === question.questionStableId) return state;
 
   const current = state.selection[question.questionStableId] ?? [];
 
@@ -88,26 +113,119 @@ export function isSelected(
   return (state.selection[questionStableId] ?? []).includes(optionId);
 }
 
-/** Whether the learner has chosen anything yet for this question. */
+/**
+ * Whether the learner has chosen anything yet for this question, and is not
+ * already waiting for the server to check it.
+ */
 export function canCommit(
   state: NearTransferState,
   questionStableId: string
 ): boolean {
   return (
     !state.committed.includes(questionStableId) &&
+    state.checking !== questionStableId &&
     (state.selection[questionStableId] ?? []).length > 0
   );
 }
 
-/** Record that the learner has answered. Idempotent, and never undone. */
-export function commitAnswer(
+/**
+ * The learner pressed Submit: their answer is on its way to the server.
+ *
+ * Clears an earlier failure for the same question, because they are trying
+ * again. Refused exactly where `canCommit` refuses.
+ */
+export function beginCheck(
   state: NearTransferState,
   questionStableId: string
 ): NearTransferState {
-  if (state.committed.includes(questionStableId)) return state;
-  if ((state.selection[questionStableId] ?? []).length === 0) return state;
+  if (!canCommit(state, questionStableId)) return state;
 
-  return { ...state, committed: [...state.committed, questionStableId] };
+  return {
+    ...state,
+    checking: questionStableId,
+    checkFailed: null,
+    versionUnavailable: null
+  };
+}
+
+/**
+ * The server could not reach a verdict. The question stays open, with the
+ * learner's selection intact, so they can submit it again. Nothing is
+ * committed and no verdict is invented.
+ */
+export function failCheck(
+  state: NearTransferState,
+  questionStableId: string
+): NearTransferState {
+  if (state.checking !== questionStableId) return state;
+
+  return { ...state, checking: null, checkFailed: questionStableId };
+}
+
+/**
+ * G-009 — the server refused to judge because the mission version this lesson
+ * was served at is no longer published. Like `failCheck`, nothing is committed
+ * and no verdict is invented; unlike it, the learner is told to reload, not to
+ * submit again.
+ */
+export function failCheckVersionUnavailable(
+  state: NearTransferState,
+  questionStableId: string
+): NearTransferState {
+  if (state.checking !== questionStableId) return state;
+
+  return { ...state, checking: null, versionUnavailable: questionStableId };
+}
+
+/**
+ * Whether a rejected check is the server's version-unavailable refusal: a
+ * `CONFLICT` whose `details.reason` is `MISSION_VERSION_UNAVAILABLE_REASON`.
+ *
+ * Read structurally, from the fields the API client passes through verbatim,
+ * so this module still imports no client and reaches no service. Any other
+ * failure is an ordinary failed check.
+ */
+export function isMissionVersionUnavailable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, details } = error as { code?: unknown; details?: unknown };
+  return (
+    code === "CONFLICT" &&
+    typeof details === "object" &&
+    details !== null &&
+    (details as { reason?: unknown }).reason ===
+      MISSION_VERSION_UNAVAILABLE_REASON
+  );
+}
+
+/**
+ * Record that the learner has answered, with the server's verdict on the
+ * selection that was sent. Idempotent, and never undone.
+ *
+ * `selected` is what was CHECKED, and it is what is kept: the feedback on
+ * screen is always about the answer the server judged.
+ */
+export function commitAnswer(
+  state: NearTransferState,
+  questionStableId: string,
+  selected: readonly string[],
+  result: NearTransferCheckResult
+): NearTransferState {
+  if (state.committed.includes(questionStableId)) return state;
+  if (selected.length === 0) return state;
+
+  return {
+    ...state,
+    selection: { ...state.selection, [questionStableId]: selected },
+    committed: [...state.committed, questionStableId],
+    results: { ...state.results, [questionStableId]: result },
+    checking: state.checking === questionStableId ? null : state.checking,
+    checkFailed:
+      state.checkFailed === questionStableId ? null : state.checkFailed,
+    versionUnavailable:
+      state.versionUnavailable === questionStableId
+        ? null
+        : state.versionUnavailable
+  };
 }
 
 /** Move past the feedback for one question. Idempotent. */
@@ -625,11 +743,37 @@ export function describeCommitLabel(): string {
 }
 
 /**
+ * What a learner is told when their answer could not be checked.
+ *
+ * Mechanical interface copy, not curriculum. It names the failure honestly
+ * and what to do; it never guesses a verdict.
+ */
+export function describeCheckFailure(): string {
+  return "Your answer could not be checked. Submit it again to try once more.";
+}
+
+/**
+ * G-009 — what a learner is told when the lesson they have open was replaced
+ * by a newer version, so their answer cannot be judged against it.
+ *
+ * Mechanical interface copy, set by Founder direction. No verdict is guessed,
+ * and it deliberately does not say "submit it again": that can never succeed.
+ */
+export function describeVersionUnavailable(): string {
+  return "This activity was updated. Please reload to continue.";
+}
+
+/** The control that re-fetches the lesson after a version-unavailable check. */
+export function describeReloadLabel(): string {
+  return "Reload";
+}
+
+/**
  * The resolution of one committed question.
  *
- * Null before commitment — which is what keeps the answer and the explanation
- * off the screen until the learner has chosen. Nothing else guards it, and
- * nothing else needs to.
+ * Null before commitment. Since WP-008 the answer and the explanation are not
+ * in the browser at all until then: they arrive from the server as the
+ * verdict on the learner's own submission (DEC-074).
  */
 export interface NearTransferResolution {
   readonly correct: boolean;
@@ -637,8 +781,10 @@ export interface NearTransferResolution {
   readonly verdict: string;
   /** What the learner chose, in the authored option text. */
   readonly selected: readonly string[];
-  /** The authored answer, shown only when the learner was wrong. */
-  readonly expected: readonly string[];
+  /**
+   * The authored explanation. The authored answer itself never reaches the
+   * browser, right or wrong (DEC-074).
+   */
   readonly explanation: string;
 }
 
@@ -652,22 +798,15 @@ export function resolveQuestion(
   const question = step.questions.find(
     (candidate) => candidate.questionStableId === questionStableId
   );
-  const answer = step.answers[questionStableId];
+  const result = state.results[questionStableId];
 
-  if (question === undefined || answer === undefined) return null;
+  if (question === undefined || result === undefined) return null;
 
   const selectedIds = state.selection[questionStableId] ?? [];
 
-  // Deterministic, authored, and decided in one comparison. The shared contract
-  // owns the rule so the browser cannot disagree with anything else about it.
-  const correct = isNearTransferAnswerCorrect(
-    {
-      ...question,
-      correctOptionIds: answer.correctOptionIds,
-      explanation: answer.explanation
-    } as NearTransferQuestion,
-    selectedIds
-  );
+  // Decided on the server, by the shared authored rule, against the authored
+  // answer the browser never holds. This only renders the verdict.
+  const correct = result.correct;
 
   const textOf = (ids: readonly string[]): readonly string[] =>
     question.options
@@ -678,10 +817,7 @@ export function resolveQuestion(
     correct,
     verdict: correct ? "Correct" : "Not quite",
     selected: textOf(selectedIds),
-    // Shown only when they were wrong; a learner who was right does not need
-    // their own answer repeated back at them as "the expected answer".
-    expected: correct ? [] : textOf(answer.correctOptionIds),
-    explanation: answer.explanation
+    explanation: result.explanation
   };
 }
 

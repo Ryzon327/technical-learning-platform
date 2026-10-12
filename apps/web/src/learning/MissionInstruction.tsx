@@ -3,7 +3,9 @@ import { NearTransferStep } from "./NearTransferStep";
 import type {
   LearnerCurriculumAsset,
   LearnerMissionStep,
-  LearnerMissionStepContent
+  LearnerMissionStepContent,
+  NearTransferCheckRequest,
+  NearTransferCheckResult
 } from "@tlp/shared-types";
 import {
   buildAssetIndex,
@@ -20,8 +22,14 @@ import {
 import { InteractionSurface } from "./InteractionSurface";
 import {
   INITIAL_NEAR_TRANSFER_STATE,
+  beginCheck,
+  canCommit,
+  commitAnswer,
   describeWithheldStepsNotice,
+  failCheck,
+  failCheckVersionUnavailable,
   hasUnattemptedInstruction,
+  isMissionVersionUnavailable,
   nextInstructionStepId,
   revealedByNearTransfer,
   requiredInteraction,
@@ -44,8 +52,10 @@ import {
  * ## What it deliberately cannot do
  *
  * It holds no token, calls no service, imports no API client and reaches no
- * database. There is no `useEffect` and no fetching: every fact it renders
- * arrives as props. `LearningView` remains the one fetch and state owner in
+ * database. There is no fetching: every fact it renders arrives as props, and
+ * the one server question it asks — the verdict on a committed near-transfer
+ * answer (WP-008, DEC-074) — goes through `checkNearTransferAnswer`, a prop
+ * `LearningView` supplies. `LearningView` remains the one fetch and state owner in
  * this package, which is both the repository convention and what keeps this
  * file testable by reading it.
  *
@@ -454,6 +464,8 @@ function renderStepContent(
     readonly onChange: (
       next: (current: NearTransferState) => NearTransferState
     ) => void;
+    readonly onSubmit: (questionStableId: string) => void;
+    readonly onReload?: () => void;
   },
   /** Null unless this step is a required interaction the lesson waits on. */
   settlement: { readonly settled: boolean; readonly onSettle: () => void } | null
@@ -492,6 +504,10 @@ function renderStepContent(
           instanceId={headingId}
           state={nearTransfer.state}
           onChange={nearTransfer.onChange}
+          onSubmit={nearTransfer.onSubmit}
+          {...(nearTransfer.onReload !== undefined
+            ? { onReload: nearTransfer.onReload }
+            : {})}
         />
       );
     case "reference":
@@ -519,13 +535,36 @@ export function MissionInstruction({
   steps,
   assets,
   missionStableId,
+  missionVersion,
   instructionGeneration,
-  onRequiredInstructionChange
+  onRequiredInstructionChange,
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   steps: readonly LearnerMissionStep[];
   assets: readonly LearnerCurriculumAsset[];
   /** Namespaces heading ids so two open missions could never collide. */
   missionStableId: string;
+  /**
+   * G-009 — the `mission.version` these steps were delivered with. Every
+   * near-transfer check names it, so the server judges against exactly the
+   * lesson on screen. Echoed, never looked up or replaced.
+   */
+  missionVersion: number;
+  /**
+   * G-009 — re-fetch this lesson through the view's instruction load, offered
+   * when the server says the version on screen is no longer published.
+   */
+  onReloadInstruction?: () => void;
+  /**
+   * WP-008 — asks the server for the verdict on one committed near-transfer
+   * answer (DEC-074). Supplied by `LearningView`, which owns the session, so
+   * this component still holds no credential and calls no service itself.
+   */
+  checkNearTransferAnswer: (
+    missionStableId: string,
+    request: NearTransferCheckRequest
+  ) => Promise<NearTransferCheckResult>;
   /**
    * Which rendering of this mission's lesson this is.
    *
@@ -752,7 +791,57 @@ export function MissionInstruction({
                   if (revealedByNearTransfer(step, before, after)) {
                     setRevealTarget(nextInstructionStepId(steps, step.stableId));
                   }
-                }
+                },
+                /*
+                  WP-008 — the verdict comes from the server (DEC-074).
+
+                  The selection is captured when Submit is pressed and is what
+                  gets committed, so the feedback is always about the answer the
+                  server judged. Both outcomes are applied as FUNCTIONAL
+                  updates, because they land after other renders. A failed
+                  check commits nothing and leaves the question open.
+                */
+                onSubmit: (questionStableId) => {
+                  const current =
+                    nearTransfer[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE;
+                  if (!canCommit(current, questionStableId)) return;
+
+                  const selected = current.selection[questionStableId] ?? [];
+                  const update = (
+                    change: (state: NearTransferState) => NearTransferState
+                  ) =>
+                    setNearTransfer((all) => ({
+                      ...all,
+                      [step.stableId]: change(
+                        all[step.stableId] ?? INITIAL_NEAR_TRANSFER_STATE
+                      )
+                    }));
+
+                  update((state) => beginCheck(state, questionStableId));
+
+                  checkNearTransferAnswer(missionStableId, {
+                    missionVersion,
+                    stepStableId: step.stableId,
+                    questionStableId,
+                    selectedOptionIds: selected
+                  }).then(
+                    (result) =>
+                      update((state) =>
+                        commitAnswer(state, questionStableId, selected, result)
+                      ),
+                    // G-009: a version that is no longer published is told
+                    // to reload; any other failure may be submitted again.
+                    (error: unknown) =>
+                      update((state) =>
+                        isMissionVersionUnavailable(error)
+                          ? failCheckVersionUnavailable(state, questionStableId)
+                          : failCheck(state, questionStableId)
+                      )
+                  );
+                },
+                ...(onReloadInstruction !== undefined
+                  ? { onReload: onReloadInstruction }
+                  : {})
               },
               /*
                 A settlement binding only where something is waiting.

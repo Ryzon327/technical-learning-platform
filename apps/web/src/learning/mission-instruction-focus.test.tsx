@@ -5,9 +5,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type {
-  LearnerMissionStep,
-  LearnerPacketJourneyParameters
+import {
+  MISSION_VERSION_UNAVAILABLE_REASON,
+  checkNearTransferAnswer,
+  type LearnerMissionStep,
+  type LearnerPacketJourneyParameters,
+  type NearTransferCheckRequest,
+  type NearTransferCheckResult
 } from "@tlp/shared-types";
 import { MissionInstruction } from "./MissionInstruction";
 import { nextInstructionStepId } from "./near-transfer-presentation";
@@ -79,6 +83,7 @@ let realRaf: typeof globalThis.requestAnimationFrame;
 const mounted: { container: HTMLElement; root: Root }[] = [];
 
 beforeEach(() => {
+  requests.length = 0;
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   realRaf = globalThis.requestAnimationFrame;
@@ -100,8 +105,56 @@ afterEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = false;
 });
 
+/*
+  WP-008 — the server's side of the near-transfer check (DEC-074).
+
+  The learner step carries no answer, so the lesson asks for a verdict. This
+  stands in for the API: it holds the authored answer the browser never sees,
+  decides with the same shared `checkNearTransferAnswer`, and records every
+  request so a test can see exactly what crossed the wire.
+*/
+const AUTHORED_ANSWER = {
+  correctOptionIds: ["a"],
+  explanation: "A switch is what carries traffic inside one network."
+};
+
+type Checker = (
+  missionStableId: string,
+  request: NearTransferCheckRequest
+) => Promise<NearTransferCheckResult>;
+
+const requests: Array<{ missionStableId: string; request: NearTransferCheckRequest }> = [];
+
+const serverCheck: Checker = async (missionStableId, request) => {
+  requests.push({ missionStableId, request });
+  const content = REQUIRED_CHECK_STEP.content;
+  if (content.type !== "near_transfer") throw new Error("not a near transfer");
+  const question = content.questions.find(
+    (candidate) => candidate.questionStableId === request.questionStableId
+  );
+  if (question === undefined) throw new Error("no such question");
+  return checkNearTransferAnswer(
+    { ...question, ...AUTHORED_ANSWER },
+    request.selectedOptionIds
+  );
+};
+
+/** Let a pending check settle, inside `act`, as a browser would. */
+async function settleChecks(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
+
 /** Mount into a real detached container and return it with its root. */
-function mount(steps: readonly LearnerMissionStep[]): {
+/** G-009: the version the lesson was "served" at; deliberately not 1. */
+const MISSION_VERSION = 4;
+
+function mount(
+  steps: readonly LearnerMissionStep[],
+  checker: Checker = serverCheck,
+  onReloadInstruction?: () => void
+): {
   container: HTMLElement;
   root: Root;
 } {
@@ -115,7 +168,10 @@ function mount(steps: readonly LearnerMissionStep[]): {
         steps={steps}
         assets={[]}
         missionStableId={MISSION}
+        missionVersion={MISSION_VERSION}
         instructionGeneration={1}
+        checkNearTransferAnswer={checker}
+        {...(onReloadInstruction !== undefined ? { onReloadInstruction } : {})}
       />
     );
   });
@@ -252,13 +308,7 @@ const REQUIRED_CHECK_STEP: LearnerMissionStep = {
           { optionId: "b", text: "PC-Z" }
         ]
       }
-    ],
-    answers: {
-      q1: {
-        correctOptionIds: ["a"],
-        explanation: "A switch is what carries traffic inside one network."
-      }
-    }
+    ]
   }
 };
 
@@ -334,7 +384,7 @@ describe("finishing a required Packet Journey moves focus to what it revealed", 
  * ------------------------------------------------------------------ */
 
 describe("finishing a required near-transfer moves focus to what it revealed", () => {
-  it("focuses the successor step's section, and it is not a Tab stop", () => {
+  it("focuses the successor step's section, and it is not a Tab stop", async () => {
     const steps = [REQUIRED_CHECK_STEP, SUCCESSOR];
     const { container } = mount(steps);
 
@@ -353,6 +403,8 @@ describe("finishing a required near-transfer moves focus to what it revealed", (
     expect(submit?.textContent?.trim()).toBe("Submit answer");
     expect(submit?.disabled).toBe(false);
     click(submit, "Submit answer");
+    // WP-008: the verdict is the server's, so let the check settle.
+    await settleChecks();
 
     // The label is "Finish" only on the LAST question, which this is.
     const finish = container.querySelector<HTMLElement>(
@@ -395,6 +447,255 @@ describe("finishing a required near-transfer moves focus to what it revealed", (
     expect(
       nextInstructionStepId(missionTwoOrder, "m2-s8-try-a-different-switch")
     ).toBe("m2-s9-what-comes-next");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-008 — the verdict is the server's, and the answer is not in the page
+ * ------------------------------------------------------------------ */
+
+describe("a committed near-transfer answer is judged by the server (WP-008)", () => {
+  function choose(container: HTMLElement, optionId: string): void {
+    click(
+      container.querySelector(`input[value="${optionId}"]`),
+      `option ${optionId}`
+    );
+  }
+
+  function submit(container: HTMLElement): void {
+    click(container.querySelector(".near-transfer-submit"), "Submit answer");
+  }
+
+  it("renders no authored answer or explanation before the learner commits", () => {
+    const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR]);
+
+    expect(container.textContent).not.toContain(AUTHORED_ANSWER.explanation);
+    expect(container.textContent).not.toContain("The expected answer");
+    expect(JSON.stringify(REQUIRED_CHECK_STEP)).not.toContain("correctOptionIds");
+    expect(requests).toEqual([]);
+  });
+
+  // G-009 added `missionVersion` to the request this test expects.
+  it("sends the step, the question and the selection, and renders a correct verdict", async () => {
+    const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR]);
+
+    choose(container, "a");
+    submit(container);
+    await settleChecks();
+
+    expect(requests).toEqual([
+      {
+        missionStableId: MISSION,
+        request: {
+          missionVersion: MISSION_VERSION,
+          stepStableId: "the-check",
+          questionStableId: "q1",
+          selectedOptionIds: ["a"]
+        }
+      }
+    ]);
+
+    const result = container.querySelector(".near-transfer-result");
+    expect(result?.getAttribute("aria-live")).toBe("polite");
+    expect(container.querySelector(".near-transfer-verdict")?.textContent).toBe(
+      "Correct"
+    );
+    expect(result?.textContent).toContain("You chose: Switch-9");
+    expect(result?.textContent).not.toContain("The expected answer");
+    expect(result?.textContent).toContain(AUTHORED_ANSWER.explanation);
+  });
+
+  it("renders a wrong verdict without the authored answer (G-007, DEC-074)", async () => {
+    const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR]);
+
+    choose(container, "b");
+    submit(container);
+    await settleChecks();
+
+    const result = container.querySelector(".near-transfer-result");
+    expect(container.querySelector(".near-transfer-verdict")?.textContent).toBe(
+      "Not quite"
+    );
+    expect(result?.textContent).toContain("You chose: PC-Z");
+    expect(result?.textContent).not.toContain("The expected answer");
+    expect(result?.textContent).not.toContain("Switch-9");
+    expect(result?.textContent).toContain(AUTHORED_ANSWER.explanation);
+
+    // Being wrong never blocks: Finish still reveals what comes next.
+    click(container.querySelector(".near-transfer-advance"), "Finish");
+    expect(container.querySelectorAll(".instruction-step")).toHaveLength(2);
+  });
+
+  it("a check that fails says so, commits nothing, and can be submitted again", async () => {
+    let fail = true;
+    const flaky: Checker = (missionStableId, request) =>
+      fail
+        ? Promise.reject(new Error("network"))
+        : serverCheck(missionStableId, request);
+    const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR], flaky);
+
+    choose(container, "a");
+    submit(container);
+    await settleChecks();
+
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toBe(
+      "Your answer could not be checked. Submit it again to try once more."
+    );
+    expect(container.querySelector(".near-transfer-result")).toBeNull();
+    const retry = container.querySelector<HTMLButtonElement>(
+      ".near-transfer-submit"
+    );
+    expect(retry?.disabled).toBe(false);
+    expect(
+      container.querySelector<HTMLInputElement>('input[value="a"]')?.checked
+    ).toBe(true);
+
+    fail = false;
+    submit(container);
+    await settleChecks();
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector(".near-transfer-verdict")?.textContent).toBe(
+      "Correct"
+    );
+  });
+
+  /*
+    G-009 — the server refused to judge because the version on screen is no
+    longer published. A distinct state: reload, never "submit it again".
+  */
+  const versionUnavailable = Object.assign(
+    new Error("This activity was updated. Please reload to continue."),
+    {
+      code: "CONFLICT",
+      status: 409,
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    }
+  );
+
+  /** Focus Submit as a keyboard learner would, then press it. */
+  function submitFromKeyboard(container: HTMLElement): HTMLButtonElement {
+    const button = container.querySelector<HTMLButtonElement>(
+      ".near-transfer-submit"
+    );
+    if (button === null) throw new Error("Submit is not rendered");
+    act(() => button.focus());
+    expect(document.activeElement).toBe(button);
+    submit(container);
+    return button;
+  }
+
+  it("G-009: a version-unavailable check shows the reload state, not the retry text, and commits nothing", async () => {
+    let reloads = 0;
+    const { container } = mount(
+      [REQUIRED_CHECK_STEP, SUCCESSOR],
+      () => Promise.reject(versionUnavailable),
+      () => {
+        reloads += 1;
+      }
+    );
+
+    choose(container, "a");
+    submit(container);
+    await settleChecks();
+
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toBe(
+      "This activity was updated. Please reload to continue."
+    );
+    expect(container.textContent).not.toContain("Submit it again");
+    expect(container.textContent).not.toContain("could not be checked");
+    // No verdict, no explanation, nothing revealed after the activity.
+    expect(container.querySelector(".near-transfer-result")).toBeNull();
+    expect(container.querySelector(".near-transfer-verdict")).toBeNull();
+    expect(container.textContent).not.toContain(AUTHORED_ANSWER.explanation);
+    expect(container.querySelectorAll(".instruction-step")).toHaveLength(1);
+
+    const reload = container.querySelector<HTMLButtonElement>(
+      ".near-transfer-reload"
+    );
+    expect(reload?.textContent?.trim()).toBe("Reload");
+    expect(reload?.type).toBe("button");
+    expect(reloads).toBe(0);
+    click(reload, "Reload");
+    expect(reloads).toBe(1);
+  });
+
+  it("G-009: an ordinary failed check still offers a retry and no reload", async () => {
+    const { container } = mount(
+      [REQUIRED_CHECK_STEP, SUCCESSOR],
+      () => Promise.reject(new Error("network")),
+      () => undefined
+    );
+
+    choose(container, "a");
+    submit(container);
+    await settleChecks();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Your answer could not be checked. Submit it again to try once more."
+    );
+    expect(container.querySelector(".near-transfer-reload")).toBeNull();
+  });
+
+  it("G-009: focus lands where the existing check-failed state leaves it", async () => {
+    // The existing check-failed state moves no focus: it stays on Submit.
+    const failed = mount(
+      [REQUIRED_CHECK_STEP, SUCCESSOR],
+      () => Promise.reject(new Error("network"))
+    );
+    choose(failed.container, "a");
+    const failedSubmit = submitFromKeyboard(failed.container);
+    await settleChecks();
+    expect(failed.container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.activeElement).toBe(failedSubmit);
+
+    act(() => failed.root.unmount());
+    failed.container.remove();
+    mounted.splice(mounted.indexOf(failed), 1);
+
+    // The version-unavailable state does exactly the same.
+    const stale = mount(
+      [REQUIRED_CHECK_STEP, SUCCESSOR],
+      () => Promise.reject(versionUnavailable),
+      () => undefined
+    );
+    choose(stale.container, "a");
+    const staleSubmit = submitFromKeyboard(stale.container);
+    await settleChecks();
+    expect(stale.container.querySelector(".near-transfer-reload")).not.toBeNull();
+    expect(document.activeElement).toBe(staleSubmit);
+  });
+
+  it("disables Submit while the answer is with the server", async () => {
+    let release: (result: NearTransferCheckResult) => void = () => undefined;
+    const pending: Checker = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR], pending);
+
+    choose(container, "a");
+    submit(container);
+
+    expect(
+      container.querySelector<HTMLButtonElement>(".near-transfer-submit")
+        ?.disabled
+    ).toBe(true);
+
+    await act(async () => {
+      release({
+        correct: true,
+        explanation: AUTHORED_ANSWER.explanation
+      });
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".near-transfer-verdict")?.textContent).toBe(
+      "Correct"
+    );
   });
 });
 

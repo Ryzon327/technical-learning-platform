@@ -6,10 +6,12 @@ import {
   activePhase,
   buildStaticTopologyLayout,
   canCommit,
-  commitAnswer,
+  describeCheckFailure,
   describeCommitLabel,
   describeMultipleChoiceHint,
   describeProgress,
+  describeReloadLabel,
+  describeVersionUnavailable,
   isComplete,
   isSelected,
   resolveQuestion,
@@ -23,6 +25,10 @@ import {
  * Presentation only. Every prompt, option, answer and explanation is authored
  * curriculum; this component decides nothing about correctness and reaches no
  * service, so answering can produce no attempt, no evidence and no competency.
+ *
+ * Since WP-008 the authored answer is not in the lesson payload (DEC-074).
+ * Submitting hands the question to `onSubmit`, and `MissionInstruction` asks
+ * the server for the verdict; this component only draws what comes back.
  *
  * ## The shape of the activity
  *
@@ -50,7 +56,9 @@ export function NearTransferStep({
   headingId,
   instanceId,
   state,
-  onChange
+  onChange,
+  onSubmit,
+  onReload
 }: {
   content: LearnerNearTransferStep;
   headingId: string;
@@ -62,6 +70,14 @@ export function NearTransferStep({
    */
   state: NearTransferState;
   onChange: (next: (current: NearTransferState) => NearTransferState) => void;
+  /** The learner committed this question's selection; the verdict is the server's. */
+  onSubmit: (questionStableId: string) => void;
+  /**
+   * G-009 — re-fetch the lesson after the server refused a check because this
+   * lesson's version is no longer published. Supplied by `LearningView`
+   * through `MissionInstruction`; absent where nothing can reload.
+   */
+  onReload?: () => void;
 }) {
   const setState = onChange;
 
@@ -176,9 +192,7 @@ export function NearTransferStep({
             className="near-transfer-question"
             onSubmit={(event) => {
               event.preventDefault();
-              setState((current) =>
-                commitAnswer(current, question.questionStableId)
-              );
+              onSubmit(question.questionStableId);
             }}
           >
             <fieldset>
@@ -231,6 +245,37 @@ export function NearTransferStep({
             >
               {describeCommitLabel()}
             </button>
+
+            {/*
+              The check could not reach a verdict. Said in words, in an alert
+              so it is announced, and the question stays open with the
+              learner's selection intact. No verdict is guessed.
+            */}
+            {state.checkFailed === question.questionStableId && (
+              <p role="alert">{describeCheckFailure()}</p>
+            )}
+
+            {/*
+              G-009: the lesson on screen is a version that is no longer
+              published, so this answer cannot be judged. Announced exactly
+              as a failed check is, and focus is left where it is, as it is
+              there. It offers a reload instead of "submit it again", which
+              could never succeed. No verdict is guessed or recorded.
+            */}
+            {state.versionUnavailable === question.questionStableId && (
+              <>
+                <p role="alert">{describeVersionUnavailable()}</p>
+                {onReload !== undefined && (
+                  <button
+                    type="button"
+                    className="near-transfer-reload"
+                    onClick={onReload}
+                  >
+                    {describeReloadLabel()}
+                  </button>
+                )}
+              </>
+            )}
           </form>
         );
       })}
@@ -254,10 +299,6 @@ export function NearTransferStep({
             <p className="near-transfer-verdict">{resolution.verdict}</p>
 
             <p>{`You chose: ${resolution.selected.join(", ")}`}</p>
-
-            {resolution.expected.length > 0 && (
-              <p>{`The expected answer: ${resolution.expected.join(", ")}`}</p>
-            )}
 
             <p>{resolution.explanation}</p>
 

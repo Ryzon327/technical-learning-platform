@@ -72,17 +72,17 @@ Check the machine is ready first with `npm run db:doctor`, which is read-only.
 
 **Verify afterwards**, and note one result that looks wrong but is not.
 
-The repository now carries **46** source migrations, of which **38** were
+The repository now carries **47** source migrations, of which **38** were
 recorded as applied to the development/UAT project when this runbook was last
 reconciled; Founder direction G-005 records that the WP-005 step-search
 migration `20261011000100` has since been applied to UAT. The column you
 compare against depends on how far you have pushed — these are expectations for
 a target state, not a claim about what is deployed.
 
-| Check | After the 39 this runbook needs | After all 46 source migrations |
+| Check | After the 39 this runbook needs | After all 47 source migrations |
 |---|---|---|
-| `supabase migration list` | **39** applied | **46** applied |
-| `select count(*) from public.platform_schema_version;` | **38** | **45** |
+| `supabase migration list` | **39** applied | **47** applied |
+| `select count(*) from public.platform_schema_version;` | **38** | **46** |
 | `select count(*) from information_schema.tables where table_schema='public';` | **61** | **62** |
 | `select count(*) from pg_policies where schemaname='public';` | **65** | **66** |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** | **0** |
@@ -104,6 +104,13 @@ a target state, not a claim about what is deployed.
 > `mission_steps.searchable_text` column; `20261012000100` (G-005) adds the
 > title-and-description search function. Each adds one schema-version row and
 > no table or policy. Curriculum search needs both.
+>
+> **`20261013000100` (WP-008) must be applied together with the API that ships
+> with it.** It removes learners' SELECT on `mission_steps.payload`, and the
+> updated API reads lesson steps server-side through the function it creates.
+> Applying either one without the other makes every mission with authored
+> steps show "Mission instruction is unavailable". Missions with no authored
+> steps, which still render from `missions.description`, are unaffected.
 >
 > **Authoring mission STEPS is a different matter, and needs the last three.**
 > `20260831000100` creates the table, `20260902000100` grants the authoring

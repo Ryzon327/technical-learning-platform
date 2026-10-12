@@ -149,11 +149,36 @@ function clientReturning(byTable: Record<string, TableFixture>) {
   };
 }
 
+/**
+ * WP-008 — the server-side step payload reader. Records every call, and
+ * exposes ONLY `rpc`: a `.from()` on the service-role client would be a table
+ * read outside the one narrow function, and fails here as a TypeError.
+ */
+function serverReturning(steps: TableFixture | undefined) {
+  const rpcCalls: Array<[string, unknown]> = [];
+  const client = {
+    rpc: (name: string, args: unknown) => {
+      rpcCalls.push([name, args]);
+      return Promise.resolve(
+        steps?.error
+          ? { data: null, error: steps.error }
+          : { data: steps?.rows ?? [], error: null }
+      );
+    }
+  };
+  return { factory: () => client, rpcCalls };
+}
+
 async function readInstruction(byTable: Record<string, TableFixture>) {
-  const { createUserScopedSupabaseClient } = await import("./supabase");
+  const { createServerSupabaseClient, createUserScopedSupabaseClient } =
+    await import("./supabase");
   const harness = clientReturning(byTable);
   vi.mocked(createUserScopedSupabaseClient).mockImplementation(
     harness.factory as never
+  );
+  const server = serverReturning(byTable.mission_steps);
+  vi.mocked(createServerSupabaseClient).mockImplementation(
+    server.factory as never
   );
 
   const { getLearnerMissionInstruction } = await import("./curriculum");
@@ -162,7 +187,7 @@ async function readInstruction(byTable: Record<string, TableFixture>) {
     "mission.vlan-basics"
   );
 
-  return { result, harness };
+  return { result, harness, server };
 }
 
 function published(
@@ -203,11 +228,56 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
     expect(harness.token()).toBe(ACCESS_TOKEN);
   });
 
-  it("never constructs the service-role client", async () => {
-    await readInstruction(published());
+  /*
+    WP-008 replaced "never constructs the service-role client". A learner's
+    role can no longer read `mission_steps.payload`, so the payloads of the
+    resolved mission are read server-side. The tests below pin how narrow
+    that is: one function, one mission id, after the learner's own client
+    resolved a published mission, and never a table read.
+  */
+  it("uses the service-role client only for the step payload function, with the resolved mission id", async () => {
+    const { server } = await readInstruction(published([conceptRow(1, "A.")]));
+
+    const { createServerSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createServerSupabaseClient)).toHaveBeenCalledTimes(1);
+    expect(server.rpcCalls).toEqual([
+      ["published_mission_step_payloads", { p_mission_id: MISSION_ROW.id }]
+    ]);
+  });
+
+  it("reads missions and assets through the learner's client, and never mission_steps", async () => {
+    const { harness } = await readInstruction(
+      published([DIAGRAM_ROW], [ASSET_ROW])
+    );
+
+    expect(harness.tables).toEqual(["missions", "curriculum_assets"]);
+  });
+
+  it("never constructs the service-role client when no published mission resolves", async () => {
+    await expect(
+      readInstruction({ missions: { single: null } })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const { createServerSupabaseClient } = await import("./supabase");
     expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("never constructs the service-role client when the mission query fails", async () => {
+    await expect(
+      readInstruction({ missions: { error: { message: "boom" } } })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+
+    const { createServerSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("raises DEPENDENCY_UNAVAILABLE when the step payload read fails", async () => {
+    await expect(
+      readInstruction({
+        missions: { single: MISSION_ROW },
+        mission_steps: { error: { message: "boom" } }
+      })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
   });
 
   it("filters the mission to publication_state published", async () => {
@@ -233,17 +303,18 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
   it("scopes steps and assets to the resolved mission row", async () => {
     // Needs a mission that reaches BOTH queries: with no authored steps the
     // legacy-brief branch returns before assets are ever read.
-    const { harness } = await readInstruction(
+    const { harness, server } = await readInstruction(
       published([DIAGRAM_ROW], [ASSET_ROW])
     );
 
+    // Assets on the learner's client, steps through the payload function.
     const missionScoped = harness.eqCalls.filter(
       ([column]) => column === "mission_id"
     );
-    expect(missionScoped).toHaveLength(2);
-    for (const [, value] of missionScoped) {
-      expect(value).toBe(MISSION_ROW.id);
-    }
+    expect(missionScoped).toEqual([["mission_id", MISSION_ROW.id]]);
+    expect(server.rpcCalls.map(([, args]) => args)).toEqual([
+      { p_mission_id: MISSION_ROW.id }
+    ]);
   });
 
   it("raises NOT_FOUND when no published mission matches", async () => {
@@ -263,7 +334,19 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
 
     expect(source).not.toContain("readMissionSteps");
     expect(source).not.toContain("readMissionAssets");
-    expect(source).not.toContain("createServerSupabaseClient");
+  });
+
+  it("constructs the service-role client in exactly one place, which calls only the payload function", () => {
+    const source = stripTsComments(read("./curriculum.ts"));
+
+    // The import, and one call.
+    expect(source.match(/createServerSupabaseClient/g)).toHaveLength(2);
+    expect(source).toContain(
+      "return createServerSupabaseClient().rpc(STEP_PAYLOAD_FUNCTION, {"
+    );
+    expect(source).toContain(
+      'export const STEP_PAYLOAD_FUNCTION = "published_mission_step_payloads";'
+    );
   });
 });
 
@@ -421,6 +504,522 @@ describe("getLearnerMissionInstruction — what a learner receives", () => {
     const { result } = await readInstruction(published());
 
     expect("id" in result.mission).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-008 — near-transfer answers are judged on the server (DEC-074)
+ * ------------------------------------------------------------------ */
+
+const NEAR_TRANSFER_ROW = {
+  stable_id: "step-transfer",
+  position: 4,
+  step_type: "near_transfer",
+  payload: {
+    type: "near_transfer",
+    title: "Try a different network",
+    questions: [
+      {
+        questionStableId: "q-one",
+        type: "single_choice",
+        prompt: "Which device joins two networks?",
+        options: [
+          { optionId: "router", text: "The router" },
+          { optionId: "switch", text: "The switch" }
+        ],
+        correctOptionIds: ["router"],
+        explanation: "Only the router uniquewithheldexplanation joins networks."
+      },
+      {
+        questionStableId: "q-two",
+        type: "multiple_choice",
+        prompt: "Which two are hosts?",
+        options: [
+          { optionId: "pc", text: "The PC" },
+          { optionId: "printer", text: "The printer" },
+          { optionId: "hub", text: "The hub" }
+        ],
+        correctOptionIds: ["pc", "printer"],
+        explanation: "Both uniquesecondexplanation end devices."
+      }
+    ]
+  }
+};
+
+/**
+ * G-009: every check names the version the learner opened. Unless a test says
+ * otherwise, that is the version the fixture's mission row carries.
+ */
+async function checkAnswer(
+  byTable: Record<string, TableFixture>,
+  partial: {
+    missionVersion?: number;
+    stepStableId: string;
+    questionStableId: string;
+    selectedOptionIds: readonly string[];
+  }
+) {
+  const request = { missionVersion: MISSION_ROW.version, ...partial };
+  const { createServerSupabaseClient, createUserScopedSupabaseClient } =
+    await import("./supabase");
+  const harness = clientReturning(byTable);
+  vi.mocked(createUserScopedSupabaseClient).mockImplementation(
+    harness.factory as never
+  );
+  const server = serverReturning(byTable.mission_steps);
+  vi.mocked(createServerSupabaseClient).mockImplementation(
+    server.factory as never
+  );
+
+  const { checkLearnerNearTransferAnswer } = await import("./curriculum");
+  const result = await checkLearnerNearTransferAnswer(
+    ACCESS_TOKEN,
+    "mission.vlan-basics",
+    request
+  );
+  return { result, harness, server };
+}
+
+describe("getLearnerMissionInstruction — no near-transfer answer in the response", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns the questions and options, and no answer field or value", async () => {
+    const { result } = await readInstruction(
+      published([conceptRow(1, "Intro."), NEAR_TRANSFER_ROW])
+    );
+
+    if (result.instruction.state !== "available") {
+      throw new Error(`expected available, received ${result.instruction.state}`);
+    }
+    const step = result.instruction.steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step?.content.type !== "near_transfer") throw new Error("no step");
+    expect(step.content.questions.map((q) => q.questionStableId)).toEqual([
+      "q-one",
+      "q-two"
+    ]);
+
+    const serialised = JSON.stringify(result);
+    for (const field of ["answers", "correctOptionIds", "explanation"]) {
+      expect(serialised).not.toContain(`"${field}"`);
+    }
+    expect(serialised).not.toContain("uniquewithheldexplanation");
+    expect(serialised).not.toContain("uniquesecondexplanation");
+  });
+});
+
+describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const transfer = () => published([conceptRow(1, "Intro."), NEAR_TRANSFER_ROW]);
+
+  it("passes a correct answer, with the explanation and no answer", async () => {
+    const { result } = await checkAnswer(transfer(), {
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["router"]
+    });
+
+    expect(result).toEqual({
+      correct: true,
+      explanation: "Only the router uniquewithheldexplanation joins networks."
+    });
+  });
+
+  it("fails a wrong answer without returning the authored answer", async () => {
+    const { result } = await checkAnswer(transfer(), {
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["switch"]
+    });
+
+    expect(result).toEqual({
+      correct: false,
+      explanation: "Only the router uniquewithheldexplanation joins networks."
+    });
+  });
+
+  it("a wrong submission cannot read the answer key back out (G-007, DEC-074)", async () => {
+    for (const [questionStableId, selectedOptionIds, answerKey] of [
+      ["q-one", ["switch"], ["router"]],
+      ["q-two", ["pc"], ["printer", "pc"]],
+      ["q-two", ["pc", "printer", "hub"], ["printer", "pc"]]
+    ] as const) {
+      const { result } = await checkAnswer(transfer(), {
+        stepStableId: "step-transfer",
+        questionStableId,
+        selectedOptionIds: [...selectedOptionIds]
+      });
+
+      expect(result.correct).toBe(false);
+      expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+      for (const value of Object.values(result)) {
+        if (Array.isArray(value)) {
+          expect([...value].sort()).not.toEqual([...answerKey].sort());
+        }
+      }
+    }
+  });
+
+  it("uses exact set equality for a multiple-choice question", async () => {
+    const ask = (selectedOptionIds: string[]) =>
+      checkAnswer(transfer(), {
+        stepStableId: "step-transfer",
+        questionStableId: "q-two",
+        selectedOptionIds
+      }).then(({ result }) => result.correct);
+
+    expect(await ask(["printer", "pc"])).toBe(true);
+    expect(await ask(["pc"])).toBe(false);
+    expect(await ask(["pc", "printer", "hub"])).toBe(false);
+  });
+
+  it("returns only the verdict and learner-safe feedback for the one question asked", async () => {
+    const { result } = await checkAnswer(transfer(), {
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["switch"]
+    });
+
+    expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+    // Nothing about the OTHER question crosses with it.
+    expect(JSON.stringify(result)).not.toContain("uniquesecondexplanation");
+    expect(JSON.stringify(result)).not.toContain("printer");
+  });
+
+  it("resolves the mission through the learner's client before the payload function", async () => {
+    const { harness, server } = await checkAnswer(transfer(), {
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["router"]
+    });
+
+    const { createUserScopedSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createUserScopedSupabaseClient)).toHaveBeenCalledWith(
+      ACCESS_TOKEN
+    );
+    expect(harness.tables).toEqual(["missions"]);
+    expect(harness.eqCalls).toContainEqual(["publication_state", "published"]);
+    expect(server.rpcCalls).toEqual([
+      ["published_mission_step_payloads", { p_mission_id: MISSION_ROW.id }]
+    ]);
+  });
+
+  /*
+    G-009 changed this test's expected refusal from NOT_FOUND to the
+    version-unavailable CONFLICT: the check now resolves an exact version, and
+    a mission that does not resolve at that version is "this activity was
+    updated, reload", not "not found". The boundary it pins is unchanged — the
+    service role is never reached.
+  */
+  it("never reaches the service role for a mission that does not resolve as published", async () => {
+    await expect(
+      checkAnswer(
+        { missions: { single: null } },
+        {
+          stepStableId: "step-transfer",
+          questionStableId: "q-one",
+          selectedOptionIds: ["router"]
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "mission_version_unavailable" }
+    });
+
+    const { createServerSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("G-009: resolves exactly the submitted version, published, with no highest-version ordering", async () => {
+    const { harness } = await checkAnswer(transfer(), {
+      missionVersion: 7,
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["router"]
+    });
+
+    expect(harness.eqCalls).toEqual([
+      ["stable_id", "mission.vlan-basics"],
+      ["version", 7],
+      ["publication_state", "published"]
+    ]);
+    expect(harness.orders).toEqual([]);
+  });
+
+  it("G-009: an unavailable version is refused with a stable marker, no verdict and nothing from another version", async () => {
+    const refusal = await checkAnswer(
+      { missions: { single: null }, mission_steps: { rows: [NEAR_TRANSFER_ROW] } },
+      {
+        missionVersion: 1,
+        stepStableId: "step-transfer",
+        questionStableId: "q-one",
+        selectedOptionIds: ["router"]
+      }
+    ).then(
+      () => {
+        throw new Error("expected the check to be refused");
+      },
+      (error: unknown) => error
+    );
+
+    const { AppError, MISSION_VERSION_UNAVAILABLE_REASON } = await import(
+      "@tlp/shared-types"
+    );
+    expect(refusal).toBeInstanceOf(AppError);
+    const body = (refusal as InstanceType<typeof AppError>).toJSON();
+    expect(body).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+
+    const serialised = JSON.stringify(body);
+    for (const absent of [
+      '"correct"',
+      '"explanation"',
+      '"correctOptionIds"',
+      '"version"',
+      '"missionVersion"',
+      "uniquewithheldexplanation",
+      "router"
+    ]) {
+      expect(serialised, absent).not.toContain(absent);
+    }
+  });
+
+  for (const [name, request] of [
+    ["an unknown step", { stepStableId: "nope", questionStableId: "q-one" }],
+    ["a step that is not a near-transfer", { stepStableId: "step-1", questionStableId: "q-one" }],
+    ["an unknown question", { stepStableId: "step-transfer", questionStableId: "nope" }]
+  ] as const) {
+    it(`refuses ${name} as NOT_FOUND`, async () => {
+      await expect(
+        checkAnswer(transfer(), { ...request, selectedOptionIds: ["router"] })
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+  }
+
+  it("refuses an option the question does not offer, rather than judging it", async () => {
+    await expect(
+      checkAnswer(transfer(), {
+        stepStableId: "step-transfer",
+        questionStableId: "q-one",
+        selectedOptionIds: ["router", "pc"]
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  it("refuses a mission whose content is unusable as NOT_FOUND", async () => {
+    await expect(
+      checkAnswer(
+        published([{ ...NEAR_TRANSFER_ROW, payload: { type: "near_transfer" } }]),
+        {
+          stepStableId: "step-transfer",
+          questionStableId: "q-one",
+          selectedOptionIds: ["router"]
+        }
+      )
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("G-009: a version retired between the mission lookup and the payload read gets the reload response", async () => {
+    // The payload function's own publication filter returns no rows once the
+    // version is retired; the learner's client stops resolving it too.
+    let retired = false;
+    const missions: TableFixture = {
+      get single() {
+        return retired ? null : MISSION_ROW;
+      }
+    };
+    const harness = clientReturning({ missions });
+    const rpcCalls: unknown[] = [];
+    const { createServerSupabaseClient, createUserScopedSupabaseClient } =
+      await import("./supabase");
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(
+      harness.factory as never
+    );
+    vi.mocked(createServerSupabaseClient).mockImplementation((() => ({
+      rpc: (name: string, args: unknown) => {
+        rpcCalls.push([name, args]);
+        retired = true;
+        return Promise.resolve({ data: [], error: null });
+      }
+    })) as never);
+
+    const { checkLearnerNearTransferAnswer } = await import("./curriculum");
+    const refusal = await checkLearnerNearTransferAnswer(
+      ACCESS_TOKEN,
+      "mission.vlan-basics",
+      {
+        missionVersion: MISSION_ROW.version,
+        stepStableId: "step-transfer",
+        questionStableId: "q-one",
+        selectedOptionIds: ["router"]
+      }
+    ).then(
+      () => {
+        throw new Error("expected the check to be refused");
+      },
+      (error: unknown) => error
+    );
+
+    const { AppError, MISSION_VERSION_UNAVAILABLE_REASON } = await import(
+      "@tlp/shared-types"
+    );
+    expect(refusal).toBeInstanceOf(AppError);
+    expect((refusal as InstanceType<typeof AppError>).toJSON()).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+    expect(rpcCalls).toHaveLength(1);
+    expect(harness.tables).toEqual(["missions", "missions"]);
+  });
+
+  it("writes nothing: the service-role client exposes only the payload function", () => {
+    const source = stripTsComments(read("./curriculum.ts"));
+    const check = source.slice(
+      source.indexOf("export async function checkLearnerNearTransferAnswer"),
+      source.indexOf("async function readPublishedMissionSteps")
+    );
+
+    for (const write of [".insert(", ".update(", ".upsert(", ".delete(", ".rpc("]) {
+      expect(check).not.toContain(write);
+    }
+  });
+
+  /*
+    G-009 source-structure guard. The lesson read resolves the HIGHEST
+    published version; the check must never use that lookup, or a newer
+    version published while a lesson is open would judge the older one.
+  */
+  it("G-009: the check path never uses the highest-version lookup", () => {
+    const source = stripTsComments(read("./curriculum.ts"));
+    const check = source.slice(
+      source.indexOf("export async function checkLearnerNearTransferAnswer"),
+      source.indexOf("const MISSION_SUMMARY_COLUMNS")
+    );
+    const exact = source.slice(
+      source.indexOf("async function readExactPublishedMissionVersionSteps"),
+      source.indexOf("async function readResolvedMissionSteps")
+    );
+    const lesson = source.slice(
+      source.indexOf("export async function getLearnerMissionInstruction"),
+      source.indexOf("const MAX_SELECTED_OPTIONS")
+    );
+
+    expect(check).toContain("readExactPublishedMissionVersionSteps(");
+    expect(check).not.toContain("readPublishedMissionSteps(");
+    expect(check).not.toContain('.order("version"');
+
+    // The exact lookup: stable id, version and published, with no ordering
+    // or limit that could select a different row.
+    expect(exact).toContain('.eq("stable_id", missionStableId)');
+    expect(exact).toContain('.eq("version", missionVersion)');
+    expect(exact).toContain('.eq("publication_state", "published")');
+    expect(exact).not.toContain(".order(");
+    expect(exact).not.toContain(".limit(");
+    expect(exact).toContain("MISSION_VERSION_UNAVAILABLE_REASON");
+
+    // The lesson read keeps the highest-version lookup.
+    expect(lesson).toContain("readPublishedMissionSteps(");
+    expect(lesson).not.toContain("readExactPublishedMissionVersionSteps(");
+  });
+});
+
+describe("parseNearTransferCheckRequest — shape only", () => {
+  // G-009 added `missionVersion` to this test's input and expected output.
+  it("accepts a well-formed request", async () => {
+    const { parseNearTransferCheckRequest } = await import("./curriculum");
+    expect(
+      parseNearTransferCheckRequest({
+        missionVersion: 3,
+        stepStableId: "s",
+        questionStableId: "q",
+        selectedOptionIds: ["a", "b"]
+      })
+    ).toEqual({
+      missionVersion: 3,
+      stepStableId: "s",
+      questionStableId: "q",
+      selectedOptionIds: ["a", "b"]
+    });
+  });
+
+  const valid = { stepStableId: "s", questionStableId: "q", selectedOptionIds: ["a"] };
+
+  for (const [name, body] of [
+    ["no mission version", valid],
+    ["a null mission version", { ...valid, missionVersion: null }],
+    ["a string mission version", { ...valid, missionVersion: "1" }],
+    ["a fractional mission version", { ...valid, missionVersion: 1.5 }],
+    ["a zero mission version", { ...valid, missionVersion: 0 }],
+    ["a negative mission version", { ...valid, missionVersion: -1 }],
+    ["a non-finite mission version", { ...valid, missionVersion: Number.POSITIVE_INFINITY }],
+    ["an unsafe mission version", { ...valid, missionVersion: Number.MAX_SAFE_INTEGER + 1 }],
+    ["no step", { missionVersion: 1, questionStableId: "q", selectedOptionIds: ["a"] }],
+    ["no question", { missionVersion: 1, stepStableId: "s", selectedOptionIds: ["a"] }],
+    ["no selection", { missionVersion: 1, stepStableId: "s", questionStableId: "q" }],
+    ["an empty selection", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: [] }],
+    ["a non-string option", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: [1] }],
+    ["a selection that is not a list", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: "a" }],
+    [
+      "an oversized selection",
+      {
+        missionVersion: 1,
+        stepStableId: "s",
+        questionStableId: "q",
+        selectedOptionIds: Array.from({ length: 51 }, (_, i) => `o${i}`)
+      }
+    ]
+  ] as const) {
+    it(`refuses ${name}`, async () => {
+      const { parseNearTransferCheckRequest } = await import("./curriculum");
+      expect(() =>
+        parseNearTransferCheckRequest(body as Record<string, unknown>)
+      ).toThrow(expect.objectContaining({ code: "VALIDATION_ERROR" }));
+    });
+  }
+});
+
+describe("the near-transfer check route is authenticated before anything is read", () => {
+  const server = stripTsComments(read("./server.ts"));
+  const start = server.indexOf("const nearTransferCheckMatch");
+  const handler = server.slice(start, server.indexOf("return;", start));
+
+  it("registers the route", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(handler).toContain(
+      "/^\\/learning\\/missions\\/([^/]+)\\/near-transfer\\/check$/"
+    );
+  });
+
+  it("resolves a trusted identity before reading the body or calling the check", () => {
+    const guard = handler.indexOf("resolveTrustedRequestIdentity");
+    const body = handler.indexOf("readJsonBody(");
+    const call = handler.indexOf("checkLearnerNearTransferAnswer(");
+
+    expect(guard).toBeGreaterThan(-1);
+    expect(body).toBeGreaterThan(guard);
+    expect(call).toBeGreaterThan(guard);
+  });
+
+  it("validates the body and passes the caller's own access token", () => {
+    expect(handler).toContain("parseNearTransferCheckRequest(body)");
+    expect(handler).toContain("trusted.accessToken");
+    expect(handler).not.toContain("SERVICE_ROLE");
+  });
+
+  it("accepts POST only", () => {
+    expect(handler).toContain('request.method === "POST"');
   });
 });
 

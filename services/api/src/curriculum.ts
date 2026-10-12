@@ -8,16 +8,23 @@ import type {
   CompetencyCurriculumContext,
   CompetencyReference,
   LearnerMissionInstructionResponse,
-  LearnerMissionSummary
+  LearnerMissionSummary,
+  NearTransferCheckRequest,
+  NearTransferCheckResult
 } from "@tlp/shared-types";
 import {
   AppError,
+  MISSION_VERSION_UNAVAILABLE_REASON,
   assembleLearnerInstruction,
+  checkNearTransferAnswer,
   competencyReferenceKey,
   resolvePersistedCurriculumAssets,
   resolvePersistedMissionSteps
 } from "@tlp/shared-types";
-import { createUserScopedSupabaseClient } from "./supabase";
+import {
+  createServerSupabaseClient,
+  createUserScopedSupabaseClient
+} from "./supabase";
 
 function publicationState(value: unknown): CurriculumPublicationState {
   if (
@@ -240,6 +247,35 @@ export async function getPublishedLearningPathTree(
   };
 }
 
+/** The service-role-only function that returns one published mission's step payloads. */
+export const STEP_PAYLOAD_FUNCTION = "published_mission_step_payloads";
+
+/**
+ * WP-008 — the authored step payloads of one published mission, read on the
+ * server.
+ *
+ * Learners hold no SELECT on `mission_steps.payload`, because the raw payload
+ * carries the fields the learner projection withholds. This is the only place
+ * the learner instruction path reads it, and it is narrow on purpose:
+ *
+ *   - one SQL function, `published_mission_step_payloads`, which only
+ *     `service_role` may execute and which returns exactly four columns;
+ *   - for one mission id, which the caller has already resolved through the
+ *     learner's own RLS-scoped client as a published mission;
+ *   - the function restates `publication_state = 'published'`, because the
+ *     service role bypasses RLS.
+ *
+ * The rows never leave the API unprojected: `getLearnerMissionInstruction`
+ * passes them through `resolvePersistedMissionSteps` and
+ * `assembleLearnerInstruction`, which decide what a learner receives. The
+ * service-role key stays server-side, as it does for assessment scoring.
+ */
+async function readPublishedStepPayloads(missionId: string) {
+  return createServerSupabaseClient().rpc(STEP_PAYLOAD_FUNCTION, {
+    p_mission_id: missionId
+  });
+}
+
 /**
  * WP-E — one published mission's instructional content, for a learner.
  *
@@ -247,15 +283,18 @@ export async function getPublishedLearningPathTree(
  *
  * This module is the **user-scoped** curriculum reader. Every query below runs
  * through `createUserScopedSupabaseClient`, so Row-Level Security applies to
- * the caller's own session and remains one of the two learner boundaries.
+ * the caller's own session and remains one of the two learner boundaries —
+ * except the step payload read, which WP-008 moved server-side (see below).
  *
  * `readMissionSteps` and `readMissionAssets` already exist, and this
  * deliberately does NOT call them. They live in `curriculum-admin.ts` and
  * `curriculum-quality.ts`, which use `createServerSupabaseClient` — the service
  * role, which bypasses RLS. They are authoring and publication-validation
- * tools. Reusing them for a learner read would quietly make the explicit
- * publication filter below the only barrier, and would put the service role on
- * a path a learner can trigger.
+ * tools: they read a mission by id whatever its publication state. Reusing
+ * them for a learner read would make the explicit publication filter the only
+ * barrier for every table. `readPublishedStepPayloads` reads one table, for a
+ * mission the learner's own client has already resolved as published, and
+ * restates publication in SQL.
  *
  * The pure resolvers ARE reused: `resolvePersistedMissionSteps`,
  * `resolvePersistedCurriculumAssets` and `assembleLearnerInstruction` carry
@@ -276,6 +315,16 @@ export async function getPublishedLearningPathTree(
  * read by that mission's internal `id`, so they belong to the resolved version
  * and inherit its publication. No step or asset versioning is introduced.
  *
+ * ## Step payloads are the one server-side read (WP-008)
+ *
+ * A learner's database role holds no SELECT on `mission_steps.payload`
+ * (`20261013000100`): the raw payload carries every field the projection
+ * withholds, and a learner could otherwise read it straight from PostgREST.
+ * So the mission is still resolved through the learner's own RLS-scoped
+ * client above, and only that published mission's step payloads are read
+ * server-side by `readPublishedStepPayloads`, then projected before anything
+ * is returned. Assets stay on the learner's client.
+ *
  * ## What a failure means
  *
  * A mission that is absent, unpublished or unreachable raises `NOT_FOUND` —
@@ -289,64 +338,9 @@ export async function getLearnerMissionInstruction(
   missionStableId: string
 ): Promise<LearnerMissionInstructionResponse> {
   const supabase = createUserScopedSupabaseClient(accessToken);
-
-  const { data: missionRow, error: missionError } = await supabase
-    .from("missions")
-    .select("id,stable_id,version,title,estimated_minutes,description")
-    .eq("stable_id", missionStableId)
-    .eq("publication_state", "published")
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (missionError) {
-    throw new AppError({
-      code: "DEPENDENCY_UNAVAILABLE",
-      message: "Published curriculum is unavailable",
-      retryable: true
-    });
-  }
-
-  if (!missionRow) {
-    throw new AppError({
-      code: "NOT_FOUND",
-      message: "Mission not found",
-      retryable: false
-    });
-  }
-
-  const mission: LearnerMissionSummary = {
-    stableId: String(missionRow.stable_id),
-    version: Number(missionRow.version),
-    title: String(missionRow.title),
-    ...(missionRow.estimated_minutes == null
-      ? {}
-      : { estimatedMinutes: Number(missionRow.estimated_minutes) })
-  };
-
-  const { data: stepRows, error: stepError } = await supabase
-    .from("mission_steps")
-    .select("stable_id,position,step_type,payload")
-    .eq("mission_id", String(missionRow.id))
-    .order("position", { ascending: true });
-
-  if (stepError) {
-    throw new AppError({
-      code: "DEPENDENCY_UNAVAILABLE",
-      message: "Mission instruction is unavailable",
-      retryable: true
-    });
-  }
-
-  const stepOutcome = resolvePersistedMissionSteps(
-    ((stepRows ?? []) as unknown as Array<Record<string, unknown>>).map(
-      (row) => ({
-        stableId: row.stable_id,
-        position: row.position,
-        stepType: row.step_type,
-        payload: row.payload
-      })
-    )
+  const { missionRow, mission, stepOutcome } = await readPublishedMissionSteps(
+    supabase,
+    missionStableId
   );
 
   // The approved legacy fallback: zero authored steps, so the brief applies.
@@ -416,6 +410,299 @@ export async function getLearnerMissionInstruction(
       assetOutcome.assets
     )
   };
+}
+
+/** The most option ids one committed answer may name. */
+const MAX_SELECTED_OPTIONS = 50;
+
+/**
+ * WP-008 — the request body of a near-transfer check, validated.
+ *
+ * Shape only. Whether the step, question and options EXIST is decided by
+ * `checkLearnerNearTransferAnswer` against the authored mission.
+ */
+export function parseNearTransferCheckRequest(
+  body: Record<string, unknown>
+): NearTransferCheckRequest {
+  const { missionVersion, stepStableId, questionStableId, selectedOptionIds } =
+    body;
+
+  const invalid = (message: string) =>
+    new AppError({ code: "VALIDATION_ERROR", message, retryable: false });
+
+  // G-009: the version the learner opened. Required, so a check can never
+  // fall back to whichever version happens to be newest.
+  if (
+    typeof missionVersion !== "number" ||
+    !Number.isSafeInteger(missionVersion) ||
+    missionVersion < 1
+  ) {
+    throw invalid("missionVersion must be a positive integer");
+  }
+  if (typeof stepStableId !== "string" || stepStableId.length === 0) {
+    throw invalid("stepStableId is required");
+  }
+  if (typeof questionStableId !== "string" || questionStableId.length === 0) {
+    throw invalid("questionStableId is required");
+  }
+  if (
+    !Array.isArray(selectedOptionIds) ||
+    selectedOptionIds.length === 0 ||
+    selectedOptionIds.length > MAX_SELECTED_OPTIONS ||
+    !selectedOptionIds.every((id) => typeof id === "string" && id.length > 0)
+  ) {
+    throw invalid("selectedOptionIds must name at least one option");
+  }
+
+  return {
+    missionVersion,
+    stepStableId,
+    questionStableId,
+    selectedOptionIds: selectedOptionIds as string[]
+  };
+}
+
+/**
+ * WP-008 — decide one committed near-transfer answer on the trusted server.
+ *
+ * ## Why this exists
+ *
+ * The authored answer and explanation used to ride in the lesson payload and
+ * be compared in the browser. A network response is readable, so that was not
+ * withholding (DEC-074). The lesson now carries questions only, and the
+ * learner's commitment comes here.
+ *
+ * ## The same two boundaries as the lesson read
+ *
+ * The mission is resolved through the learner's OWN RLS-scoped client, as a
+ * published mission, before anything else; only then are its step payloads
+ * read through `readPublishedStepPayloads`. The service role is never reached
+ * for a mission the learner's client did not resolve.
+ *
+ * ## Bound to the version the learner opened (G-009)
+ *
+ * Unlike the lesson read, the check does NOT take the highest published
+ * version. It resolves exactly `request.missionVersion` — the version that
+ * came with the lesson on screen — so a newer version published while the
+ * lesson is open can never judge an answer to the older one. If that version
+ * is not published (retired, never existed, a draft, or not visible to this
+ * learner) the check is refused with `CONFLICT` and
+ * `MISSION_VERSION_UNAVAILABLE_REASON`, carrying no verdict, no feedback and
+ * nothing from any other version: the learner is asked to reload.
+ *
+ * ## What comes back
+ *
+ * The verdict and the authored explanation — never the authored answer, right
+ * or wrong, so a wrong submission cannot read the answer key back out
+ * (DEC-074). `checkNearTransferAnswer` decides, using the unchanged
+ * `isNearTransferAnswerCorrect`. Nothing is written: no attempt, no score, no
+ * evidence, no progress. A near-transfer check is instruction.
+ *
+ * A step, question or option the mission does not author is refused rather
+ * than judged, so a request cannot probe for content that is not there.
+ */
+export async function checkLearnerNearTransferAnswer(
+  accessToken: string,
+  missionStableId: string,
+  request: NearTransferCheckRequest
+): Promise<NearTransferCheckResult> {
+  const supabase = createUserScopedSupabaseClient(accessToken);
+  const { stepOutcome } = await readExactPublishedMissionVersionSteps(
+    supabase,
+    missionStableId,
+    request.missionVersion
+  );
+
+  const notFound = () =>
+    new AppError({
+      code: "NOT_FOUND",
+      message: "Near-transfer question not found",
+      retryable: false
+    });
+
+  if (stepOutcome.state !== "available") {
+    // The version may have been retired between the learner-scoped lookup and
+    // the payload read, whose own publication filter then returns no steps.
+    // Recheck it so that race still gets the reload response; a version that
+    // is still published with unusable content stays NOT_FOUND.
+    await resolveExactPublishedMissionVersion(
+      supabase,
+      missionStableId,
+      request.missionVersion
+    );
+    throw notFound();
+  }
+
+  const content = stepOutcome.steps.find(
+    (step) => step.stableId === request.stepStableId
+  )?.content;
+  if (content?.type !== "near_transfer") throw notFound();
+
+  const question = content.questions.find(
+    (candidate) => candidate.questionStableId === request.questionStableId
+  );
+  if (question === undefined) throw notFound();
+
+  const authoredOptions = new Set(
+    question.options.map((option) => option.optionId)
+  );
+  if (!request.selectedOptionIds.every((id) => authoredOptions.has(id))) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: "selectedOptionIds names an option this question does not offer",
+      retryable: false
+    });
+  }
+
+  return checkNearTransferAnswer(question, request.selectedOptionIds);
+}
+
+const MISSION_SUMMARY_COLUMNS =
+  "id,stable_id,version,title,estimated_minutes,description";
+
+/**
+ * The LESSON read's mission resolution: the highest published version of the
+ * stable id, through the learner's client and so through RLS, before the
+ * service-role payload function is ever called.
+ *
+ * Used only by `getLearnerMissionInstruction`. The near-transfer check must
+ * never use it (G-009): it resolves the exact version the learner opened
+ * through `readExactPublishedMissionVersionSteps` instead.
+ */
+async function readPublishedMissionSteps(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  missionStableId: string
+) {
+  const { data: missionRow, error: missionError } = await supabase
+    .from("missions")
+    .select(MISSION_SUMMARY_COLUMNS)
+    .eq("stable_id", missionStableId)
+    .eq("publication_state", "published")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (missionError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Published curriculum is unavailable",
+      retryable: true
+    });
+  }
+
+  if (!missionRow) {
+    throw new AppError({
+      code: "NOT_FOUND",
+      message: "Mission not found",
+      retryable: false
+    });
+  }
+
+  return readResolvedMissionSteps(missionRow);
+}
+
+/**
+ * The near-transfer CHECK's mission resolution (G-009): exactly this stable
+ * id AND this version AND published, through the learner's client and so
+ * through RLS, before the service-role payload function is ever called.
+ *
+ * There is no ordering and no fallback. A version that is not published to
+ * this learner — retired, draft, nonexistent, or hidden by RLS — is refused
+ * as `CONFLICT` with `MISSION_VERSION_UNAVAILABLE_REASON`, and the payload
+ * function is never reached for it. The refusal names no version and carries
+ * nothing from any other one.
+ */
+async function readExactPublishedMissionVersionSteps(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  missionStableId: string,
+  missionVersion: number
+) {
+  return readResolvedMissionSteps(
+    await resolveExactPublishedMissionVersion(
+      supabase,
+      missionStableId,
+      missionVersion
+    )
+  );
+}
+
+/**
+ * The exact-version lookup itself, through the learner's client: the mission
+ * row, or the version-unavailable `CONFLICT`. Also used to recheck a version
+ * whose payload read came back empty, in case it was retired in between.
+ */
+async function resolveExactPublishedMissionVersion(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  missionStableId: string,
+  missionVersion: number
+): Promise<Record<string, unknown>> {
+  const { data: missionRow, error: missionError } = await supabase
+    .from("missions")
+    .select(MISSION_SUMMARY_COLUMNS)
+    .eq("stable_id", missionStableId)
+    .eq("version", missionVersion)
+    .eq("publication_state", "published")
+    .maybeSingle();
+
+  if (missionError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Published curriculum is unavailable",
+      retryable: true
+    });
+  }
+
+  if (!missionRow) {
+    throw new AppError({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+  }
+
+  return missionRow as Record<string, unknown>;
+}
+
+/**
+ * Read the step payloads of a mission row the learner's own client has
+ * already resolved as published, through the service-role-only payload
+ * function, which restates publication in SQL.
+ */
+async function readResolvedMissionSteps(missionRow: Record<string, unknown>) {
+  const mission: LearnerMissionSummary = {
+    stableId: String(missionRow.stable_id),
+    version: Number(missionRow.version),
+    title: String(missionRow.title),
+    ...(missionRow.estimated_minutes == null
+      ? {}
+      : { estimatedMinutes: Number(missionRow.estimated_minutes) })
+  };
+
+  const { data: stepRows, error: stepError } = await readPublishedStepPayloads(
+    String(missionRow.id)
+  );
+
+  if (stepError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Mission instruction is unavailable",
+      retryable: true
+    });
+  }
+
+  const stepOutcome = resolvePersistedMissionSteps(
+    ((stepRows ?? []) as unknown as Array<Record<string, unknown>>).map(
+      (row) => ({
+        stableId: row.stable_id,
+        position: row.position,
+        stepType: row.step_type,
+        payload: row.payload
+      })
+    )
+  );
+
+  return { missionRow, mission, stepOutcome };
 }
 
 /**

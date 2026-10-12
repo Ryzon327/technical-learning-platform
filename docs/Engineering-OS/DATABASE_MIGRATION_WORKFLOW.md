@@ -291,7 +291,7 @@ Run these against the development project after `db push`. All are read-only.
 ### 6.1 Structure
 
 > **These are POST-APPLICATION expectations, not the current remote state.**
-> They describe the schema once **all 46** source migrations have been applied.
+> They describe the schema once **all 47** source migrations have been applied.
 > The development/UAT project was recorded with **38** applied — see the table
 > at the top of this document — and Founder direction G-005 records that
 > `20261011000100` has since been applied to UAT. Running these queries against
@@ -302,10 +302,10 @@ Run these against the development project after `db push`. All are read-only.
 > (`npm run gate -- db-tooling`), so they cannot silently go stale. They say
 > nothing about what has been deployed.
 
-| Check | Expected after all 46 are applied |
+| Check | Expected after all 47 are applied |
 |---|---|
-| `supabase migration list` | **46** migrations applied |
-| `select count(*) from public.platform_schema_version;` | **45** — see the note below |
+| `supabase migration list` | **47** migrations applied |
+| `select count(*) from public.platform_schema_version;` | **46** — see the note below |
 | `select count(*) from information_schema.tables where table_schema='public';` | **62** tables |
 | `select count(*) from pg_policies where schemaname='public';` | **66** policies |
 | `select count(*) from pg_tables where schemaname='public' and rowsecurity=false;` | **0** |
@@ -330,6 +330,14 @@ Run these against the development project after `db push`. All are read-only.
 > | `20260907000100` (MISSION-STEP-VOCAB-1) | one CHECK constraint replaced on `mission_steps.step_type`, one column comment, one schema-version row. No table, column, policy, RLS, grant or data change. | ⛔ no |
 > | `20261011000100` (WP-005, G-001/G-002) | four SECURITY INVOKER search functions and their EXECUTE grants, one stored generated column `mission_steps.searchable_text`, one schema-version row. No table, policy or RLS change. | ✅ UAT, per Founder direction G-005 |
 > | `20261012000100` (WP-005, G-005) | one SECURITY INVOKER title-and-description search function, EXECUTE for `authenticated` only, one schema-version row. No table, column, policy, RLS or table-grant change. | ⛔ no |
+> | `20261013000100` (WP-008) | learners lose SELECT on `mission_steps.payload`: every `anon`/`authenticated` privilege on `mission_steps` revoked, seven learner-visible columns granted back to `authenticated` by name; two stored generated columns (`title_text`, `label_text`); the step-search function redefined to read them; one SECURITY INVOKER payload reader, EXECUTE for `service_role` only; one schema-version row. No table, policy or RLS change. | ⛔ no |
+>
+> **`20261013000100` and the API change that ships with it go live together.**
+> The learner lesson read calls `published_mission_step_payloads`, which this
+> migration creates; and once it is applied, a learner's role can no longer
+> read `mission_steps.payload`, which the previous API read relied on. Either
+> half without the other shows learners "Mission instruction is unavailable"
+> for every mission with authored steps. Search keeps working in both orders.
 >
 > Against the project as it stands today (38 applied), the same queries return
 > **38** migrations, **37** schema-version rows, **61** tables and **65**

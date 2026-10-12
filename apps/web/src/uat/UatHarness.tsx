@@ -6,6 +6,8 @@ import {
 import { MissionInstruction } from "../learning/MissionInstruction";
 import {
   buildUatInstruction,
+  UAT_DOCUMENT_MISSION_VERSION,
+  checkUatNearTransferAnswer,
   listUatMissions,
   loadUatDocument
 } from "./uat-instruction";
@@ -320,6 +322,7 @@ export function UatHarness() {
             steps={instruction.steps}
             assets={instruction.assets}
             missionStableId={selected}
+            missionVersion={UAT_DOCUMENT_MISSION_VERSION}
             /*
               The harness renders one lesson at a time and offers no completion
               control, so it has no completion authority to protect and nothing
@@ -329,6 +332,15 @@ export function UatHarness() {
               generation does.
             */
             instructionGeneration={resetKey}
+            // No API here: answered from the parsed document by the same
+            // shared check the server uses (WP-008).
+            checkNearTransferAnswer={(missionStableId, request) =>
+              checkUatNearTransferAnswer(
+                outcome.document,
+                missionStableId,
+                request
+              )
+            }
           />
         )}
       </section>

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LearningPathProgressSummary,
   LearningResumeTarget,
+  NearTransferCheckRequest,
+  NearTransferCheckResult,
   PublishedLearningPathTree,
   RecommendedNextAction
 } from "@tlp/shared-types";
@@ -45,6 +47,7 @@ import {
   type ProgressFeedback
 } from "./roas-course-presentation";
 import {
+  checkNearTransferAnswer,
   loadLearningPathProgress,
   loadMissionInstruction,
   loadPublishedLearningPath,
@@ -88,6 +91,12 @@ import {
  * Shared by both brief paths so the server's brief and the bundled brief cannot
  * drift apart visually.
  */
+/** WP-008 — asks the server for the verdict on one committed near-transfer answer. */
+type NearTransferChecker = (
+  missionStableId: string,
+  request: NearTransferCheckRequest
+) => Promise<NearTransferCheckResult>;
+
 function renderBriefBlock(block: BriefBlock, index: number) {
   return block.kind === "list" ? (
     <ul key={index} className="mission-brief-list">
@@ -119,7 +128,9 @@ function MissionInstructionBody({
   source,
   mission,
   instructionGeneration,
-  onRequiredInstructionChange
+  onRequiredInstructionChange,
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   source: InstructionSource;
   mission: LearnerMission;
@@ -130,6 +141,9 @@ function MissionInstructionBody({
     generation: number,
     state: RequiredInstructionState
   ) => void;
+  checkNearTransferAnswer: NearTransferChecker;
+  /** G-009 — re-fetch the open mission's lesson. */
+  onReloadInstruction: () => void;
 }) {
   if (source.kind === "structured") {
     return (
@@ -145,8 +159,11 @@ function MissionInstructionBody({
         steps={source.steps}
         assets={source.assets}
         missionStableId={mission.stableId}
+        missionVersion={source.missionVersion}
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
+        checkNearTransferAnswer={checkNearTransferAnswer}
+        onReloadInstruction={onReloadInstruction}
       />
     );
   }
@@ -173,7 +190,9 @@ function MissionDetail({
   instructionSource,
   instructionGeneration,
   onRecord,
-  onRequiredInstructionChange
+  onRequiredInstructionChange,
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   mission: LearnerMission;
   totalMissions: number;
@@ -194,6 +213,8 @@ function MissionDetail({
     generation: number,
     state: RequiredInstructionState
   ) => void;
+  checkNearTransferAnswer: NearTransferChecker;
+  onReloadInstruction: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = `${buildMissionRegionId(mission.stableId)}-title`;
@@ -222,6 +243,8 @@ function MissionDetail({
         mission={mission}
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
+        checkNearTransferAnswer={checkNearTransferAnswer}
+        onReloadInstruction={onReloadInstruction}
       />
 
       {mission.isDemonstration && (
@@ -393,6 +416,15 @@ export function LearningView() {
     []
   );
 
+  // WP-008 — the server's verdict on one committed near-transfer answer. The
+  // lesson payload carries no answers (DEC-074); the lesson asks through this,
+  // so the session stays here and never reaches the renderer.
+  const checkNearTransfer = useCallback(
+    (missionStableId: string, request: NearTransferCheckRequest) =>
+      checkNearTransferAnswer(accessToken, missionStableId, request),
+    [accessToken]
+  );
+
   // WP-F. The open mission's instructional content.
   //
   // ONE state slice, and it carries the mission it belongs to.
@@ -411,6 +443,16 @@ export function LearningView() {
   // rendered, and refuses to read state belonging to any other.
   const [instructionRequest, setInstructionRequest] =
     useState<MissionInstructionRequest>({ status: "idle" });
+
+  // G-009 — how many times the learner asked for the open lesson again, after
+  // a near-transfer check said the version on screen is no longer published.
+  // Only a trigger: the fetch effect below lists it, so a reload runs the SAME
+  // instruction load — new generation, tagged state, abort — as opening the
+  // mission did. It holds no content.
+  const [instructionReloads, setInstructionReloads] = useState(0);
+  const reloadInstruction = useCallback(() => {
+    setInstructionReloads((count) => count + 1);
+  }, []);
 
   // Which course the learner reads. Bundled for Router-on-a-Stick, projected
   // from the published tree for anything else, and null when the tree names a
@@ -574,7 +616,7 @@ export function LearningView() {
     })();
 
     return () => controller.abort();
-  }, [accessToken, selectedMissionStableId]);
+  }, [accessToken, selectedMissionStableId, instructionReloads]);
 
   const availability = resolveCourseAvailability({
     loading,
@@ -803,6 +845,8 @@ export function LearningView() {
             selectedMission.stableId
           )}
           onRequiredInstructionChange={reportRequiredInstruction}
+          checkNearTransferAnswer={checkNearTransfer}
+          onReloadInstruction={reloadInstruction}
           practice={selectMissionPractice(course, selectedMission.stableId)}
           instructionSource={selectInstructionSource(
             instructionRequest,

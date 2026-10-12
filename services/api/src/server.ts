@@ -72,9 +72,11 @@ import {
   listCertificateCorrections
 } from "./certificate-correction";
 import {
+  checkLearnerNearTransferAnswer,
   getLearnerMissionInstruction,
   getPublishedLearningPathTree,
-  listPublishedLearningPaths
+  listPublishedLearningPaths,
+  parseNearTransferCheckRequest
 } from "./curriculum";
 import { getApiHealthDetails } from "./health";
 import {
@@ -1172,6 +1174,37 @@ async function handleRequest(
           action
         )
       });
+      return;
+    }
+
+    // WP-008 — decide one committed near-transfer answer on the server.
+    //
+    // The lesson payload no longer carries the authored answer (DEC-074), so
+    // the learner's commitment comes here and receives only the verdict and
+    // learner-safe feedback. As with the instruction route, the trusted
+    // identity is resolved BEFORE the mission id or body is read, and the
+    // handler decides nothing itself: `checkLearnerNearTransferAnswer` does,
+    // where it is testable without HTTP. Nothing is recorded.
+    const nearTransferCheckMatch = pathname.match(
+      /^\/learning\/missions\/([^/]+)\/near-transfer\/check$/
+    );
+
+    if (request.method === "POST" && nearTransferCheckMatch) {
+      const trusted = await resolveTrustedRequestIdentity(request);
+      const missionStableId = decodeURIComponent(
+        nearTransferCheckMatch[1] ?? ""
+      );
+      const body = await readJsonBody(request);
+
+      sendJson(
+        response,
+        200,
+        await checkLearnerNearTransferAnswer(
+          trusted.accessToken,
+          missionStableId,
+          parseNearTransferCheckRequest(body)
+        )
+      );
       return;
     }
 

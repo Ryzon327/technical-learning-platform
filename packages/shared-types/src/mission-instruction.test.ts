@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assembleLearnerInstruction,
+  checkNearTransferAnswer,
   projectCurriculumAsset,
   projectMissionStep,
   projectMissionStepContent,
@@ -745,6 +746,92 @@ describe("the projection is exhaustive over the approved step types", () => {
       expect(projectMissionStepContent(content).type).toBe(type);
     });
   }
+});
+
+describe("near-transfer answers are structurally withheld (WP-008, DEC-074)", () => {
+  const authored = {
+    type: "near_transfer" as const,
+    title: "Try it elsewhere",
+    questions: [
+      {
+        questionStableId: "nt.q1",
+        type: "single_choice" as const,
+        prompt: "Which device carries the traffic?",
+        options: [
+          { optionId: "a", text: "Switch-9" },
+          { optionId: "b", text: "Router-9" }
+        ],
+        correctOptionIds: ["a"],
+        explanation: "Both hosts connect to wpeightsharedmarker the switch."
+      },
+      {
+        questionStableId: "nt.q2",
+        type: "multiple_choice" as const,
+        prompt: "Which two are hosts?",
+        options: [
+          { optionId: "h1", text: "PC-1" },
+          { optionId: "h2", text: "PC-2" },
+          { optionId: "s", text: "Switch-9" }
+        ],
+        correctOptionIds: ["h1", "h2"],
+        explanation: "Hosts are end devices."
+      }
+    ]
+  };
+
+  it("projects the questions and options, and no answer or explanation", () => {
+    const projected = projectMissionStepContent(authored);
+    if (projected.type !== "near_transfer") throw new Error("not projected");
+
+    expect(projected.questions.map((q) => q.questionStableId)).toEqual(["nt.q1", "nt.q2"]);
+    expect(Object.keys(projected).sort()).toEqual(["questions", "title", "type"]);
+    const serialised = JSON.stringify(projected);
+    for (const field of ["answers", "correctOptionIds", "explanation"]) {
+      expect(serialised).not.toContain(`"${field}"`);
+    }
+    expect(serialised).not.toContain("wpeightsharedmarker");
+    expect(serialised).not.toContain("Hosts are end devices.");
+  });
+
+  it("checkNearTransferAnswer passes a correct answer and returns no answer", () => {
+    expect(checkNearTransferAnswer(authored.questions[0]!, ["a"])).toEqual({
+      correct: true,
+      explanation: "Both hosts connect to wpeightsharedmarker the switch."
+    });
+    expect(checkNearTransferAnswer(authored.questions[1]!, ["h2", "h1"]).correct).toBe(true);
+  });
+
+  it("checkNearTransferAnswer fails a wrong answer without naming the authored one", () => {
+    expect(checkNearTransferAnswer(authored.questions[0]!, ["b"])).toEqual({
+      correct: false,
+      explanation: "Both hosts connect to wpeightsharedmarker the switch."
+    });
+    expect(checkNearTransferAnswer(authored.questions[1]!, ["h1"]).correct).toBe(false);
+    expect(checkNearTransferAnswer(authored.questions[1]!, ["h1", "h2", "s"]).correct).toBe(false);
+  });
+
+  it("checkNearTransferAnswer returns only the verdict and feedback, nothing that counts", () => {
+    expect(Object.keys(checkNearTransferAnswer(authored.questions[0]!, ["b"])).sort()).toEqual([
+      "correct",
+      "explanation"
+    ]);
+  });
+
+  it("a wrong submission cannot read the answer key back out (G-007, DEC-074)", () => {
+    for (const [question, wrong] of [
+      [authored.questions[0]!, ["b"]],
+      [authored.questions[1]!, ["h1"]],
+      [authored.questions[1]!, ["s"]],
+      [authored.questions[1]!, ["h1", "h2", "s"]]
+    ] as const) {
+      const result = checkNearTransferAnswer(question, wrong);
+      expect(result.correct).toBe(false);
+      expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+      for (const value of Object.values(result)) {
+        expect(value).not.toEqual(question.correctOptionIds);
+      }
+    }
+  });
 });
 
 describe("internal identity does not cross the boundary", () => {

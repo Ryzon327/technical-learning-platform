@@ -1,13 +1,22 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   assertDisposableLocalTestDatabase,
   createTestDatabasePsql
 } from "../test-support/test-db-psql";
 import {
+  AppError,
+  MISSION_VERSION_UNAVAILABLE_REASON,
   escapeCurriculumSearchPattern,
+  resolvePersistedMissionSteps,
   type CurriculumQueryVariant
 } from "@tlp/shared-types";
+import {
+  STEP_PAYLOAD_FUNCTION,
+  checkLearnerNearTransferAnswer,
+  getLearnerMissionInstruction
+} from "./curriculum";
 import {
   RECORD_SEARCH_FUNCTION,
   searchPublishedCurriculumRecords,
@@ -27,7 +36,7 @@ import {
   toRetrievalPattern
 } from "./search-aliases";
 import { searchCurriculum } from "./curriculum-search";
-import { createUserScopedSupabaseClient } from "./supabase";
+import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
 /**
  * Founder direction G-006: `searchCurriculum` is run end to end here. Only the
@@ -122,8 +131,14 @@ function literal(text: string): string {
   return `${tag}${text}${tag}`;
 }
 
-/** Runs `statement` exactly as PostgREST runs a learner request. */
-function asRole(statement: string, role: "authenticated" | "anon" = "authenticated"): string {
+/**
+ * Runs `statement` exactly as PostgREST runs a learner request — or, for
+ * WP-008's server-side payload read, as the API's service-role request.
+ */
+function asRole(
+  statement: string,
+  role: "authenticated" | "anon" | "service_role" = "authenticated"
+): string {
   const claims = JSON.stringify({ sub: LEARNER_ID, role }).replace(/'/g, "''");
   return psql(
     [
@@ -1333,6 +1348,1045 @@ describe.skipIf(DATABASE_URL === "")("keyset pages under a server row cap", { ti
       `select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: ["e"], p_page_size: 100000 })};`
     );
     expect(Number(rows)).toBeLessThanOrEqual(100);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-008 — learners cannot read withheld step fields
+ * ------------------------------------------------------------------ */
+
+/**
+ * A learner-scoped stand-in for the supabase-js table builder, covering the
+ * calls `getLearnerMissionInstruction` makes on the learner's client
+ * (`from().select().eq().order().limit().maybeSingle()` and an awaited list).
+ * Each read runs as one SELECT under `role`, with the real grants and policies.
+ */
+function tableClient(role: "authenticated" | "anon") {
+  const ident = (name: string): string => {
+    if (!/^[a-z_]+$/.test(name)) throw new Error(`unexpected identifier ${name}`);
+    return name;
+  };
+  return {
+    from: (table: string) => {
+      let columns = "*";
+      const filters: Array<[string, unknown]> = [];
+      const orders: Array<[string, boolean]> = [];
+      let limit: number | undefined;
+      const run = (): { data: Array<Record<string, unknown>> | null; error: unknown } => {
+        const select = columns === "*" ? "*" : columns.split(",").map((c) => ident(c.trim())).join(", ");
+        const where = filters.length
+          ? ` where ${filters.map(([c, v]) => `${ident(c)}::text = ${literal(String(v))}`).join(" and ")}`
+          : "";
+        const order = orders.length
+          ? ` order by ${orders.map(([c, asc]) => `${ident(c)} ${asc ? "asc" : "desc"}`).join(", ")}`
+          : "";
+        const cap = limit === undefined ? "" : ` limit ${Number(limit)}`;
+        try {
+          const output = asRole(
+            `select coalesce(json_agg(r), '[]'::json) from (select ${select} from public.${ident(table)}${where}${order}${cap}) as r;`,
+            role
+          );
+          return { data: JSON.parse(output) as Array<Record<string, unknown>>, error: null };
+        } catch (error) {
+          console.error(`[WP-008 db test] ${table} read failed: ${String(error)}`);
+          return { data: null, error };
+        }
+      };
+      interface Builder {
+        select(value: string): Builder;
+        eq(column: string, value: unknown): Builder;
+        order(column: string, options?: { ascending?: boolean }): Builder;
+        limit(value: number): Builder;
+        maybeSingle(): Promise<unknown>;
+        then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown): Promise<unknown>;
+      }
+      const builder: Builder = {
+        select(value) {
+          columns = value;
+          return builder;
+        },
+        eq(column, value) {
+          filters.push([column, value]);
+          return builder;
+        },
+        order(column, options) {
+          orders.push([column, options?.ascending !== false]);
+          return builder;
+        },
+        limit(value) {
+          limit = value;
+          return builder;
+        },
+        maybeSingle() {
+          const result = run();
+          return Promise.resolve(result.error ? result : { data: result.data?.[0] ?? null, error: null });
+        },
+        then(resolve, reject) {
+          return Promise.resolve(run()).then(resolve, reject);
+        }
+      };
+      return builder;
+    }
+  };
+}
+
+/** The API's server-side client: only the payload function, as service_role. */
+function payloadClient(role: "service_role" | "authenticated" = "service_role") {
+  const calls: Array<Record<string, unknown>> = [];
+  return {
+    calls,
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, ...args });
+      if (fn !== STEP_PAYLOAD_FUNCTION) throw new Error(`unexpected server rpc ${fn}`);
+      try {
+        const output = asRole(
+          `select coalesce(json_agg(r), '[]'::json) from (select * from public.${STEP_PAYLOAD_FUNCTION}(p_mission_id => ${literal(String(args.p_mission_id))}::uuid)) as r;`,
+          role
+        );
+        return { data: JSON.parse(output) as unknown[], error: null };
+      } catch (error) {
+        console.error(`[WP-008 db test] ${fn} failed: ${String(error)}`);
+        return { data: null, error };
+      }
+    }
+  };
+}
+
+const W = `${RUN}-w-`;
+
+/**
+ * Every withheld field in the fixture carries one of these, and each appears
+ * NOWHERE else, so finding one in any learner-readable output is a leak.
+ */
+const WP008_WITHHELD = {
+  expectedOutcome: "wpeightexpectedmarker",
+  nearTransferExplanation: "wpeightexplanationmarker",
+  decision: "wpeightdecisionmarker",
+  faultExplanation: "wpeightfaultmarker",
+  actionObservation: "wpeightactionmarker",
+  confirmation: "wpeightconfirmationmarker",
+  knowledgeCheckExplanation: "wpeightknowledgemarker",
+  predictionReason: "wpeightpredictionmarker"
+} as const;
+const WP008_WITHHELD_VALUES = Object.values(WP008_WITHHELD);
+const WP008_WITHHELD_KEYS = [
+  "payload",
+  "expectedOutcome",
+  "correctOptionIds",
+  "explanation",
+  "parameters",
+  "decision",
+  "actions",
+  "confirmation",
+  "knowledgeChecks",
+  "correctOption"
+];
+/** Learner-visible text: it must stay findable, which proves rows are still readable. */
+const WP008_VISIBLE = "wpeightlessonword";
+
+/**
+ * A CONTRACT-VALID packet journey carrying every answer-bearing interaction
+ * field, each marked with a withheld value. Valid, so the API projects it
+ * rather than reporting `content_error` — an invalid fixture would let a leak
+ * from the interaction projection pass unnoticed.
+ */
+function wp008Interaction(supportLevel: string): Row {
+  return {
+    type: "interaction",
+    interactionStableId: "wp8-journey",
+    interactionType: "packet_journey",
+    sourceKind: "authored_teaching",
+    supportLevel,
+    textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+    parameters: {
+      interactionType: "packet_journey",
+      nodes: [
+        {
+          nodeId: "pc-a",
+          label: "PC-A",
+          role: "host",
+          interfaces: [{ interfaceId: "pc-a-eth0", label: "eth0", attributes: [] }]
+        },
+        {
+          nodeId: "r-1",
+          label: "Router-1",
+          role: "router",
+          interfaces: [{ interfaceId: "r-1-gi0", label: "Gi0/0", attributes: [] }]
+        }
+      ],
+      links: [{ linkId: "link-a", label: "PC-A to Router-1", endpoints: ["pc-a-eth0", "r-1-gi0"] }],
+      traffic: {
+        label: "an ICMP echo request",
+        sourceNodeId: "pc-a",
+        destinationNodeId: "r-1",
+        startActionLabel: "Send the ping"
+      },
+      stages: [
+        {
+          stageId: "s1",
+          atNodeId: "pc-a",
+          narration: `PC-A sends the ${WP008_VISIBLE} request.`,
+          decision: WP008_WITHHELD.decision,
+          outcome: "proceeds",
+          prediction: {
+            prompt: `Where does the ${WP008_VISIBLE} request go?`,
+            options: ["To Router-1", "Nowhere"],
+            correctOption: "To Router-1",
+            explanation: WP008_WITHHELD.predictionReason
+          }
+        },
+        {
+          stageId: "s2",
+          atNodeId: "r-1",
+          narration: "The frame arrives at Router-1 and is discarded.",
+          outcome: "stops",
+          viaLinkId: "link-a",
+          knowledgeChecks: [
+            {
+              checkId: "k1",
+              prompt: "Which device discarded it?",
+              options: ["PC-A", "Router-1"],
+              correctOption: "Router-1",
+              explanation: WP008_WITHHELD.knowledgeCheckExplanation
+            }
+          ]
+        }
+      ],
+      fault: {
+        atNodeId: "r-1",
+        symptom: `The ${WP008_VISIBLE} ping reports loss.`,
+        stopsAtStageId: "s2",
+        explanation: WP008_WITHHELD.faultExplanation
+      },
+      actions: [
+        {
+          actionId: "fix",
+          label: "Add the subinterface",
+          resolvesFault: true,
+          observation: WP008_WITHHELD.actionObservation
+        }
+      ],
+      confirmation: { narration: WP008_WITHHELD.confirmation, summary: "One subinterface per VLAN." }
+    }
+  };
+}
+
+/** The interaction-bearing support levels, and the withheld ones among them. */
+const WP008_WITHHOLDING_LEVELS = ["challenge_me", "prove_it"] as const;
+
+it("WP-008: every withheld-interaction fixture is contract-valid, so the API projects it", () => {
+  for (const supportLevel of [...WP008_WITHHOLDING_LEVELS, "show_me"]) {
+    const payload = wp008Interaction(supportLevel);
+    const outcome = resolvePersistedMissionSteps([
+      { stableId: "s01", position: 0, stepType: payload.type, payload }
+    ]);
+    expect(outcome.state === "content_error" ? outcome.errors : [], supportLevel).toEqual([]);
+    expect(outcome.state, supportLevel).toBe("available");  }
+});
+
+describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real PostgreSQL", { timeout: 60_000 }, () => {
+  const ids: Record<string, string> = {};
+
+  beforeAll(() => {
+    const { fixture, course, module, mission, step } = fixtureBuilder(W);
+    const unit = module(course("course", "Withholding course"), "unit");
+
+    // A mission the API must still render: every step is valid.
+    ids.lesson = mission(unit, "lesson", "Withholding lesson");
+    step(ids.lesson, 0, {
+      type: "concept",
+      title: `Reading the ${WP008_VISIBLE} network`,
+      paragraphs: [`A ${WP008_VISIBLE} paragraph a learner reads.`]
+    });
+    step(ids.lesson, 1, {
+      type: "prediction",
+      prompt: `What happens to the ${WP008_VISIBLE} frame?`,
+      options: ["It is delivered", "It is dropped"],
+      expectedOutcome: `It is dropped, because ${WP008_WITHHELD.expectedOutcome}.`
+    });
+    step(ids.lesson, 2, {
+      type: "near_transfer",
+      title: `Try a ${WP008_VISIBLE} network`,
+      framing: "A different network, the same reasoning.",
+      questions: [
+        {
+          questionStableId: "q1",
+          type: "single_choice",
+          prompt: "Which device joins two networks?",
+          options: [
+            { optionId: "router", text: "The router" },
+            { optionId: "switch", text: "The switch" }
+          ],
+          correctOptionIds: ["router"],
+          explanation: `Only the router ${WP008_WITHHELD.nearTransferExplanation} joins two networks.`
+        }
+      ]
+    });
+
+    // Every answer-bearing interaction field, valid, at each level that
+    // withholds them: CHALLENGE ME strips them, PROVE IT withholds it whole.
+    ids.raw = mission(unit, "raw", "Withheld interaction");
+    step(ids.raw, 0, wp008Interaction("challenge_me"));
+    ids.proved = mission(unit, "proved", "Withheld demonstration");
+    step(ids.proved, 0, wp008Interaction("prove_it"));
+    // The same journey at a teaching level, which delivers them: the control
+    // that proves the markers are detectable in a projected response.
+    ids.taught = mission(unit, "taught", "Taught interaction");
+    step(ids.taught, 0, wp008Interaction("show_me"));
+
+    // Unpublished: row level security must still hide it.
+    ids.draft = mission(unit, "draft", "Draft withholding mission", { state: "draft" });
+    step(ids.draft, 0, { type: "concept", paragraphs: ["wpeightdraftword is only in a draft step."] });
+
+    insertFixture(fixture);
+  });
+
+  afterAll(() => removeFixtures());
+
+  const leaks = (serialized: string, allowedKeys: readonly string[] = []): string[] => [
+    ...WP008_WITHHELD_VALUES.filter((value) => serialized.includes(value)),
+    ...WP008_WITHHELD_KEYS.filter(
+      (key) => !allowedKeys.includes(key) && serialized.includes(`"${key}"`)
+    )
+  ];
+
+  /* --- criterion 1: direct table reads ---------------------------- */
+
+  const deniedReads: Array<[string, string]> = [
+    ["the raw payload", "select payload from public.mission_steps"],
+    ["one withheld field of the payload", "select payload ->> 'expectedOutcome' from public.mission_steps"],
+    ["every column", "select * from public.mission_steps"],
+    ["the whole row as JSON", "select to_jsonb(s) from public.mission_steps as s"],
+    ["the payload through a filter", "select id from public.mission_steps where payload::text like '%marker%'"],
+    ["the payload through a function", "select public.mission_step_searchable_text(payload) from public.mission_steps"],
+    ["the step type", "select step_type from public.mission_steps"]
+  ];
+  for (const [name, statement] of deniedReads) {
+    it(`criterion 1: a learner reading ${name} is denied`, () => {
+      expect(() => asRole(`${statement};`)).toThrow(/permission denied/);
+    });
+  }
+
+  it("criterion 1: the columns a learner may read carry no withheld field or value, and RLS still decides rows", () => {
+    const rows = JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (
+           select id, mission_id, stable_id, position, searchable_text, title_text, label_text
+           from public.mission_steps) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+    const serialized = JSON.stringify(rows);
+
+    expect(leaks(serialized)).toEqual([]);
+    // Published steps are still readable, the draft one is not.
+    const ours = rows.filter((row) => Object.values(ids).includes(String(row.mission_id)));
+    expect(ours.map((row) => row.mission_id).sort()).toEqual(
+      [ids.lesson, ids.lesson, ids.lesson, ids.raw, ids.proved, ids.taught].sort()
+    );
+    expect(serialized).toContain(WP008_VISIBLE);
+    expect(serialized).not.toContain("wpeightdraftword");
+  });
+
+  it("criterion 1: the payload reader is not callable by a learner", () => {
+    expect(() =>
+      asRole(`select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(ids.lesson ?? "")}::uuid);`)
+    ).toThrow(/permission denied/);
+  });
+
+  /* --- criterion 2: every learner-callable view and function ------ */
+
+  it("criterion 2: the only learner-callable function touching mission_steps is the step search, and no view reads it", () => {
+    const functions = JSON.parse(
+      psql(`select coalesce(json_agg(p.proname order by p.proname), '[]'::json)
+              from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'public'
+               and p.prosrc ilike '%mission_steps%'
+               and (has_function_privilege('authenticated', p.oid, 'execute')
+                    or has_function_privilege('anon', p.oid, 'execute'));`)
+    ) as string[];
+    expect(functions).toEqual([STEP_SEARCH_FUNCTION]);
+
+    const views = psql(
+      `select count(*) from pg_views where schemaname = 'public' and definition ilike '%mission_steps%';`
+    );
+    expect(views).toBe("0");
+  });
+
+  it("criterion 2: the step search, called directly by a learner, returns no withheld field or value", () => {
+    const searches = [WP008_VISIBLE, "frame", "network", ...WP008_WITHHELD_VALUES];
+    for (const word of searches) {
+      const serialized = asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(STEP_SEARCH_FUNCTION, {
+          p_phrases: [word]
+        })}) as r;`
+      );
+      expect(leaks(serialized), word).toEqual([]);
+    }
+    // A withheld value finds nothing, so search cannot reveal it exists.
+    for (const value of WP008_WITHHELD_VALUES) {
+      expect(
+        asRole(`select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: [value] })};`),
+        value
+      ).toBe("0");
+    }
+  });
+
+  it("criterion 2: the step search still names the step from its title, now without reading the payload", () => {
+    const rows = JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(STEP_SEARCH_FUNCTION, {
+          p_phrases: ["paragraph a learner reads"]
+        })}) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      mission_stable_id: `${W}lesson`,
+      step_stable_id: "s01",
+      step_title: `Reading the ${WP008_VISIBLE} network`,
+      step_label: null
+    });
+  });
+
+  /* --- criterion 3: anon reads nothing ----------------------------- */
+
+  for (const statement of [
+    "select stable_id from public.mission_steps",
+    "select searchable_text from public.mission_steps",
+    "select payload from public.mission_steps",
+    `select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: ["network"] })}`
+  ]) {
+    it(`criterion 3: anon is denied: ${statement.slice(0, 60)}`, () => {
+      expect(() => asRole(`${statement};`, "anon")).toThrow(/permission denied/);
+    });
+  }
+
+  it("criterion 3: anon holds no privilege on mission_steps and cannot call the payload reader", () => {
+    expect(
+      psql(`select has_any_column_privilege('anon', 'public.mission_steps', 'select')
+                or has_table_privilege('anon', 'public.mission_steps', 'select,insert,update,delete,truncate,references,trigger');`)
+    ).toBe("f");
+    expect(() =>
+      asRole(`select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(ids.lesson ?? "")}::uuid);`, "anon")
+    ).toThrow(/permission denied/);
+  });
+
+  /* --- criterion 4: the lesson still renders and validates -------- */
+
+  /** The real service, with the learner's client and the server client both real-database backed. */
+  function learnerAndServerClients() {
+    const server = payloadClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => tableClient("authenticated") as never);
+    vi.mocked(createServerSupabaseClient).mockImplementation(() => server as never);
+    return server;
+  }
+
+  async function renderAsLearner(missionStableId: string) {
+    const server = learnerAndServerClients();
+    const response = await getLearnerMissionInstruction("learner-token", missionStableId);
+    return { response, server };
+  }
+
+  it("criterion 4: the learner's old direct step read is now refused by the database", () => {
+    expect(() =>
+      asRole(
+        `select stable_id, position, step_type, payload from public.mission_steps where mission_id = ${literal(ids.lesson ?? "")};`
+      )
+    ).toThrow(/permission denied/);
+  });
+
+  it("criterion 4: the lesson still renders through the API, in order, with no withheld field", async () => {
+    const { response, server } = await renderAsLearner(`${W}lesson`);
+
+    expect(server.calls).toEqual([{ fn: STEP_PAYLOAD_FUNCTION, p_mission_id: ids.lesson }]);
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps.map((s) => [s.stableId, s.content.type])).toEqual([
+      ["s01", "concept"],
+      ["s02", "prediction"],
+      ["s03", "near_transfer"]
+    ]);
+    const serialized = JSON.stringify(response);
+    expect(serialized).toContain(WP008_VISIBLE);
+    expect(serialized).not.toContain(WP008_WITHHELD.expectedOutcome);
+    expect(serialized).not.toContain("expectedOutcome");
+    // WP-008 / DEC-074: EVERY withheld field and value, near-transfer answers
+    // and explanations included, is absent from the lesson response.
+    expect(leaks(serialized)).toEqual([]);
+    expect(serialized).not.toContain('"answers"');
+  });
+
+  it("criterion 4: every learner-facing lesson response carries no withheld field or value", async () => {
+    // Every withholding mission the learner can open, through the real API
+    // read. Each must actually render, or the absence below would be vacuous.
+    for (const missionStableId of [`${W}lesson`, `${W}raw`, `${W}proved`]) {
+      const { response } = await renderAsLearner(missionStableId);
+      expect(response.instruction.state, missionStableId).toBe("available");
+      const serialized = JSON.stringify(response);
+      expect(serialized, missionStableId).toContain(WP008_VISIBLE);
+      // `parameters` is the learner projection's own key on an available
+      // interaction; every answer-bearing field inside it is still checked.
+      expect(leaks(serialized, ["parameters"]), missionStableId).toEqual([]);
+      expect(serialized, missionStableId).not.toContain('"answers"');
+    }
+  });
+
+  it("criterion 4: at CHALLENGE ME the interaction renders, with its observations and without its answers", async () => {
+    const { response } = await renderAsLearner(`${W}raw`);
+
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps).toHaveLength(1);
+    const content = JSON.parse(JSON.stringify(response.instruction.steps[0]?.content)) as Row;
+    expect(content).toMatchObject({
+      type: "interaction",
+      interactionStableId: "wp8-journey",
+      supportLevel: "challenge_me",
+      textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+      presentation: {
+        state: "available",
+        parameters: {
+          interactionType: "packet_journey",
+          nodes: [{ nodeId: "pc-a" }, { nodeId: "r-1" }],
+          stages: [
+            {
+              stageId: "s1",
+              narration: `PC-A sends the ${WP008_VISIBLE} request.`,
+              prediction: {
+                prompt: `Where does the ${WP008_VISIBLE} request go?`,
+                options: ["To Router-1", "Nowhere"]
+              }
+            },
+            { stageId: "s2", viaLinkId: "link-a" }
+          ],
+          fault: { symptom: `The ${WP008_VISIBLE} ping reports loss.`, stopsAtStageId: "s2" }
+        }
+      }
+    });
+    expect(leaks(JSON.stringify(content), ["parameters"])).toEqual([]);
+  });
+
+  it("criterion 4: at PROVE IT the teaching interaction is withheld whole, and its text equivalent survives", async () => {
+    const { response } = await renderAsLearner(`${W}proved`);
+
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps.map((s) => s.content)).toEqual([
+      {
+        type: "interaction",
+        interactionStableId: "wp8-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel: "prove_it",
+        textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+        presentation: { state: "withheld", reason: "protected_demonstration" }
+      }
+    ]);
+    expect(leaks(JSON.stringify(response))).toEqual([]);
+  });
+
+  it("criterion 4: the control — at SHOW ME the same journey delivers every marker, so their absence above is meaningful", async () => {
+    const { response } = await renderAsLearner(`${W}taught`);
+
+    expect(response.instruction.state).toBe("available");
+    const serialized = JSON.stringify(response);
+    expect(
+      [
+        WP008_WITHHELD.decision,
+        WP008_WITHHELD.predictionReason,
+        WP008_WITHHELD.knowledgeCheckExplanation,
+        WP008_WITHHELD.faultExplanation,
+        WP008_WITHHELD.actionObservation,
+        WP008_WITHHELD.confirmation
+      ].filter((value) => !serialized.includes(value))
+    ).toEqual([]);
+  });
+
+  /*
+    Criterion 4, through the TRUSTED SERVER PATH (review finding, MEDIUM).
+
+    The learner submits an answer to the API's real check, which resolves the
+    mission through the learner's real RLS-scoped client and reads the
+    withheld `correctOptionIds` from the real `mission_steps.payload` through
+    the service-role-only payload function. Nothing about the answer is
+    obtained from a learner response first — the lesson response, above,
+    carries none.
+
+    This replaces a test that read the answer out of the learner response and
+    compared it locally, which is exactly the exposure DEC-074 closes.
+  */
+  async function checkAsLearner(selectedOptionIds: readonly string[], questionStableId = "q1") {
+    const server = learnerAndServerClients();
+    const result = await checkLearnerNearTransferAnswer("learner-token", `${W}lesson`, {
+      // G-009: the version the lesson was served at (the fixture's only one).
+      missionVersion: 1,
+      stepStableId: "s03",
+      questionStableId,
+      selectedOptionIds
+    });
+    return { result, server };
+  }
+
+  it("criterion 4: a correct near-transfer answer still validates on the server", async () => {
+    const { result, server } = await checkAsLearner(["router"]);
+
+    expect(result).toEqual({
+      correct: true,
+      explanation: `Only the router ${WP008_WITHHELD.nearTransferExplanation} joins two networks.`
+    });
+    expect(server.calls).toEqual([{ fn: STEP_PAYLOAD_FUNCTION, p_mission_id: ids.lesson }]);
+  });
+
+  it("criterion 4: a wrong near-transfer answer still fails on the server, without the answer key", async () => {
+    for (const wrong of [["switch"], ["router", "switch"]]) {
+      const { result } = await checkAsLearner(wrong);
+      expect(result.correct, wrong.join(",")).toBe(false);
+      // G-007, DEC-074: a wrong submission must not read the authored
+      // correctOptionIds back out of the response.
+      expect(Object.keys(result).sort(), wrong.join(",")).toEqual(["correct", "explanation"]);
+    }
+  });
+
+  it("criterion 4: the check returns only the verdict and that question's feedback", async () => {
+    const { result } = await checkAsLearner(["switch"]);
+
+    expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+    // The explanation is the post-commitment feedback for THIS question, and
+    // is the only withheld value the check may return. No other withheld
+    // field or value comes with it.
+    const serialized = JSON.stringify(result);
+    const others = WP008_WITHHELD_VALUES.filter(
+      (value) => value !== WP008_WITHHELD.nearTransferExplanation
+    );
+    expect(others.filter((value) => serialized.includes(value))).toEqual([]);
+    for (const key of WP008_WITHHELD_KEYS.filter((key) => key !== "explanation")) {
+      expect(serialized, key).not.toContain(`"${key}"`);
+    }
+  });
+
+  // G-009 changed the expected refusal from NOT_FOUND to the version-unavailable
+  // CONFLICT: the check resolves an exact published version, and a draft has
+  // none. The service still never reads its steps.
+  it("criterion 4: the check refuses an unpublished mission, and the service never reads its steps", async () => {
+    const server = learnerAndServerClients();
+    await expect(
+      checkLearnerNearTransferAnswer("learner-token", `${W}draft`, {
+        missionVersion: 1,
+        stepStableId: "s01",
+        questionStableId: "q1",
+        selectedOptionIds: ["router"]
+      })
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+    expect(server.calls).toEqual([]);
+  });
+
+  it("criterion 4: the check refuses a question or option the mission does not author", async () => {
+    await expect(checkAsLearner(["router"], "no-such-question")).rejects.toMatchObject({
+      code: "NOT_FOUND"
+    });
+    await expect(checkAsLearner(["router", "hub"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR"
+    });
+  });
+
+  it("criterion 4: an unpublished mission is still not found, and the service never reads its steps", async () => {
+    const server = learnerAndServerClients();
+    await expect(getLearnerMissionInstruction("learner-token", `${W}draft`)).rejects.toMatchObject({
+      code: "NOT_FOUND"
+    });
+    expect(server.calls).toEqual([]);
+  });
+
+  it("criterion 4: the payload reader restates publication, so even service_role gets nothing for a draft", () => {
+    const count = (missionId: string) =>
+      asRole(
+        `select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(missionId)}::uuid);`,
+        "service_role"
+      );
+    expect(count(ids.draft ?? "")).toBe("0");
+    expect(count(ids.lesson ?? "")).toBe("3");
+  });
+
+  /* --- criterion 6: the privilege guard ---------------------------- */
+
+  const privilegeReport = `select json_build_object(
+      'authenticated_table', has_table_privilege('authenticated', 'public.mission_steps', 'select'),
+      'authenticated_payload', has_column_privilege('authenticated', 'public.mission_steps', 'payload', 'select'),
+      'anon_any', has_any_column_privilege('anon', 'public.mission_steps', 'select'),
+      'public_any', has_any_column_privilege('public', 'public.mission_steps', 'select'),
+      'authenticated_visible', has_column_privilege('authenticated', 'public.mission_steps', 'searchable_text', 'select'),
+      'service_role_payload', has_column_privilege('service_role', 'public.mission_steps', 'payload', 'select'))::text;`;
+  const EXPECTED_PRIVILEGES = {
+    authenticated_table: false,
+    authenticated_payload: false,
+    anon_any: false,
+    public_any: false,
+    authenticated_visible: true,
+    service_role_payload: true
+  };
+
+  it("criterion 6: after every migration, no client role may select the raw payload", () => {
+    expect(JSON.parse(psql(privilegeReport))).toEqual(EXPECTED_PRIVILEGES);
+  });
+
+  it("criterion 6: the guard notices a re-grant of the payload (rolled back)", () => {
+    for (const regrant of [
+      "grant select on public.mission_steps to authenticated;",
+      "grant select (payload) on public.mission_steps to authenticated;",
+      "grant select on public.mission_steps to anon;"
+    ]) {
+      const report = JSON.parse(psql(["begin;", regrant, privilegeReport, "rollback;"].join("\n")));
+      expect(report, regrant).not.toEqual(EXPECTED_PRIVILEGES);
+    }
+  });
+
+  it("the migration removes hosted default privileges: ALL granted beforehand still ends with no payload access", () => {
+    // Hosted Supabase grants new tables to anon and authenticated by default
+    // privilege. Simulate that, re-run the migration, and roll it all back.
+    const migration = readFileSync(
+      new URL("../../../supabase/migrations/20261013000100_mission_step_payload_withholding.sql", import.meta.url),
+      "utf8"
+    );
+    const report = JSON.parse(
+      psql(
+        [
+          "begin;",
+          "grant all on public.mission_steps to anon, authenticated;",
+          migration,
+          privilegeReport,
+          "rollback;"
+        ].join("\n")
+      )
+    );
+    expect(report).toEqual(EXPECTED_PRIVILEGES);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * G-009 — a near-transfer check is bound to the version the learner opened
+ * ------------------------------------------------------------------ */
+
+const X = `${RUN}-x-`;
+
+/**
+ * Unique withheld markers, one set per mission version. Each appears only in
+ * that version's authored explanation, so finding one anywhere it should not
+ * be — or the wrong one in a verdict — is detectable.
+ */
+const G009_MARKERS = {
+  1: "gninevoneexplanationmarker",
+  2: "gninevtwoexplanationmarker",
+  3: "gninevthreeexplanationmarker"
+} as const;
+
+/**
+ * One near-transfer step whose step, question and option stable ids are the
+ * SAME in every version; only the correct answer and its explanation differ.
+ * That is the case the review found: reused ids let one version's answer be
+ * judged against another's key.
+ */
+function g009NearTransfer(version: 1 | 2 | 3, correctOptionId: "router" | "switch"): Row {
+  return {
+    type: "near_transfer",
+    title: "Try a versioned network",
+    framing: "The same question in every version.",
+    questions: [
+      {
+        questionStableId: "q1",
+        type: "single_choice",
+        prompt: "Which device answers this version's question?",
+        options: [
+          { optionId: "router", text: "The router" },
+          { optionId: "switch", text: "The switch" }
+        ],
+        correctOptionIds: [correctOptionId],
+        explanation: `Version ${version} says ${G009_MARKERS[version]}.`
+      }
+    ]
+  };
+}
+
+describe.skipIf(DATABASE_URL === "")("G-009: a near-transfer check is judged against the version the learner opened", { timeout: 60_000 }, () => {
+  let moduleId = "";
+  let nextPosition = 100;
+  const missionIds: Record<string, string> = {};
+
+  /** Insert one version of one mission, with its near-transfer step, as the owner. */
+  function insertVersion(key: string, version: 1 | 2 | 3, state: string, correctOptionId: "router" | "switch"): string {
+    const id = randomUUID();
+    insertFixture({
+      learning_paths: [],
+      courses: [],
+      learning_modules: [],
+      competencies: [],
+      missions: [
+        {
+          id,
+          stable_id: `${X}${key}`,
+          version,
+          module_id: moduleId,
+          title: `Versioned mission ${key} v${version}`,
+          description: null,
+          position: (nextPosition += 1),
+          publication_state: state
+        }
+      ],
+      mission_steps: [
+        {
+          id: randomUUID(),
+          mission_id: id,
+          stable_id: "s01",
+          position: 0,
+          step_type: "near_transfer",
+          payload: g009NearTransfer(version, correctOptionId)
+        }
+      ]
+    });
+    missionIds[`${key}@${version}`] = id;
+    return id;
+  }
+
+  function setState(missionId: string, state: string): void {
+    psql(
+      `update public.missions set publication_state = ${literal(state)} where id = ${literal(missionId)}::uuid;`
+    );
+  }
+
+  /** The real service, with both clients real-database backed, as in WP-008 above. */
+  function clients() {
+    const server = payloadClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => tableClient("authenticated") as never);
+    vi.mocked(createServerSupabaseClient).mockImplementation(() => server as never);
+    return server;
+  }
+
+  async function check(key: string, missionVersion: number, selectedOptionIds: readonly string[]) {
+    const server = clients();
+    const outcome = await checkLearnerNearTransferAnswer("learner-token", `${X}${key}`, {
+      missionVersion,
+      stepStableId: "s01",
+      questionStableId: "q1",
+      selectedOptionIds
+    }).then(
+      (result) => ({ result, error: undefined }),
+      (error: unknown) => ({ result: undefined, error })
+    );
+    return { ...outcome, server };
+  }
+
+  /** Every withheld field name and every version's marker, found in `serialized`. */
+  const withheld = (serialized: string): string[] => [
+    ...Object.values(G009_MARKERS).filter((marker) => serialized.includes(marker)),
+    ...["correctOptionIds", "explanation", "answers", "payload"].filter((key) =>
+      serialized.includes(`"${key}"`)
+    )
+  ];
+
+  /** Assert a refusal is exactly the version-unavailable response, and carries nothing else. */
+  function expectVersionUnavailable(error: unknown, label: string): void {
+    expect(error, label).toBeInstanceOf(AppError);
+    const body = (error as AppError).toJSON();
+    expect(body, label).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+    const serialized = JSON.stringify(body);
+    expect(withheld(serialized), label).toEqual([]);
+    for (const absent of ['"correct"', '"version"', '"missionVersion"', "router", "switch"]) {
+      expect(serialized, `${label}: ${absent}`).not.toContain(absent);
+    }
+  }
+
+  beforeAll(() => {
+    const { fixture, course, module } = fixtureBuilder(X);
+    moduleId = module(course("course", "Versioned course"), "unit");
+    insertFixture(fixture);
+
+    // Test (a): two missions that will each have v2 published while v1 is open.
+    insertVersion("kept", 1, "published", "router");
+    insertVersion("retired", 1, "published", "router");
+
+    // Test (b): one version in each unavailable state, and one published control.
+    insertVersion("states", 1, "retired", "router");
+    insertVersion("states", 2, "published", "switch");
+    insertVersion("states", 3, "draft", "router");
+
+    // Test (c): one published version, retired mid-check.
+    insertVersion("race", 1, "published", "router");
+  });
+
+  afterAll(() => removeFixtures());
+
+  /*
+    Test (a). The learner opens v1, then v2 is published with the same step,
+    question and option ids but a different correct answer. Run twice: with v1
+    still published, and with v1 retired after v2 is published.
+  */
+  for (const retireAfterPublishing of [false, true]) {
+    const key = retireAfterPublishing ? "retired" : "kept";
+    const label = retireAfterPublishing ? "v1 retired after v2 is published" : "v1 still published";
+
+    it(`(a) ${label}: a v1 submission is never judged against v2`, async () => {
+      // 1. The learner opens the lesson: v1 is the highest published version.
+      clients();
+      const opened = await getLearnerMissionInstruction("learner-token", `${X}${key}`);
+      expect(opened.mission.version).toBe(1);
+      expect(opened.instruction.state).toBe("available");
+      expect(withheld(JSON.stringify(opened))).toEqual([]);
+
+      // 2. v2 is published while the lesson is open.
+      insertVersion(key, 2, "published", "switch");
+      if (retireAfterPublishing) setState(missionIds[`${key}@1`] ?? "", "retired");
+
+      // The lesson read is unchanged: it now serves v2, the highest published.
+      clients();
+      const reloaded = await getLearnerMissionInstruction("learner-token", `${X}${key}`);
+      expect(reloaded.mission.version).toBe(2);
+      expect(reloaded.instruction.state).toBe("available");
+      expect(withheld(JSON.stringify(reloaded))).toEqual([]);
+
+      // 3. The learner submits answers to the lesson they OPENED, naming the
+      // version it was served with.
+      const openedVersion = opened.mission.version;
+      const v1Correct = await check(key, openedVersion, ["router"]);
+      const v2Correct = await check(key, openedVersion, ["switch"]);
+
+      if (!retireAfterPublishing) {
+        // v1's correct option is correct, with v1's explanation.
+        expect(v1Correct.error).toBeUndefined();
+        expect(v1Correct.result).toEqual({
+          correct: true,
+          explanation: `Version 1 says ${G009_MARKERS[1]}.`
+        });
+        // v2's correct option is WRONG for v1, and still v1's explanation.
+        expect(v2Correct.error).toBeUndefined();
+        expect(v2Correct.result).toEqual({
+          correct: false,
+          explanation: `Version 1 says ${G009_MARKERS[1]}.`
+        });
+        // Only v1's steps were read, never v2's.
+        for (const { server } of [v1Correct, v2Correct]) {
+          expect(server.calls).toEqual([
+            { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds[`${key}@1`] }
+          ]);
+        }
+        for (const { result } of [v1Correct, v2Correct]) {
+          const serialized = JSON.stringify(result);
+          expect(serialized).not.toContain(G009_MARKERS[2]);
+          expect(Object.keys(result ?? {}).sort()).toEqual(["correct", "explanation"]);
+        }
+      } else {
+        // v1 is gone: the reload response, not a verdict, and no payload read.
+        for (const [name, outcome] of [
+          ["v1's correct option", v1Correct],
+          ["v2's correct option", v2Correct]
+        ] as const) {
+          expect(outcome.result, name).toBeUndefined();
+          expectVersionUnavailable(outcome.error, name);
+          expect(outcome.server.calls, name).toEqual([]);
+        }
+      }
+
+      // Control: a submission naming v2 is judged against v2, so the version
+      // binding — not anything else — is what kept v1's verdicts on v1.
+      const v2Submission = await check(key, 2, ["switch"]);
+      expect(v2Submission.result).toEqual({
+        correct: true,
+        explanation: `Version 2 says ${G009_MARKERS[2]}.`
+      });
+      expect(v2Submission.server.calls).toEqual([
+        { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds[`${key}@2`] }
+      ]);
+    });
+  }
+
+  /*
+    Test (b). A submission naming a version that is draft, retired or does not
+    exist gets the version-unavailable response, never a verdict, and carries
+    none of any version's withheld markers.
+  */
+  for (const [state, version] of [
+    ["retired", 1],
+    ["draft", 3],
+    ["nonexistent", 9]
+  ] as const) {
+    it(`(b) a ${state} version gets the version-unavailable response and nothing from any version`, async () => {
+      for (const selected of [["router"], ["switch"]]) {
+        const outcome = await check("states", version, selected);
+        expect(outcome.result, selected.join(",")).toBeUndefined();
+        expectVersionUnavailable(outcome.error, `${state} ${selected.join(",")}`);
+        // Refused before the service role was ever reached.
+        expect(outcome.server.calls).toEqual([]);
+      }
+    });
+  }
+
+  it("(c) v1 retired between the mission lookup and the payload read gets the reload response", async () => {
+    // The learner-scoped lookup resolves v1 as published; the version is then
+    // retired immediately before the real payload function runs.
+    const server = clients();
+    const realRpc = server.rpc;
+    server.rpc = async (fn, args) => {
+      setState(missionIds["race@1"] ?? "", "retired");
+      return realRpc(fn, args);
+    };
+
+    for (const selected of [["router"], ["switch"]]) {
+      setState(missionIds["race@1"] ?? "", "published");
+      server.calls.length = 0;
+      const outcome = await checkLearnerNearTransferAnswer("learner-token", `${X}race`, {
+        missionVersion: 1,
+        stepStableId: "s01",
+        questionStableId: "q1",
+        selectedOptionIds: selected
+      }).then(
+        (result) => ({ result, error: undefined }),
+        (error: unknown) => ({ result: undefined, error })
+      );
+      const label = `race ${selected.join(",")}`;
+      expect(outcome.result, label).toBeUndefined();
+      expectVersionUnavailable(outcome.error, label);
+      // The payload read did run, and found nothing once v1 was retired.
+      expect(server.calls, label).toEqual([
+        { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds["race@1"] }
+      ]);
+    }
+  });
+
+  it("(b) a mission the learner cannot see at all gets the same response", async () => {
+    const outcome = await check("no-such-mission", 1, ["router"]);
+    expectVersionUnavailable(outcome.error, "unknown mission");
+    expect(outcome.server.calls).toEqual([]);
+  });
+
+  it("(b) control: the published version is judged, so the markers are detectable", async () => {
+    const outcome = await check("states", 2, ["switch"]);
+    expect(outcome.result).toEqual({
+      correct: true,
+      explanation: `Version 2 says ${G009_MARKERS[2]}.`
+    });
+    expect(withheld(JSON.stringify(outcome.result))).toEqual([G009_MARKERS[2], "explanation"]);
+  });
+
+  it("(item 4) at an available version, an unauthored step, question or option is still refused as before", async () => {
+    clients();
+    const ask = (request: { stepStableId: string; questionStableId: string; selectedOptionIds: string[] }) =>
+      checkLearnerNearTransferAnswer("learner-token", `${X}states`, { missionVersion: 2, ...request });
+
+    await expect(
+      ask({ stepStableId: "s99", questionStableId: "q1", selectedOptionIds: ["router"] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      ask({ stepStableId: "s01", questionStableId: "q9", selectedOptionIds: ["router"] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      ask({ stepStableId: "s01", questionStableId: "q1", selectedOptionIds: ["hub"] })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });
 

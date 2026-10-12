@@ -4236,6 +4236,95 @@ identical ordered results at limit 1, 2, 3 and the full list.
 
 ---
 
+## DEC-074
+
+**Category**
+
+Security / Curriculum Instruction
+
+**Title**
+
+No Learner-Reachable Path Returns Withheld Step Content, Including Near-Transfer Answers
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-12
+
+**Source**
+
+Founder decision 2026-10-12, architect recommendation accepted (Founder
+direction G-007, PR #70 repair, WP-008)
+
+**Decision**
+
+WP-008's goal governs: no learner-reachable path — direct table reads, views,
+RPCs or the API — may return withheld step content, including near-transfer
+answers (`correctOptionIds`) and explanations. A learner-facing payload carries
+the question and its options only.
+
+Answer checking runs on the trusted server. The learner commits an answer to
+one question and the API returns only the verdict and learner-safe feedback for
+that question: whether it was correct, and the authored explanation. The
+authored answer (`correctOptionIds`) is never returned — not before
+commitment, and not after a wrong submission either, since otherwise any
+learner could submit a wrong option and read the answer key back out of the
+response. The check records nothing: no score, attempt, evidence or competency
+state, exactly as before.
+
+**Checks are bound to the submitted mission version** (Founder decision
+2026-10-12, D-004, Founder direction G-009). Every check carries the
+`missionVersion` of the lesson the learner opened — the `mission.version`
+returned with that lesson — and the server judges against exactly that
+published version, never the highest one or any other. If that version is not
+published (retired, draft, nonexistent, or not visible to the learner) the
+check is not graded: it returns HTTP 409 `CONFLICT` with
+`details.reason = "mission_version_unavailable"`, carrying no verdict, no
+explanation and no content, version number or option data from any version,
+and the browser shows "This activity was updated. Please reload to continue."
+with a reload that re-fetches the lesson. The lesson read still serves the
+highest published version.
+
+**Open question for the Founder/architect.** DEC-067 rule 8 says a learner who
+answered an objective question wrongly is told "what was expected if they were
+not". For near-transfer checks G-007 forbids returning the answer, so the
+learner is told the verdict and the authored explanation, but the expected
+option is not named. Showing the expected answer after a wrong submission
+again would need explicit Founder authorization as an exception to G-007.
+
+**Supersedes**
+
+To the extent DEC-054 (as amended by WP-NF-NT1) permits near-transfer answers or
+any other withheld field in a learner-facing payload — "an answer-bearing
+projection that separates the answer from the question" — this decision
+supersedes it. DEC-054 is not edited. Every other part of DEC-054, including
+"correctness is not a gate", is unchanged.
+
+**Impact**
+
+`packages/shared-types/src/mission-instruction.ts` no longer projects an
+`answers` map. `POST /learning/missions/:missionStableId/near-transfer/check`
+(`checkLearnerNearTransferAnswer` in `services/api/src/curriculum.ts`) resolves
+the mission by exact `stable_id`, submitted `version` and
+`publication_state = 'published'` through the learner's own RLS-scoped client
+(`readExactPublishedMissionVersionSteps`), reads that row's authored step
+through the service-role-only `published_mission_step_payloads` function, and
+decides with `isNearTransferAnswerCorrect`. The browser renders
+the server's verdict; the learner experience — one question at a time,
+immediate feedback, focus handoff — is otherwise unchanged.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-054 ·
+`supabase/migrations/20261013000100_mission_step_payload_withholding.sql` ·
+`services/api/src/curriculum-step-search.db.test.ts` ·
+`services/api/src/wp008-withheld-step-fields.test.ts`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

@@ -2,6 +2,8 @@ import type {
   LearnerMissionInstructionResponse,
   LearningPathProgressSummary,
   LearningResumeTarget,
+  NearTransferCheckRequest,
+  NearTransferCheckResult,
   PublishedLearningPathTree,
   RecommendedNextAction,
   StudentProgressRecord
@@ -98,6 +100,33 @@ export async function loadMissionInstruction(
     accessToken,
     `/learning/missions/${encodeURIComponent(missionStableId)}/instruction`,
     { ...(options.signal ? { signal: options.signal } : {}) }
+  );
+}
+
+/**
+ * WP-008 — ask the server whether one committed near-transfer answer is right.
+ *
+ * The lesson payload carries the questions and never their answers (DEC-074),
+ * so the verdict and the authored feedback come from here, after the learner
+ * commits. The server records nothing: no attempt, no score, no evidence.
+ *
+ * Failures propagate, so the activity can say the answer could not be checked
+ * rather than inventing a verdict.
+ */
+export async function checkNearTransferAnswer(
+  accessToken: string,
+  missionStableId: string,
+  request: NearTransferCheckRequest,
+  options: { signal?: AbortSignal } = {}
+): Promise<NearTransferCheckResult> {
+  return apiRequest<NearTransferCheckResult>(
+    accessToken,
+    `/learning/missions/${encodeURIComponent(missionStableId)}/near-transfer/check`,
+    {
+      method: "POST",
+      body: request,
+      ...(options.signal ? { signal: options.signal } : {})
+    }
   );
 }
 
