@@ -9,15 +9,16 @@ documentation referenced below.
 ## Authority Model
 
 1. The **Founder** is the product authority and final decision-maker, and holds
-   final learner-experience and UAT authority.
-2. **ChatGPT** serves as system architect, product/technical orchestrator,
-   independent implementation reviewer, and — per DEC-068 — **independent
-   reviewer of the rendered product**: functional flow, UI/UX, novice
-   usability, learner-experience QA, technical-writing integration, interaction
-   and state, visual consistency, and accessibility judged from rendered
-   evidence. It reviews real rendered evidence (Founder videos, screenshots,
-   rendered pages, walkthroughs) and may find defects nobody reported. It does
-   not replace Founder UAT.
+   final learner-experience and UAT authority, and decides business, spending
+   and security exceptions and approves work packages and guidance (DEC-075).
+2. **Claude (planning seat)** serves as system architect, work-package and
+   guidance author, and curriculum drafter (DEC-075). **Codex** is the
+   independent reviewer of code and of curriculum technical accuracy.
+   **Rendered review** — functional flow, UI/UX, novice usability,
+   learner-experience QA, technical-writing integration, interaction and
+   state, visual consistency, and accessibility judged from rendered evidence
+   (DEC-068) — is automated UAT checks plus Founder UAT (DEC-075).
+   Orchestration is n8n with the agent runner. Builder ≠ reviewer ≠ approver.
 3. **Claude Code** serves as the implementation engineer and automated
    engineering QA: implementation, schema work, tests, typechecks, builds,
    verifiers, security checks, mechanically testable accessibility
@@ -34,8 +35,9 @@ documentation referenced below.
    owns *final product acceptance*. These are three claims with three owners.
    Claude Code may report `IMPLEMENTED + AUTOMATED VALIDATION PASSED`, and
    never `UAT APPROVED`.
-7. **Curriculum authorship is unchanged.** ChatGPT authors substantive
-   learner-facing curriculum. Claude Code implements it as written and reports
+7. **Curriculum authorship.** Claude (planning seat) drafts substantive
+   learner-facing curriculum, and Codex reviews its technical accuracy
+   (DEC-075). Claude Code implements it as written and reports
    conflicts rather than independently authoring, rewriting, simplifying,
    expanding, polishing or substituting it.
 

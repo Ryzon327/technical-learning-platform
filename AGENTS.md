@@ -12,7 +12,7 @@ Read only the sources relevant to the task, including:
 
 - `CLAUDE.md` for repository-wide implementation behavior and source hierarchy.
 - `docs/Project/DECISION_LEDGER.md` for binding decisions, especially DEC-027,
-  DEC-057, DEC-060, DEC-062, DEC-067, and DEC-068 when applicable.
+  DEC-057, DEC-060, DEC-062, DEC-067, DEC-068, and DEC-075 when applicable.
 - `docs/Learning-OS/Learning-OS.md` for learning standards and the Founder-owned
   Curriculum Doctrine in sections 23–33.
 - `docs/Feature-Registry/` for owning-engine contracts, acceptance criteria, and
@@ -36,15 +36,21 @@ The Founder owns final product authority, scope and change control,
 Founder-gated actions, final learner-experience UAT, and final product
 acceptance.
 
-### ChatGPT / Architect
+### Claude (Planning Seat) / Architect
 
-ChatGPT owns architecture and orchestration, instructional architecture,
-substantive technical curriculum authorship, independent rendered functional
-QA, independent UI/UX QA, learner-experience QA, technical-writing review, and
-rendered-product acceptance recommendations. ChatGPT does not replace Founder
-final UAT authority.
+Claude, in its planning seat, is the architect: architecture, instructional
+architecture, work-package and guidance authorship, and substantive technical
+curriculum drafting (DEC-075). Orchestration is n8n with the agent runner. The
+Founder approves work packages and guidance.
 
-### Claude Code / Codex / Implementation Agents
+### Codex / Independent Reviewer
+
+Codex independently reviews code and the technical accuracy of curriculum
+(DEC-075). Rendered review — functional, UI/UX, learner-experience and
+technical-writing QA judged from rendered evidence — is automated UAT checks
+plus Founder UAT. Builder ≠ reviewer ≠ approver.
+
+### Claude Code / Implementation Agents
 
 Implementation agents own repository investigation, approved implementation,
 tests, typechecking, builds, security checks, verifier and gate execution,
@@ -57,8 +63,8 @@ grant final product acceptance.
 
 ## Protected Curriculum Authorship
 
-Substantive learner-facing curriculum is reserved to ChatGPT unless the Founder
-explicitly changes that authority. Implementation agents must not independently
+Substantive learner-facing curriculum is reserved to Claude in its planning seat
+(DEC-075) unless the Founder explicitly changes that authority. Implementation agents must not independently
 author, rewrite, simplify, expand, polish, or substitute curriculum; invent
 learner scenarios, questions, answer choices, explanations, remediation, or
 substantive lab instructions; or silently resolve educational ambiguity.
