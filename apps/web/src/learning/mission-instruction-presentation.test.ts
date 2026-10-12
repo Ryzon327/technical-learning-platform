@@ -694,13 +694,7 @@ describe("the seven approved step types", () => {
             { optionId: "b", text: "Router-9" }
           ]
         }
-      ],
-      answers: {
-        "nt.q1": {
-          correctOptionIds: ["a"],
-          explanation: "Both hosts connect to the switch."
-        }
-      }
+      ]
     },
     reference: { type: "reference", label: "RFC 1918" }
   };

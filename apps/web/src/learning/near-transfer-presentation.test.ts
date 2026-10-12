@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseCurriculumDocument } from "@tlp/shared-types";
+import {
+  checkNearTransferAnswer,
+  parseCurriculumDocument,
+  type NearTransferCheckResult
+} from "@tlp/shared-types";
 import networkingFoundations from "../../../../content/curriculum/networking-foundations.json";
 // Read as text through Vite's own `?raw`, which `"types": ["vite/client"]`
 // already declares. `node:fs` has no types in this browser workspace, and
@@ -12,6 +16,9 @@ import type {
 import {
   INITIAL_NEAR_TRANSFER_STATE,
   acknowledgeAnswer,
+  beginCheck,
+  describeCheckFailure,
+  failCheck,
   activePhase,
   attemptedNearTransfer,
   activeQuestionIndex,
@@ -88,12 +95,37 @@ const STEP: LearnerNearTransferStep = {
         { optionId: "p2", text: "P two" }
       ]
     }
-  ],
-  answers: {
-    q1: { correctOptionIds: ["o1", "o3"], explanation: "The first reason." },
-    q2: { correctOptionIds: ["p2"], explanation: "The second reason." }
-  }
+  ]
 };
+
+/**
+ * The authored answers — the SERVER's side of the wire (WP-008, DEC-074).
+ *
+ * The learner step above carries none. These stand in for what the API holds,
+ * and `serverCheck` decides with the same shared `checkNearTransferAnswer` the
+ * API calls.
+ */
+const AUTHORED_ANSWERS: Record<
+  string,
+  { correctOptionIds: readonly string[]; explanation: string }
+> = {
+  q1: { correctOptionIds: ["o1", "o3"], explanation: "The first reason." },
+  q2: { correctOptionIds: ["p2"], explanation: "The second reason." }
+};
+
+function serverCheck(
+  questionStableId: string,
+  selected: readonly string[]
+): NearTransferCheckResult {
+  const question = STEP.questions.find(
+    (candidate) => candidate.questionStableId === questionStableId
+  );
+  const authored = AUTHORED_ANSWERS[questionStableId];
+  if (question === undefined || authored === undefined) {
+    throw new Error("no such question");
+  }
+  return checkNearTransferAnswer({ ...question, ...authored }, selected);
+}
 
 /** Answer one question, correctly or not, and read the feedback. */
 function answer(
@@ -110,7 +142,14 @@ function answer(
   for (const optionId of optionIds) {
     next = toggleOption(next, question, optionId);
   }
-  return commitAnswer(next, questionStableId);
+  const selected = next.selection[questionStableId] ?? [];
+  next = beginCheck(next, questionStableId);
+  return commitAnswer(
+    next,
+    questionStableId,
+    selected,
+    serverCheck(questionStableId, selected)
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -139,8 +178,13 @@ describe("before the learner commits", () => {
   it("will not commit an empty answer", () => {
     expect(canCommit(INITIAL_NEAR_TRANSFER_STATE, "q1")).toBe(false);
     expect(
-      commitAnswer(INITIAL_NEAR_TRANSFER_STATE, "q1").committed
+      commitAnswer(INITIAL_NEAR_TRANSFER_STATE, "q1", [], serverCheck("q1", []))
+        .committed
     ).toEqual([]);
+    // Nor even send one to be checked.
+    expect(beginCheck(INITIAL_NEAR_TRANSFER_STATE, "q1")).toBe(
+      INITIAL_NEAR_TRANSFER_STATE
+    );
   });
 
   it("allows commitment once something is chosen", () => {
@@ -277,6 +321,111 @@ describe("after the learner commits", () => {
       "selected",
       "verdict"
     ]);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-008 — the verdict comes from the server
+ * ------------------------------------------------------------------ */
+
+describe("the server decides, the browser renders (WP-008)", () => {
+  const selectedOnly = (optionId: string) =>
+    toggleOption(INITIAL_NEAR_TRANSFER_STATE, STEP.questions[1]!, optionId);
+
+  it("carries no answer in the learner step at all", () => {
+    const serialised = JSON.stringify(STEP);
+    expect(serialised).not.toContain("answers");
+    expect(serialised).not.toContain("correctOptionIds");
+    expect(serialised).not.toContain("explanation");
+    expect(serialised).not.toContain("The first reason.");
+    expect(serialised).not.toContain("The second reason.");
+  });
+
+  it("has no resolution while the answer is being checked", () => {
+    const checking = beginCheck(selectedOnly("p2"), "q2");
+
+    expect(checking.checking).toBe("q2");
+    expect(resolveQuestion(STEP, checking, "q2")).toBeNull();
+    expect(checking.committed).toEqual([]);
+  });
+
+  it("refuses a second submission, and freezes the selection, while one is in flight", () => {
+    const checking = beginCheck(selectedOnly("p2"), "q2");
+
+    expect(canCommit(checking, "q2")).toBe(false);
+    expect(beginCheck(checking, "q2")).toBe(checking);
+    expect(toggleOption(checking, STEP.questions[1]!, "p1")).toBe(checking);
+  });
+
+  it("renders the verdict exactly as the server gave it", () => {
+    // The browser no longer compares anything: a verdict the server calls
+    // correct is rendered correct, whatever the selection.
+    const checking = beginCheck(selectedOnly("p1"), "q2");
+    const state = commitAnswer(checking, "q2", ["p1"], {
+      correct: true,
+      expectedOptionIds: [],
+      explanation: "From the server."
+    });
+
+    expect(resolveQuestion(STEP, state, "q2")).toEqual({
+      correct: true,
+      verdict: "Correct",
+      selected: ["P one"],
+      expected: [],
+      explanation: "From the server."
+    });
+    expect(state.checking).toBeNull();
+  });
+
+  it("keeps the selection that was CHECKED, so the feedback is about that answer", () => {
+    const state = commitAnswer(
+      beginCheck(selectedOnly("p1"), "q2"),
+      "q2",
+      ["p1"],
+      serverCheck("q2", ["p1"])
+    );
+
+    expect(state.selection.q2).toEqual(["p1"]);
+    expect(resolveQuestion(STEP, state, "q2")?.selected).toEqual(["P one"]);
+  });
+
+  it("a failed check commits nothing, says so in words, and lets the learner try again", () => {
+    const failed = failCheck(beginCheck(selectedOnly("p2"), "q2"), "q2");
+
+    expect(failed.committed).toEqual([]);
+    expect(failed.checkFailed).toBe("q2");
+    expect(failed.checking).toBeNull();
+    expect(resolveQuestion(STEP, failed, "q2")).toBeNull();
+    expect(isSelected(failed, "q2", "p2")).toBe(true);
+    expect(canCommit(failed, "q2")).toBe(true);
+    expect(describeCheckFailure()).toBe(
+      "Your answer could not be checked. Submit it again to try once more."
+    );
+
+    // Trying again clears the failure.
+    expect(beginCheck(failed, "q2").checkFailed).toBeNull();
+  });
+
+  it("a failure for a question not being checked changes nothing", () => {
+    const state = selectedOnly("p2");
+    expect(failCheck(state, "q2")).toBe(state);
+  });
+
+  it("the server's shared check still passes a correct answer and fails a wrong one", () => {
+    expect(serverCheck("q1", ["o1", "o3"]).correct).toBe(true);
+    expect(serverCheck("q1", ["o3", "o1"]).correct).toBe(true);
+    expect(serverCheck("q1", ["o1"]).correct).toBe(false);
+    expect(serverCheck("q1", ["o1", "o2", "o3"]).correct).toBe(false);
+    expect(serverCheck("q2", ["p1"])).toEqual({
+      correct: false,
+      expectedOptionIds: ["p2"],
+      explanation: "The second reason."
+    });
+    expect(serverCheck("q2", ["p2"])).toEqual({
+      correct: true,
+      expectedOptionIds: [],
+      explanation: "The second reason."
+    });
   });
 });
 
@@ -737,6 +886,7 @@ describe("what a required interaction holds back", () => {
     );
 
     const beforeLast: NearTransferState = {
+      ...INITIAL_NEAR_TRANSFER_STATE,
       selection: Object.fromEntries(
         answered.map((id) => [id, ["any"] as readonly string[]])
       ),
@@ -766,6 +916,7 @@ describe("what a required interaction holds back", () => {
     );
 
     const settled: NearTransferState = {
+      ...INITIAL_NEAR_TRANSFER_STATE,
       selection: Object.fromEntries(
         answered.map((id) => [id, ["any"] as readonly string[]])
       ),
@@ -785,6 +936,7 @@ describe("what a required interaction holds back", () => {
     const first = STEP.questions[0]?.questionStableId as string;
 
     const oneAnswered: NearTransferState = {
+      ...INITIAL_NEAR_TRANSFER_STATE,
       selection: { [first]: ["any"] },
       committed: [first],
       acknowledged: []
@@ -1331,27 +1483,18 @@ describe("authored port names are drawn beside their connections", () => {
         type: question.type,
         prompt: question.prompt,
         options: question.options
-      })),
-      answers: Object.fromEntries(
-        content.questions.map((question) => [
-          question.questionStableId,
-          {
-            correctOptionIds: question.correctOptionIds,
-            explanation: question.explanation
-          }
-        ])
-      )
+      }))
     };
 
     const committed: string[] = [];
     for (const question of step.questions) {
       expect(
-        isComplete(step, { selection: {}, committed, acknowledged: [] })
+        isComplete(step, { ...INITIAL_NEAR_TRANSFER_STATE, committed })
       ).toBe(false);
       committed.push(question.questionStableId);
     }
     expect(
-      isComplete(step, { selection: {}, committed, acknowledged: [] })
+      isComplete(step, { ...INITIAL_NEAR_TRANSFER_STATE, committed })
     ).toBe(true);
   });
 });

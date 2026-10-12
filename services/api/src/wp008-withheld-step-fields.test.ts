@@ -438,6 +438,53 @@ describe("the WP-008 migration", () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * DEC-074: the learner projection carries no near-transfer answer
+ * ------------------------------------------------------------------ */
+
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((line) => line.replace(/(^|[^:])\/\/.*$/, "$1"))
+    .join("\n");
+}
+
+describe("DEC-074: no learner payload carries a near-transfer answer", () => {
+  const projection = stripComments(
+    readFileSync(join(ROOT, "packages/shared-types/src/mission-instruction.ts"), "utf8")
+  );
+
+  it("the learner near-transfer type has no answers member", () => {
+    const learnerType = projection.slice(
+      projection.indexOf("export interface LearnerNearTransferStep"),
+      projection.indexOf("export interface LearnerNearTransferQuestion")
+    );
+    expect(learnerType.length).toBeGreaterThan(0);
+    expect(learnerType).not.toMatch(/\banswers\b/);
+    expect(learnerType).not.toMatch(/correctOptionIds|explanation/);
+  });
+
+  it("the projection does not read the authored answer or explanation", () => {
+    const branch = projection.slice(
+      projection.indexOf('case "near_transfer":'),
+      projection.indexOf('case "reference":')
+    );
+    expect(branch.length).toBeGreaterThan(0);
+    expect(branch).not.toContain("correctOptionIds");
+    expect(branch).not.toContain("explanation");
+    expect(branch).not.toMatch(/\banswers\b/);
+  });
+
+  it("the decision is recorded as a new ledger entry that supersedes DEC-054 to that extent", () => {
+    const ledger = readFileSync(join(ROOT, "docs/Project/DECISION_LEDGER.md"), "utf8");
+    const entry = ledger.slice(ledger.indexOf("## DEC-074"), ledger.indexOf("# Future Decisions"));
+    expect(entry).toContain("No Learner-Reachable Path Returns Withheld Step Content");
+    expect(entry).toContain("supersedes it. DEC-054 is not edited.");
+    expect(entry).toContain("G-007");
+  });
+});
+
+/* ------------------------------------------------------------------ *
  * Criterion 5: no client-side secret or service-role usage in apps/web
  * ------------------------------------------------------------------ */
 
@@ -474,6 +521,23 @@ describe("criterion 5: the browser holds no secret and no service-role access", 
       expect(offenders.map((path) => path.slice(ROOT.length))).toEqual([]);
     });
   }
+
+  it("decides no near-transfer answer in the browser and holds none (DEC-074)", () => {
+    // The near-transfer path in the learner app. It renders the server's
+    // verdict; it has no authored answer to compare against.
+    for (const file of [
+      "src/learning/near-transfer-presentation.ts",
+      "src/learning/NearTransferStep.tsx",
+      "src/learning/MissionInstruction.tsx",
+      "src/learning/LearningView.tsx",
+      "src/learning/learning-service.ts"
+    ]) {
+      const code = stripComments(readFileSync(join(WEB, file), "utf8"));
+      for (const reach of ["isNearTransferAnswerCorrect", "correctOptionIds", ".answers"]) {
+        expect(code.includes(reach), `${file} contains ${reach}`).toBe(false);
+      }
+    }
+  });
 
   it("reads only the public Supabase URL and anon key from its environment", () => {
     const variables = new Set(

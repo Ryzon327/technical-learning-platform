@@ -3268,13 +3268,27 @@ describe("Mission 1 applies what it taught to a different network", () => {
   it("hands the renderer the questions without their answers", () => {
     // The projection seam, through the real projection. A renderer drawing a
     // question cannot reach the answer by accident: it is not on the object.
-    const projected = projectMissionStepContent(nearTransfer());
+    //
+    // WP-008 / DEC-074 (Founder direction G-007): this used to also assert
+    // that a separate `answers` map WAS projected. It now asserts the new
+    // rule — the answers are not in the learner payload at all, under any
+    // field, and no authored explanation text is either. The verdict comes
+    // from the server's check after the learner commits.
+    const authored = nearTransfer();
+    const projected = projectMissionStepContent(authored);
     if (projected.type !== "near_transfer") throw new Error("not projected");
 
     for (const question of projected.questions) {
       expect("correctOptionIds" in question).toBe(false);
       expect("explanation" in question).toBe(false);
-      expect(projected.answers[question.questionStableId]).toBeDefined();
+    }
+    expect("answers" in projected).toBe(false);
+
+    const serialised = JSON.stringify(projected);
+    expect(serialised).not.toContain("correctOptionIds");
+    expect(serialised).not.toContain('"explanation"');
+    for (const question of authored.questions) {
+      expect(serialised).not.toContain(question.explanation);
     }
 
     expect(projected.questions).toHaveLength(4);

@@ -8,6 +8,7 @@ import {
 } from "@tlp/shared-types";
 import {
   buildUatInstruction,
+  checkUatNearTransferAnswer,
   findUatMission,
   listUatMissions,
   loadUatDocument
@@ -292,35 +293,41 @@ describe("protected fixture content does not reach the renderer", () => {
     }
   });
 
-  it("near-transfer answers are disclosed deliberately, and produce no evidence", () => {
-    // WP-NF-NT1 records this rather than leaving it implicit. Near-transfer
-    // correctness is authored, deterministic and adjudicated in the browser,
-    // so the authored answers necessarily reach the client — exactly as ROAS
-    // practice already does. That is acceptable for the same reason it is
-    // acceptable there and for no other: near-transfer produces no score, no
-    // attempt, no evidence and no competency, so a learner who reads the
-    // payload has only denied themselves the exercise.
-    //
-    // What must NOT happen is the presentation revealing the answer before
-    // the learner commits. That is a presentation invariant, and it is held
-    // in near-transfer-presentation.test.ts, not here.
-    const step = availableAt("show_me").steps.find(
-      (candidate) => candidate.content.type === "near_transfer"
-    );
-    if (step === undefined) throw new Error("the fixture carries no near transfer");
+  it("near-transfer answers never reach the learner payload, at any level, and produce no evidence", () => {
+    // WP-008 / DEC-074 (Founder direction G-007). This test used to assert the
+    // opposite — that the authored answers were disclosed deliberately in an
+    // `answers` map, and that only the presentation kept them off the screen
+    // until commitment. A network response is readable, so that was not
+    // withholding. The payload now carries the questions and nothing that
+    // answers them; the verdict comes from the server after the learner
+    // commits (see the harness check below).
+    const authored = findUatMission(documentOrThrow(), EVERY_STEP_MISSION)
+      ?.steps.flatMap((candidate) =>
+        candidate.content.type === "near_transfer"
+          ? candidate.content.questions
+          : []
+      ) ?? [];
+    expect(authored.length).toBeGreaterThan(0);
 
-    const content = step.content as Extract<
-      LearnerMissionStepContent,
-      { type: "near_transfer" }
-    >;
+    for (const level of INTERACTION_SUPPORT_LEVELS) {
+      const step = availableAt(level).steps.find(
+        (candidate) => candidate.content.type === "near_transfer"
+      );
+      if (step === undefined) throw new Error("the fixture carries no near transfer");
 
-    // The answers are held apart from the questions, so a renderer has to
-    // reach for them on purpose rather than receive them attached.
-    for (const question of content.questions) {
-      expect(JSON.stringify(question)).not.toContain("correctOptionIds");
-      expect(JSON.stringify(question)).not.toContain("explanation");
-      expect(content.answers[question.questionStableId]).toBeDefined();
+      const serialised = JSON.stringify(step.content);
+      for (const field of ["answers", "correctOptionIds", "explanation"]) {
+        expect(serialised, `${level}: ${field}`).not.toContain(`"${field}"`);
+      }
+      // And no authored explanation TEXT, under any name.
+      for (const question of authored) {
+        expect(serialised, level).not.toContain(question.explanation);
+      }
     }
+
+    const content = availableAt("show_me").steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    )?.content as Extract<LearnerMissionStepContent, { type: "near_transfer" }>;
 
     // And nothing in it is evidence-shaped. Checked against the payload's
     // field NAMES rather than a substring sweep: "points" is a substring of
@@ -352,6 +359,49 @@ describe("protected fixture content does not reach the renderer", () => {
     ]) {
       expect(names.has(forbidden)).toBe(false);
     }
+  });
+
+  it("the harness answers a committed near-transfer question through the shared check", async () => {
+    // The development-only surface has no API, so it stands in for the
+    // server's check with the same shared `checkNearTransferAnswer`.
+    const mission = findUatMission(documentOrThrow(), EVERY_STEP_MISSION);
+    const step = mission?.steps.find(
+      (candidate) => candidate.content.type === "near_transfer"
+    );
+    if (step?.content.type !== "near_transfer") {
+      throw new Error("the fixture carries no near transfer");
+    }
+    const question = step.content.questions[0];
+    if (question === undefined) throw new Error("no question");
+    const wrong = question.options
+      .map((option) => option.optionId)
+      .filter((id) => !question.correctOptionIds.includes(id));
+    expect(wrong.length).toBeGreaterThan(0);
+
+    const ask = (selectedOptionIds: readonly string[]) =>
+      checkUatNearTransferAnswer(documentOrThrow(), EVERY_STEP_MISSION, {
+        stepStableId: step.stableId,
+        questionStableId: question.questionStableId,
+        selectedOptionIds
+      });
+
+    await expect(ask(question.correctOptionIds)).resolves.toEqual({
+      correct: true,
+      expectedOptionIds: [],
+      explanation: question.explanation
+    });
+    await expect(ask(wrong.slice(0, 1))).resolves.toEqual({
+      correct: false,
+      expectedOptionIds: question.correctOptionIds,
+      explanation: question.explanation
+    });
+    await expect(
+      checkUatNearTransferAnswer(documentOrThrow(), EVERY_STEP_MISSION, {
+        stepStableId: step.stableId,
+        questionStableId: "no-such-question",
+        selectedOptionIds: question.correctOptionIds
+      })
+    ).rejects.toThrow();
   });
 });
 

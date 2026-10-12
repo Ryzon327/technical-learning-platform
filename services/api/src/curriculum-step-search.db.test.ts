@@ -7,10 +7,13 @@ import {
 } from "../test-support/test-db-psql";
 import {
   escapeCurriculumSearchPattern,
-  isNearTransferAnswerCorrect,
   type CurriculumQueryVariant
 } from "@tlp/shared-types";
-import { STEP_PAYLOAD_FUNCTION, getLearnerMissionInstruction } from "./curriculum";
+import {
+  STEP_PAYLOAD_FUNCTION,
+  checkLearnerNearTransferAnswer,
+  getLearnerMissionInstruction
+} from "./curriculum";
 import {
   RECORD_SEARCH_FUNCTION,
   searchPublishedCurriculumRecords,
@@ -1715,22 +1718,100 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
     expect(serialized).toContain(WP008_VISIBLE);
     expect(serialized).not.toContain(WP008_WITHHELD.expectedOutcome);
     expect(serialized).not.toContain("expectedOutcome");
+    // WP-008 / DEC-074: EVERY withheld field and value, near-transfer answers
+    // and explanations included, is absent from the lesson response.
+    expect(leaks(serialized)).toEqual([]);
+    expect(serialized).not.toContain('"answers"');
   });
 
-  it("criterion 4: a correct near-transfer answer still validates and a wrong one still fails", async () => {
-    const { response } = await renderAsLearner(`${W}lesson`);
-    if (response.instruction.state !== "available") throw new Error(response.instruction.state);
-    const content = response.instruction.steps[2]?.content;
-    if (content?.type !== "near_transfer") throw new Error("expected the near-transfer step");
+  it("criterion 4: every learner-facing lesson response carries no withheld field or value", async () => {
+    // Every mission the learner can open, through the real API read.
+    for (const missionStableId of [`${W}lesson`, `${W}raw`]) {
+      const { response } = await renderAsLearner(missionStableId);
+      const serialized = JSON.stringify(response);
+      expect(leaks(serialized), missionStableId).toEqual([]);
+      expect(serialized, missionStableId).not.toContain('"answers"');
+    }
+  });
 
-    const question = content.questions[0];
-    const answer = question ? content.answers[question.questionStableId] : undefined;
-    if (!question || !answer) throw new Error("expected one question and its answer");
-    const authored = { ...question, ...answer };
+  /*
+    Criterion 4, through the TRUSTED SERVER PATH (review finding, MEDIUM).
 
-    expect(isNearTransferAnswerCorrect(authored, ["router"])).toBe(true);
-    expect(isNearTransferAnswerCorrect(authored, ["switch"])).toBe(false);
-    expect(isNearTransferAnswerCorrect(authored, ["router", "switch"])).toBe(false);
+    The learner submits an answer to the API's real check, which resolves the
+    mission through the learner's real RLS-scoped client and reads the
+    withheld `correctOptionIds` from the real `mission_steps.payload` through
+    the service-role-only payload function. Nothing about the answer is
+    obtained from a learner response first — the lesson response, above,
+    carries none.
+
+    This replaces a test that read the answer out of the learner response and
+    compared it locally, which is exactly the exposure DEC-074 closes.
+  */
+  async function checkAsLearner(selectedOptionIds: readonly string[], questionStableId = "q1") {
+    const server = learnerAndServerClients();
+    const result = await checkLearnerNearTransferAnswer("learner-token", `${W}lesson`, {
+      stepStableId: "s03",
+      questionStableId,
+      selectedOptionIds
+    });
+    return { result, server };
+  }
+
+  it("criterion 4: a correct near-transfer answer still validates on the server", async () => {
+    const { result, server } = await checkAsLearner(["router"]);
+
+    expect(result).toEqual({
+      correct: true,
+      expectedOptionIds: [],
+      explanation: `Only the router ${WP008_WITHHELD.nearTransferExplanation} joins two networks.`
+    });
+    expect(server.calls).toEqual([{ fn: STEP_PAYLOAD_FUNCTION, p_mission_id: ids.lesson }]);
+  });
+
+  it("criterion 4: a wrong near-transfer answer still fails on the server", async () => {
+    for (const wrong of [["switch"], ["router", "switch"]]) {
+      const { result } = await checkAsLearner(wrong);
+      expect(result.correct, wrong.join(",")).toBe(false);
+      expect(result.expectedOptionIds, wrong.join(",")).toEqual(["router"]);
+    }
+  });
+
+  it("criterion 4: the check returns only the verdict and that question's feedback", async () => {
+    const { result } = await checkAsLearner(["switch"]);
+
+    expect(Object.keys(result).sort()).toEqual(["correct", "expectedOptionIds", "explanation"]);
+    // The explanation is the post-commitment feedback for THIS question, and
+    // is the only withheld value the check may return. No other withheld
+    // field or value comes with it.
+    const serialized = JSON.stringify(result);
+    const others = WP008_WITHHELD_VALUES.filter(
+      (value) => value !== WP008_WITHHELD.nearTransferExplanation
+    );
+    expect(others.filter((value) => serialized.includes(value))).toEqual([]);
+    for (const key of WP008_WITHHELD_KEYS.filter((key) => key !== "explanation")) {
+      expect(serialized, key).not.toContain(`"${key}"`);
+    }
+  });
+
+  it("criterion 4: the check refuses an unpublished mission, and the service never reads its steps", async () => {
+    const server = learnerAndServerClients();
+    await expect(
+      checkLearnerNearTransferAnswer("learner-token", `${W}draft`, {
+        stepStableId: "s01",
+        questionStableId: "q1",
+        selectedOptionIds: ["router"]
+      })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(server.calls).toEqual([]);
+  });
+
+  it("criterion 4: the check refuses a question or option the mission does not author", async () => {
+    await expect(checkAsLearner(["router"], "no-such-question")).rejects.toMatchObject({
+      code: "NOT_FOUND"
+    });
+    await expect(checkAsLearner(["router", "hub"])).rejects.toMatchObject({
+      code: "VALIDATION_ERROR"
+    });
   });
 
   it("criterion 4: an unpublished mission is still not found, and the service never reads its steps", async () => {
