@@ -546,14 +546,20 @@ const NEAR_TRANSFER_ROW = {
   }
 };
 
+/**
+ * G-009: every check names the version the learner opened. Unless a test says
+ * otherwise, that is the version the fixture's mission row carries.
+ */
 async function checkAnswer(
   byTable: Record<string, TableFixture>,
-  request: {
+  partial: {
+    missionVersion?: number;
     stepStableId: string;
     questionStableId: string;
     selectedOptionIds: readonly string[];
   }
 ) {
+  const request = { missionVersion: MISSION_ROW.version, ...partial };
   const { createServerSupabaseClient, createUserScopedSupabaseClient } =
     await import("./supabase");
   const harness = clientReturning(byTable);
@@ -704,6 +710,13 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
     ]);
   });
 
+  /*
+    G-009 changed this test's expected refusal from NOT_FOUND to the
+    version-unavailable CONFLICT: the check now resolves an exact version, and
+    a mission that does not resolve at that version is "this activity was
+    updated, reload", not "not found". The boundary it pins is unchanged — the
+    service role is never reached.
+  */
   it("never reaches the service role for a mission that does not resolve as published", async () => {
     await expect(
       checkAnswer(
@@ -714,10 +727,71 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
           selectedOptionIds: ["router"]
         }
       )
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "mission_version_unavailable" }
+    });
 
     const { createServerSupabaseClient } = await import("./supabase");
     expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("G-009: resolves exactly the submitted version, published, with no highest-version ordering", async () => {
+    const { harness } = await checkAnswer(transfer(), {
+      missionVersion: 7,
+      stepStableId: "step-transfer",
+      questionStableId: "q-one",
+      selectedOptionIds: ["router"]
+    });
+
+    expect(harness.eqCalls).toEqual([
+      ["stable_id", "mission.vlan-basics"],
+      ["version", 7],
+      ["publication_state", "published"]
+    ]);
+    expect(harness.orders).toEqual([]);
+  });
+
+  it("G-009: an unavailable version is refused with a stable marker, no verdict and nothing from another version", async () => {
+    const refusal = await checkAnswer(
+      { missions: { single: null }, mission_steps: { rows: [NEAR_TRANSFER_ROW] } },
+      {
+        missionVersion: 1,
+        stepStableId: "step-transfer",
+        questionStableId: "q-one",
+        selectedOptionIds: ["router"]
+      }
+    ).then(
+      () => {
+        throw new Error("expected the check to be refused");
+      },
+      (error: unknown) => error
+    );
+
+    const { AppError, MISSION_VERSION_UNAVAILABLE_REASON } = await import(
+      "@tlp/shared-types"
+    );
+    expect(refusal).toBeInstanceOf(AppError);
+    const body = (refusal as InstanceType<typeof AppError>).toJSON();
+    expect(body).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+
+    const serialised = JSON.stringify(body);
+    for (const absent of [
+      '"correct"',
+      '"explanation"',
+      '"correctOptionIds"',
+      '"version"',
+      '"missionVersion"',
+      "uniquewithheldexplanation",
+      "router"
+    ]) {
+      expect(serialised, absent).not.toContain(absent);
+    }
   });
 
   for (const [name, request] of [
@@ -766,30 +840,90 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
       expect(check).not.toContain(write);
     }
   });
+
+  /*
+    G-009 source-structure guard. The lesson read resolves the HIGHEST
+    published version; the check must never use that lookup, or a newer
+    version published while a lesson is open would judge the older one.
+  */
+  it("G-009: the check path never uses the highest-version lookup", () => {
+    const source = stripTsComments(read("./curriculum.ts"));
+    const check = source.slice(
+      source.indexOf("export async function checkLearnerNearTransferAnswer"),
+      source.indexOf("const MISSION_SUMMARY_COLUMNS")
+    );
+    const exact = source.slice(
+      source.indexOf("async function readExactPublishedMissionVersionSteps"),
+      source.indexOf("async function readResolvedMissionSteps")
+    );
+    const lesson = source.slice(
+      source.indexOf("export async function getLearnerMissionInstruction"),
+      source.indexOf("const MAX_SELECTED_OPTIONS")
+    );
+
+    expect(check).toContain("readExactPublishedMissionVersionSteps(");
+    expect(check).not.toContain("readPublishedMissionSteps(");
+    expect(check).not.toContain('.order("version"');
+
+    // The exact lookup: stable id, version and published, with no ordering
+    // or limit that could select a different row.
+    expect(exact).toContain('.eq("stable_id", missionStableId)');
+    expect(exact).toContain('.eq("version", missionVersion)');
+    expect(exact).toContain('.eq("publication_state", "published")');
+    expect(exact).not.toContain(".order(");
+    expect(exact).not.toContain(".limit(");
+    expect(exact).toContain("MISSION_VERSION_UNAVAILABLE_REASON");
+
+    // The lesson read keeps the highest-version lookup.
+    expect(lesson).toContain("readPublishedMissionSteps(");
+    expect(lesson).not.toContain("readExactPublishedMissionVersionSteps(");
+  });
 });
 
 describe("parseNearTransferCheckRequest — shape only", () => {
+  // G-009 added `missionVersion` to this test's input and expected output.
   it("accepts a well-formed request", async () => {
     const { parseNearTransferCheckRequest } = await import("./curriculum");
     expect(
       parseNearTransferCheckRequest({
+        missionVersion: 3,
         stepStableId: "s",
         questionStableId: "q",
         selectedOptionIds: ["a", "b"]
       })
-    ).toEqual({ stepStableId: "s", questionStableId: "q", selectedOptionIds: ["a", "b"] });
+    ).toEqual({
+      missionVersion: 3,
+      stepStableId: "s",
+      questionStableId: "q",
+      selectedOptionIds: ["a", "b"]
+    });
   });
 
+  const valid = { stepStableId: "s", questionStableId: "q", selectedOptionIds: ["a"] };
+
   for (const [name, body] of [
-    ["no step", { questionStableId: "q", selectedOptionIds: ["a"] }],
-    ["no question", { stepStableId: "s", selectedOptionIds: ["a"] }],
-    ["no selection", { stepStableId: "s", questionStableId: "q" }],
-    ["an empty selection", { stepStableId: "s", questionStableId: "q", selectedOptionIds: [] }],
-    ["a non-string option", { stepStableId: "s", questionStableId: "q", selectedOptionIds: [1] }],
-    ["a selection that is not a list", { stepStableId: "s", questionStableId: "q", selectedOptionIds: "a" }],
+    ["no mission version", valid],
+    ["a null mission version", { ...valid, missionVersion: null }],
+    ["a string mission version", { ...valid, missionVersion: "1" }],
+    ["a fractional mission version", { ...valid, missionVersion: 1.5 }],
+    ["a zero mission version", { ...valid, missionVersion: 0 }],
+    ["a negative mission version", { ...valid, missionVersion: -1 }],
+    ["a non-finite mission version", { ...valid, missionVersion: Number.POSITIVE_INFINITY }],
+    ["an unsafe mission version", { ...valid, missionVersion: Number.MAX_SAFE_INTEGER + 1 }],
+    ["no step", { missionVersion: 1, questionStableId: "q", selectedOptionIds: ["a"] }],
+    ["no question", { missionVersion: 1, stepStableId: "s", selectedOptionIds: ["a"] }],
+    ["no selection", { missionVersion: 1, stepStableId: "s", questionStableId: "q" }],
+    ["an empty selection", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: [] }],
+    ["a non-string option", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: [1] }],
+    ["a selection that is not a list", { missionVersion: 1, stepStableId: "s", questionStableId: "q", selectedOptionIds: "a" }],
     [
       "an oversized selection",
-      { stepStableId: "s", questionStableId: "q", selectedOptionIds: Array.from({ length: 51 }, (_, i) => `o${i}`) }
+      {
+        missionVersion: 1,
+        stepStableId: "s",
+        questionStableId: "q",
+        selectedOptionIds: Array.from({ length: 51 }, (_, i) => `o${i}`)
+      }
     ]
   ] as const) {
     it(`refuses ${name}`, async () => {

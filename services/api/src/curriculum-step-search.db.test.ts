@@ -6,6 +6,8 @@ import {
   createTestDatabasePsql
 } from "../test-support/test-db-psql";
 import {
+  AppError,
+  MISSION_VERSION_UNAVAILABLE_REASON,
   escapeCurriculumSearchPattern,
   resolvePersistedMissionSteps,
   type CurriculumQueryVariant
@@ -1916,6 +1918,8 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
   async function checkAsLearner(selectedOptionIds: readonly string[], questionStableId = "q1") {
     const server = learnerAndServerClients();
     const result = await checkLearnerNearTransferAnswer("learner-token", `${W}lesson`, {
+      // G-009: the version the lesson was served at (the fixture's only one).
+      missionVersion: 1,
       stepStableId: "s03",
       questionStableId,
       selectedOptionIds
@@ -1960,15 +1964,22 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
     }
   });
 
+  // G-009 changed the expected refusal from NOT_FOUND to the version-unavailable
+  // CONFLICT: the check resolves an exact published version, and a draft has
+  // none. The service still never reads its steps.
   it("criterion 4: the check refuses an unpublished mission, and the service never reads its steps", async () => {
     const server = learnerAndServerClients();
     await expect(
       checkLearnerNearTransferAnswer("learner-token", `${W}draft`, {
+        missionVersion: 1,
         stepStableId: "s01",
         questionStableId: "q1",
         selectedOptionIds: ["router"]
       })
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
     expect(server.calls).toEqual([]);
   });
 
@@ -2051,6 +2062,296 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
       )
     );
     expect(report).toEqual(EXPECTED_PRIVILEGES);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * G-009 — a near-transfer check is bound to the version the learner opened
+ * ------------------------------------------------------------------ */
+
+const X = `${RUN}-x-`;
+
+/**
+ * Unique withheld markers, one set per mission version. Each appears only in
+ * that version's authored explanation, so finding one anywhere it should not
+ * be — or the wrong one in a verdict — is detectable.
+ */
+const G009_MARKERS = {
+  1: "gninevoneexplanationmarker",
+  2: "gninevtwoexplanationmarker",
+  3: "gninevthreeexplanationmarker"
+} as const;
+
+/**
+ * One near-transfer step whose step, question and option stable ids are the
+ * SAME in every version; only the correct answer and its explanation differ.
+ * That is the case the review found: reused ids let one version's answer be
+ * judged against another's key.
+ */
+function g009NearTransfer(version: 1 | 2 | 3, correctOptionId: "router" | "switch"): Row {
+  return {
+    type: "near_transfer",
+    title: "Try a versioned network",
+    framing: "The same question in every version.",
+    questions: [
+      {
+        questionStableId: "q1",
+        type: "single_choice",
+        prompt: "Which device answers this version's question?",
+        options: [
+          { optionId: "router", text: "The router" },
+          { optionId: "switch", text: "The switch" }
+        ],
+        correctOptionIds: [correctOptionId],
+        explanation: `Version ${version} says ${G009_MARKERS[version]}.`
+      }
+    ]
+  };
+}
+
+describe.skipIf(DATABASE_URL === "")("G-009: a near-transfer check is judged against the version the learner opened", { timeout: 60_000 }, () => {
+  let moduleId = "";
+  let nextPosition = 100;
+  const missionIds: Record<string, string> = {};
+
+  /** Insert one version of one mission, with its near-transfer step, as the owner. */
+  function insertVersion(key: string, version: 1 | 2 | 3, state: string, correctOptionId: "router" | "switch"): string {
+    const id = randomUUID();
+    insertFixture({
+      learning_paths: [],
+      courses: [],
+      learning_modules: [],
+      competencies: [],
+      missions: [
+        {
+          id,
+          stable_id: `${X}${key}`,
+          version,
+          module_id: moduleId,
+          title: `Versioned mission ${key} v${version}`,
+          description: null,
+          position: (nextPosition += 1),
+          publication_state: state
+        }
+      ],
+      mission_steps: [
+        {
+          id: randomUUID(),
+          mission_id: id,
+          stable_id: "s01",
+          position: 0,
+          step_type: "near_transfer",
+          payload: g009NearTransfer(version, correctOptionId)
+        }
+      ]
+    });
+    missionIds[`${key}@${version}`] = id;
+    return id;
+  }
+
+  function setState(missionId: string, state: string): void {
+    psql(
+      `update public.missions set publication_state = ${literal(state)} where id = ${literal(missionId)}::uuid;`
+    );
+  }
+
+  /** The real service, with both clients real-database backed, as in WP-008 above. */
+  function clients() {
+    const server = payloadClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => tableClient("authenticated") as never);
+    vi.mocked(createServerSupabaseClient).mockImplementation(() => server as never);
+    return server;
+  }
+
+  async function check(key: string, missionVersion: number, selectedOptionIds: readonly string[]) {
+    const server = clients();
+    const outcome = await checkLearnerNearTransferAnswer("learner-token", `${X}${key}`, {
+      missionVersion,
+      stepStableId: "s01",
+      questionStableId: "q1",
+      selectedOptionIds
+    }).then(
+      (result) => ({ result, error: undefined }),
+      (error: unknown) => ({ result: undefined, error })
+    );
+    return { ...outcome, server };
+  }
+
+  /** Every withheld field name and every version's marker, found in `serialized`. */
+  const withheld = (serialized: string): string[] => [
+    ...Object.values(G009_MARKERS).filter((marker) => serialized.includes(marker)),
+    ...["correctOptionIds", "explanation", "answers", "payload"].filter((key) =>
+      serialized.includes(`"${key}"`)
+    )
+  ];
+
+  /** Assert a refusal is exactly the version-unavailable response, and carries nothing else. */
+  function expectVersionUnavailable(error: unknown, label: string): void {
+    expect(error, label).toBeInstanceOf(AppError);
+    const body = (error as AppError).toJSON();
+    expect(body, label).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+    const serialized = JSON.stringify(body);
+    expect(withheld(serialized), label).toEqual([]);
+    for (const absent of ['"correct"', '"version"', '"missionVersion"', "router", "switch"]) {
+      expect(serialized, `${label}: ${absent}`).not.toContain(absent);
+    }
+  }
+
+  beforeAll(() => {
+    const { fixture, course, module } = fixtureBuilder(X);
+    moduleId = module(course("course", "Versioned course"), "unit");
+    insertFixture(fixture);
+
+    // Test (a): two missions that will each have v2 published while v1 is open.
+    insertVersion("kept", 1, "published", "router");
+    insertVersion("retired", 1, "published", "router");
+
+    // Test (b): one version in each unavailable state, and one published control.
+    insertVersion("states", 1, "retired", "router");
+    insertVersion("states", 2, "published", "switch");
+    insertVersion("states", 3, "draft", "router");
+  });
+
+  afterAll(() => removeFixtures());
+
+  /*
+    Test (a). The learner opens v1, then v2 is published with the same step,
+    question and option ids but a different correct answer. Run twice: with v1
+    still published, and with v1 retired after v2 is published.
+  */
+  for (const retireAfterPublishing of [false, true]) {
+    const key = retireAfterPublishing ? "retired" : "kept";
+    const label = retireAfterPublishing ? "v1 retired after v2 is published" : "v1 still published";
+
+    it(`(a) ${label}: a v1 submission is never judged against v2`, async () => {
+      // 1. The learner opens the lesson: v1 is the highest published version.
+      clients();
+      const opened = await getLearnerMissionInstruction("learner-token", `${X}${key}`);
+      expect(opened.mission.version).toBe(1);
+      expect(opened.instruction.state).toBe("available");
+      expect(withheld(JSON.stringify(opened))).toEqual([]);
+
+      // 2. v2 is published while the lesson is open.
+      insertVersion(key, 2, "published", "switch");
+      if (retireAfterPublishing) setState(missionIds[`${key}@1`] ?? "", "retired");
+
+      // The lesson read is unchanged: it now serves v2, the highest published.
+      clients();
+      const reloaded = await getLearnerMissionInstruction("learner-token", `${X}${key}`);
+      expect(reloaded.mission.version).toBe(2);
+      expect(reloaded.instruction.state).toBe("available");
+      expect(withheld(JSON.stringify(reloaded))).toEqual([]);
+
+      // 3. The learner submits answers to the lesson they OPENED, naming the
+      // version it was served with.
+      const openedVersion = opened.mission.version;
+      const v1Correct = await check(key, openedVersion, ["router"]);
+      const v2Correct = await check(key, openedVersion, ["switch"]);
+
+      if (!retireAfterPublishing) {
+        // v1's correct option is correct, with v1's explanation.
+        expect(v1Correct.error).toBeUndefined();
+        expect(v1Correct.result).toEqual({
+          correct: true,
+          explanation: `Version 1 says ${G009_MARKERS[1]}.`
+        });
+        // v2's correct option is WRONG for v1, and still v1's explanation.
+        expect(v2Correct.error).toBeUndefined();
+        expect(v2Correct.result).toEqual({
+          correct: false,
+          explanation: `Version 1 says ${G009_MARKERS[1]}.`
+        });
+        // Only v1's steps were read, never v2's.
+        for (const { server } of [v1Correct, v2Correct]) {
+          expect(server.calls).toEqual([
+            { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds[`${key}@1`] }
+          ]);
+        }
+        for (const { result } of [v1Correct, v2Correct]) {
+          const serialized = JSON.stringify(result);
+          expect(serialized).not.toContain(G009_MARKERS[2]);
+          expect(Object.keys(result ?? {}).sort()).toEqual(["correct", "explanation"]);
+        }
+      } else {
+        // v1 is gone: the reload response, not a verdict, and no payload read.
+        for (const [name, outcome] of [
+          ["v1's correct option", v1Correct],
+          ["v2's correct option", v2Correct]
+        ] as const) {
+          expect(outcome.result, name).toBeUndefined();
+          expectVersionUnavailable(outcome.error, name);
+          expect(outcome.server.calls, name).toEqual([]);
+        }
+      }
+
+      // Control: a submission naming v2 is judged against v2, so the version
+      // binding — not anything else — is what kept v1's verdicts on v1.
+      const v2Submission = await check(key, 2, ["switch"]);
+      expect(v2Submission.result).toEqual({
+        correct: true,
+        explanation: `Version 2 says ${G009_MARKERS[2]}.`
+      });
+      expect(v2Submission.server.calls).toEqual([
+        { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds[`${key}@2`] }
+      ]);
+    });
+  }
+
+  /*
+    Test (b). A submission naming a version that is draft, retired or does not
+    exist gets the version-unavailable response, never a verdict, and carries
+    none of any version's withheld markers.
+  */
+  for (const [state, version] of [
+    ["retired", 1],
+    ["draft", 3],
+    ["nonexistent", 9]
+  ] as const) {
+    it(`(b) a ${state} version gets the version-unavailable response and nothing from any version`, async () => {
+      for (const selected of [["router"], ["switch"]]) {
+        const outcome = await check("states", version, selected);
+        expect(outcome.result, selected.join(",")).toBeUndefined();
+        expectVersionUnavailable(outcome.error, `${state} ${selected.join(",")}`);
+        // Refused before the service role was ever reached.
+        expect(outcome.server.calls).toEqual([]);
+      }
+    });
+  }
+
+  it("(b) a mission the learner cannot see at all gets the same response", async () => {
+    const outcome = await check("no-such-mission", 1, ["router"]);
+    expectVersionUnavailable(outcome.error, "unknown mission");
+    expect(outcome.server.calls).toEqual([]);
+  });
+
+  it("(b) control: the published version is judged, so the markers are detectable", async () => {
+    const outcome = await check("states", 2, ["switch"]);
+    expect(outcome.result).toEqual({
+      correct: true,
+      explanation: `Version 2 says ${G009_MARKERS[2]}.`
+    });
+    expect(withheld(JSON.stringify(outcome.result))).toEqual([G009_MARKERS[2], "explanation"]);
+  });
+
+  it("(item 4) at an available version, an unauthored step, question or option is still refused as before", async () => {
+    clients();
+    const ask = (request: { stepStableId: string; questionStableId: string; selectedOptionIds: string[] }) =>
+      checkLearnerNearTransferAnswer("learner-token", `${X}states`, { missionVersion: 2, ...request });
+
+    await expect(
+      ask({ stepStableId: "s99", questionStableId: "q1", selectedOptionIds: ["router"] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      ask({ stepStableId: "s01", questionStableId: "q9", selectedOptionIds: ["router"] })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      ask({ stepStableId: "s01", questionStableId: "q1", selectedOptionIds: ["hub"] })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });
 

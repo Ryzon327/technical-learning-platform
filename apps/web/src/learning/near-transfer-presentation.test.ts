@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MISSION_VERSION_UNAVAILABLE_REASON,
   checkNearTransferAnswer,
   parseCurriculumDocument,
   type NearTransferCheckResult
@@ -18,7 +19,11 @@ import {
   acknowledgeAnswer,
   beginCheck,
   describeCheckFailure,
+  describeReloadLabel,
+  describeVersionUnavailable,
   failCheck,
+  failCheckVersionUnavailable,
+  isMissionVersionUnavailable,
   activePhase,
   attemptedNearTransfer,
   activeQuestionIndex,
@@ -400,6 +405,51 @@ describe("the server decides, the browser renders (WP-008)", () => {
   it("a failure for a question not being checked changes nothing", () => {
     const state = selectedOnly("p2");
     expect(failCheck(state, "q2")).toBe(state);
+  });
+
+  it("G-009: a version-unavailable check commits nothing and is distinct from a failed check", () => {
+    const stale = failCheckVersionUnavailable(
+      beginCheck(selectedOnly("p2"), "q2"),
+      "q2"
+    );
+
+    expect(stale.committed).toEqual([]);
+    expect(stale.results).toEqual({});
+    expect(stale.versionUnavailable).toBe("q2");
+    // Not the failed-check state, so its "submit it again" text is not shown.
+    expect(stale.checkFailed).toBeNull();
+    expect(stale.checking).toBeNull();
+    expect(resolveQuestion(STEP, stale, "q2")).toBeNull();
+    expect(isSelected(stale, "q2", "p2")).toBe(true);
+    expect(describeVersionUnavailable()).toBe(
+      "This activity was updated. Please reload to continue."
+    );
+    expect(describeVersionUnavailable()).not.toContain("again");
+    expect(describeReloadLabel()).toBe("Reload");
+
+    // Refused for a question not being checked.
+    const idle = selectedOnly("p2");
+    expect(failCheckVersionUnavailable(idle, "q2")).toBe(idle);
+  });
+
+  it("G-009: recognises only the CONFLICT carrying the version-unavailable reason", () => {
+    expect(
+      isMissionVersionUnavailable({
+        code: "CONFLICT",
+        details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+      })
+    ).toBe(true);
+    for (const other of [
+      undefined,
+      null,
+      new Error("network"),
+      { code: "CONFLICT" },
+      { code: "CONFLICT", details: { reason: "something_else" } },
+      { code: "NOT_FOUND", details: { reason: MISSION_VERSION_UNAVAILABLE_REASON } },
+      { code: "CONFLICT", details: MISSION_VERSION_UNAVAILABLE_REASON }
+    ]) {
+      expect(isMissionVersionUnavailable(other), JSON.stringify(other)).toBe(false);
+    }
   });
 
   it("the server's shared check still passes a correct answer and fails a wrong one", () => {

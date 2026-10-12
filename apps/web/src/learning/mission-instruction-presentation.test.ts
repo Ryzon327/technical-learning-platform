@@ -261,6 +261,22 @@ describe("instruction state is scoped to the mission it belongs to", () => {
  * ------------------------------------------------------------------ */
 
 describe("selectInstructionSource", () => {
+  it("G-009: a structured source carries the mission.version delivered with its steps", () => {
+    const request: MissionInstructionRequest = {
+      status: "loaded",
+      missionStableId: MISSION_A,
+      response: {
+        mission: { stableId: MISSION_A, version: 6, title: "A" },
+        instruction: { state: "available", steps: [CONCEPT], assets: [] }
+      }
+    };
+
+    expect(
+      expectKind(selectInstructionSource(request, MISSION_A), "structured")
+        .missionVersion
+    ).toBe(6);
+  });
+
   it("selects structured instruction when WP-E says available", () => {
     const source = expectKind(
       selectInstructionSource(

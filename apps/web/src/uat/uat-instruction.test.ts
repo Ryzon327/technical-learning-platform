@@ -8,6 +8,7 @@ import {
 } from "@tlp/shared-types";
 import {
   buildUatInstruction,
+  UAT_DOCUMENT_MISSION_VERSION,
   checkUatNearTransferAnswer,
   findUatMission,
   listUatMissions,
@@ -380,6 +381,7 @@ describe("protected fixture content does not reach the renderer", () => {
 
     const ask = (selectedOptionIds: readonly string[]) =>
       checkUatNearTransferAnswer(documentOrThrow(), EVERY_STEP_MISSION, {
+        missionVersion: UAT_DOCUMENT_MISSION_VERSION,
         stepStableId: step.stableId,
         questionStableId: question.questionStableId,
         selectedOptionIds
@@ -395,6 +397,7 @@ describe("protected fixture content does not reach the renderer", () => {
     });
     await expect(
       checkUatNearTransferAnswer(documentOrThrow(), EVERY_STEP_MISSION, {
+        missionVersion: UAT_DOCUMENT_MISSION_VERSION,
         stepStableId: step.stableId,
         questionStableId: "no-such-question",
         selectedOptionIds: question.correctOptionIds
