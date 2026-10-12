@@ -269,10 +269,6 @@ export function NearTransferStep({
 
             <p>{`You chose: ${resolution.selected.join(", ")}`}</p>
 
-            {resolution.expected.length > 0 && (
-              <p>{`The expected answer: ${resolution.expected.join(", ")}`}</p>
-            )}
-
             <p>{resolution.explanation}</p>
 
             <button

@@ -387,12 +387,10 @@ describe("protected fixture content does not reach the renderer", () => {
 
     await expect(ask(question.correctOptionIds)).resolves.toEqual({
       correct: true,
-      expectedOptionIds: [],
       explanation: question.explanation
     });
     await expect(ask(wrong.slice(0, 1))).resolves.toEqual({
       correct: false,
-      expectedOptionIds: question.correctOptionIds,
       explanation: question.explanation
     });
     await expect(

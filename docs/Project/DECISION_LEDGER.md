@@ -4268,10 +4268,19 @@ the question and its options only.
 
 Answer checking runs on the trusted server. The learner commits an answer to
 one question and the API returns only the verdict and learner-safe feedback for
-that question: whether it was correct, the authored explanation, and the
-authored answer only when the learner was wrong. Nothing answer-bearing is
-delivered before the learner commits. The check records nothing: no score,
-attempt, evidence or competency state, exactly as before.
+that question: whether it was correct, and the authored explanation. The
+authored answer (`correctOptionIds`) is never returned — not before
+commitment, and not after a wrong submission either, since otherwise any
+learner could submit a wrong option and read the answer key back out of the
+response. The check records nothing: no score, attempt, evidence or competency
+state, exactly as before.
+
+**Open question for the Founder/architect.** DEC-067 rule 8 says a learner who
+answered an objective question wrongly is told "what was expected if they were
+not". For near-transfer checks G-007 forbids returning the answer, so the
+learner is told the verdict and the authored explanation, but the expected
+option is not named. Showing the expected answer after a wrong submission
+again would need explicit Founder authorization as an exception to G-007.
 
 **Supersedes**
 

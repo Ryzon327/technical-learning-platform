@@ -612,7 +612,7 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
 
   const transfer = () => published([conceptRow(1, "Intro."), NEAR_TRANSFER_ROW]);
 
-  it("passes a correct answer, with the explanation and no expected answer", async () => {
+  it("passes a correct answer, with the explanation and no answer", async () => {
     const { result } = await checkAnswer(transfer(), {
       stepStableId: "step-transfer",
       questionStableId: "q-one",
@@ -621,12 +621,11 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
 
     expect(result).toEqual({
       correct: true,
-      expectedOptionIds: [],
       explanation: "Only the router uniquewithheldexplanation joins networks."
     });
   });
 
-  it("fails a wrong answer, and returns the expected answer only then", async () => {
+  it("fails a wrong answer without returning the authored answer", async () => {
     const { result } = await checkAnswer(transfer(), {
       stepStableId: "step-transfer",
       questionStableId: "q-one",
@@ -635,9 +634,30 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
 
     expect(result).toEqual({
       correct: false,
-      expectedOptionIds: ["router"],
       explanation: "Only the router uniquewithheldexplanation joins networks."
     });
+  });
+
+  it("a wrong submission cannot read the answer key back out (G-007, DEC-074)", async () => {
+    for (const [questionStableId, selectedOptionIds, answerKey] of [
+      ["q-one", ["switch"], ["router"]],
+      ["q-two", ["pc"], ["printer", "pc"]],
+      ["q-two", ["pc", "printer", "hub"], ["printer", "pc"]]
+    ] as const) {
+      const { result } = await checkAnswer(transfer(), {
+        stepStableId: "step-transfer",
+        questionStableId,
+        selectedOptionIds: [...selectedOptionIds]
+      });
+
+      expect(result.correct).toBe(false);
+      expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+      for (const value of Object.values(result)) {
+        if (Array.isArray(value)) {
+          expect([...value].sort()).not.toEqual([...answerKey].sort());
+        }
+      }
+    }
   });
 
   it("uses exact set equality for a multiple-choice question", async () => {
@@ -660,11 +680,7 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
       selectedOptionIds: ["switch"]
     });
 
-    expect(Object.keys(result).sort()).toEqual([
-      "correct",
-      "expectedOptionIds",
-      "explanation"
-    ]);
+    expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
     // Nothing about the OTHER question crosses with it.
     expect(JSON.stringify(result)).not.toContain("uniquesecondexplanation");
     expect(JSON.stringify(result)).not.toContain("printer");

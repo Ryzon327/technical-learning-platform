@@ -793,19 +793,17 @@ describe("near-transfer answers are structurally withheld (WP-008, DEC-074)", ()
     expect(serialised).not.toContain("Hosts are end devices.");
   });
 
-  it("checkNearTransferAnswer passes a correct answer and returns no expected answer", () => {
+  it("checkNearTransferAnswer passes a correct answer and returns no answer", () => {
     expect(checkNearTransferAnswer(authored.questions[0]!, ["a"])).toEqual({
       correct: true,
-      expectedOptionIds: [],
       explanation: "Both hosts connect to wpeightsharedmarker the switch."
     });
     expect(checkNearTransferAnswer(authored.questions[1]!, ["h2", "h1"]).correct).toBe(true);
   });
 
-  it("checkNearTransferAnswer fails a wrong answer and names the authored one", () => {
+  it("checkNearTransferAnswer fails a wrong answer without naming the authored one", () => {
     expect(checkNearTransferAnswer(authored.questions[0]!, ["b"])).toEqual({
       correct: false,
-      expectedOptionIds: ["a"],
       explanation: "Both hosts connect to wpeightsharedmarker the switch."
     });
     expect(checkNearTransferAnswer(authored.questions[1]!, ["h1"]).correct).toBe(false);
@@ -815,9 +813,24 @@ describe("near-transfer answers are structurally withheld (WP-008, DEC-074)", ()
   it("checkNearTransferAnswer returns only the verdict and feedback, nothing that counts", () => {
     expect(Object.keys(checkNearTransferAnswer(authored.questions[0]!, ["b"])).sort()).toEqual([
       "correct",
-      "expectedOptionIds",
       "explanation"
     ]);
+  });
+
+  it("a wrong submission cannot read the answer key back out (G-007, DEC-074)", () => {
+    for (const [question, wrong] of [
+      [authored.questions[0]!, ["b"]],
+      [authored.questions[1]!, ["h1"]],
+      [authored.questions[1]!, ["s"]],
+      [authored.questions[1]!, ["h1", "h2", "s"]]
+    ] as const) {
+      const result = checkNearTransferAnswer(question, wrong);
+      expect(result.correct).toBe(false);
+      expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
+      for (const value of Object.values(result)) {
+        expect(value).not.toEqual(question.correctOptionIds);
+      }
+    }
   });
 });
 

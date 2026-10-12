@@ -246,11 +246,12 @@ export interface NearTransferCheckRequest {
  * The server's verdict on one committed answer, and the learner-safe feedback
  * that goes with it.
  *
- *   correct            exact set equality with the authored answer
- *   expectedOptionIds  the authored answer, ONLY when the learner was wrong —
- *                      empty when they were right, so a correct learner is not
- *                      handed their own answer back as "the expectation"
- *   explanation        the authored reason, which is the instruction
+ *   correct      exact set equality with the authored answer
+ *   explanation  the authored reason, which is the instruction
+ *
+ * The authored answer itself (`correctOptionIds`) is NEVER returned, right or
+ * wrong (G-007, DEC-074): otherwise any learner could submit a wrong option and
+ * read the answer key back out of the response.
  *
  * Returned only in response to a commitment, so nothing here reaches the
  * browser before the learner has chosen. There is no score, attempt or
@@ -259,7 +260,6 @@ export interface NearTransferCheckRequest {
  */
 export interface NearTransferCheckResult {
   readonly correct: boolean;
-  readonly expectedOptionIds: readonly string[];
   readonly explanation: string;
 }
 
@@ -274,12 +274,8 @@ export function checkNearTransferAnswer(
   question: NearTransferQuestion,
   selectedOptionIds: readonly string[]
 ): NearTransferCheckResult {
-  const correct = isNearTransferAnswerCorrect(question, selectedOptionIds);
-
   return {
-    correct,
-    expectedOptionIds: correct ? [] : [...question.correctOptionIds],
-    explanation: question.explanation
+    correct: isNearTransferAnswerCorrect(question, selectedOptionIds),    explanation: question.explanation
   };
 }
 

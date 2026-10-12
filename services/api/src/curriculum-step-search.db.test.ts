@@ -1762,24 +1762,25 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
 
     expect(result).toEqual({
       correct: true,
-      expectedOptionIds: [],
       explanation: `Only the router ${WP008_WITHHELD.nearTransferExplanation} joins two networks.`
     });
     expect(server.calls).toEqual([{ fn: STEP_PAYLOAD_FUNCTION, p_mission_id: ids.lesson }]);
   });
 
-  it("criterion 4: a wrong near-transfer answer still fails on the server", async () => {
+  it("criterion 4: a wrong near-transfer answer still fails on the server, without the answer key", async () => {
     for (const wrong of [["switch"], ["router", "switch"]]) {
       const { result } = await checkAsLearner(wrong);
       expect(result.correct, wrong.join(",")).toBe(false);
-      expect(result.expectedOptionIds, wrong.join(",")).toEqual(["router"]);
+      // G-007, DEC-074: a wrong submission must not read the authored
+      // correctOptionIds back out of the response.
+      expect(Object.keys(result).sort(), wrong.join(",")).toEqual(["correct", "explanation"]);
     }
   });
 
   it("criterion 4: the check returns only the verdict and that question's feedback", async () => {
     const { result } = await checkAsLearner(["switch"]);
 
-    expect(Object.keys(result).sort()).toEqual(["correct", "expectedOptionIds", "explanation"]);
+    expect(Object.keys(result).sort()).toEqual(["correct", "explanation"]);
     // The explanation is the post-commitment feedback for THIS question, and
     // is the only withheld value the check may return. No other withheld
     // field or value comes with it.

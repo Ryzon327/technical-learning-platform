@@ -470,8 +470,9 @@ export function parseNearTransferCheckRequest(
  *
  * ## What comes back
  *
- * The verdict, the authored explanation, and the authored answer ONLY when the
- * learner was wrong — `checkNearTransferAnswer` decides, using the unchanged
+ * The verdict and the authored explanation — never the authored answer, right
+ * or wrong, so a wrong submission cannot read the answer key back out
+ * (DEC-074). `checkNearTransferAnswer` decides, using the unchanged
  * `isNearTransferAnswerCorrect`. Nothing is written: no attempt, no score, no
  * evidence, no progress. A near-transfer check is instruction.
  *

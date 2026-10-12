@@ -496,7 +496,7 @@ describe("a committed near-transfer answer is judged by the server (WP-008)", ()
     expect(result?.textContent).toContain(AUTHORED_ANSWER.explanation);
   });
 
-  it("renders a wrong verdict with the expected answer the server returned", async () => {
+  it("renders a wrong verdict without the authored answer (G-007, DEC-074)", async () => {
     const { container } = mount([REQUIRED_CHECK_STEP, SUCCESSOR]);
 
     choose(container, "b");
@@ -508,7 +508,8 @@ describe("a committed near-transfer answer is judged by the server (WP-008)", ()
       "Not quite"
     );
     expect(result?.textContent).toContain("You chose: PC-Z");
-    expect(result?.textContent).toContain("The expected answer: Switch-9");
+    expect(result?.textContent).not.toContain("The expected answer");
+    expect(result?.textContent).not.toContain("Switch-9");
     expect(result?.textContent).toContain(AUTHORED_ANSWER.explanation);
 
     // Being wrong never blocks: Finish still reveals what comes next.
@@ -570,7 +571,6 @@ describe("a committed near-transfer answer is judged by the server (WP-008)", ()
     await act(async () => {
       release({
         correct: true,
-        expectedOptionIds: [],
         explanation: AUTHORED_ANSWER.explanation
       });
       await Promise.resolve();

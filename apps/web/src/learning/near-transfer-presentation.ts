@@ -44,7 +44,7 @@ export interface NearTransferState {
    * The server's verdict and feedback for each committed question (WP-008).
    *
    * The lesson payload carries no answers (DEC-074), so this is the only
-   * place a verdict, an explanation or an expected answer can come from, and
+   * place a verdict or an explanation can come from — never the answer — and
    * it is filled only by `commitAnswer` — after the learner has chosen.
    */
   readonly results: Readonly<Record<string, NearTransferCheckResult>>;
@@ -712,8 +712,10 @@ export interface NearTransferResolution {
   readonly verdict: string;
   /** What the learner chose, in the authored option text. */
   readonly selected: readonly string[];
-  /** The authored answer, shown only when the learner was wrong. */
-  readonly expected: readonly string[];
+  /**
+   * The authored explanation. The authored answer itself never reaches the
+   * browser, right or wrong (DEC-074).
+   */
   readonly explanation: string;
 }
 
@@ -746,9 +748,6 @@ export function resolveQuestion(
     correct,
     verdict: correct ? "Correct" : "Not quite",
     selected: textOf(selectedIds),
-    // Shown only when they were wrong; a learner who was right does not need
-    // their own answer repeated back at them as "the expected answer".
-    expected: correct ? [] : textOf(result.expectedOptionIds),
     explanation: result.explanation
   };
 }

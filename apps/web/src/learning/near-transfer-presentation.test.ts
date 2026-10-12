@@ -158,8 +158,8 @@ function answer(
 
 describe("before the learner commits", () => {
   it("offers no resolution at all", () => {
-    // Tests 5 and 6 together, and they are the same fact: the expected answer
-    // and the explanation both live inside the resolution, and there is no
+    // Tests 5 and 6 together, and they are the same fact: the verdict and the
+    // explanation both live inside the resolution, and there is no
     // resolution until the learner has answered. Nothing is filtered out —
     // there is nothing to filter.
     expect(resolveQuestion(STEP, INITIAL_NEAR_TRANSFER_STATE, "q1")).toBeNull();
@@ -267,20 +267,14 @@ describe("after the learner commits", () => {
     expect(resolveQuestion(STEP, state, "q1")?.selected).toEqual(["B text"]);
   });
 
-  it("shows a wrong learner the expected answer", () => {
-    // Test 9.
+  it("never shows a wrong learner the authored answer (G-007, DEC-074)", () => {
+    // The server no longer returns it, so the resolution has nothing to show.
     const state = answer(INITIAL_NEAR_TRANSFER_STATE, "q1", ["o2"]);
+    const resolution = resolveQuestion(STEP, state, "q1");
 
-    expect(resolveQuestion(STEP, state, "q1")?.expected).toEqual([
-      "A text",
-      "C text"
-    ]);
-  });
-
-  it("does not repeat a correct learner's own answer back as the expectation", () => {
-    const state = answer(INITIAL_NEAR_TRANSFER_STATE, "q2", ["p2"]);
-
-    expect(resolveQuestion(STEP, state, "q2")?.expected).toEqual([]);
+    expect(resolution).not.toHaveProperty("expected");
+    expect(JSON.stringify(resolution)).not.toContain("A text");
+    expect(JSON.stringify(resolution)).not.toContain("C text");
   });
 
   it("shows the authored explanation either way", () => {
@@ -316,7 +310,6 @@ describe("after the learner commits", () => {
 
     expect(Object.keys(resolution ?? {}).sort()).toEqual([
       "correct",
-      "expected",
       "explanation",
       "selected",
       "verdict"
@@ -363,7 +356,6 @@ describe("the server decides, the browser renders (WP-008)", () => {
     const checking = beginCheck(selectedOnly("p1"), "q2");
     const state = commitAnswer(checking, "q2", ["p1"], {
       correct: true,
-      expectedOptionIds: [],
       explanation: "From the server."
     });
 
@@ -371,7 +363,6 @@ describe("the server decides, the browser renders (WP-008)", () => {
       correct: true,
       verdict: "Correct",
       selected: ["P one"],
-      expected: [],
       explanation: "From the server."
     });
     expect(state.checking).toBeNull();
@@ -418,12 +409,10 @@ describe("the server decides, the browser renders (WP-008)", () => {
     expect(serverCheck("q1", ["o1", "o2", "o3"]).correct).toBe(false);
     expect(serverCheck("q2", ["p1"])).toEqual({
       correct: false,
-      expectedOptionIds: ["p2"],
       explanation: "The second reason."
     });
     expect(serverCheck("q2", ["p2"])).toEqual({
       correct: true,
-      expectedOptionIds: [],
       explanation: "The second reason."
     });
   });
