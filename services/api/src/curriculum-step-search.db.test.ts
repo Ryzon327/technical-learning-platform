@@ -7,6 +7,7 @@ import {
 } from "../test-support/test-db-psql";
 import {
   escapeCurriculumSearchPattern,
+  resolvePersistedMissionSteps,
   type CurriculumQueryVariant
 } from "@tlp/shared-types";
 import {
@@ -1481,6 +1482,106 @@ const WP008_WITHHELD_KEYS = [
 /** Learner-visible text: it must stay findable, which proves rows are still readable. */
 const WP008_VISIBLE = "wpeightlessonword";
 
+/**
+ * A CONTRACT-VALID packet journey carrying every answer-bearing interaction
+ * field, each marked with a withheld value. Valid, so the API projects it
+ * rather than reporting `content_error` — an invalid fixture would let a leak
+ * from the interaction projection pass unnoticed.
+ */
+function wp008Interaction(supportLevel: string): Row {
+  return {
+    type: "interaction",
+    interactionStableId: "wp8-journey",
+    interactionType: "packet_journey",
+    sourceKind: "authored_teaching",
+    supportLevel,
+    textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+    parameters: {
+      interactionType: "packet_journey",
+      nodes: [
+        {
+          nodeId: "pc-a",
+          label: "PC-A",
+          role: "host",
+          interfaces: [{ interfaceId: "pc-a-eth0", label: "eth0", attributes: [] }]
+        },
+        {
+          nodeId: "r-1",
+          label: "Router-1",
+          role: "router",
+          interfaces: [{ interfaceId: "r-1-gi0", label: "Gi0/0", attributes: [] }]
+        }
+      ],
+      links: [{ linkId: "link-a", label: "PC-A to Router-1", endpoints: ["pc-a-eth0", "r-1-gi0"] }],
+      traffic: {
+        label: "an ICMP echo request",
+        sourceNodeId: "pc-a",
+        destinationNodeId: "r-1",
+        startActionLabel: "Send the ping"
+      },
+      stages: [
+        {
+          stageId: "s1",
+          atNodeId: "pc-a",
+          narration: `PC-A sends the ${WP008_VISIBLE} request.`,
+          decision: WP008_WITHHELD.decision,
+          outcome: "proceeds",
+          prediction: {
+            prompt: `Where does the ${WP008_VISIBLE} request go?`,
+            options: ["To Router-1", "Nowhere"],
+            correctOption: "To Router-1",
+            explanation: WP008_WITHHELD.predictionReason
+          }
+        },
+        {
+          stageId: "s2",
+          atNodeId: "r-1",
+          narration: "The frame arrives at Router-1 and is discarded.",
+          outcome: "stops",
+          viaLinkId: "link-a",
+          knowledgeChecks: [
+            {
+              checkId: "k1",
+              prompt: "Which device discarded it?",
+              options: ["PC-A", "Router-1"],
+              correctOption: "Router-1",
+              explanation: WP008_WITHHELD.knowledgeCheckExplanation
+            }
+          ]
+        }
+      ],
+      fault: {
+        atNodeId: "r-1",
+        symptom: `The ${WP008_VISIBLE} ping reports loss.`,
+        stopsAtStageId: "s2",
+        explanation: WP008_WITHHELD.faultExplanation
+      },
+      actions: [
+        {
+          actionId: "fix",
+          label: "Add the subinterface",
+          resolvesFault: true,
+          observation: WP008_WITHHELD.actionObservation
+        }
+      ],
+      confirmation: { narration: WP008_WITHHELD.confirmation, summary: "One subinterface per VLAN." }
+    }
+  };
+}
+
+/** The interaction-bearing support levels, and the withheld ones among them. */
+const WP008_WITHHOLDING_LEVELS = ["challenge_me", "prove_it"] as const;
+
+it("WP-008: every withheld-interaction fixture is contract-valid, so the API projects it", () => {
+  for (const supportLevel of [...WP008_WITHHOLDING_LEVELS, "show_me"]) {
+    const payload = wp008Interaction(supportLevel);
+    const outcome = resolvePersistedMissionSteps([
+      { stableId: "s01", position: 0, stepType: payload.type, payload }
+    ]);
+    expect(outcome.state === "content_error" ? outcome.errors : [], supportLevel).toEqual([]);
+    expect(outcome.state, supportLevel).toBe("available");  }
+});
+
 describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real PostgreSQL", { timeout: 60_000 }, () => {
   const ids: Record<string, string> = {};
 
@@ -1520,29 +1621,16 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
       ]
     });
 
-    // Every answer-bearing interaction field, at a level that withholds them.
+    // Every answer-bearing interaction field, valid, at each level that
+    // withholds them: CHALLENGE ME strips them, PROVE IT withholds it whole.
     ids.raw = mission(unit, "raw", "Withheld interaction");
-    step(ids.raw, 0, {
-      type: "interaction",
-      interactionStableId: "wp8-journey",
-      interactionType: "packet_journey",
-      sourceKind: "authored",
-      supportLevel: "challenge_me",
-      textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
-      parameters: {
-        stages: [
-          {
-            stageId: "s1",
-            decision: WP008_WITHHELD.decision,
-            prediction: { prompt: "Where next?", options: ["a", "b"], correctOption: "a", explanation: WP008_WITHHELD.predictionReason },
-            knowledgeChecks: [{ prompt: "Which?", options: ["a", "b"], correctOption: "b", explanation: WP008_WITHHELD.knowledgeCheckExplanation }]
-          }
-        ],
-        fault: { symptom: "No reply.", explanation: WP008_WITHHELD.faultExplanation },
-        actions: [{ actionId: "fix", resolvesFault: true, observation: WP008_WITHHELD.actionObservation }],
-        confirmation: WP008_WITHHELD.confirmation
-      }
-    });
+    step(ids.raw, 0, wp008Interaction("challenge_me"));
+    ids.proved = mission(unit, "proved", "Withheld demonstration");
+    step(ids.proved, 0, wp008Interaction("prove_it"));
+    // The same journey at a teaching level, which delivers them: the control
+    // that proves the markers are detectable in a projected response.
+    ids.taught = mission(unit, "taught", "Taught interaction");
+    step(ids.taught, 0, wp008Interaction("show_me"));
 
     // Unpublished: row level security must still hide it.
     ids.draft = mission(unit, "draft", "Draft withholding mission", { state: "draft" });
@@ -1553,9 +1641,11 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
 
   afterAll(() => removeFixtures());
 
-  const leaks = (serialized: string): string[] => [
+  const leaks = (serialized: string, allowedKeys: readonly string[] = []): string[] => [
     ...WP008_WITHHELD_VALUES.filter((value) => serialized.includes(value)),
-    ...WP008_WITHHELD_KEYS.filter((key) => serialized.includes(`"${key}"`))
+    ...WP008_WITHHELD_KEYS.filter(
+      (key) => !allowedKeys.includes(key) && serialized.includes(`"${key}"`)
+    )
   ];
 
   /* --- criterion 1: direct table reads ---------------------------- */
@@ -1589,7 +1679,7 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
     // Published steps are still readable, the draft one is not.
     const ours = rows.filter((row) => Object.values(ids).includes(String(row.mission_id)));
     expect(ours.map((row) => row.mission_id).sort()).toEqual(
-      [ids.lesson, ids.lesson, ids.lesson, ids.raw].sort()
+      [ids.lesson, ids.lesson, ids.lesson, ids.raw, ids.proved, ids.taught].sort()
     );
     expect(serialized).toContain(WP008_VISIBLE);
     expect(serialized).not.toContain("wpeightdraftword");
@@ -1725,13 +1815,89 @@ describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real 
   });
 
   it("criterion 4: every learner-facing lesson response carries no withheld field or value", async () => {
-    // Every mission the learner can open, through the real API read.
-    for (const missionStableId of [`${W}lesson`, `${W}raw`]) {
+    // Every withholding mission the learner can open, through the real API
+    // read. Each must actually render, or the absence below would be vacuous.
+    for (const missionStableId of [`${W}lesson`, `${W}raw`, `${W}proved`]) {
       const { response } = await renderAsLearner(missionStableId);
+      expect(response.instruction.state, missionStableId).toBe("available");
       const serialized = JSON.stringify(response);
-      expect(leaks(serialized), missionStableId).toEqual([]);
+      expect(serialized, missionStableId).toContain(WP008_VISIBLE);
+      // `parameters` is the learner projection's own key on an available
+      // interaction; every answer-bearing field inside it is still checked.
+      expect(leaks(serialized, ["parameters"]), missionStableId).toEqual([]);
       expect(serialized, missionStableId).not.toContain('"answers"');
     }
+  });
+
+  it("criterion 4: at CHALLENGE ME the interaction renders, with its observations and without its answers", async () => {
+    const { response } = await renderAsLearner(`${W}raw`);
+
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps).toHaveLength(1);
+    const content = JSON.parse(JSON.stringify(response.instruction.steps[0]?.content)) as Row;
+    expect(content).toMatchObject({
+      type: "interaction",
+      interactionStableId: "wp8-journey",
+      supportLevel: "challenge_me",
+      textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+      presentation: {
+        state: "available",
+        parameters: {
+          interactionType: "packet_journey",
+          nodes: [{ nodeId: "pc-a" }, { nodeId: "r-1" }],
+          stages: [
+            {
+              stageId: "s1",
+              narration: `PC-A sends the ${WP008_VISIBLE} request.`,
+              prediction: {
+                prompt: `Where does the ${WP008_VISIBLE} request go?`,
+                options: ["To Router-1", "Nowhere"]
+              }
+            },
+            { stageId: "s2", viaLinkId: "link-a" }
+          ],
+          fault: { symptom: `The ${WP008_VISIBLE} ping reports loss.`, stopsAtStageId: "s2" }
+        }
+      }
+    });
+    expect(leaks(JSON.stringify(content), ["parameters"])).toEqual([]);
+  });
+
+  it("criterion 4: at PROVE IT the teaching interaction is withheld whole, and its text equivalent survives", async () => {
+    const { response } = await renderAsLearner(`${W}proved`);
+
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps.map((s) => s.content)).toEqual([
+      {
+        type: "interaction",
+        interactionStableId: "wp8-journey",
+        interactionType: "packet_journey",
+        sourceKind: "authored_teaching",
+        supportLevel: "prove_it",
+        textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+        presentation: { state: "withheld", reason: "protected_demonstration" }
+      }
+    ]);
+    expect(leaks(JSON.stringify(response))).toEqual([]);
+  });
+
+  it("criterion 4: the control — at SHOW ME the same journey delivers every marker, so their absence above is meaningful", async () => {
+    const { response } = await renderAsLearner(`${W}taught`);
+
+    expect(response.instruction.state).toBe("available");
+    const serialized = JSON.stringify(response);
+    expect(
+      [
+        WP008_WITHHELD.decision,
+        WP008_WITHHELD.predictionReason,
+        WP008_WITHHELD.knowledgeCheckExplanation,
+        WP008_WITHHELD.faultExplanation,
+        WP008_WITHHELD.actionObservation,
+        WP008_WITHHELD.confirmation
+      ].filter((value) => !serialized.includes(value))
+    ).toEqual([]);
   });
 
   /*
