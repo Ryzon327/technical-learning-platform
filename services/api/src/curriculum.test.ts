@@ -149,11 +149,36 @@ function clientReturning(byTable: Record<string, TableFixture>) {
   };
 }
 
+/**
+ * WP-008 — the server-side step payload reader. Records every call, and
+ * exposes ONLY `rpc`: a `.from()` on the service-role client would be a table
+ * read outside the one narrow function, and fails here as a TypeError.
+ */
+function serverReturning(steps: TableFixture | undefined) {
+  const rpcCalls: Array<[string, unknown]> = [];
+  const client = {
+    rpc: (name: string, args: unknown) => {
+      rpcCalls.push([name, args]);
+      return Promise.resolve(
+        steps?.error
+          ? { data: null, error: steps.error }
+          : { data: steps?.rows ?? [], error: null }
+      );
+    }
+  };
+  return { factory: () => client, rpcCalls };
+}
+
 async function readInstruction(byTable: Record<string, TableFixture>) {
-  const { createUserScopedSupabaseClient } = await import("./supabase");
+  const { createServerSupabaseClient, createUserScopedSupabaseClient } =
+    await import("./supabase");
   const harness = clientReturning(byTable);
   vi.mocked(createUserScopedSupabaseClient).mockImplementation(
     harness.factory as never
+  );
+  const server = serverReturning(byTable.mission_steps);
+  vi.mocked(createServerSupabaseClient).mockImplementation(
+    server.factory as never
   );
 
   const { getLearnerMissionInstruction } = await import("./curriculum");
@@ -162,7 +187,7 @@ async function readInstruction(byTable: Record<string, TableFixture>) {
     "mission.vlan-basics"
   );
 
-  return { result, harness };
+  return { result, harness, server };
 }
 
 function published(
@@ -203,11 +228,56 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
     expect(harness.token()).toBe(ACCESS_TOKEN);
   });
 
-  it("never constructs the service-role client", async () => {
-    await readInstruction(published());
+  /*
+    WP-008 replaced "never constructs the service-role client". A learner's
+    role can no longer read `mission_steps.payload`, so the payloads of the
+    resolved mission are read server-side. The tests below pin how narrow
+    that is: one function, one mission id, after the learner's own client
+    resolved a published mission, and never a table read.
+  */
+  it("uses the service-role client only for the step payload function, with the resolved mission id", async () => {
+    const { server } = await readInstruction(published([conceptRow(1, "A.")]));
+
+    const { createServerSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createServerSupabaseClient)).toHaveBeenCalledTimes(1);
+    expect(server.rpcCalls).toEqual([
+      ["published_mission_step_payloads", { p_mission_id: MISSION_ROW.id }]
+    ]);
+  });
+
+  it("reads missions and assets through the learner's client, and never mission_steps", async () => {
+    const { harness } = await readInstruction(
+      published([DIAGRAM_ROW], [ASSET_ROW])
+    );
+
+    expect(harness.tables).toEqual(["missions", "curriculum_assets"]);
+  });
+
+  it("never constructs the service-role client when no published mission resolves", async () => {
+    await expect(
+      readInstruction({ missions: { single: null } })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
     const { createServerSupabaseClient } = await import("./supabase");
     expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("never constructs the service-role client when the mission query fails", async () => {
+    await expect(
+      readInstruction({ missions: { error: { message: "boom" } } })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
+
+    const { createServerSupabaseClient } = await import("./supabase");
+    expect(vi.mocked(createServerSupabaseClient)).not.toHaveBeenCalled();
+  });
+
+  it("raises DEPENDENCY_UNAVAILABLE when the step payload read fails", async () => {
+    await expect(
+      readInstruction({
+        missions: { single: MISSION_ROW },
+        mission_steps: { error: { message: "boom" } }
+      })
+    ).rejects.toMatchObject({ code: "DEPENDENCY_UNAVAILABLE" });
   });
 
   it("filters the mission to publication_state published", async () => {
@@ -233,17 +303,18 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
   it("scopes steps and assets to the resolved mission row", async () => {
     // Needs a mission that reaches BOTH queries: with no authored steps the
     // legacy-brief branch returns before assets are ever read.
-    const { harness } = await readInstruction(
+    const { harness, server } = await readInstruction(
       published([DIAGRAM_ROW], [ASSET_ROW])
     );
 
+    // Assets on the learner's client, steps through the payload function.
     const missionScoped = harness.eqCalls.filter(
       ([column]) => column === "mission_id"
     );
-    expect(missionScoped).toHaveLength(2);
-    for (const [, value] of missionScoped) {
-      expect(value).toBe(MISSION_ROW.id);
-    }
+    expect(missionScoped).toEqual([["mission_id", MISSION_ROW.id]]);
+    expect(server.rpcCalls.map(([, args]) => args)).toEqual([
+      { p_mission_id: MISSION_ROW.id }
+    ]);
   });
 
   it("raises NOT_FOUND when no published mission matches", async () => {
@@ -263,7 +334,19 @@ describe("getLearnerMissionInstruction — authorization boundary", () => {
 
     expect(source).not.toContain("readMissionSteps");
     expect(source).not.toContain("readMissionAssets");
-    expect(source).not.toContain("createServerSupabaseClient");
+  });
+
+  it("constructs the service-role client in exactly one place, which calls only the payload function", () => {
+    const source = stripTsComments(read("./curriculum.ts"));
+
+    // The import, and one call.
+    expect(source.match(/createServerSupabaseClient/g)).toHaveLength(2);
+    expect(source).toContain(
+      "return createServerSupabaseClient().rpc(STEP_PAYLOAD_FUNCTION, {"
+    );
+    expect(source).toContain(
+      'export const STEP_PAYLOAD_FUNCTION = "published_mission_step_payloads";'
+    );
   });
 });
 

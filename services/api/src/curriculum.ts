@@ -17,7 +17,10 @@ import {
   resolvePersistedCurriculumAssets,
   resolvePersistedMissionSteps
 } from "@tlp/shared-types";
-import { createUserScopedSupabaseClient } from "./supabase";
+import {
+  createServerSupabaseClient,
+  createUserScopedSupabaseClient
+} from "./supabase";
 
 function publicationState(value: unknown): CurriculumPublicationState {
   if (
@@ -240,6 +243,35 @@ export async function getPublishedLearningPathTree(
   };
 }
 
+/** The service-role-only function that returns one published mission's step payloads. */
+export const STEP_PAYLOAD_FUNCTION = "published_mission_step_payloads";
+
+/**
+ * WP-008 — the authored step payloads of one published mission, read on the
+ * server.
+ *
+ * Learners hold no SELECT on `mission_steps.payload`, because the raw payload
+ * carries the fields the learner projection withholds. This is the only place
+ * the learner instruction path reads it, and it is narrow on purpose:
+ *
+ *   - one SQL function, `published_mission_step_payloads`, which only
+ *     `service_role` may execute and which returns exactly four columns;
+ *   - for one mission id, which the caller has already resolved through the
+ *     learner's own RLS-scoped client as a published mission;
+ *   - the function restates `publication_state = 'published'`, because the
+ *     service role bypasses RLS.
+ *
+ * The rows never leave the API unprojected: `getLearnerMissionInstruction`
+ * passes them through `resolvePersistedMissionSteps` and
+ * `assembleLearnerInstruction`, which decide what a learner receives. The
+ * service-role key stays server-side, as it does for assessment scoring.
+ */
+async function readPublishedStepPayloads(missionId: string) {
+  return createServerSupabaseClient().rpc(STEP_PAYLOAD_FUNCTION, {
+    p_mission_id: missionId
+  });
+}
+
 /**
  * WP-E — one published mission's instructional content, for a learner.
  *
@@ -247,15 +279,18 @@ export async function getPublishedLearningPathTree(
  *
  * This module is the **user-scoped** curriculum reader. Every query below runs
  * through `createUserScopedSupabaseClient`, so Row-Level Security applies to
- * the caller's own session and remains one of the two learner boundaries.
+ * the caller's own session and remains one of the two learner boundaries —
+ * except the step payload read, which WP-008 moved server-side (see below).
  *
  * `readMissionSteps` and `readMissionAssets` already exist, and this
  * deliberately does NOT call them. They live in `curriculum-admin.ts` and
  * `curriculum-quality.ts`, which use `createServerSupabaseClient` — the service
  * role, which bypasses RLS. They are authoring and publication-validation
- * tools. Reusing them for a learner read would quietly make the explicit
- * publication filter below the only barrier, and would put the service role on
- * a path a learner can trigger.
+ * tools: they read a mission by id whatever its publication state. Reusing
+ * them for a learner read would make the explicit publication filter the only
+ * barrier for every table. `readPublishedStepPayloads` reads one table, for a
+ * mission the learner's own client has already resolved as published, and
+ * restates publication in SQL.
  *
  * The pure resolvers ARE reused: `resolvePersistedMissionSteps`,
  * `resolvePersistedCurriculumAssets` and `assembleLearnerInstruction` carry
@@ -275,6 +310,16 @@ export async function getPublishedLearningPathTree(
  * `getPublishedLearningPathTree` resolves a path. Steps and assets are then
  * read by that mission's internal `id`, so they belong to the resolved version
  * and inherit its publication. No step or asset versioning is introduced.
+ *
+ * ## Step payloads are the one server-side read (WP-008)
+ *
+ * A learner's database role holds no SELECT on `mission_steps.payload`
+ * (`20261013000100`): the raw payload carries every field the projection
+ * withholds, and a learner could otherwise read it straight from PostgREST.
+ * So the mission is still resolved through the learner's own RLS-scoped
+ * client above, and only that published mission's step payloads are read
+ * server-side by `readPublishedStepPayloads`, then projected before anything
+ * is returned. Assets stay on the learner's client.
  *
  * ## What a failure means
  *
@@ -324,11 +369,9 @@ export async function getLearnerMissionInstruction(
       : { estimatedMinutes: Number(missionRow.estimated_minutes) })
   };
 
-  const { data: stepRows, error: stepError } = await supabase
-    .from("mission_steps")
-    .select("stable_id,position,step_type,payload")
-    .eq("mission_id", String(missionRow.id))
-    .order("position", { ascending: true });
+  const { data: stepRows, error: stepError } = await readPublishedStepPayloads(
+    String(missionRow.id)
+  );
 
   if (stepError) {
     throw new AppError({
