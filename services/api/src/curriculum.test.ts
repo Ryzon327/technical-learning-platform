@@ -829,6 +829,61 @@ describe("checkLearnerNearTransferAnswer — the server-side verdict", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
+  it("G-009: a version retired between the mission lookup and the payload read gets the reload response", async () => {
+    // The payload function's own publication filter returns no rows once the
+    // version is retired; the learner's client stops resolving it too.
+    let retired = false;
+    const missions: TableFixture = {
+      get single() {
+        return retired ? null : MISSION_ROW;
+      }
+    };
+    const harness = clientReturning({ missions });
+    const rpcCalls: unknown[] = [];
+    const { createServerSupabaseClient, createUserScopedSupabaseClient } =
+      await import("./supabase");
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(
+      harness.factory as never
+    );
+    vi.mocked(createServerSupabaseClient).mockImplementation((() => ({
+      rpc: (name: string, args: unknown) => {
+        rpcCalls.push([name, args]);
+        retired = true;
+        return Promise.resolve({ data: [], error: null });
+      }
+    })) as never);
+
+    const { checkLearnerNearTransferAnswer } = await import("./curriculum");
+    const refusal = await checkLearnerNearTransferAnswer(
+      ACCESS_TOKEN,
+      "mission.vlan-basics",
+      {
+        missionVersion: MISSION_ROW.version,
+        stepStableId: "step-transfer",
+        questionStableId: "q-one",
+        selectedOptionIds: ["router"]
+      }
+    ).then(
+      () => {
+        throw new Error("expected the check to be refused");
+      },
+      (error: unknown) => error
+    );
+
+    const { AppError, MISSION_VERSION_UNAVAILABLE_REASON } = await import(
+      "@tlp/shared-types"
+    );
+    expect(refusal).toBeInstanceOf(AppError);
+    expect((refusal as InstanceType<typeof AppError>).toJSON()).toEqual({
+      code: "CONFLICT",
+      message: "This activity was updated. Please reload to continue.",
+      retryable: false,
+      details: { reason: MISSION_VERSION_UNAVAILABLE_REASON }
+    });
+    expect(rpcCalls).toHaveLength(1);
+    expect(harness.tables).toEqual(["missions", "missions"]);
+  });
+
   it("writes nothing: the service-role client exposes only the payload function", () => {
     const source = stripTsComments(read("./curriculum.ts"));
     const check = source.slice(

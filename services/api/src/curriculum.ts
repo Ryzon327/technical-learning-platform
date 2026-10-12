@@ -520,7 +520,18 @@ export async function checkLearnerNearTransferAnswer(
       retryable: false
     });
 
-  if (stepOutcome.state !== "available") throw notFound();
+  if (stepOutcome.state !== "available") {
+    // The version may have been retired between the learner-scoped lookup and
+    // the payload read, whose own publication filter then returns no steps.
+    // Recheck it so that race still gets the reload response; a version that
+    // is still published with unusable content stays NOT_FOUND.
+    await resolveExactPublishedMissionVersion(
+      supabase,
+      missionStableId,
+      request.missionVersion
+    );
+    throw notFound();
+  }
 
   const content = stepOutcome.steps.find(
     (step) => step.stableId === request.stepStableId
@@ -606,6 +617,25 @@ async function readExactPublishedMissionVersionSteps(
   missionStableId: string,
   missionVersion: number
 ) {
+  return readResolvedMissionSteps(
+    await resolveExactPublishedMissionVersion(
+      supabase,
+      missionStableId,
+      missionVersion
+    )
+  );
+}
+
+/**
+ * The exact-version lookup itself, through the learner's client: the mission
+ * row, or the version-unavailable `CONFLICT`. Also used to recheck a version
+ * whose payload read came back empty, in case it was retired in between.
+ */
+async function resolveExactPublishedMissionVersion(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  missionStableId: string,
+  missionVersion: number
+): Promise<Record<string, unknown>> {
   const { data: missionRow, error: missionError } = await supabase
     .from("missions")
     .select(MISSION_SUMMARY_COLUMNS)
@@ -631,7 +661,7 @@ async function readExactPublishedMissionVersionSteps(
     });
   }
 
-  return readResolvedMissionSteps(missionRow);
+  return missionRow as Record<string, unknown>;
 }
 
 /**

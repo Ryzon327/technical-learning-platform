@@ -2215,6 +2215,9 @@ describe.skipIf(DATABASE_URL === "")("G-009: a near-transfer check is judged aga
     insertVersion("states", 1, "retired", "router");
     insertVersion("states", 2, "published", "switch");
     insertVersion("states", 3, "draft", "router");
+
+    // Test (c): one published version, retired mid-check.
+    insertVersion("race", 1, "published", "router");
   });
 
   afterAll(() => removeFixtures());
@@ -2322,6 +2325,38 @@ describe.skipIf(DATABASE_URL === "")("G-009: a near-transfer check is judged aga
       }
     });
   }
+
+  it("(c) v1 retired between the mission lookup and the payload read gets the reload response", async () => {
+    // The learner-scoped lookup resolves v1 as published; the version is then
+    // retired immediately before the real payload function runs.
+    const server = clients();
+    const realRpc = server.rpc;
+    server.rpc = async (fn, args) => {
+      setState(missionIds["race@1"] ?? "", "retired");
+      return realRpc(fn, args);
+    };
+
+    for (const selected of [["router"], ["switch"]]) {
+      setState(missionIds["race@1"] ?? "", "published");
+      server.calls.length = 0;
+      const outcome = await checkLearnerNearTransferAnswer("learner-token", `${X}race`, {
+        missionVersion: 1,
+        stepStableId: "s01",
+        questionStableId: "q1",
+        selectedOptionIds: selected
+      }).then(
+        (result) => ({ result, error: undefined }),
+        (error: unknown) => ({ result: undefined, error })
+      );
+      const label = `race ${selected.join(",")}`;
+      expect(outcome.result, label).toBeUndefined();
+      expectVersionUnavailable(outcome.error, label);
+      // The payload read did run, and found nothing once v1 was retired.
+      expect(server.calls, label).toEqual([
+        { fn: STEP_PAYLOAD_FUNCTION, p_mission_id: missionIds["race@1"] }
+      ]);
+    }
+  });
 
   it("(b) a mission the learner cannot see at all gets the same response", async () => {
     const outcome = await check("no-such-mission", 1, ["router"]);
