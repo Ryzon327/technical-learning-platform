@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   assertDisposableLocalTestDatabase,
@@ -6,8 +7,10 @@ import {
 } from "../test-support/test-db-psql";
 import {
   escapeCurriculumSearchPattern,
+  isNearTransferAnswerCorrect,
   type CurriculumQueryVariant
 } from "@tlp/shared-types";
+import { STEP_PAYLOAD_FUNCTION, getLearnerMissionInstruction } from "./curriculum";
 import {
   RECORD_SEARCH_FUNCTION,
   searchPublishedCurriculumRecords,
@@ -27,7 +30,7 @@ import {
   toRetrievalPattern
 } from "./search-aliases";
 import { searchCurriculum } from "./curriculum-search";
-import { createUserScopedSupabaseClient } from "./supabase";
+import { createServerSupabaseClient, createUserScopedSupabaseClient } from "./supabase";
 
 /**
  * Founder direction G-006: `searchCurriculum` is run end to end here. Only the
@@ -122,8 +125,14 @@ function literal(text: string): string {
   return `${tag}${text}${tag}`;
 }
 
-/** Runs `statement` exactly as PostgREST runs a learner request. */
-function asRole(statement: string, role: "authenticated" | "anon" = "authenticated"): string {
+/**
+ * Runs `statement` exactly as PostgREST runs a learner request — or, for
+ * WP-008's server-side payload read, as the API's service-role request.
+ */
+function asRole(
+  statement: string,
+  role: "authenticated" | "anon" | "service_role" = "authenticated"
+): string {
   const claims = JSON.stringify({ sub: LEARNER_ID, role }).replace(/'/g, "''");
   return psql(
     [
@@ -1333,6 +1342,467 @@ describe.skipIf(DATABASE_URL === "")("keyset pages under a server row cap", { ti
       `select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: ["e"], p_page_size: 100000 })};`
     );
     expect(Number(rows)).toBeLessThanOrEqual(100);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * WP-008 — learners cannot read withheld step fields
+ * ------------------------------------------------------------------ */
+
+/**
+ * A learner-scoped stand-in for the supabase-js table builder, covering the
+ * calls `getLearnerMissionInstruction` makes on the learner's client
+ * (`from().select().eq().order().limit().maybeSingle()` and an awaited list).
+ * Each read runs as one SELECT under `role`, with the real grants and policies.
+ */
+function tableClient(role: "authenticated" | "anon") {
+  const ident = (name: string): string => {
+    if (!/^[a-z_]+$/.test(name)) throw new Error(`unexpected identifier ${name}`);
+    return name;
+  };
+  return {
+    from: (table: string) => {
+      let columns = "*";
+      const filters: Array<[string, unknown]> = [];
+      const orders: Array<[string, boolean]> = [];
+      let limit: number | undefined;
+      const run = (): { data: Array<Record<string, unknown>> | null; error: unknown } => {
+        const select = columns === "*" ? "*" : columns.split(",").map((c) => ident(c.trim())).join(", ");
+        const where = filters.length
+          ? ` where ${filters.map(([c, v]) => `${ident(c)}::text = ${literal(String(v))}`).join(" and ")}`
+          : "";
+        const order = orders.length
+          ? ` order by ${orders.map(([c, asc]) => `${ident(c)} ${asc ? "asc" : "desc"}`).join(", ")}`
+          : "";
+        const cap = limit === undefined ? "" : ` limit ${Number(limit)}`;
+        try {
+          const output = asRole(
+            `select coalesce(json_agg(r), '[]'::json) from (select ${select} from public.${ident(table)}${where}${order}${cap}) as r;`,
+            role
+          );
+          return { data: JSON.parse(output) as Array<Record<string, unknown>>, error: null };
+        } catch (error) {
+          console.error(`[WP-008 db test] ${table} read failed: ${String(error)}`);
+          return { data: null, error };
+        }
+      };
+      interface Builder {
+        select(value: string): Builder;
+        eq(column: string, value: unknown): Builder;
+        order(column: string, options?: { ascending?: boolean }): Builder;
+        limit(value: number): Builder;
+        maybeSingle(): Promise<unknown>;
+        then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown): Promise<unknown>;
+      }
+      const builder: Builder = {
+        select(value) {
+          columns = value;
+          return builder;
+        },
+        eq(column, value) {
+          filters.push([column, value]);
+          return builder;
+        },
+        order(column, options) {
+          orders.push([column, options?.ascending !== false]);
+          return builder;
+        },
+        limit(value) {
+          limit = value;
+          return builder;
+        },
+        maybeSingle() {
+          const result = run();
+          return Promise.resolve(result.error ? result : { data: result.data?.[0] ?? null, error: null });
+        },
+        then(resolve, reject) {
+          return Promise.resolve(run()).then(resolve, reject);
+        }
+      };
+      return builder;
+    }
+  };
+}
+
+/** The API's server-side client: only the payload function, as service_role. */
+function payloadClient(role: "service_role" | "authenticated" = "service_role") {
+  const calls: Array<Record<string, unknown>> = [];
+  return {
+    calls,
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      calls.push({ fn, ...args });
+      if (fn !== STEP_PAYLOAD_FUNCTION) throw new Error(`unexpected server rpc ${fn}`);
+      try {
+        const output = asRole(
+          `select coalesce(json_agg(r), '[]'::json) from (select * from public.${STEP_PAYLOAD_FUNCTION}(p_mission_id => ${literal(String(args.p_mission_id))}::uuid)) as r;`,
+          role
+        );
+        return { data: JSON.parse(output) as unknown[], error: null };
+      } catch (error) {
+        console.error(`[WP-008 db test] ${fn} failed: ${String(error)}`);
+        return { data: null, error };
+      }
+    }
+  };
+}
+
+const W = `${RUN}-w-`;
+
+/**
+ * Every withheld field in the fixture carries one of these, and each appears
+ * NOWHERE else, so finding one in any learner-readable output is a leak.
+ */
+const WP008_WITHHELD = {
+  expectedOutcome: "wpeightexpectedmarker",
+  nearTransferExplanation: "wpeightexplanationmarker",
+  decision: "wpeightdecisionmarker",
+  faultExplanation: "wpeightfaultmarker",
+  actionObservation: "wpeightactionmarker",
+  confirmation: "wpeightconfirmationmarker",
+  knowledgeCheckExplanation: "wpeightknowledgemarker",
+  predictionReason: "wpeightpredictionmarker"
+} as const;
+const WP008_WITHHELD_VALUES = Object.values(WP008_WITHHELD);
+const WP008_WITHHELD_KEYS = [
+  "payload",
+  "expectedOutcome",
+  "correctOptionIds",
+  "explanation",
+  "parameters",
+  "decision",
+  "actions",
+  "confirmation",
+  "knowledgeChecks",
+  "correctOption"
+];
+/** Learner-visible text: it must stay findable, which proves rows are still readable. */
+const WP008_VISIBLE = "wpeightlessonword";
+
+describe.skipIf(DATABASE_URL === "")("WP-008: withheld step fields against real PostgreSQL", { timeout: 60_000 }, () => {
+  const ids: Record<string, string> = {};
+
+  beforeAll(() => {
+    const { fixture, course, module, mission, step } = fixtureBuilder(W);
+    const unit = module(course("course", "Withholding course"), "unit");
+
+    // A mission the API must still render: every step is valid.
+    ids.lesson = mission(unit, "lesson", "Withholding lesson");
+    step(ids.lesson, 0, {
+      type: "concept",
+      title: `Reading the ${WP008_VISIBLE} network`,
+      paragraphs: [`A ${WP008_VISIBLE} paragraph a learner reads.`]
+    });
+    step(ids.lesson, 1, {
+      type: "prediction",
+      prompt: `What happens to the ${WP008_VISIBLE} frame?`,
+      options: ["It is delivered", "It is dropped"],
+      expectedOutcome: `It is dropped, because ${WP008_WITHHELD.expectedOutcome}.`
+    });
+    step(ids.lesson, 2, {
+      type: "near_transfer",
+      title: `Try a ${WP008_VISIBLE} network`,
+      framing: "A different network, the same reasoning.",
+      questions: [
+        {
+          questionStableId: "q1",
+          type: "single_choice",
+          prompt: "Which device joins two networks?",
+          options: [
+            { optionId: "router", text: "The router" },
+            { optionId: "switch", text: "The switch" }
+          ],
+          correctOptionIds: ["router"],
+          explanation: `Only the router ${WP008_WITHHELD.nearTransferExplanation} joins two networks.`
+        }
+      ]
+    });
+
+    // Every answer-bearing interaction field, at a level that withholds them.
+    ids.raw = mission(unit, "raw", "Withheld interaction");
+    step(ids.raw, 0, {
+      type: "interaction",
+      interactionStableId: "wp8-journey",
+      interactionType: "packet_journey",
+      sourceKind: "authored",
+      supportLevel: "challenge_me",
+      textEquivalent: `The ${WP008_VISIBLE} frame crosses the switch.`,
+      parameters: {
+        stages: [
+          {
+            stageId: "s1",
+            decision: WP008_WITHHELD.decision,
+            prediction: { prompt: "Where next?", options: ["a", "b"], correctOption: "a", explanation: WP008_WITHHELD.predictionReason },
+            knowledgeChecks: [{ prompt: "Which?", options: ["a", "b"], correctOption: "b", explanation: WP008_WITHHELD.knowledgeCheckExplanation }]
+          }
+        ],
+        fault: { symptom: "No reply.", explanation: WP008_WITHHELD.faultExplanation },
+        actions: [{ actionId: "fix", resolvesFault: true, observation: WP008_WITHHELD.actionObservation }],
+        confirmation: WP008_WITHHELD.confirmation
+      }
+    });
+
+    // Unpublished: row level security must still hide it.
+    ids.draft = mission(unit, "draft", "Draft withholding mission", { state: "draft" });
+    step(ids.draft, 0, { type: "concept", paragraphs: ["wpeightdraftword is only in a draft step."] });
+
+    insertFixture(fixture);
+  });
+
+  afterAll(() => removeFixtures());
+
+  const leaks = (serialized: string): string[] => [
+    ...WP008_WITHHELD_VALUES.filter((value) => serialized.includes(value)),
+    ...WP008_WITHHELD_KEYS.filter((key) => serialized.includes(`"${key}"`))
+  ];
+
+  /* --- criterion 1: direct table reads ---------------------------- */
+
+  const deniedReads: Array<[string, string]> = [
+    ["the raw payload", "select payload from public.mission_steps"],
+    ["one withheld field of the payload", "select payload ->> 'expectedOutcome' from public.mission_steps"],
+    ["every column", "select * from public.mission_steps"],
+    ["the whole row as JSON", "select to_jsonb(s) from public.mission_steps as s"],
+    ["the payload through a filter", "select id from public.mission_steps where payload::text like '%marker%'"],
+    ["the payload through a function", "select public.mission_step_searchable_text(payload) from public.mission_steps"],
+    ["the step type", "select step_type from public.mission_steps"]
+  ];
+  for (const [name, statement] of deniedReads) {
+    it(`criterion 1: a learner reading ${name} is denied`, () => {
+      expect(() => asRole(`${statement};`)).toThrow(/permission denied/);
+    });
+  }
+
+  it("criterion 1: the columns a learner may read carry no withheld field or value, and RLS still decides rows", () => {
+    const rows = JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (
+           select id, mission_id, stable_id, position, searchable_text, title_text, label_text
+           from public.mission_steps) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+    const serialized = JSON.stringify(rows);
+
+    expect(leaks(serialized)).toEqual([]);
+    // Published steps are still readable, the draft one is not.
+    const ours = rows.filter((row) => Object.values(ids).includes(String(row.mission_id)));
+    expect(ours.map((row) => row.mission_id).sort()).toEqual(
+      [ids.lesson, ids.lesson, ids.lesson, ids.raw].sort()
+    );
+    expect(serialized).toContain(WP008_VISIBLE);
+    expect(serialized).not.toContain("wpeightdraftword");
+  });
+
+  it("criterion 1: the payload reader is not callable by a learner", () => {
+    expect(() =>
+      asRole(`select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(ids.lesson ?? "")}::uuid);`)
+    ).toThrow(/permission denied/);
+  });
+
+  /* --- criterion 2: every learner-callable view and function ------ */
+
+  it("criterion 2: the only learner-callable function touching mission_steps is the step search, and no view reads it", () => {
+    const functions = JSON.parse(
+      psql(`select coalesce(json_agg(p.proname order by p.proname), '[]'::json)
+              from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'public'
+               and p.prosrc ilike '%mission_steps%'
+               and (has_function_privilege('authenticated', p.oid, 'execute')
+                    or has_function_privilege('anon', p.oid, 'execute'));`)
+    ) as string[];
+    expect(functions).toEqual([STEP_SEARCH_FUNCTION]);
+
+    const views = psql(
+      `select count(*) from pg_views where schemaname = 'public' and definition ilike '%mission_steps%';`
+    );
+    expect(views).toBe("0");
+  });
+
+  it("criterion 2: the step search, called directly by a learner, returns no withheld field or value", () => {
+    const searches = [WP008_VISIBLE, "frame", "network", ...WP008_WITHHELD_VALUES];
+    for (const word of searches) {
+      const serialized = asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(STEP_SEARCH_FUNCTION, {
+          p_phrases: [word]
+        })}) as r;`
+      );
+      expect(leaks(serialized), word).toEqual([]);
+    }
+    // A withheld value finds nothing, so search cannot reveal it exists.
+    for (const value of WP008_WITHHELD_VALUES) {
+      expect(
+        asRole(`select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: [value] })};`),
+        value
+      ).toBe("0");
+    }
+  });
+
+  it("criterion 2: the step search still names the step from its title, now without reading the payload", () => {
+    const rows = JSON.parse(
+      asRole(
+        `select coalesce(json_agg(r), '[]'::json) from (select * from ${functionCall(STEP_SEARCH_FUNCTION, {
+          p_phrases: ["paragraph a learner reads"]
+        })}) as r;`
+      )
+    ) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      mission_stable_id: `${W}lesson`,
+      step_stable_id: "s01",
+      step_title: `Reading the ${WP008_VISIBLE} network`,
+      step_label: null
+    });
+  });
+
+  /* --- criterion 3: anon reads nothing ----------------------------- */
+
+  for (const statement of [
+    "select stable_id from public.mission_steps",
+    "select searchable_text from public.mission_steps",
+    "select payload from public.mission_steps",
+    `select count(*) from ${functionCall(STEP_SEARCH_FUNCTION, { p_phrases: ["network"] })}`
+  ]) {
+    it(`criterion 3: anon is denied: ${statement.slice(0, 60)}`, () => {
+      expect(() => asRole(`${statement};`, "anon")).toThrow(/permission denied/);
+    });
+  }
+
+  it("criterion 3: anon holds no privilege on mission_steps and cannot call the payload reader", () => {
+    expect(
+      psql(`select has_any_column_privilege('anon', 'public.mission_steps', 'select')
+                or has_table_privilege('anon', 'public.mission_steps', 'select,insert,update,delete,truncate,references,trigger');`)
+    ).toBe("f");
+    expect(() =>
+      asRole(`select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(ids.lesson ?? "")}::uuid);`, "anon")
+    ).toThrow(/permission denied/);
+  });
+
+  /* --- criterion 4: the lesson still renders and validates -------- */
+
+  /** The real service, with the learner's client and the server client both real-database backed. */
+  function learnerAndServerClients() {
+    const server = payloadClient();
+    vi.mocked(createUserScopedSupabaseClient).mockImplementation(() => tableClient("authenticated") as never);
+    vi.mocked(createServerSupabaseClient).mockImplementation(() => server as never);
+    return server;
+  }
+
+  async function renderAsLearner(missionStableId: string) {
+    const server = learnerAndServerClients();
+    const response = await getLearnerMissionInstruction("learner-token", missionStableId);
+    return { response, server };
+  }
+
+  it("criterion 4: the learner's old direct step read is now refused by the database", () => {
+    expect(() =>
+      asRole(
+        `select stable_id, position, step_type, payload from public.mission_steps where mission_id = ${literal(ids.lesson ?? "")};`
+      )
+    ).toThrow(/permission denied/);
+  });
+
+  it("criterion 4: the lesson still renders through the API, in order, with no withheld field", async () => {
+    const { response, server } = await renderAsLearner(`${W}lesson`);
+
+    expect(server.calls).toEqual([{ fn: STEP_PAYLOAD_FUNCTION, p_mission_id: ids.lesson }]);
+    expect(response.instruction.state).toBe("available");
+    if (response.instruction.state !== "available") return;
+    expect(response.instruction.steps.map((s) => [s.stableId, s.content.type])).toEqual([
+      ["s01", "concept"],
+      ["s02", "prediction"],
+      ["s03", "near_transfer"]
+    ]);
+    const serialized = JSON.stringify(response);
+    expect(serialized).toContain(WP008_VISIBLE);
+    expect(serialized).not.toContain(WP008_WITHHELD.expectedOutcome);
+    expect(serialized).not.toContain("expectedOutcome");
+  });
+
+  it("criterion 4: a correct near-transfer answer still validates and a wrong one still fails", async () => {
+    const { response } = await renderAsLearner(`${W}lesson`);
+    if (response.instruction.state !== "available") throw new Error(response.instruction.state);
+    const content = response.instruction.steps[2]?.content;
+    if (content?.type !== "near_transfer") throw new Error("expected the near-transfer step");
+
+    const question = content.questions[0];
+    const answer = question ? content.answers[question.questionStableId] : undefined;
+    if (!question || !answer) throw new Error("expected one question and its answer");
+    const authored = { ...question, ...answer };
+
+    expect(isNearTransferAnswerCorrect(authored, ["router"])).toBe(true);
+    expect(isNearTransferAnswerCorrect(authored, ["switch"])).toBe(false);
+    expect(isNearTransferAnswerCorrect(authored, ["router", "switch"])).toBe(false);
+  });
+
+  it("criterion 4: an unpublished mission is still not found, and the service never reads its steps", async () => {
+    const server = learnerAndServerClients();
+    await expect(getLearnerMissionInstruction("learner-token", `${W}draft`)).rejects.toMatchObject({
+      code: "NOT_FOUND"
+    });
+    expect(server.calls).toEqual([]);
+  });
+
+  it("criterion 4: the payload reader restates publication, so even service_role gets nothing for a draft", () => {
+    const count = (missionId: string) =>
+      asRole(
+        `select count(*) from public.${STEP_PAYLOAD_FUNCTION}(${literal(missionId)}::uuid);`,
+        "service_role"
+      );
+    expect(count(ids.draft ?? "")).toBe("0");
+    expect(count(ids.lesson ?? "")).toBe("3");
+  });
+
+  /* --- criterion 6: the privilege guard ---------------------------- */
+
+  const privilegeReport = `select json_build_object(
+      'authenticated_table', has_table_privilege('authenticated', 'public.mission_steps', 'select'),
+      'authenticated_payload', has_column_privilege('authenticated', 'public.mission_steps', 'payload', 'select'),
+      'anon_any', has_any_column_privilege('anon', 'public.mission_steps', 'select'),
+      'public_any', has_any_column_privilege('public', 'public.mission_steps', 'select'),
+      'authenticated_visible', has_column_privilege('authenticated', 'public.mission_steps', 'searchable_text', 'select'),
+      'service_role_payload', has_column_privilege('service_role', 'public.mission_steps', 'payload', 'select'))::text;`;
+  const EXPECTED_PRIVILEGES = {
+    authenticated_table: false,
+    authenticated_payload: false,
+    anon_any: false,
+    public_any: false,
+    authenticated_visible: true,
+    service_role_payload: true
+  };
+
+  it("criterion 6: after every migration, no client role may select the raw payload", () => {
+    expect(JSON.parse(psql(privilegeReport))).toEqual(EXPECTED_PRIVILEGES);
+  });
+
+  it("criterion 6: the guard notices a re-grant of the payload (rolled back)", () => {
+    for (const regrant of [
+      "grant select on public.mission_steps to authenticated;",
+      "grant select (payload) on public.mission_steps to authenticated;",
+      "grant select on public.mission_steps to anon;"
+    ]) {
+      const report = JSON.parse(psql(["begin;", regrant, privilegeReport, "rollback;"].join("\n")));
+      expect(report, regrant).not.toEqual(EXPECTED_PRIVILEGES);
+    }
+  });
+
+  it("the migration removes hosted default privileges: ALL granted beforehand still ends with no payload access", () => {
+    // Hosted Supabase grants new tables to anon and authenticated by default
+    // privilege. Simulate that, re-run the migration, and roll it all back.
+    const migration = readFileSync(
+      new URL("../../../supabase/migrations/20261013000100_mission_step_payload_withholding.sql", import.meta.url),
+      "utf8"
+    );
+    const report = JSON.parse(
+      psql(
+        [
+          "begin;",
+          "grant all on public.mission_steps to anon, authenticated;",
+          migration,
+          privilegeReport,
+          "rollback;"
+        ].join("\n")
+      )
+    );
+    expect(report).toEqual(EXPECTED_PRIVILEGES);
   });
 });
 
