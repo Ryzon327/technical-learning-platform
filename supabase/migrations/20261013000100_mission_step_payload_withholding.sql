@@ -237,10 +237,12 @@ $$;
 -- INVOKER: run by any role other than `service_role` it would also need
 -- SELECT on `payload`, which no client role holds. It restates the
 -- publication requirement itself because `service_role` bypasses RLS.
+-- `position` is a PostgreSQL column-name keyword and cannot name a RETURNS
+-- TABLE column unquoted; quoted, the result column is still `position`.
 create or replace function public.published_mission_step_payloads(p_mission_id uuid)
 returns table (
     stable_id text,
-    position integer,
+    "position" integer,
     step_type text,
     payload jsonb
 )

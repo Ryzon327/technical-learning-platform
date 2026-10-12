@@ -382,6 +382,35 @@ describe("the WP-008 migration", () => {
     expect(grants).toEqual([`grant execute on function public.${STEP_PAYLOAD_FUNCTION}(uuid) to service_role`]);
   });
 
+  it("names no RETURNS TABLE column with an unquoted PostgreSQL keyword", () => {
+    // Function parameter and RETURNS TABLE column names cannot be reserved or
+    // column-name keywords unless quoted; `position integer` is a syntax error.
+    const keywords = new Set([
+      "all", "and", "any", "array", "as", "asc", "between", "bigint", "bit", "boolean", "both", "case",
+      "cast", "char", "character", "check", "coalesce", "collate", "column", "constraint", "create",
+      "current_date", "current_role", "current_time", "current_timestamp", "current_user", "dec",
+      "decimal", "default", "desc", "distinct", "do", "else", "end", "except", "exists", "extract",
+      "false", "fetch", "float", "for", "foreign", "from", "grant", "greatest", "group", "grouping",
+      "having", "in", "inout", "int", "integer", "intersect", "interval", "into", "leading", "least",
+      "limit", "localtime", "localtimestamp", "national", "nchar", "none", "normalize", "not", "null",
+      "nullif", "numeric", "offset", "on", "only", "or", "order", "out", "overlay", "placing",
+      "position", "precision", "primary", "real", "references", "returning", "row", "select",
+      "session_user", "setof", "smallint", "some", "substring", "symmetric", "table", "then", "time",
+      "timestamp", "to", "trailing", "treat", "trim", "true", "union", "unique", "user", "using",
+      "values", "varchar", "when", "where", "window", "with"
+    ]);
+    const offenders: string[] = [];
+    for (const statement of wp008.filter((s) => s.startsWith("create or replace function"))) {
+      const columns = /\breturns table \((.*?)\) language\b/.exec(statement)?.[1] ?? "";
+      for (const column of columns.split(",")) {
+        const name = column.trim().split(" ")[0] ?? "";
+        if (keywords.has(name)) offenders.push(`${statement.slice(27, 80)}: ${name}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+    expect(functionDefinition(STEP_PAYLOAD_FUNCTION)).toContain('returns table ( stable_id text, "position" integer,');
+  });
+
   it("changes no policy, RLS setting or table, and writes no data beyond its schema-version row", () => {
     for (const forbidden of [
       "create policy",
