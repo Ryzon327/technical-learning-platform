@@ -27,7 +27,9 @@ import {
   commitAnswer,
   describeWithheldStepsNotice,
   failCheck,
+  failCheckVersionUnavailable,
   hasUnattemptedInstruction,
+  isMissionVersionUnavailable,
   nextInstructionStepId,
   revealedByNearTransfer,
   requiredInteraction,
@@ -463,6 +465,7 @@ function renderStepContent(
       next: (current: NearTransferState) => NearTransferState
     ) => void;
     readonly onSubmit: (questionStableId: string) => void;
+    readonly onReload?: () => void;
   },
   /** Null unless this step is a required interaction the lesson waits on. */
   settlement: { readonly settled: boolean; readonly onSettle: () => void } | null
@@ -502,6 +505,9 @@ function renderStepContent(
           state={nearTransfer.state}
           onChange={nearTransfer.onChange}
           onSubmit={nearTransfer.onSubmit}
+          {...(nearTransfer.onReload !== undefined
+            ? { onReload: nearTransfer.onReload }
+            : {})}
         />
       );
     case "reference":
@@ -529,14 +535,27 @@ export function MissionInstruction({
   steps,
   assets,
   missionStableId,
+  missionVersion,
   instructionGeneration,
   onRequiredInstructionChange,
-  checkNearTransferAnswer
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   steps: readonly LearnerMissionStep[];
   assets: readonly LearnerCurriculumAsset[];
   /** Namespaces heading ids so two open missions could never collide. */
   missionStableId: string;
+  /**
+   * G-009 — the `mission.version` these steps were delivered with. Every
+   * near-transfer check names it, so the server judges against exactly the
+   * lesson on screen. Echoed, never looked up or replaced.
+   */
+  missionVersion: number;
+  /**
+   * G-009 — re-fetch this lesson through the view's instruction load, offered
+   * when the server says the version on screen is no longer published.
+   */
+  onReloadInstruction?: () => void;
   /**
    * WP-008 — asks the server for the verdict on one committed near-transfer
    * answer (DEC-074). Supplied by `LearningView`, which owns the session, so
@@ -801,6 +820,7 @@ export function MissionInstruction({
                   update((state) => beginCheck(state, questionStableId));
 
                   checkNearTransferAnswer(missionStableId, {
+                    missionVersion,
                     stepStableId: step.stableId,
                     questionStableId,
                     selectedOptionIds: selected
@@ -809,9 +829,19 @@ export function MissionInstruction({
                       update((state) =>
                         commitAnswer(state, questionStableId, selected, result)
                       ),
-                    () => update((state) => failCheck(state, questionStableId))
+                    // G-009: a version that is no longer published is told
+                    // to reload; any other failure may be submitted again.
+                    (error: unknown) =>
+                      update((state) =>
+                        isMissionVersionUnavailable(error)
+                          ? failCheckVersionUnavailable(state, questionStableId)
+                          : failCheck(state, questionStableId)
+                      )
                   );
-                }
+                },
+                ...(onReloadInstruction !== undefined
+                  ? { onReload: onReloadInstruction }
+                  : {})
               },
               /*
                 A settlement binding only where something is waiting.

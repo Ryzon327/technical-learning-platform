@@ -2,12 +2,13 @@ import {
   buildTopologyLayout,
   type TopologyLayout
 } from "./topology-layout";
-import type {
-  LearnerMissionStep,
-  LearnerNearTransferStep,
-  NearTransferCheckResult,
-  NearTransferTopology,
-  ObservationModel
+import {
+  MISSION_VERSION_UNAVAILABLE_REASON,
+  type LearnerMissionStep,
+  type LearnerNearTransferStep,
+  type NearTransferCheckResult,
+  type NearTransferTopology,
+  type ObservationModel
 } from "@tlp/shared-types";
 
 /**
@@ -52,6 +53,13 @@ export interface NearTransferState {
   readonly checking: string | null;
   /** The question whose last check failed to reach a verdict, or null. */
   readonly checkFailed: string | null;
+  /**
+   * G-009 — the question whose check was refused because the mission version
+   * this lesson was served at is no longer published, or null. Distinct from
+   * `checkFailed`: resubmitting can never succeed, so the learner is offered a
+   * reload rather than a retry.
+   */
+  readonly versionUnavailable: string | null;
 }
 
 export const INITIAL_NEAR_TRANSFER_STATE: NearTransferState = {
@@ -60,7 +68,8 @@ export const INITIAL_NEAR_TRANSFER_STATE: NearTransferState = {
   acknowledged: [],
   results: {},
   checking: null,
-  checkFailed: null
+  checkFailed: null,
+  versionUnavailable: null
 };
 
 /**
@@ -131,7 +140,12 @@ export function beginCheck(
 ): NearTransferState {
   if (!canCommit(state, questionStableId)) return state;
 
-  return { ...state, checking: questionStableId, checkFailed: null };
+  return {
+    ...state,
+    checking: questionStableId,
+    checkFailed: null,
+    versionUnavailable: null
+  };
 }
 
 /**
@@ -146,6 +160,41 @@ export function failCheck(
   if (state.checking !== questionStableId) return state;
 
   return { ...state, checking: null, checkFailed: questionStableId };
+}
+
+/**
+ * G-009 — the server refused to judge because the mission version this lesson
+ * was served at is no longer published. Like `failCheck`, nothing is committed
+ * and no verdict is invented; unlike it, the learner is told to reload, not to
+ * submit again.
+ */
+export function failCheckVersionUnavailable(
+  state: NearTransferState,
+  questionStableId: string
+): NearTransferState {
+  if (state.checking !== questionStableId) return state;
+
+  return { ...state, checking: null, versionUnavailable: questionStableId };
+}
+
+/**
+ * Whether a rejected check is the server's version-unavailable refusal: a
+ * `CONFLICT` whose `details.reason` is `MISSION_VERSION_UNAVAILABLE_REASON`.
+ *
+ * Read structurally, from the fields the API client passes through verbatim,
+ * so this module still imports no client and reaches no service. Any other
+ * failure is an ordinary failed check.
+ */
+export function isMissionVersionUnavailable(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, details } = error as { code?: unknown; details?: unknown };
+  return (
+    code === "CONFLICT" &&
+    typeof details === "object" &&
+    details !== null &&
+    (details as { reason?: unknown }).reason ===
+      MISSION_VERSION_UNAVAILABLE_REASON
+  );
 }
 
 /**
@@ -171,7 +220,11 @@ export function commitAnswer(
     results: { ...state.results, [questionStableId]: result },
     checking: state.checking === questionStableId ? null : state.checking,
     checkFailed:
-      state.checkFailed === questionStableId ? null : state.checkFailed
+      state.checkFailed === questionStableId ? null : state.checkFailed,
+    versionUnavailable:
+      state.versionUnavailable === questionStableId
+        ? null
+        : state.versionUnavailable
   };
 }
 
@@ -697,6 +750,22 @@ export function describeCommitLabel(): string {
  */
 export function describeCheckFailure(): string {
   return "Your answer could not be checked. Submit it again to try once more.";
+}
+
+/**
+ * G-009 — what a learner is told when the lesson they have open was replaced
+ * by a newer version, so their answer cannot be judged against it.
+ *
+ * Mechanical interface copy, set by Founder direction. No verdict is guessed,
+ * and it deliberately does not say "submit it again": that can never succeed.
+ */
+export function describeVersionUnavailable(): string {
+  return "This activity was updated. Please reload to continue.";
+}
+
+/** The control that re-fetches the lesson after a version-unavailable check. */
+export function describeReloadLabel(): string {
+  return "Reload";
 }
 
 /**

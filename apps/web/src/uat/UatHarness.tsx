@@ -6,6 +6,7 @@ import {
 import { MissionInstruction } from "../learning/MissionInstruction";
 import {
   buildUatInstruction,
+  UAT_DOCUMENT_MISSION_VERSION,
   checkUatNearTransferAnswer,
   listUatMissions,
   loadUatDocument
@@ -321,6 +322,7 @@ export function UatHarness() {
             steps={instruction.steps}
             assets={instruction.assets}
             missionStableId={selected}
+            missionVersion={UAT_DOCUMENT_MISSION_VERSION}
             /*
               The harness renders one lesson at a time and offers no completion
               control, so it has no completion authority to protect and nothing

@@ -129,7 +129,8 @@ function MissionInstructionBody({
   mission,
   instructionGeneration,
   onRequiredInstructionChange,
-  checkNearTransferAnswer
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   source: InstructionSource;
   mission: LearnerMission;
@@ -141,6 +142,8 @@ function MissionInstructionBody({
     state: RequiredInstructionState
   ) => void;
   checkNearTransferAnswer: NearTransferChecker;
+  /** G-009 — re-fetch the open mission's lesson. */
+  onReloadInstruction: () => void;
 }) {
   if (source.kind === "structured") {
     return (
@@ -156,9 +159,11 @@ function MissionInstructionBody({
         steps={source.steps}
         assets={source.assets}
         missionStableId={mission.stableId}
+        missionVersion={source.missionVersion}
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
         checkNearTransferAnswer={checkNearTransferAnswer}
+        onReloadInstruction={onReloadInstruction}
       />
     );
   }
@@ -186,7 +191,8 @@ function MissionDetail({
   instructionGeneration,
   onRecord,
   onRequiredInstructionChange,
-  checkNearTransferAnswer
+  checkNearTransferAnswer,
+  onReloadInstruction
 }: {
   mission: LearnerMission;
   totalMissions: number;
@@ -208,6 +214,7 @@ function MissionDetail({
     state: RequiredInstructionState
   ) => void;
   checkNearTransferAnswer: NearTransferChecker;
+  onReloadInstruction: () => void;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = `${buildMissionRegionId(mission.stableId)}-title`;
@@ -237,6 +244,7 @@ function MissionDetail({
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
         checkNearTransferAnswer={checkNearTransferAnswer}
+        onReloadInstruction={onReloadInstruction}
       />
 
       {mission.isDemonstration && (
@@ -436,6 +444,16 @@ export function LearningView() {
   const [instructionRequest, setInstructionRequest] =
     useState<MissionInstructionRequest>({ status: "idle" });
 
+  // G-009 — how many times the learner asked for the open lesson again, after
+  // a near-transfer check said the version on screen is no longer published.
+  // Only a trigger: the fetch effect below lists it, so a reload runs the SAME
+  // instruction load — new generation, tagged state, abort — as opening the
+  // mission did. It holds no content.
+  const [instructionReloads, setInstructionReloads] = useState(0);
+  const reloadInstruction = useCallback(() => {
+    setInstructionReloads((count) => count + 1);
+  }, []);
+
   // Which course the learner reads. Bundled for Router-on-a-Stick, projected
   // from the published tree for anything else, and null when the tree names a
   // course that cannot be projected — see `selectLearnerCourse`, which refuses
@@ -598,7 +616,7 @@ export function LearningView() {
     })();
 
     return () => controller.abort();
-  }, [accessToken, selectedMissionStableId]);
+  }, [accessToken, selectedMissionStableId, instructionReloads]);
 
   const availability = resolveCourseAvailability({
     loading,
@@ -828,6 +846,7 @@ export function LearningView() {
           )}
           onRequiredInstructionChange={reportRequiredInstruction}
           checkNearTransferAnswer={checkNearTransfer}
+          onReloadInstruction={reloadInstruction}
           practice={selectMissionPractice(course, selectedMission.stableId)}
           instructionSource={selectInstructionSource(
             instructionRequest,

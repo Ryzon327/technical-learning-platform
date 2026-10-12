@@ -225,6 +225,16 @@ export function buildUatInstruction(
 }
 
 /**
+ * G-009 — the version the harness's lessons are rendered at.
+ *
+ * An authored document is one unpublished version of its missions, and the
+ * harness checks answers against that same document, never against anything
+ * published. So there is exactly one version for a check to name, and
+ * `checkUatNearTransferAnswer` never uses the number to choose content.
+ */
+export const UAT_DOCUMENT_MISSION_VERSION = 1;
+
+/**
  * WP-008 — the harness's stand-in for the server's near-transfer check.
  *
  * The learner payload carries no answers (DEC-074), so the lesson asks for a

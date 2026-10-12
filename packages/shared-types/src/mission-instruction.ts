@@ -235,8 +235,15 @@ export interface LearnerNearTransferQuestion {
  * Names the step and question by their authored stable ids and carries the
  * option ids the learner chose. No learner identity: the server derives the
  * caller from the session, as every learner route does.
+ *
+ * `missionVersion` is the `mission.version` that came with the lesson the
+ * learner is answering (Founder direction G-009). The server judges against
+ * exactly that published version and never another one; if it is no longer
+ * published the check is refused with `MISSION_VERSION_UNAVAILABLE_REASON`
+ * rather than judged against different content.
  */
 export interface NearTransferCheckRequest {
+  readonly missionVersion: number;
   readonly stepStableId: string;
   readonly questionStableId: string;
   readonly selectedOptionIds: readonly string[];
@@ -262,6 +269,17 @@ export interface NearTransferCheckResult {
   readonly correct: boolean;
   readonly explanation: string;
 }
+
+/**
+ * G-009 — the machine-readable reason a near-transfer check was refused
+ * because the mission version the learner opened is no longer published.
+ *
+ * Sent as `details.reason` on a `CONFLICT` (HTTP 409) error. That response
+ * carries no verdict, no explanation and nothing from any other version; the
+ * browser offers a reload instead of a retry, because resubmitting the same
+ * version can never succeed.
+ */
+export const MISSION_VERSION_UNAVAILABLE_REASON = "mission_version_unavailable";
 
 /**
  * Decide one committed answer against the AUTHORED question.

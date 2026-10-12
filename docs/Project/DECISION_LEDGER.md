@@ -4275,6 +4275,19 @@ learner could submit a wrong option and read the answer key back out of the
 response. The check records nothing: no score, attempt, evidence or competency
 state, exactly as before.
 
+**Checks are bound to the submitted mission version** (Founder decision
+2026-10-12, D-004, Founder direction G-009). Every check carries the
+`missionVersion` of the lesson the learner opened — the `mission.version`
+returned with that lesson — and the server judges against exactly that
+published version, never the highest one or any other. If that version is not
+published (retired, draft, nonexistent, or not visible to the learner) the
+check is not graded: it returns HTTP 409 `CONFLICT` with
+`details.reason = "mission_version_unavailable"`, carrying no verdict, no
+explanation and no content, version number or option data from any version,
+and the browser shows "This activity was updated. Please reload to continue."
+with a reload that re-fetches the lesson. The lesson read still serves the
+highest published version.
+
 **Open question for the Founder/architect.** DEC-067 rule 8 says a learner who
 answered an objective question wrongly is told "what was expected if they were
 not". For near-transfer checks G-007 forbids returning the answer, so the
@@ -4295,9 +4308,11 @@ supersedes it. DEC-054 is not edited. Every other part of DEC-054, including
 `packages/shared-types/src/mission-instruction.ts` no longer projects an
 `answers` map. `POST /learning/missions/:missionStableId/near-transfer/check`
 (`checkLearnerNearTransferAnswer` in `services/api/src/curriculum.ts`) resolves
-the published mission through the learner's own RLS-scoped client, reads the
-authored step through the service-role-only `published_mission_step_payloads`
-function, and decides with `isNearTransferAnswerCorrect`. The browser renders
+the mission by exact `stable_id`, submitted `version` and
+`publication_state = 'published'` through the learner's own RLS-scoped client
+(`readExactPublishedMissionVersionSteps`), reads that row's authored step
+through the service-role-only `published_mission_step_payloads` function, and
+decides with `isNearTransferAnswerCorrect`. The browser renders
 the server's verdict; the learner experience — one question at a time,
 immediate feedback, focus handoff — is otherwise unchanged.
 

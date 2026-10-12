@@ -67,6 +67,12 @@ export type InstructionSource =
       readonly kind: "structured";
       readonly steps: readonly LearnerMissionStep[];
       readonly assets: readonly LearnerCurriculumAsset[];
+      /**
+       * G-009 — the `mission.version` delivered WITH these steps. Taken from
+       * the same response, never looked up separately, so a near-transfer
+       * check always names the version of the lesson on screen.
+       */
+      readonly missionVersion: number;
     }
   | { readonly kind: "legacy"; readonly blocks: readonly BriefBlock[] }
   | { readonly kind: "bundled" }
@@ -240,7 +246,8 @@ export function selectInstructionSource(
     return {
       kind: "structured",
       steps: instruction.steps,
-      assets: instruction.assets
+      assets: instruction.assets,
+      missionVersion: request.response.mission.version
     };
   }
 

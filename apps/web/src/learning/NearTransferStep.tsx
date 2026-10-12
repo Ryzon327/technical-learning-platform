@@ -10,6 +10,8 @@ import {
   describeCommitLabel,
   describeMultipleChoiceHint,
   describeProgress,
+  describeReloadLabel,
+  describeVersionUnavailable,
   isComplete,
   isSelected,
   resolveQuestion,
@@ -55,7 +57,8 @@ export function NearTransferStep({
   instanceId,
   state,
   onChange,
-  onSubmit
+  onSubmit,
+  onReload
 }: {
   content: LearnerNearTransferStep;
   headingId: string;
@@ -69,6 +72,12 @@ export function NearTransferStep({
   onChange: (next: (current: NearTransferState) => NearTransferState) => void;
   /** The learner committed this question's selection; the verdict is the server's. */
   onSubmit: (questionStableId: string) => void;
+  /**
+   * G-009 — re-fetch the lesson after the server refused a check because this
+   * lesson's version is no longer published. Supplied by `LearningView`
+   * through `MissionInstruction`; absent where nothing can reload.
+   */
+  onReload?: () => void;
 }) {
   const setState = onChange;
 
@@ -244,6 +253,28 @@ export function NearTransferStep({
             */}
             {state.checkFailed === question.questionStableId && (
               <p role="alert">{describeCheckFailure()}</p>
+            )}
+
+            {/*
+              G-009: the lesson on screen is a version that is no longer
+              published, so this answer cannot be judged. Announced exactly
+              as a failed check is, and focus is left where it is, as it is
+              there. It offers a reload instead of "submit it again", which
+              could never succeed. No verdict is guessed or recorded.
+            */}
+            {state.versionUnavailable === question.questionStableId && (
+              <>
+                <p role="alert">{describeVersionUnavailable()}</p>
+                {onReload !== undefined && (
+                  <button
+                    type="button"
+                    className="near-transfer-reload"
+                    onClick={onReload}
+                  >
+                    {describeReloadLabel()}
+                  </button>
+                )}
+              </>
             )}
           </form>
         );
