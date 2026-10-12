@@ -128,7 +128,9 @@ def strip_and_split(sql: str):
 # Parse every migration
 # ------------------------------------------------------------------
 policies = {}          # table -> {role -> set(verbs)}
-table_grants = {}      # table -> {role -> set(verbs)}
+table_grants = {}      # table -> {role -> set(verbs)}, table- or column-level
+table_level = {}       # table -> {role -> set(verbs)}, table-level grants only
+column_grants = {}     # table -> {role -> set(columns)}, column-level SELECT
 schema_usage = {}      # schema -> set(roles)
 function_grants = {}   # function signature -> set(roles)
 function_revokes = {}  # function signature -> set(roles)
@@ -210,6 +212,24 @@ for name in files:
                 entry = table_grants.setdefault(m.group(2), {})
                 for role in roles:
                     entry.setdefault(role, set()).update(verbs)
+                    # A table-level grant covers every column, now and later.
+                    table_level.setdefault(m.group(2), {}).setdefault(role, set()).update(verbs)
+                continue
+
+            # WP-008: a column-level grant. It contributes its verb to the
+            # policy contract, and its columns are recorded so the withheld-
+            # column rule below can see exactly what a role may read.
+            m = re.match(
+                r"grant (select) \(([a-z_, ]+)\) on (?:table )?(?:public\.)?(\w+) to ([a-z_ ,]+)$",
+                statement,
+            )
+            if m:
+                columns = {c.strip() for c in m.group(2).split(",") if c.strip()}
+                roles = {r.strip() for r in m.group(4).split(",") if r.strip()}
+                entry = table_grants.setdefault(m.group(3), {})
+                for role in roles:
+                    entry.setdefault(role, set()).add(m.group(1))
+                    column_grants.setdefault(m.group(3), {}).setdefault(role, set()).update(columns)
                 continue
 
             failures.append(f"{name}: unrecognised GRANT, refusing to guess: {statement[:90]}")
@@ -221,6 +241,30 @@ for name in files:
             sig = re.sub(r"\s+", "", m.group(1))
             roles = {r.strip() for r in m.group(2).split(",") if r.strip()}
             function_revokes.setdefault(sig, set()).update(roles)
+            continue
+
+        # --- revokes on tables (WP-008) ---
+        # REVOKE on a table also removes every column-level privilege of the
+        # same verb, so both records are cleared. Any other REVOKE shape is
+        # refused rather than guessed at, exactly as an unparsed GRANT is.
+        if statement.startswith("revoke "):
+            m = re.match(
+                r"revoke ([a-z, ]+?) on (?:table )?(?:public\.)?(\w+) from ([a-z_ ,]+)$",
+                statement,
+            )
+            if not m:
+                failures.append(f"{name}: unrecognised REVOKE, refusing to guess: {statement[:90]}")
+                continue
+            raw = m.group(1).strip()
+            verbs = set(VERBS) if raw in ("all", "all privileges") else {
+                v.strip() for v in raw.split(",") if v.strip()
+            }
+            roles = {r.strip() for r in m.group(3).split(",") if r.strip()}
+            for role in roles:
+                for record in (table_grants, table_level):
+                    record.get(m.group(2), {}).get(role, set()).difference_update(verbs)
+                if "select" in verbs:
+                    column_grants.get(m.group(2), {}).pop(role, None)
             continue
 
         if re.match(r"alter default privileges", statement):
@@ -305,6 +349,27 @@ for table, by_role in sorted(table_grants.items()):
 for schema, roles in schema_usage.items():
     if "anon" in roles:
         failures.append(f"schema {schema}: USAGE granted to anon; no anonymous contract exists")
+
+# ------------------------------------------------------------------
+# 6b. WP-008: withheld columns are never readable by a client role
+# ------------------------------------------------------------------
+# `mission_steps.payload` carries every field the learner projection
+# withholds. After the last migration no client role may hold a table-level
+# SELECT on the table (which covers every column) or a column-level SELECT on
+# the payload. A future migration that re-grants either fails here.
+WITHHELD_COLUMNS = {"mission_steps": {"payload"}}
+for table, withheld in sorted(WITHHELD_COLUMNS.items()):
+    for role in ("authenticated", "anon", "public"):
+        if "select" in table_level.get(table, {}).get(role, set()):
+            failures.append(
+                f"{table}: {role} holds a table-level SELECT, which exposes the withheld "
+                f"column(s) {sorted(withheld)}; grant the learner-visible columns by name"
+            )
+        exposed = column_grants.get(table, {}).get(role, set()) & withheld
+        if exposed:
+            failures.append(f"{table}: {role} was granted SELECT on withheld column(s) {sorted(exposed)}")
+    print(f"withheld columns of {table}: {sorted(withheld)}; "
+          f"authenticated may read {sorted(column_grants.get(table, {}).get('authenticated', set()))}")
 
 # ------------------------------------------------------------------
 # 7. Privileged RPC restrictions unchanged
