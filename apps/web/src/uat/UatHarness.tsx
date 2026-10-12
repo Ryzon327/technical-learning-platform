@@ -6,6 +6,7 @@ import {
 import { MissionInstruction } from "../learning/MissionInstruction";
 import {
   buildUatInstruction,
+  checkUatNearTransferAnswer,
   listUatMissions,
   loadUatDocument
 } from "./uat-instruction";
@@ -329,6 +330,15 @@ export function UatHarness() {
               generation does.
             */
             instructionGeneration={resetKey}
+            // No API here: answered from the parsed document by the same
+            // shared check the server uses (WP-008).
+            checkNearTransferAnswer={(missionStableId, request) =>
+              checkUatNearTransferAnswer(
+                outcome.document,
+                missionStableId,
+                request
+              )
+            }
           />
         )}
       </section>

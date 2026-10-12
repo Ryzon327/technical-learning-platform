@@ -1,6 +1,9 @@
 import {
   assembleLearnerInstruction,
+  checkNearTransferAnswer,
   parseCurriculumDocument,
+  type NearTransferCheckRequest,
+  type NearTransferCheckResult,
   type CurriculumAssetReference,
   type CurriculumDocument,
   type CurriculumDocumentAsset,
@@ -219,4 +222,40 @@ export function buildUatInstruction(
     withSupportLevel(mission.steps, supportLevel),
     mission.assets.map(asAssetReference)
   );
+}
+
+/**
+ * WP-008 — the harness's stand-in for the server's near-transfer check.
+ *
+ * The learner payload carries no answers (DEC-074), so the lesson asks for a
+ * verdict. In production the API answers; this development-only surface has
+ * no API and already holds the authored document, so it answers from that,
+ * through `checkNearTransferAnswer` — the SAME shared function the server
+ * calls. It re-implements nothing.
+ *
+ * Rejects for a step or question the document does not author, as the server
+ * refuses one.
+ */
+export async function checkUatNearTransferAnswer(
+  document: CurriculumDocument,
+  missionStableId: string,
+  request: NearTransferCheckRequest
+): Promise<NearTransferCheckResult> {
+  const content = findUatMission(document, missionStableId)?.steps.find(
+    (step) => step.stableId === request.stepStableId
+  )?.content;
+
+  const question =
+    content?.type === "near_transfer"
+      ? content.questions.find(
+          (candidate) =>
+            candidate.questionStableId === request.questionStableId
+        )
+      : undefined;
+
+  if (question === undefined) {
+    throw new Error("Near-transfer question not found");
+  }
+
+  return checkNearTransferAnswer(question, request.selectedOptionIds);
 }

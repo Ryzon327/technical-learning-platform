@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LearningPathProgressSummary,
   LearningResumeTarget,
+  NearTransferCheckRequest,
+  NearTransferCheckResult,
   PublishedLearningPathTree,
   RecommendedNextAction
 } from "@tlp/shared-types";
@@ -45,6 +47,7 @@ import {
   type ProgressFeedback
 } from "./roas-course-presentation";
 import {
+  checkNearTransferAnswer,
   loadLearningPathProgress,
   loadMissionInstruction,
   loadPublishedLearningPath,
@@ -88,6 +91,12 @@ import {
  * Shared by both brief paths so the server's brief and the bundled brief cannot
  * drift apart visually.
  */
+/** WP-008 — asks the server for the verdict on one committed near-transfer answer. */
+type NearTransferChecker = (
+  missionStableId: string,
+  request: NearTransferCheckRequest
+) => Promise<NearTransferCheckResult>;
+
 function renderBriefBlock(block: BriefBlock, index: number) {
   return block.kind === "list" ? (
     <ul key={index} className="mission-brief-list">
@@ -119,7 +128,8 @@ function MissionInstructionBody({
   source,
   mission,
   instructionGeneration,
-  onRequiredInstructionChange
+  onRequiredInstructionChange,
+  checkNearTransferAnswer
 }: {
   source: InstructionSource;
   mission: LearnerMission;
@@ -130,6 +140,7 @@ function MissionInstructionBody({
     generation: number,
     state: RequiredInstructionState
   ) => void;
+  checkNearTransferAnswer: NearTransferChecker;
 }) {
   if (source.kind === "structured") {
     return (
@@ -147,6 +158,7 @@ function MissionInstructionBody({
         missionStableId={mission.stableId}
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
+        checkNearTransferAnswer={checkNearTransferAnswer}
       />
     );
   }
@@ -173,7 +185,8 @@ function MissionDetail({
   instructionSource,
   instructionGeneration,
   onRecord,
-  onRequiredInstructionChange
+  onRequiredInstructionChange,
+  checkNearTransferAnswer
 }: {
   mission: LearnerMission;
   totalMissions: number;
@@ -194,6 +207,7 @@ function MissionDetail({
     generation: number,
     state: RequiredInstructionState
   ) => void;
+  checkNearTransferAnswer: NearTransferChecker;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const headingId = `${buildMissionRegionId(mission.stableId)}-title`;
@@ -222,6 +236,7 @@ function MissionDetail({
         mission={mission}
         instructionGeneration={instructionGeneration}
         onRequiredInstructionChange={onRequiredInstructionChange}
+        checkNearTransferAnswer={checkNearTransferAnswer}
       />
 
       {mission.isDemonstration && (
@@ -391,6 +406,15 @@ export function LearningView() {
       setRequiredInstruction({ missionStableId, generation, state });
     },
     []
+  );
+
+  // WP-008 — the server's verdict on one committed near-transfer answer. The
+  // lesson payload carries no answers (DEC-074); the lesson asks through this,
+  // so the session stays here and never reaches the renderer.
+  const checkNearTransfer = useCallback(
+    (missionStableId: string, request: NearTransferCheckRequest) =>
+      checkNearTransferAnswer(accessToken, missionStableId, request),
+    [accessToken]
   );
 
   // WP-F. The open mission's instructional content.
@@ -803,6 +827,7 @@ export function LearningView() {
             selectedMission.stableId
           )}
           onRequiredInstructionChange={reportRequiredInstruction}
+          checkNearTransferAnswer={checkNearTransfer}
           practice={selectMissionPractice(course, selectedMission.stableId)}
           instructionSource={selectInstructionSource(
             instructionRequest,

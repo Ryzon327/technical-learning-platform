@@ -8,11 +8,14 @@ import type {
   CompetencyCurriculumContext,
   CompetencyReference,
   LearnerMissionInstructionResponse,
-  LearnerMissionSummary
+  LearnerMissionSummary,
+  NearTransferCheckRequest,
+  NearTransferCheckResult
 } from "@tlp/shared-types";
 import {
   AppError,
   assembleLearnerInstruction,
+  checkNearTransferAnswer,
   competencyReferenceKey,
   resolvePersistedCurriculumAssets,
   resolvePersistedMissionSteps
@@ -334,62 +337,9 @@ export async function getLearnerMissionInstruction(
   missionStableId: string
 ): Promise<LearnerMissionInstructionResponse> {
   const supabase = createUserScopedSupabaseClient(accessToken);
-
-  const { data: missionRow, error: missionError } = await supabase
-    .from("missions")
-    .select("id,stable_id,version,title,estimated_minutes,description")
-    .eq("stable_id", missionStableId)
-    .eq("publication_state", "published")
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (missionError) {
-    throw new AppError({
-      code: "DEPENDENCY_UNAVAILABLE",
-      message: "Published curriculum is unavailable",
-      retryable: true
-    });
-  }
-
-  if (!missionRow) {
-    throw new AppError({
-      code: "NOT_FOUND",
-      message: "Mission not found",
-      retryable: false
-    });
-  }
-
-  const mission: LearnerMissionSummary = {
-    stableId: String(missionRow.stable_id),
-    version: Number(missionRow.version),
-    title: String(missionRow.title),
-    ...(missionRow.estimated_minutes == null
-      ? {}
-      : { estimatedMinutes: Number(missionRow.estimated_minutes) })
-  };
-
-  const { data: stepRows, error: stepError } = await readPublishedStepPayloads(
-    String(missionRow.id)
-  );
-
-  if (stepError) {
-    throw new AppError({
-      code: "DEPENDENCY_UNAVAILABLE",
-      message: "Mission instruction is unavailable",
-      retryable: true
-    });
-  }
-
-  const stepOutcome = resolvePersistedMissionSteps(
-    ((stepRows ?? []) as unknown as Array<Record<string, unknown>>).map(
-      (row) => ({
-        stableId: row.stable_id,
-        position: row.position,
-        stepType: row.step_type,
-        payload: row.payload
-      })
-    )
+  const { missionRow, mission, stepOutcome } = await readPublishedMissionSteps(
+    supabase,
+    missionStableId
   );
 
   // The approved legacy fallback: zero authored steps, so the brief applies.
@@ -459,6 +409,189 @@ export async function getLearnerMissionInstruction(
       assetOutcome.assets
     )
   };
+}
+
+/** The most option ids one committed answer may name. */
+const MAX_SELECTED_OPTIONS = 50;
+
+/**
+ * WP-008 — the request body of a near-transfer check, validated.
+ *
+ * Shape only. Whether the step, question and options EXIST is decided by
+ * `checkLearnerNearTransferAnswer` against the authored mission.
+ */
+export function parseNearTransferCheckRequest(
+  body: Record<string, unknown>
+): NearTransferCheckRequest {
+  const { stepStableId, questionStableId, selectedOptionIds } = body;
+
+  const invalid = (message: string) =>
+    new AppError({ code: "VALIDATION_ERROR", message, retryable: false });
+
+  if (typeof stepStableId !== "string" || stepStableId.length === 0) {
+    throw invalid("stepStableId is required");
+  }
+  if (typeof questionStableId !== "string" || questionStableId.length === 0) {
+    throw invalid("questionStableId is required");
+  }
+  if (
+    !Array.isArray(selectedOptionIds) ||
+    selectedOptionIds.length === 0 ||
+    selectedOptionIds.length > MAX_SELECTED_OPTIONS ||
+    !selectedOptionIds.every((id) => typeof id === "string" && id.length > 0)
+  ) {
+    throw invalid("selectedOptionIds must name at least one option");
+  }
+
+  return {
+    stepStableId,
+    questionStableId,
+    selectedOptionIds: selectedOptionIds as string[]
+  };
+}
+
+/**
+ * WP-008 — decide one committed near-transfer answer on the trusted server.
+ *
+ * ## Why this exists
+ *
+ * The authored answer and explanation used to ride in the lesson payload and
+ * be compared in the browser. A network response is readable, so that was not
+ * withholding (DEC-074). The lesson now carries questions only, and the
+ * learner's commitment comes here.
+ *
+ * ## The same two boundaries as the lesson read
+ *
+ * The mission is resolved through the learner's OWN RLS-scoped client, as a
+ * published mission, exactly as `getLearnerMissionInstruction` resolves it;
+ * only then are its step payloads read through `readPublishedStepPayloads`.
+ * An unpublished or absent mission is `NOT_FOUND` and the service role is never
+ * reached for it.
+ *
+ * ## What comes back
+ *
+ * The verdict, the authored explanation, and the authored answer ONLY when the
+ * learner was wrong — `checkNearTransferAnswer` decides, using the unchanged
+ * `isNearTransferAnswerCorrect`. Nothing is written: no attempt, no score, no
+ * evidence, no progress. A near-transfer check is instruction.
+ *
+ * A step, question or option the mission does not author is refused rather
+ * than judged, so a request cannot probe for content that is not there.
+ */
+export async function checkLearnerNearTransferAnswer(
+  accessToken: string,
+  missionStableId: string,
+  request: NearTransferCheckRequest
+): Promise<NearTransferCheckResult> {
+  const supabase = createUserScopedSupabaseClient(accessToken);
+  const { stepOutcome } = await readPublishedMissionSteps(
+    supabase,
+    missionStableId
+  );
+
+  const notFound = () =>
+    new AppError({
+      code: "NOT_FOUND",
+      message: "Near-transfer question not found",
+      retryable: false
+    });
+
+  if (stepOutcome.state !== "available") throw notFound();
+
+  const content = stepOutcome.steps.find(
+    (step) => step.stableId === request.stepStableId
+  )?.content;
+  if (content?.type !== "near_transfer") throw notFound();
+
+  const question = content.questions.find(
+    (candidate) => candidate.questionStableId === request.questionStableId
+  );
+  if (question === undefined) throw notFound();
+
+  const authoredOptions = new Set(
+    question.options.map((option) => option.optionId)
+  );
+  if (!request.selectedOptionIds.every((id) => authoredOptions.has(id))) {
+    throw new AppError({
+      code: "VALIDATION_ERROR",
+      message: "selectedOptionIds names an option this question does not offer",
+      retryable: false
+    });
+  }
+
+  return checkNearTransferAnswer(question, request.selectedOptionIds);
+}
+
+/**
+ * Resolve one published mission through the learner's client, then read its
+ * step payloads server-side.
+ *
+ * Shared by the lesson read and the near-transfer check so both resolve the
+ * mission identically: highest published version, through RLS, before the
+ * service-role payload function is ever called.
+ */
+async function readPublishedMissionSteps(
+  supabase: ReturnType<typeof createUserScopedSupabaseClient>,
+  missionStableId: string
+) {
+  const { data: missionRow, error: missionError } = await supabase
+    .from("missions")
+    .select("id,stable_id,version,title,estimated_minutes,description")
+    .eq("stable_id", missionStableId)
+    .eq("publication_state", "published")
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (missionError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Published curriculum is unavailable",
+      retryable: true
+    });
+  }
+
+  if (!missionRow) {
+    throw new AppError({
+      code: "NOT_FOUND",
+      message: "Mission not found",
+      retryable: false
+    });
+  }
+
+  const mission: LearnerMissionSummary = {
+    stableId: String(missionRow.stable_id),
+    version: Number(missionRow.version),
+    title: String(missionRow.title),
+    ...(missionRow.estimated_minutes == null
+      ? {}
+      : { estimatedMinutes: Number(missionRow.estimated_minutes) })
+  };
+
+  const { data: stepRows, error: stepError } = await readPublishedStepPayloads(
+    String(missionRow.id)
+  );
+
+  if (stepError) {
+    throw new AppError({
+      code: "DEPENDENCY_UNAVAILABLE",
+      message: "Mission instruction is unavailable",
+      retryable: true
+    });
+  }
+
+  const stepOutcome = resolvePersistedMissionSteps(
+    ((stepRows ?? []) as unknown as Array<Record<string, unknown>>).map(
+      (row) => ({
+        stableId: row.stable_id,
+        position: row.position,
+        stepType: row.step_type,
+        payload: row.payload
+      })
+    )
+  );
+
+  return { missionRow, mission, stepOutcome };
 }
 
 /**

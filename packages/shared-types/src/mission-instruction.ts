@@ -15,10 +15,12 @@ import {
   type LearnerPacketJourneyStage
 } from "./instruction-interaction";
 import type { ObservationSourceKind } from "./observation-model";
-import type {
-  NearTransferOption,
-  NearTransferQuestionType,
-  NearTransferTopology
+import {
+  isNearTransferAnswerCorrect,
+  type NearTransferOption,
+  type NearTransferQuestion,
+  type NearTransferQuestionType,
+  type NearTransferTopology
 } from "./near-transfer";
 import type {
   CurriculumAssetReference,
@@ -200,16 +202,16 @@ export interface LearnerReferenceStep {
  *
  * ## The answer is not in the payload
  *
- * `correctOptionIds` and `explanation` are ANSWER-BEARING. They are projected
- * as a separate `answers` map rather than inline on each question, so a future
- * projection that withholds them removes one field instead of rewriting the
- * question list — the same shape `actions` and `confirmation` already use.
+ * `correctOptionIds` and `explanation` are ANSWER-BEARING, and since WP-008
+ * (Founder direction G-007, DEC-074) they are ABSENT from every learner
+ * payload, at every support level. They were previously projected as a
+ * separate `answers` map and concealed by the presentation until commitment —
+ * which is not withholding: a network response is readable.
  *
- * Today every support level receives them, because a near-transfer check is
- * instruction rather than assessment and the learner is told the answer the
- * moment they commit. What keeps the answer hidden BEFORE commitment is the
- * presentation, which is where commitment is known; the projection cannot know
- * it, and must not pretend to.
+ * The learner still commits and is told at once whether they were right and
+ * why. That feedback now comes from the server, one question at a time, in
+ * answer to a submission: see `NearTransferCheckRequest` and
+ * `checkNearTransferAnswer`. Nothing answer-bearing is delivered beforehand.
  */
 export interface LearnerNearTransferStep {
   readonly type: "near_transfer";
@@ -217,7 +219,6 @@ export interface LearnerNearTransferStep {
   readonly framing?: string;
   readonly topology?: NearTransferTopology;
   readonly questions: readonly LearnerNearTransferQuestion[];
-  readonly answers: Readonly<Record<string, NearTransferAnswer>>;
 }
 
 /** One question, with no answer attached to it. */
@@ -228,10 +229,58 @@ export interface LearnerNearTransferQuestion {
   readonly options: readonly NearTransferOption[];
 }
 
-/** The authored truth for one question, keyed by `questionStableId`. */
-export interface NearTransferAnswer {
-  readonly correctOptionIds: readonly string[];
+/**
+ * WP-008 — a learner's committed answer to one near-transfer question.
+ *
+ * Names the step and question by their authored stable ids and carries the
+ * option ids the learner chose. No learner identity: the server derives the
+ * caller from the session, as every learner route does.
+ */
+export interface NearTransferCheckRequest {
+  readonly stepStableId: string;
+  readonly questionStableId: string;
+  readonly selectedOptionIds: readonly string[];
+}
+
+/**
+ * The server's verdict on one committed answer, and the learner-safe feedback
+ * that goes with it.
+ *
+ *   correct            exact set equality with the authored answer
+ *   expectedOptionIds  the authored answer, ONLY when the learner was wrong —
+ *                      empty when they were right, so a correct learner is not
+ *                      handed their own answer back as "the expectation"
+ *   explanation        the authored reason, which is the instruction
+ *
+ * Returned only in response to a commitment, so nothing here reaches the
+ * browser before the learner has chosen. There is no score, attempt or
+ * evidence field, and nothing is recorded: a near-transfer check is
+ * instruction, not assessment.
+ */
+export interface NearTransferCheckResult {
+  readonly correct: boolean;
+  readonly expectedOptionIds: readonly string[];
   readonly explanation: string;
+}
+
+/**
+ * Decide one committed answer against the AUTHORED question.
+ *
+ * Runs on the trusted server, which alone holds the authored answer. The
+ * comparison is `isNearTransferAnswerCorrect`, unchanged, so there is still one
+ * definition of a correct answer.
+ */
+export function checkNearTransferAnswer(
+  question: NearTransferQuestion,
+  selectedOptionIds: readonly string[]
+): NearTransferCheckResult {
+  const correct = isNearTransferAnswerCorrect(question, selectedOptionIds);
+
+  return {
+    correct,
+    expectedOptionIds: correct ? [] : [...question.correctOptionIds],
+    explanation: question.explanation
+  };
 }
 
 export type LearnerMissionStepContent =
@@ -603,22 +652,16 @@ export function projectMissionStepContent(
         ...(content.framing !== undefined ? { framing: content.framing } : {}),
         ...(content.topology !== undefined ? { topology: content.topology } : {}),
         // The question, without its answer.
+        //
+        // `correctOptionIds` and `explanation` are NOT read (WP-008, DEC-074).
+        // The server returns them per question, after the learner commits,
+        // through `checkNearTransferAnswer`.
         questions: content.questions.map((question) => ({
           questionStableId: question.questionStableId,
           type: question.type,
           prompt: question.prompt,
           options: question.options
-        })),
-        // The answer, keyed separately, so withholding it later is one field.
-        answers: Object.fromEntries(
-          content.questions.map((question) => [
-            question.questionStableId,
-            {
-              correctOptionIds: question.correctOptionIds,
-              explanation: question.explanation
-            }
-          ])
-        )
+        }))
       };
 
     case "reference":

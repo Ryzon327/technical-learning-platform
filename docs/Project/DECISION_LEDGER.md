@@ -4236,6 +4236,71 @@ identical ordered results at limit 1, 2, 3 and the full list.
 
 ---
 
+## DEC-074
+
+**Category**
+
+Security / Curriculum Instruction
+
+**Title**
+
+No Learner-Reachable Path Returns Withheld Step Content, Including Near-Transfer Answers
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-12
+
+**Source**
+
+Founder decision 2026-10-12, architect recommendation accepted (Founder
+direction G-007, PR #70 repair, WP-008)
+
+**Decision**
+
+WP-008's goal governs: no learner-reachable path — direct table reads, views,
+RPCs or the API — may return withheld step content, including near-transfer
+answers (`correctOptionIds`) and explanations. A learner-facing payload carries
+the question and its options only.
+
+Answer checking runs on the trusted server. The learner commits an answer to
+one question and the API returns only the verdict and learner-safe feedback for
+that question: whether it was correct, the authored explanation, and the
+authored answer only when the learner was wrong. Nothing answer-bearing is
+delivered before the learner commits. The check records nothing: no score,
+attempt, evidence or competency state, exactly as before.
+
+**Supersedes**
+
+To the extent DEC-054 (as amended by WP-NF-NT1) permits near-transfer answers or
+any other withheld field in a learner-facing payload — "an answer-bearing
+projection that separates the answer from the question" — this decision
+supersedes it. DEC-054 is not edited. Every other part of DEC-054, including
+"correctness is not a gate", is unchanged.
+
+**Impact**
+
+`packages/shared-types/src/mission-instruction.ts` no longer projects an
+`answers` map. `POST /learning/missions/:missionStableId/near-transfer/check`
+(`checkLearnerNearTransferAnswer` in `services/api/src/curriculum.ts`) resolves
+the published mission through the learner's own RLS-scoped client, reads the
+authored step through the service-role-only `published_mission_step_payloads`
+function, and decides with `isNearTransferAnswerCorrect`. The browser renders
+the server's verdict; the learner experience — one question at a time,
+immediate feedback, focus handoff — is otherwise unchanged.
+
+**Related Documents**
+
+`docs/Project/DECISION_LEDGER.md` DEC-054 ·
+`supabase/migrations/20261013000100_mission_step_payload_withholding.sql` ·
+`services/api/src/curriculum-step-search.db.test.ts` ·
+`services/api/src/wp008-withheld-step-fields.test.ts`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

@@ -163,8 +163,24 @@ grep -Fq 'The question, without its answer.' "$PROJECTION" \
 PROJECTION_CODE="$SCAN_DIR/projection-code.ts"
 strip_checked "$PROJECTION" "$PROJECTION_CODE"
 
-grep -Fq 'answers: Object.fromEntries(' "$PROJECTION_CODE" \
-  || fail "the projection no longer builds a separate answers map; the answer would ride along on the question"
+# WP-008 / DEC-074 (Founder direction G-007). This used to REQUIRE a separate
+# `answers` map in the learner projection. It now asserts the new rule: the
+# authored answer and explanation are not projected at all, so no learner
+# payload carries them. The server returns the verdict after commitment.
+grep -Eq '(^|[^A-Za-z0-9_])answers:' "$PROJECTION_CODE" \
+  && fail "the learner projection builds an answers map again; near-transfer answers must never reach a learner payload (DEC-074)"
+
+# The projection's own near_transfer branch, and only it: the same file also
+# holds `checkNearTransferAnswer`, the server-side check, which must read both.
+PROJECTION_BRANCH="$SCAN_DIR/projection-near-transfer.ts"
+awk '/case "near_transfer":/,/case "reference":/' "$PROJECTION_CODE" > "$PROJECTION_BRANCH"
+[ -s "$PROJECTION_BRANCH" ] \
+  || fail "the learner projection has no near_transfer branch to inspect"
+
+for withheld in 'correctOptionIds' 'explanation'; do
+  grep -Fq "$withheld" "$PROJECTION_BRANCH" \
+    && fail "the learner projection reads $withheld; near-transfer answers must never reach a learner payload (DEC-074)"
+done
 
 # The component must never reach the answers directly. Its only route to one is
 # `resolveQuestion`, which returns null until the learner has committed.
@@ -288,8 +304,22 @@ for forbidden in 'fetch(' 'useEffect' 'apiClient' 'await ' 'AIProvider' \
     && fail "$COMPONENT contains \"$forbidden\"; answering a near-transfer check must reach nothing and record nothing"
 done
 
+# WP-008 / DEC-074. This used to REQUIRE the browser to decide correctness with
+# `isNearTransferAnswerCorrect`. The browser no longer holds the authored
+# answer, so it now asserts the new rule: the browser decides nothing, and the
+# trusted server decides through the same shared authored rule.
 grep -Fq 'isNearTransferAnswerCorrect' "$PRESENTATION_CODE" \
-  || fail "the browser no longer decides correctness through the shared authored rule"
+  && fail "the browser decides near-transfer correctness again; it holds no authored answer and must render the server's verdict (DEC-074)"
+
+grep -Fq 'state.results[questionStableId]' "$PRESENTATION_CODE" \
+  || fail "resolveQuestion no longer renders the server's verdict"
+
+CHECK_API="services/api/src/curriculum.ts"
+[ -f "$CHECK_API" ] || fail "missing required file: $CHECK_API"
+grep -Fq 'return checkNearTransferAnswer(question, request.selectedOptionIds);' "$CHECK_API" \
+  || fail "the API no longer decides a committed near-transfer answer through the shared check"
+grep -Fq 'isNearTransferAnswerCorrect(question, selectedOptionIds)' "$PROJECTION" \
+  || fail "the shared check no longer decides through the authored rule isNearTransferAnswerCorrect"
 
 # ------------------------------------------------------------
 # 6. The static topology is not a packet journey
