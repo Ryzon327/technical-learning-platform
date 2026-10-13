@@ -6,7 +6,8 @@ labels: work-package
 ---
 
 <!--
-Authored by the ChatGPT Architect and approved by the Founder before work starts.
+Authored by the Architect (Claude, planning seat; DEC-075) and approved by the
+Founder before work starts.
 One work package = one issue = one feature branch = one pull request.
 
 Claude Code implements ONLY what "In scope" lists. Anything discovered outside

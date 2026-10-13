@@ -4325,6 +4325,80 @@ immediate feedback, focus handoff — is otherwise unchanged.
 
 ---
 
+## DEC-075
+
+**Category**
+
+Process / Governance
+
+**Title**
+
+TLP Roles: Founder Approves, Claude Plans, Claude Code Builds, Codex Reviews
+
+**Status**
+
+Approved
+
+**Date**
+
+2026-10-11
+
+**Source**
+
+Founder decision
+
+**Decision**
+
+The roles in TLP governance are:
+
+* **Founder** — final product authority: product, business, UAT, spending,
+  security exceptions, and approval of work packages and guidance.
+* **Claude (planning seat)** — architect, work-package and guidance author, and
+  curriculum drafter.
+* **Claude Code (isolated agent account)** — builder.
+* **Codex** — independent reviewer of code and of curriculum technical accuracy
+  (unchanged).
+* **Rendered review** — automated UAT checks plus Founder UAT.
+
+Orchestration is n8n with the agent runner. **Builder ≠ reviewer ≠ approver.**
+
+The ChatGPT seat holds no TLP governance role. Where a document says a decision
+belongs to "the architect", the sentence stands and the architect is Claude in
+its planning seat.
+
+Recorded on 2026-10-12 by WP-009. Documentation only.
+
+**Supersedes**
+
+The role assignments — and only the role assignments — in DEC-050 (the
+"ChatGPT Architect" in the GitHub handoff mapping), DEC-060 (ChatGPT as
+curriculum architect, through `Learning-OS.md` §30.2, and as one of the AI
+systems barred from amending §23–§33 — that bar now names Claude in its
+planning seat, alongside Claude Code)
+and DEC-068 (ChatGPT as owner of instructional architecture, substantive
+curriculum authorship and independent rendered-product review). Every other
+rule in those entries is unchanged. No earlier entry is edited.
+
+DEC-027 (Locked) is not superseded: Claude Code still implements approved work,
+and the Founder still approves significant decisions.
+
+**Impact**
+
+`CLAUDE.md` Authority Model, `AGENTS.md` Authority Model and Protected
+Curriculum Authorship, `docs/Learning-OS/Learning-OS.md` §30.2 (changed by this
+explicit Founder direction) and `.github/ISSUE_TEMPLATE/work-package.md` name the
+new roles and point here. No code, curriculum, test threshold or workflow
+changes.
+
+**Related Documents**
+
+`CLAUDE.md` · `AGENTS.md` · `docs/Learning-OS/Learning-OS.md` §30.2 ·
+`.github/ISSUE_TEMPLATE/work-package.md` ·
+`docs/Project/DECISION_LEDGER.md` DEC-027, DEC-050, DEC-060, DEC-068 ·
+`services/api/src/wp009-governance-roles.test.ts`
+
+---
+
 # Future Decisions
 
 Future decisions will continue using this numbering scheme.

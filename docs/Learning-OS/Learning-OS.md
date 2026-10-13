@@ -1081,15 +1081,16 @@ system may eventually distinguish **guided successful practice** from
 ## 30.2 Curriculum authority boundary
 
 * **Founder** — final product and curriculum authority.
-* **ChatGPT** — curriculum architect, curriculum creator, product architect,
-  reviewer.
+* **Claude (planning seat)** — curriculum architect, curriculum drafter,
+  product architect (DEC-075).
+* **Codex** — independent reviewer of curriculum technical accuracy (DEC-075).
 * **Claude Code** — implementation engineer.
 
 **Claude Code must NOT independently invent major curriculum doctrine,
 certification strategy, pedagogy, course sequencing, competency requirements, or
 hundreds of filler questions simply to complete implementation.**
 
-ChatGPT designs and approves curriculum. Claude implements approved curriculum
+The planning seat designs curriculum. Claude Code implements approved curriculum
 faithfully.
 
 **If implementation exposes a curriculum ambiguity requiring a substantive
